@@ -61,7 +61,11 @@ class _RecordingSender:
 
 
 def test_returns_none_when_no_reports_crawled(stub_pipeline, tmp_path):
-    sent = stub_pipeline(crawled=[], enriched=[], summarized=[])
+    # 이후 단계에 값을 채워도 크롤 0건이면 즉시 None → 첫 가드를 단독으로 검증
+    briefing = Briefing(text="x", report_count=1, categories=["company"])
+    sent = stub_pipeline(
+        crawled=[], enriched=[_report()], summarized=[_report(summary="s")], briefing=briefing
+    )
     result = pipeline.run_morning_briefing(_config(tmp_path), ["company"])
     assert result is None
     assert sent == []
