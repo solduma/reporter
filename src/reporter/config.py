@@ -18,6 +18,14 @@ def _load_env() -> None:
     load_dotenv(_ROOT / ".env", override=False)
 
 
+# 검증 실패 메시지에 실제 env 변수명을 보여주기 위한 필드→env 매핑
+_ENV_NAMES = {
+    "ollama_api_key": "OLLAMA_API_KEY",
+    "telegram_bot_token": "TELEGRAM_BOT_TOKEN",
+    "telegram_chat_id": "TELEGRAM_CHAT_ID",
+}
+
+
 @dataclass(frozen=True)
 class Config:
     ollama_host: str
@@ -33,6 +41,10 @@ class Config:
         d = self.root / "logs"
         d.mkdir(exist_ok=True)
         return d
+
+    def missing(self, *fields: str) -> list[str]:
+        """주어진 필드 중 값이 비어 있는 것의 env 변수명을 반환한다."""
+        return [_ENV_NAMES[f] for f in fields if not getattr(self, f)]
 
 
 def load_config() -> Config:

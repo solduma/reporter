@@ -13,10 +13,14 @@ import logging
 import sys
 
 from .afternoon import run_afternoon_research
-from .config import load_config
+from .config import Config, load_config
 from .models import BATCHES
 from .pipeline import run_morning_briefing
 from .telegram import resolve_chat_ids
+
+# 모드별로 실제 사용하는 env. 존재하지 않는 값으로 API 를 호출하기 전에 미리 검증한다.
+_OLLAMA = ("ollama_api_key",)
+_TELEGRAM = ("telegram_bot_token", "telegram_chat_id")
 
 
 def _setup_logging() -> None:
@@ -25,6 +29,19 @@ def _setup_logging() -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         stream=sys.stderr,
     )
+
+
+def _require(config: Config, *fields: str) -> int:
+    """필수 env 누락 시 안내를 출력하고 비정상 종료 코드를, 충족 시 0 을 반환한다."""
+    missing = config.missing(*fields)
+    if missing:
+        print(
+            f"환경변수가 설정되지 않았습니다: {', '.join(missing)}\n"
+            f".env 를 확인하세요 (.env.example 참고).",
+            file=sys.stderr,
+        )
+        return 2
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -46,12 +63,17 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.chat_id:
+        if err := _require(config, "telegram_bot_token"):
+            return err
         found = resolve_chat_ids(config.telegram_bot_token)
         if not found:
             print("업데이트가 없습니다. 텔레그램에서 봇과 대화를 시작하고 메시지를 보낸 뒤 다시 실행하세요.")
         for cid, name in found:
             print(f"chat_id={cid}  ({name})")
         return 0
+
+    if err := _require(config, *_OLLAMA, *_TELEGRAM):
+        return err
 
     if args.afternoon:
         run_afternoon_research(config)
