@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import re
 import sys
 
 from .afternoon import run_afternoon_research
@@ -29,6 +30,16 @@ def _setup_logging() -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         stream=sys.stderr,
     )
+
+
+_DATE_RE = re.compile(r"^\d{2}\.\d{2}\.\d{2}$")
+
+
+def _date_arg(value: str) -> str:
+    """크롤러가 목록의 YY.MM.DD 와 정확히 문자열 비교하므로 같은 포맷만 허용한다."""
+    if not _DATE_RE.match(value):
+        raise argparse.ArgumentTypeError(f"날짜는 YY.MM.DD 형식이어야 합니다: {value}")
+    return value
 
 
 def _require(config: Config, *fields: str) -> int:
@@ -61,7 +72,7 @@ def main(argv: list[str] | None = None) -> int:
     group.add_argument("--chat-id", action="store_true", help="getUpdates 로 텔레그램 chat_id 조회")
     parser.add_argument("--top-n", type=int, default=5, help="카테고리별 선별 개수 (기본 5)")
     parser.add_argument(
-        "--date", help="크롤 대상 날짜 YY.MM.DD (기본: 오늘). 과거 발행분 발송용"
+        "--date", type=_date_arg, help="크롤 대상 날짜 YY.MM.DD (기본: 오늘). 과거 발행분 발송용"
     )
     args = parser.parse_args(argv)
 

@@ -113,6 +113,24 @@ def test_per_report_dispatches_with_date_and_categories(monkeypatch, patch_confi
     assert seen["target_date"] == "26.07.07"
 
 
+def test_per_report_rejects_malformed_date(monkeypatch, patch_config, tmp_path):
+    patch_config(_config(tmp_path))
+    called = False
+
+    def _should_not_run(*a, **k):
+        nonlocal called
+        called = True
+        return 0
+
+    monkeypatch.setattr(cli, "run_per_report_briefing", _should_not_run)
+
+    # 잘못된 날짜 포맷은 argparse 단계에서 거부되어 SystemExit(2), 실행 안 됨
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["--per-report", "1", "--date", "2026-07-07"])
+    assert exc.value.code == 2
+    assert called is False
+
+
 def test_per_report_aborts_when_env_missing(monkeypatch, patch_config, tmp_path):
     patch_config(_config(tmp_path, ollama_api_key=""))
     called = False
