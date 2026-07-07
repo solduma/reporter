@@ -1,0 +1,81 @@
+from datetime import datetime
+from unittest.mock import MagicMock
+
+import reporter.crawler as crawler
+
+# 6-column company 레이아웃 (종목명 링크 포함) + 5-column market_info 레이아웃 재현
+_COMPANY_HTML = """
+<table class="type_1" summary="종목분석 리포트 게시판 글목록">
+<tr><th>종목명</th><th>제목</th><th>증권사</th><th>첨부</th><th>작성일</th><th>조회수</th></tr>
+<tr><td class="blank_07" colspan="6"></td></tr>
+<tr>
+  <td><a class="stock_item" href="/item/main.naver?code=139480" title="이마트">이마트</a></td>
+  <td><a href="company_read.naver?nid=93952&page=1">이마트 목표주가 상향</a><img class="ico_new"></td>
+  <td>삼성증권</td>
+  <td class="file"><a href="https://stock.pstatic.net/stock-research/company/16/20260707_company_1.pdf" target="_blank"><img alt="pdf"></a></td>
+  <td class="date">{today}</td>
+  <td class="date">1895</td>
+</tr>
+<tr>
+  <td><a class="stock_item" href="/item/main.naver?code=005930" title="삼성전자">삼성전자</a></td>
+  <td><a href="company_read.naver?nid=93953&page=1">첨부없는 리포트</a></td>
+  <td>듣보증권</td>
+  <td class="file"></td>
+  <td class="date">{today}</td>
+  <td class="date">50</td>
+</tr>
+<tr>
+  <td><a class="stock_item" href="/item/main.naver?code=000660" title="SK하이닉스">SK하이닉스</a></td>
+  <td><a href="company_read.naver?nid=90000&page=1">어제 리포트</a></td>
+  <td>하나증권</td>
+  <td class="file"><a href="https://stock.pstatic.net/x.pdf"></a></td>
+  <td class="date">25.01.01</td>
+  <td class="date">9999</td>
+</tr>
+</table>
+"""
+
+
+def _mock_session(html: str) -> MagicMock:
+    resp = MagicMock()
+    resp.text = html
+    resp.raise_for_status = MagicMock()
+    session = MagicMock()
+    session.get.return_value = resp
+    return session
+
+
+def test_parses_company_rows_and_filters_today(monkeypatch):
+    today = datetime.now().strftime("%y.%m.%d")
+    html = _COMPANY_HTML.format(today=today)
+    session = _mock_session(html)
+
+    reports = crawler.crawl_category("company", session=session)
+
+    # 오늘 리포트 2건만 (어제 리포트는 제외), 헤더/blank 행도 제외
+    assert len(reports) == 2
+    first = reports[0]
+    assert first.title == "이마트 목표주가 상향"
+    assert first.broker == "삼성증권"
+    assert first.views == 1895
+    assert first.stock_name == "이마트"
+    assert first.stock_code == "139480"
+    assert first.pdf_url.endswith("20260707_company_1.pdf")
+    assert first.read_url.startswith("https://finance.naver.com/research/company_read.naver")
+
+
+def test_missing_pdf_is_none(monkeypatch):
+    today = datetime.now().strftime("%y.%m.%d")
+    session = _mock_session(_COMPANY_HTML.format(today=today))
+    reports = crawler.crawl_category("company", session=session)
+    no_pdf = reports[1]
+    assert no_pdf.title == "첨부없는 리포트"
+    assert no_pdf.pdf_url is None
+
+
+def test_stops_paging_when_older_date_present(monkeypatch):
+    today = datetime.now().strftime("%y.%m.%d")
+    session = _mock_session(_COMPANY_HTML.format(today=today))
+    crawler.crawl_category("company", session=session)
+    # 어제 날짜 행이 섞여 있으므로 1페이지만 조회하고 멈춘다
+    assert session.get.call_count == 1

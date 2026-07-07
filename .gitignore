@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Env — track only *.example
+.env
+.env.*
+!.env*.example
+
+# Runtime artifacts
+logs/*.txt
+logs/*.log
+data/
+*.pdf

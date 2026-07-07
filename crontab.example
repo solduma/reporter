@@ -1,0 +1,24 @@
+# 증권 리포트 텔레그램 브리핑 크론 예시 (macOS crontab)
+# 등록: crontab -e  (macOS 보안 UI 승인은 사람이 직접 해야 함)
+# PROJECT / PY 경로를 자기 환경에 맞게 수정.
+
+PROJECT=/Users/you/workspace/reporter
+PY=/Users/you/workspace/reporter/.venv/bin/python
+
+# 매일 오전 9시 — 전날 브리핑 로그 초기화 (월~금)
+0 9 * * 1-5 cd $PROJECT && $PY -m reporter.cli --reset-log
+
+# 9:30 — 종목분석 + 산업분석 (batch 1)
+30 9 * * 1-5 cd $PROJECT && $PY -m reporter.cli --batch 1 >> logs/cron.log 2>&1
+
+# 10:00 — 시황정보 + 투자정보 (batch 2)
+0 10 * * 1-5 cd $PROJECT && $PY -m reporter.cli --batch 2 >> logs/cron.log 2>&1
+
+# 10:30 — 경제분석 (batch 3)
+30 10 * * 1-5 cd $PROJECT && $PY -m reporter.cli --batch 3 >> logs/cron.log 2>&1
+
+# 11:00 — 채권분석 (batch 4)
+0 11 * * 1-5 cd $PROJECT && $PY -m reporter.cli --batch 4 >> logs/cron.log 2>&1
+
+# 14:00 — 오후 능동 리서치
+0 14 * * 1-5 cd $PROJECT && $PY -m reporter.cli --afternoon >> logs/cron.log 2>&1
