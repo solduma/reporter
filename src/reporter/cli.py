@@ -15,7 +15,7 @@ import sys
 from .afternoon import run_afternoon_research
 from .config import Config, load_config
 from .models import BATCHES
-from .pipeline import run_morning_briefing
+from .pipeline import run_morning_briefing, run_per_report_briefing
 from .telegram import resolve_chat_ids
 
 # 모드별로 실제 사용하는 env. 존재하지 않는 값으로 API 를 호출하기 전에 미리 검증한다.
@@ -50,9 +50,19 @@ def main(argv: list[str] | None = None) -> int:
     group.add_argument("--batch", type=int, choices=sorted(BATCHES), help="카테고리 묶음 (1~4)")
     group.add_argument("--all", action="store_true", help="전체 카테고리 오전 브리핑")
     group.add_argument("--afternoon", action="store_true", help="오후 능동 리서치")
+    group.add_argument(
+        "--per-report",
+        type=int,
+        choices=sorted(BATCHES),
+        metavar="BATCH",
+        help="해당 batch 리포트를 리포트당 1건씩 개별 요약 발송",
+    )
     group.add_argument("--reset-log", action="store_true", help="당일 브리핑 로그 초기화")
     group.add_argument("--chat-id", action="store_true", help="getUpdates 로 텔레그램 chat_id 조회")
     parser.add_argument("--top-n", type=int, default=5, help="카테고리별 선별 개수 (기본 5)")
+    parser.add_argument(
+        "--date", help="크롤 대상 날짜 YY.MM.DD (기본: 오늘). 과거 발행분 발송용"
+    )
     args = parser.parse_args(argv)
 
     _setup_logging()
@@ -77,6 +87,12 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.afternoon:
         run_afternoon_research(config)
+        return 0
+
+    if args.per_report is not None:
+        sent = run_per_report_briefing(config, BATCHES[args.per_report], target_date=args.date)
+        if sent == 0:
+            print("발송할 리포트가 없습니다.", file=sys.stderr)
         return 0
 
     categories = (
