@@ -79,3 +79,39 @@ def test_stops_paging_when_older_date_present(monkeypatch):
     crawler.crawl_category("company", session=session)
     # 어제 날짜 행이 섞여 있으므로 1페이지만 조회하고 멈춘다
     assert session.get.call_count == 1
+
+
+# 최신순 3행: 최신(26.01.02) → target(26.01.01) → 과거(25.12.31)
+_DATED_HTML = """
+<table class="type_1">
+<tr>
+  <td><a href="company_read.naver?nid=1&page=1">최신 리포트</a></td>
+  <td>삼성증권</td>
+  <td class="file"><a href="https://x/a.pdf"></a></td>
+  <td class="date">26.01.02</td><td class="date">10</td>
+</tr>
+<tr>
+  <td><a href="company_read.naver?nid=2&page=1">타겟 리포트</a></td>
+  <td>KB증권</td>
+  <td class="file"><a href="https://x/b.pdf"></a></td>
+  <td class="date">26.01.01</td><td class="date">20</td>
+</tr>
+<tr>
+  <td><a href="company_read.naver?nid=3&page=1">과거 리포트</a></td>
+  <td>하나증권</td>
+  <td class="file"><a href="https://x/c.pdf"></a></td>
+  <td class="date">25.12.31</td><td class="date">30</td>
+</tr>
+</table>
+"""
+
+
+def test_target_date_skips_newer_and_collects_only_target():
+    # 최신순 목록에서 target 보다 최신 행은 건너뛰고, target 행만 담고, 과거 행 만나 멈춘다
+    session = _mock_session(_DATED_HTML)
+    reports = crawler.crawl_category("company", session=session, target_date="26.01.01")
+    assert len(reports) == 1
+    assert reports[0].title == "타겟 리포트"
+    assert reports[0].date == "26.01.01"
+    # 과거(25.12.31) 행이 있으므로 1페이지만 조회하고 멈춘다
+    assert session.get.call_count == 1

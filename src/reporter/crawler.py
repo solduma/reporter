@@ -74,31 +74,37 @@ def _fetch_list_page(category: str, page: int, session: requests.Session) -> lis
     return reports
 
 
-def crawl_category(category: str, session: requests.Session | None = None) -> list[Report]:
-    """오늘 발행된 리포트만 수집. 목록은 최신순이므로 과거 날짜가 나오면 페이징을 멈춘다."""
+def crawl_category(
+    category: str, session: requests.Session | None = None, target_date: str | None = None
+) -> list[Report]:
+    """지정 날짜(기본: 오늘) 발행 리포트만 수집.
+
+    목록은 최신순이며 날짜는 YY.MM.DD 제로패딩이라 문자열 비교로 대소를 판단한다.
+    target 보다 최신인 행은 건너뛰고, target 보다 과거인 행을 만나면 이후는 모두 과거이므로 멈춘다.
+    (기본값은 오늘이라 미래 행이 없어 기존 동작과 동일하다.)
+    """
     session = session or requests.Session()
-    today = datetime.now().strftime("%y.%m.%d")
+    today = target_date or datetime.now().strftime("%y.%m.%d")
     collected: list[Report] = []
 
     for page in range(1, _MAX_PAGES + 1):
         batch = _fetch_list_page(category, page, session)
         if not batch:
             break
-        todays = [r for r in batch if r.date == today]
-        collected.extend(todays)
-        if len(todays) < len(batch):  # 이 페이지에 과거 날짜 존재 → 이후 페이지는 모두 과거
+        collected.extend(r for r in batch if r.date == today)
+        if any(r.date < today for r in batch):  # target 보다 과거 도달 → 이후 페이지도 과거
             break
 
-    logger.info("crawled %s: %d today's reports", category, len(collected))
+    logger.info("crawled %s (%s): %d reports", category, today, len(collected))
     return collected
 
 
-def crawl_categories(categories: list[str]) -> list[Report]:
+def crawl_categories(categories: list[str], target_date: str | None = None) -> list[Report]:
     session = requests.Session()
     reports: list[Report] = []
     for category in categories:
         try:
-            reports.extend(crawl_category(category, session))
+            reports.extend(crawl_category(category, session, target_date))
         except requests.RequestException as e:
             logger.warning("failed to crawl %s: %s", category, e)
     return reports
