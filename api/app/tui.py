@@ -48,15 +48,28 @@ class AdminTUI(App):
     #actions { height: auto; padding: 1; }
     #actions Button { margin: 0 1; }
     #log { height: 10; border: round $secondary; }
+    #preview_bar { height: auto; align: left middle; padding: 0 1; }
+    #preview_bar Button { margin: 0 1; min-width: 8; }
+    #preview_info { width: 1fr; content-align: left middle; }
     #preview { height: 1fr; border: round $primary; }
     .running { color: $warning; }
     """
     BINDINGS: ClassVar = [
-        ("r", "refresh", "상태 새로고침"),
+        ("r", "refresh", "새로고침"),
+        ("s", "cycle_sort", "정렬 변경"),
+        ("n", "next_page", "다음"),
+        ("p", "prev_page", "이전"),
         ("q", "quit", "종료"),
     ]
 
-    _PREVIEW_LIMIT = 50  # 미리보기 테이블은 스크롤되므로 넉넉히
+    _PREVIEW_LIMIT = 50  # 페이지당 종목 수 (테이블은 박스 내 스크롤)
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._sort_keys = list(admin_status.PREVIEW_SORTS.keys())
+        self._sort_idx = 0
+        self._page = 0  # 0-based
+        self._total = 0
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -68,6 +81,11 @@ class AdminTUI(App):
                 yield Button("성장 배치", id="growth", variant="primary")
                 yield Button("새로고침", id="refresh")
             yield Log(id="log", highlight=True)
+            with Horizontal(id="preview_bar"):
+                yield Button("◀ 이전", id="prev")
+                yield Static(id="preview_info")
+                yield Button("다음 ▶", id="next")
+                yield Button("정렬: 매출YoY↓", id="sort")
             yield DataTable(id="preview")
         yield Footer()
 
@@ -85,7 +103,7 @@ class AdminTUI(App):
         self._log_handler = handler
 
         table = self.query_one("#preview", DataTable)
-        table.add_columns("스몰캡 성장주 (매출YoY순)", "시총(억)", "매출YoY", "모멘텀")
+        table.add_columns("종목", "시총(억)", "매출YoY", "모멘텀")
         self.action_refresh()
 
     def on_unmount(self) -> None:
@@ -115,19 +133,56 @@ class AdminTUI(App):
         self._load_preview()
 
     def _load_preview(self) -> None:
-        """스몰캡 성장주 상위(매출 YoY) 미리보기."""
+        """스몰캡 성장주 미리보기 — 선택 정렬·현재 페이지."""
+        sort = self._sort_keys[self._sort_idx]
         db = SessionLocal()
         try:
-            rows = admin_status.screener_preview(db, limit=self._PREVIEW_LIMIT)
+            page = admin_status.screener_preview(
+                db,
+                sort=sort,
+                limit=self._PREVIEW_LIMIT,
+                offset=self._page * self._PREVIEW_LIMIT,
+            )
         finally:
             db.close()
+        self._total = page.total
+
         table = self.query_one("#preview", DataTable)
         table.clear()
-        for r in rows:
+        for r in page.rows:
             cap = f"{r.market_cap / 1e8:,.0f}" if r.market_cap else "—"
             ry = f"{r.revenue_yoy * 100:+.0f}%" if r.revenue_yoy is not None else "—"
             mm = f"{r.momentum_3m:+.0f}%" if r.momentum_3m is not None else "—"
             table.add_row(r.stock_name, cap, ry, mm)
+
+        # 페이지/정렬 상태 표시 + 컨트롤 갱신
+        total_pages = max(1, -(-self._total // self._PREVIEW_LIMIT))  # ceil
+        start = self._page * self._PREVIEW_LIMIT + 1 if page.rows else 0
+        end = start + len(page.rows) - 1 if page.rows else 0
+        self.query_one("#preview_info", Static).update(
+            f"[b]스몰캡 성장주[/b]  {start}-{end} / {self._total}  "
+            f"(페이지 {self._page + 1}/{total_pages}, 정렬: {sort})"
+        )
+        self.query_one("#sort", Button).label = f"정렬: {sort}"
+        self.query_one("#prev", Button).disabled = self._page <= 0
+        self.query_one("#next", Button).disabled = (self._page + 1) >= total_pages
+
+    # --- 정렬·페이지 ---
+    def action_cycle_sort(self) -> None:
+        self._sort_idx = (self._sort_idx + 1) % len(self._sort_keys)
+        self._page = 0  # 정렬 바뀌면 첫 페이지로
+        self._load_preview()
+
+    def action_next_page(self) -> None:
+        total_pages = max(1, -(-self._total // self._PREVIEW_LIMIT))
+        if self._page + 1 < total_pages:
+            self._page += 1
+            self._load_preview()
+
+    def action_prev_page(self) -> None:
+        if self._page > 0:
+            self._page -= 1
+            self._load_preview()
 
     _job_running = False
     _JOB_BUTTONS = ("ingest", "universe", "growth")
@@ -155,6 +210,12 @@ class AdminTUI(App):
         bid = event.button.id
         if bid == "refresh":
             self.action_refresh()
+        elif bid == "sort":
+            self.action_cycle_sort()
+        elif bid == "next":
+            self.action_next_page()
+        elif bid == "prev":
+            self.action_prev_page()
         elif bid in self._JOB_BUTTONS:
             if self._job_running:  # 실행 중엔 이중 크롤/GLM 방지
                 self._log_line("⚠ 다른 작업이 실행 중입니다. 완료 후 다시 시도하세요.")
