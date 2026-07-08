@@ -23,22 +23,30 @@ class _Preview:
     coverage_count: int
 
 
+def _fake_preview(db, sort="매출YoY↓", limit=50, offset=0):
+    # 120건 유니버스를 흉내내 정렬·페이지 인자를 그대로 반영한다.
+    total = 120
+    rows = [
+        _Preview(f"{sort}-{offset + i}", 100_000_000_000, 0.35, -46.0, 0)
+        for i in range(min(limit, max(0, total - offset)))
+    ]
+    return admin_status.PreviewPage(rows=rows, total=total)
+
+
 @pytest.fixture(autouse=True)
 def _stub_services(monkeypatch):
     # DB·서비스 호출을 전부 스텁으로 대체(실 자원 미사용)
     monkeypatch.setattr(tui, "init_db", lambda: None)
     monkeypatch.setattr(tui, "SessionLocal", lambda: MagicMock())
-    monkeypatch.setattr(admin_status, "table_counts", lambda db: {"reports": 49, "universe_snapshot": 4295})
     monkeypatch.setattr(
-        admin_status, "freshness",
+        tui.admin_status, "table_counts",
+        lambda db: {"reports": 49, "universe_snapshot": 4295},
+    )
+    monkeypatch.setattr(
+        tui.admin_status, "freshness",
         lambda db: {"latest_report_date": "2026-07-08", "latest_universe_date": "2026-07-08", "universe_today_rows": "4295"},
     )
-    monkeypatch.setattr(tui.admin_status, "table_counts", admin_status.table_counts)
-    monkeypatch.setattr(tui.admin_status, "freshness", admin_status.freshness)
-    monkeypatch.setattr(
-        tui.admin_status, "screener_preview",
-        lambda db, limit=10: [_Preview("노타", 384900000000, 35.0, -46.0, 0)],
-    )
+    monkeypatch.setattr(tui.admin_status, "screener_preview", _fake_preview)
 
 
 async def test_tui_mounts_and_shows_status():
@@ -53,9 +61,11 @@ async def test_tui_mounts_and_shows_status():
         assert "reports=49" in status_text
 
         table = app.query_one("#preview", DataTable)
-        assert table.row_count == 1
+        assert table.row_count == 50  # 페이지당 _PREVIEW_LIMIT
 
-        assert {b.id for b in app.query(Button)} == {"ingest", "universe", "growth", "refresh"}
+        assert {b.id for b in app.query(Button)} == {
+            "ingest", "universe", "growth", "refresh", "prev", "next", "sort",
+        }
 
 
 async def test_refresh_action_reloads():
@@ -66,7 +76,53 @@ async def test_refresh_action_reloads():
         await pilot.pause(0.2)
         from textual.widgets import DataTable
 
-        assert app.query_one("#preview", DataTable).row_count == 1
+        assert app.query_one("#preview", DataTable).row_count == 50
+
+
+async def test_pagination_next_prev():
+    app = tui.AdminTUI()
+    async with app.run_test() as pilot:
+        await pilot.pause(0.3)
+        from textual.widgets import Button, Static
+
+        assert app._page == 0
+        assert app.query_one("#prev", Button).disabled is True  # 첫 페이지
+
+        app.action_next_page()
+        await pilot.pause(0.2)
+        assert app._page == 1
+        assert "51-100" in str(app.query_one("#preview_info", Static).render())
+        assert app.query_one("#prev", Button).disabled is False
+
+        app.action_prev_page()
+        await pilot.pause(0.2)
+        assert app._page == 0
+
+        # 마지막 페이지(120건, 50/page → 3페이지)에서 다음 비활성
+        app.action_next_page()
+        app.action_next_page()
+        await pilot.pause(0.2)
+        assert app._page == 2
+        assert app.query_one("#next", Button).disabled is True
+
+
+async def test_cycle_sort_resets_page():
+    app = tui.AdminTUI()
+    async with app.run_test() as pilot:
+        await pilot.pause(0.3)
+        from textual.widgets import Static
+
+        app.action_next_page()
+        await pilot.pause(0.2)
+        assert app._page == 1
+
+        first_sort = app._sort_keys[app._sort_idx]
+        app.action_cycle_sort()
+        await pilot.pause(0.2)
+        # 정렬이 바뀌고 첫 페이지로 리셋
+        assert app._sort_keys[app._sort_idx] != first_sort
+        assert app._page == 0
+        assert app._sort_keys[app._sort_idx] in str(app.query_one("#preview_info", Static).render())
 
 
 async def test_running_job_disables_buttons(monkeypatch):
