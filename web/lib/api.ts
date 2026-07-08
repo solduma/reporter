@@ -10,6 +10,8 @@ import type {
   SentimentPoint,
   Timeframe,
   TimelineItem,
+  TradePoint,
+  TradePresets,
 } from "@/lib/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8010";
@@ -76,6 +78,15 @@ export function fetchFinancials(code: string): Promise<FinancialPeriod[]> {
 
 export function fetchPeers(code: string): Promise<Peer[]> {
   return getJson<Peer[]>(`/api/companies/${encodeURIComponent(code)}/peers`);
+}
+
+export function fetchTradePresets(): Promise<TradePresets> {
+  return getJson<TradePresets>("/api/trade/presets");
+}
+
+export function fetchTrade(hs: string, start: string, end: string): Promise<TradePoint[]> {
+  const params = new URLSearchParams({ hs, start, end });
+  return getJson<TradePoint[]>(`/api/trade?${params.toString()}`);
 }
 
 export function fetchTimeline(

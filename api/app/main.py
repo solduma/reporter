@@ -32,6 +32,7 @@ app.add_middleware(
 
 app.include_router(today.router)
 app.include_router(industries.router)
+app.include_router(industries.trade_router)
 app.include_router(companies.router)
 app.include_router(admin.router)
 

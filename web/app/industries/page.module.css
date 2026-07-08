@@ -112,6 +112,52 @@
   border-radius: var(--radius);
 }
 
+.tradeSection {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.tradeHead {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tradeRange {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+
+.tradeChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tradeChip {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  padding: 7px 14px;
+  border-radius: 999px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.tradeChip:hover {
+  border-color: var(--accent);
+}
+
+.tradeChipActive {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
 @media (max-width: 860px) {
   .layout {
     grid-template-columns: 1fr;
