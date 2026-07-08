@@ -98,7 +98,7 @@ TRADE_PRESETS = {
 
 @trade_router.get("", response_model=list[TradePoint])
 def trade_stats(
-    hs: str = Query(default="8542", description="HS 코드(4자리 이상)"),
+    hs: str = Query(default="8542", pattern=r"^\d{4,12}$", description="HS 코드(4~12자리)"),
     start: str = Query(..., pattern=r"^\d{6}$", description="시작 YYYYMM"),
     end: str = Query(..., pattern=r"^\d{6}$", description="종료 YYYYMM"),
     db: Session = Depends(get_session),
@@ -128,8 +128,15 @@ def trade_stats(
         if fetched:
             db.commit()
 
+    # 요청 [start, end] 윈도우만 반환. period 는 'YYYY.MM' 제로패딩이라 문자열 비교로 대소 판정.
+    start_p, end_p = f"{start[:4]}.{start[4:]}", f"{end[:4]}.{end[4:]}"
     rows = db.scalars(
-        select(TradeStat).where(TradeStat.hs_code == hs).order_by(TradeStat.period)
+        select(TradeStat)
+        .where(
+            TradeStat.hs_code == hs,
+            TradeStat.period.between(start_p, end_p),
+        )
+        .order_by(TradeStat.period)
     ).all()
     return [
         TradePoint(
