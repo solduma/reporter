@@ -79,3 +79,16 @@ export interface Peer {
   pbr: string | null;
   roe: string | null;
 }
+
+export type TimelineItemType = "report" | "disclosure";
+
+export interface TimelineItem {
+  type: TimelineItemType;
+  date: string;
+  title: string;
+  source: string; // 증권사(리포트) 또는 제출인(공시)
+  sentiment: Sentiment;
+  rationale: string;
+  link: string | null; // 리포트 read_url 또는 DART 뷰어 URL
+  report_id: number | null; // 리포트면 PDF 조회용 id, 공시면 null
+}

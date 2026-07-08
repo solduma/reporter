@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     # 크롤 대상 (Today's Brew 는 종목/산업 + 시황)
     report_categories: tuple[str, ...] = ("company", "industry")
 
+    # 외부 데이터 소스 키 (7단계 DART 공시 / 4단계 관세청 무역통계)
+    dart_api_key: str = ""
+    customs_api_key: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:

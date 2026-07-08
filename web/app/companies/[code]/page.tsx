@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 
+import CompanyTimeline from "@/components/CompanyTimeline";
 import PeersTable from "@/components/PeersTable";
 import { fetchCandles, fetchCompanySummary, fetchFinancials, fetchPeers } from "@/lib/api";
 import type {
@@ -221,6 +222,11 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
       </header>
 
       {error ? <p className={styles.error}>API 연결 실패: {error}</p> : null}
+
+      <section className={styles.chartCard}>
+        <h2 className={styles.sectionTitle}>타임라인</h2>
+        <CompanyTimeline code={code} />
+      </section>
 
       <section className={styles.chartCard}>
         <div className={styles.tabs} role="tablist" aria-label="기간 선택">

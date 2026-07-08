@@ -9,6 +9,7 @@ import type {
   ReportCategory,
   SentimentPoint,
   Timeframe,
+  TimelineItem,
 } from "@/lib/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8010";
@@ -75,4 +76,22 @@ export function fetchFinancials(code: string): Promise<FinancialPeriod[]> {
 
 export function fetchPeers(code: string): Promise<Peer[]> {
   return getJson<Peer[]>(`/api/companies/${encodeURIComponent(code)}/peers`);
+}
+
+export function fetchTimeline(
+  code: string,
+  range?: { from?: string; to?: string },
+): Promise<TimelineItem[]> {
+  const params = new URLSearchParams();
+  if (range?.from) {
+    params.set("from", range.from);
+  }
+  if (range?.to) {
+    params.set("to", range.to);
+  }
+  const query = params.toString();
+  const suffix = query ? `?${query}` : "";
+  return getJson<TimelineItem[]>(
+    `/api/companies/${encodeURIComponent(code)}/timeline${suffix}`,
+  );
 }

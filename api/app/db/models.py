@@ -159,6 +159,46 @@ class Peer(Base):
     )
 
 
+class CorpCodeMap(Base):
+    """DART corp_code ↔ 종목코드 매핑. corpCode.xml 을 주기적으로 적재한다."""
+
+    __tablename__ = "corp_code_map"
+
+    stock_code: Mapped[str] = mapped_column(String(6), primary_key=True)
+    corp_code: Mapped[str] = mapped_column(String(8), index=True)
+    corp_name: Mapped[str] = mapped_column(String(128))
+
+
+class DisclosureSyncState(Base):
+    """종목별 DART 마지막 동기화 시각. 공시가 0건이거나 신규가 없어도 재조회를 억제한다."""
+
+    __tablename__ = "disclosure_sync_state"
+
+    stock_code: Mapped[str] = mapped_column(String(6), primary_key=True)
+    synced_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class Disclosure(Base):
+    """DART 공시 1건 + 주가 긍/부정 센티먼트."""
+
+    __tablename__ = "disclosures"
+    __table_args__ = (UniqueConstraint("rcept_no", name="uq_disclosure_rcept"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    stock_code: Mapped[str] = mapped_column(String(6), index=True)
+    corp_code: Mapped[str] = mapped_column(String(8))
+    rcept_no: Mapped[str] = mapped_column(String(14))
+    report_nm: Mapped[str] = mapped_column(Text)
+    flr_nm: Mapped[str] = mapped_column(String(128), default="")
+    rcept_dt: Mapped[date] = mapped_column(Date, index=True)
+    dart_url: Mapped[str] = mapped_column(Text, default="")
+    sentiment: Mapped[Sentiment] = mapped_column(Enum(Sentiment), default=Sentiment.HOLD)
+    rationale: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class DailyMarketInfo(Base):
     __tablename__ = "daily_market_info"
     __table_args__ = (UniqueConstraint("market_date", name="uq_market_date"),)

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 import requests
 from fastapi import APIRouter, Depends, Query
@@ -10,12 +10,15 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.db.models import (
+    Disclosure,
     Financial,
     Peer,
     PriceCandle,
     PriceCandleIntraday,
     Report,
+    ReportAnalysis,
     Timeframe,
 )
 from app.db.session import get_session
@@ -24,8 +27,9 @@ from app.schemas import (
     CompanySummary,
     FinancialPeriodOut,
     PeerOut,
+    TimelineItem,
 )
-from app.services import chart, quote
+from app.services import chart, dart_ingest, quote
 
 router = APIRouter(prefix="/api/companies", tags=["companies"])
 
@@ -232,3 +236,75 @@ def company_peers(code: str, db: Session = Depends(get_session)) -> list[PeerOut
         )
         for r in rows
     ]
+
+
+@router.get("/{code}/timeline", response_model=list[TimelineItem])
+def company_timeline(
+    code: str,
+    from_: date | None = Query(default=None, alias="from"),
+    to: date | None = Query(default=None),
+    db: Session = Depends(get_session),
+) -> list[TimelineItem]:
+    end = to or datetime.now().date()
+    begin = from_ or (end - timedelta(days=90))
+
+    # DART 공시 동기화(cache-aside). 키 없으면 조용히 건너뜀.
+    settings = get_settings()
+    if settings.dart_api_key:
+        try:
+            dart_ingest.sync_disclosures(db, settings, code, begin, end)
+        except Exception as e:  # 공시 동기화 실패가 리포트 타임라인까지 막지 않도록
+            import logging
+
+            logging.getLogger(__name__).warning("disclosure sync failed %s: %s", code, e)
+
+    items: list[TimelineItem] = []
+
+    # 리포트(종목분석)
+    report_rows = db.execute(
+        select(Report, ReportAnalysis)
+        .join(ReportAnalysis, ReportAnalysis.report_id == Report.id)
+        .where(
+            Report.stock_code == code,
+            Report.published_date >= begin,
+            Report.published_date <= end,
+        )
+    ).all()
+    for r, a in report_rows:
+        items.append(
+            TimelineItem(
+                type="report",
+                date=r.published_date,
+                title=r.title,
+                source=r.broker,
+                sentiment=a.sentiment.value,
+                rationale=a.rationale,
+                link=r.read_url,
+                report_id=r.id,
+            )
+        )
+
+    # DART 공시
+    disc_rows = db.scalars(
+        select(Disclosure).where(
+            Disclosure.stock_code == code,
+            Disclosure.rcept_dt >= begin,
+            Disclosure.rcept_dt <= end,
+        )
+    ).all()
+    for d in disc_rows:
+        items.append(
+            TimelineItem(
+                type="disclosure",
+                date=d.rcept_dt,
+                title=d.report_nm,
+                source=d.flr_nm,
+                sentiment=d.sentiment.value,
+                rationale=d.rationale,
+                link=d.dart_url,
+                report_id=None,
+            )
+        )
+
+    items.sort(key=lambda x: x.date, reverse=True)  # 최신순
+    return items

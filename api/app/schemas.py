@@ -81,3 +81,14 @@ class PeerOut(BaseModel):
     per: str | None
     pbr: str | None
     roe: str | None
+
+
+class TimelineItem(BaseModel):
+    type: str  # 'report' | 'disclosure'
+    date: date
+    title: str
+    source: str  # 증권사(리포트) 또는 제출인(공시)
+    sentiment: str  # BUY | SELL | HOLD
+    rationale: str
+    link: str | None
+    report_id: int | None = None  # 리포트면 PDF 조회용 id
