@@ -44,3 +44,17 @@ class SentimentPoint(BaseModel):
     date: date
     avg_sentiment: float  # BUY=+1 / HOLD=0 / SELL=-1 평균
     reports: list[ReportRef]
+
+
+class CandlePoint(BaseModel):
+    t: str  # ISO 시각 (일/주/월봉은 YYYY-MM-DD, 30분봉은 ISO datetime)
+    o: float
+    h: float
+    low: float
+    c: float
+    v: int
+
+
+class CompanySummary(BaseModel):
+    stock_code: str
+    stock_name: str | None

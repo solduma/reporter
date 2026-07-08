@@ -40,3 +40,19 @@ export interface SentimentPoint {
   avg_sentiment: number;
   reports: ReportRef[];
 }
+
+export type Timeframe = "30m" | "day" | "month";
+
+export interface CompanySummary {
+  stock_code: string;
+  stock_name: string | null;
+}
+
+export interface CandlePoint {
+  t: string;
+  o: number;
+  h: number;
+  low: number;
+  c: number;
+  v: number;
+}
