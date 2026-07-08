@@ -217,7 +217,7 @@ def company_peers(code: str, db: Session = Depends(get_session)) -> list[PeerOut
         db.commit()
 
     rows = db.scalars(
-        select(Peer).where(Peer.base_stock_code == code)
+        select(Peer).where(Peer.base_stock_code == code).order_by(Peer.id)
     ).all()
     return [
         PeerOut(

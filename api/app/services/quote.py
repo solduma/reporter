@@ -37,6 +37,7 @@ _FIN_ROWS = {
 class FinancialPeriod:
     period: str  # 예 '2026.03' 또는 '2026.12(E)'
     is_estimate: bool
+    period_type: str = "quarter"  # 'annual' | 'quarter' — 연간/분기 컬럼이 섞여 나온다
     revenue: float | None = None
     operating_income: float | None = None
     net_income: float | None = None
@@ -76,8 +77,27 @@ def _fetch_soup(code: str, session: requests.Session) -> BeautifulSoup | None:
     return BeautifulSoup(resp.text, "html.parser")
 
 
+def _period_types(section) -> list[str]:
+    """헤더 상단 그룹 행의 colspan(연간 N / 분기 M)으로 각 기간 컬럼의 유형을 정한다.
+
+    main.naver 는 연간·분기 기간을 한 테이블에 섞어 주고 '2025.12' 처럼 양쪽에
+    중복 등장하는 기간이 있으므로, 유형을 반드시 구분해야 키 충돌·차트 혼선을 막는다.
+    """
+    for tr in section.select("thead tr"):
+        labels = [(th.get_text(strip=True), th.get("colspan")) for th in th_cells(tr)]
+        annual = next((int(c) for t, c in labels if "연간" in t and c), 0)
+        quarter = next((int(c) for t, c in labels if "분기" in t and c), 0)
+        if annual or quarter:
+            return ["annual"] * annual + ["quarter"] * quarter
+    return []
+
+
+def th_cells(tr):
+    return tr.find_all("th")
+
+
 def fetch_financials(code: str, session: requests.Session) -> list[FinancialPeriod]:
-    """분기 실적 우선으로 재무 기간별 지표를 반환한다(연간 포함 전체)."""
+    """분기 실적만 반환한다(요구사항: 분기별 지표). 연간 컬럼은 유형으로 구분해 제외."""
     soup = _fetch_soup(code, session)
     if soup is None:
         return []
@@ -85,14 +105,15 @@ def fetch_financials(code: str, session: requests.Session) -> list[FinancialPeri
     if section is None:
         return []
 
-    # 헤더의 기간 컬럼(연간 + 분기). '주요재무정보' 이후의 기간 텍스트만.
     period_cells = [th.get_text(strip=True) for th in section.select("thead th")]
     periods = [p for p in period_cells if re.match(r"\d{4}\.\d{2}", p)]
-    if not periods:
-        return []
+    types = _period_types(section)
+    if not periods or len(types) != len(periods):
+        return []  # 헤더 구조가 예상과 다르면 잘못 매핑하느니 비운다
 
     records = [
-        FinancialPeriod(period=p, is_estimate="(E)" in p or "(e)" in p) for p in periods
+        FinancialPeriod(period=p, is_estimate="(E)" in p or "(e)" in p, period_type=t)
+        for p, t in zip(periods, types, strict=True)
     ]
 
     for tr in section.select("tbody tr"):
@@ -107,7 +128,8 @@ def fetch_financials(code: str, session: requests.Session) -> list[FinancialPeri
         for rec, val in zip(records, values, strict=False):
             setattr(rec, field_name, val)
 
-    return records
+    # 요구사항은 분기별 지표. 연간 컬럼은 제외해 축·기간 충돌을 없앤다.
+    return [r for r in records if r.period_type == "quarter"]
 
 
 def fetch_peers(code: str, session: requests.Session) -> list[Peer]:
@@ -122,9 +144,11 @@ def fetch_peers(code: str, session: requests.Session) -> list[Peer]:
     # 헤더: '종목명' 다음이 각 종목 (이름*코드 형태)
     head_cells = [th.get_text(strip=True) for th in section.select("thead th")][1:]
     peers: list[Peer] = []
-    for cell in head_cells:
-        name, _, cd = cell.partition("*")
-        peers.append(Peer(stock_code=cd.strip() or code, name=name.strip()))
+    for idx, cell in enumerate(head_cells):
+        name, sep, cd = cell.partition("*")
+        # '*' 로 코드를 못 뽑으면 base 코드로 넘기지 않는다(uq_peer 충돌·기준종목 오강조 방지).
+        peer_code = cd.strip() if sep else f"?{idx}"
+        peers.append(Peer(stock_code=peer_code, name=name.strip()))
     if not peers:
         return []
 
