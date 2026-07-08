@@ -20,8 +20,10 @@ _SCORE = {Sentiment.BUY: 1.0, Sentiment.HOLD: 0.0, Sentiment.SELL: -1.0}
 
 @router.get("", response_model=list[IndustrySummary])
 def list_industries(db: Session = Depends(get_session)) -> list[IndustrySummary]:
+    # 센티먼트 시계열과 동일하게 analysis 가 있는 리포트만 센다(카운트-플롯 정합성).
     rows = db.execute(
         select(Report.industry_name, func.count(Report.id))
+        .join(ReportAnalysis, ReportAnalysis.report_id == Report.id)
         .where(Report.category == "industry", Report.industry_name.is_not(None))
         .group_by(Report.industry_name)
         .order_by(func.count(Report.id).desc())
