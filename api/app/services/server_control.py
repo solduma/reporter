@@ -94,6 +94,8 @@ class ServerControl:
         except subprocess.TimeoutExpired:
             with contextlib.suppress(ProcessLookupError, PermissionError):
                 os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                proc.wait(timeout=3)  # SIGKILL 후 reap 해 좀비 방지
         pid = proc.pid
         self._procs.pop(key, None)
         return f"{spec.label} 종료 (pid {pid})"

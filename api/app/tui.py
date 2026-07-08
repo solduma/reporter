@@ -115,8 +115,9 @@ class AdminTUI(App):
 
         table = self.query_one("#preview", DataTable)
         table.add_columns("종목", "시총(억)", "매출YoY", "모멘텀")
-        self._refresh_server_status()
         self.action_refresh()
+        # 서버가 스스로 죽거나(bind 실패·크래시) 하면 상태 패널이 stale 하지 않도록 주기 갱신.
+        self.set_interval(3.0, self._refresh_server_status)
 
     def on_unmount(self) -> None:
         # TUI 종료 시 자신이 띄운 서버를 정리한다.
@@ -151,6 +152,7 @@ class AdminTUI(App):
             f"({fresh['universe_today_rows']}종목)",
         ]
         self.query_one("#status", Static).update("\n".join(lines))
+        self._refresh_server_status()
         self._load_preview()
 
     def _load_preview(self) -> None:
