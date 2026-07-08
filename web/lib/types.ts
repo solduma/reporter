@@ -92,14 +92,15 @@ export interface TradePoint {
 
 export type ScreenerMarket = "KOSPI" | "KOSDAQ";
 
-// score(성장스코어, 기본) · market_cap(시총 작은순) · rev_yoy(매출성장률) · momentum(3개월 수익률) · trading_value(거래대금) · change(등락률)
+// score(성장스코어, 기본) · market_cap(시총 작은순) · rev_yoy(매출성장률) · momentum(3개월 수익률) · trading_value(거래대금) · change(등락률) · coverage(리포트 수)
 export type ScreenerSort =
   | "score"
   | "market_cap"
   | "rev_yoy"
   | "momentum"
   | "trading_value"
-  | "change";
+  | "change"
+  | "coverage";
 
 // 영업이익 필터: turnaround(흑자전환) · growth(YoY 성장)
 export type ScreenerOpGrowth = "turnaround" | "growth";
@@ -117,6 +118,8 @@ export interface ScreenerRow {
   op_yoy: number | null; // 영업이익 YoY 비율
   op_turnaround: boolean; // 흑자전환 여부
   growth_score: number | null; // 0~100, sort=score일 때만 채워짐
+  coverage_count: number; // 최근 90일 리포트 수, 커버리지 없으면 0
+  recent_sentiment: "BUY" | "HOLD" | null; // 커버리지 있으면 BUY/HOLD, 없으면 null
 }
 
 export interface ScreenerResult {

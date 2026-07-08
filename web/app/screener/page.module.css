@@ -234,6 +234,17 @@
   color: var(--buy);
 }
 
+/* 최근 리포트 의견 배지 — SentimentBadge와 동일 토큰 */
+.senBuy {
+  background: var(--buy-bg);
+  color: var(--buy);
+}
+
+.senHold {
+  background: var(--hold-bg);
+  color: var(--hold);
+}
+
 /* 성장스코어: 기본 정렬 헤드라인 지표라 숫자+바로 강조 */
 .scoreCell {
   min-width: 96px;

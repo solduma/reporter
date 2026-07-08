@@ -65,6 +65,8 @@ class ScreenerRow(BaseModel):
     revenue_yoy: float | None  # 매출 YoY (0.28=+28%)
     op_yoy: float | None
     op_turnaround: bool
+    coverage_count: int  # 최근 90일 리포트 수
+    recent_sentiment: str | None  # 최근 리포트 센티먼트 BUY/SELL/HOLD
     growth_score: float | None  # 0~100
 
 

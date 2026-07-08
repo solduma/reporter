@@ -75,6 +75,8 @@ export interface ScreenerQuery {
   momMax?: number;
   liqMin?: number;
   market?: ScreenerMarket | "";
+  coverage?: "has" | "none";
+  recentBuy?: boolean;
   includeEtf?: boolean;
   sort?: ScreenerSort;
   limit?: number;
@@ -96,6 +98,10 @@ export function fetchScreener(query: ScreenerQuery): Promise<ScreenerResult> {
   set("mom_max", query.momMax);
   set("liq_min", query.liqMin);
   set("market", query.market);
+  set("coverage", query.coverage);
+  if (query.recentBuy) {
+    params.set("recent_buy", "true");
+  }
   if (query.includeEtf) {
     params.set("include_etf", "true");
   }
