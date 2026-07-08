@@ -75,8 +75,11 @@ def run_afternoon_research(config: Config) -> int:
             logger.warning("afternoon analysis failed for %s: %s", keyword, e)
             continue
 
-        sources = "  ".join(dict.fromkeys(a.source for a in articles if a.source))
-        message = f"📌 {keyword} 업데이트\n{analysis}\n\n출처: {sources}"
+        # 출처 이름만이 아니라 실제 기사 페이지 링크를 함께 붙인다(상위 3건).
+        source_lines = "\n".join(
+            f"• {a.title} ({a.source})\n{a.link}" for a in articles[:3] if a.link
+        )
+        message = f"📌 {keyword} 업데이트\n{analysis}\n\n📰 관련 기사\n{source_lines}"
         sender.send(message)
         sent += 1
 

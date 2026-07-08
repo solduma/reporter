@@ -230,3 +230,20 @@ def test_per_report_message_includes_stock_name():
     msg = pipeline._format_report_message(r)
     assert "삼성전자" in msg
     assert "http://x" in msg
+
+
+def test_per_report_message_prefers_pdf_url_over_read_url():
+    # 모바일에서 목록으로 튀는 read_url 대신 PDF 원본을 링크해야 한다
+    r = Report(
+        category="company",
+        title="t",
+        broker="삼성증권",
+        date="26.07.07",
+        views=1,
+        read_url="http://naver/read",
+        pdf_url="http://naver/report.pdf",
+    )
+    r.summary = "요약"
+    msg = pipeline._format_report_message(r)
+    assert "http://naver/report.pdf" in msg
+    assert "http://naver/read" not in msg
