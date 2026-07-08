@@ -44,7 +44,7 @@ def test_registered_job_keeps_seoul_timezone():
     assert str(job.trigger.timezone) == "Asia/Seoul"
 
 
-def test_run_ingest_cycle_calls_ingest_and_market(monkeypatch):
+def test_run_ingest_cycle_calls_ingest_market_and_intraday(monkeypatch):
     calls = {}
     monkeypatch.setattr(scheduler, "SessionLocal", lambda: MagicMock())
     monkeypatch.setattr(
@@ -53,11 +53,14 @@ def test_run_ingest_cycle_calls_ingest_and_market(monkeypatch):
     monkeypatch.setattr(
         scheduler.ingest, "build_market_brief", lambda db, s: calls.setdefault("market", "brief")
     )
+    monkeypatch.setattr(
+        scheduler.intraday, "accumulate_intraday", lambda db: calls.setdefault("intraday", 2) or 2
+    )
 
     result = scheduler.run_ingest_cycle(_settings())
 
-    assert result == {"reports_ingested": 3, "market_brief": True}
-    assert calls == {"reports": 3, "market": "brief"}
+    assert result == {"reports_ingested": 3, "market_brief": True, "intraday_codes": 2}
+    assert calls == {"reports": 3, "market": "brief", "intraday": 2}
 
 
 def test_run_ingest_cycle_closes_session(monkeypatch):
@@ -65,6 +68,7 @@ def test_run_ingest_cycle_closes_session(monkeypatch):
     monkeypatch.setattr(scheduler, "SessionLocal", lambda: session)
     monkeypatch.setattr(scheduler.ingest, "ingest_reports", lambda db, s: 0)
     monkeypatch.setattr(scheduler.ingest, "build_market_brief", lambda db, s: None)
+    monkeypatch.setattr(scheduler.intraday, "accumulate_intraday", lambda db: 0)
 
     scheduler.run_ingest_cycle(_settings())
 
