@@ -29,7 +29,7 @@ from app.schemas import (
     PeerOut,
     TimelineItem,
 )
-from app.services import chart, dart_ingest, quote
+from app.services import chart, dart_ingest, intraday, quote
 
 router = APIRouter(prefix="/api/companies", tags=["companies"])
 
@@ -76,25 +76,6 @@ def _upsert_periodic(db: Session, code: str, tf: Timeframe, candles: list[chart.
     db.commit()
 
 
-def _upsert_intraday(db: Session, code: str, candles: list[chart.Candle]) -> None:
-    for c in candles:
-        stmt = insert(PriceCandleIntraday).values(
-            stock_code=code, bar_ts=c.ts, open=c.open, high=c.high, low=c.low, close=c.close, volume=c.volume
-        )
-        stmt = stmt.on_conflict_do_update(
-            constraint="uq_candle_intraday",
-            set_={
-                "open": stmt.excluded.open,
-                "high": stmt.excluded.high,
-                "low": stmt.excluded.low,
-                "close": stmt.excluded.close,
-                "volume": stmt.excluded.volume,
-            },
-        )
-        db.execute(stmt)
-    db.commit()
-
-
 @router.get("/{code}/candles", response_model=list[CandlePoint])
 def company_candles(
     code: str,
@@ -107,7 +88,7 @@ def company_candles(
         # 매 조회 시 가용 분봉을 리샘플·누적(cache-aside). 누적분과 합쳐 반환.
         fresh = chart.fetch_intraday_30min(code, session)
         if fresh:
-            _upsert_intraday(db, code, fresh)
+            intraday.upsert_intraday(db, code, fresh)
         # 요구사항은 '최근 2주' 30분봉. cron 누적(8단계)으로 더 쌓여도 2주만 반환한다.
         window_start = datetime.now() - timedelta(days=14)
         rows = db.scalars(
