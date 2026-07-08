@@ -126,7 +126,7 @@ def test_analysis_failure_skips_only_that_keyword(wire_afternoon, tmp_path):
     assert "SK하이닉스" in sent[0]
 
 
-def test_message_includes_sources(wire_afternoon, tmp_path):
+def test_message_includes_article_links(wire_afternoon, tmp_path):
     config = _config(tmp_path)
     _write_briefing(config)
     items = [
@@ -137,5 +137,6 @@ def test_message_includes_sources(wire_afternoon, tmp_path):
     sent = wire_afternoon(client=client, news_by_keyword={"삼성전자": items})
 
     run_afternoon_research(config)
-    assert "출처:" in sent[0]
+    # 출처 이름뿐 아니라 실제 기사 페이지 링크가 메시지에 포함돼야 한다
     assert "연합뉴스" in sent[0] and "한국경제" in sent[0]
+    assert "http://a" in sent[0] and "http://b" in sent[0]

@@ -28,8 +28,10 @@ def _format_report_message(report: Report) -> str:
     cat = CATEGORY_NAMES.get(report.category, report.category)
     who = f"{report.stock_name} · {report.broker}" if report.stock_name else report.broker
     lines = [f"📄 [{cat}] {report.title}", f"🏦 {who}", "", report.summary]
-    if report.read_url:
-        lines += ["", f"🔗 {report.read_url}"]
+    # 읽기페이지(read_url)는 모바일에서 목록으로 튀므로 PDF 원본을 우선 링크한다.
+    link = report.pdf_url or report.read_url
+    if link:
+        lines += ["", f"🔗 {link}"]
     return "\n".join(lines)
 
 
