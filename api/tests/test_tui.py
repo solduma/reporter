@@ -67,3 +67,33 @@ async def test_refresh_action_reloads():
         from textual.widgets import DataTable
 
         assert app.query_one("#preview", DataTable).row_count == 1
+
+
+async def test_running_job_disables_buttons(monkeypatch):
+    # 잡 실행 중엔 트리거 버튼이 비활성화돼 이중 크롤/GLM 을 막아야 한다
+    import threading
+
+    release = threading.Event()
+
+    def _slow_snapshot(db, snapshot_date, markets=("KOSDAQ", "KOSPI")):
+        release.wait(2)  # 잡이 도는 동안 상태 검사
+        return 4295
+
+    monkeypatch.setattr(tui.universe_ingest, "snapshot_universe", _slow_snapshot)
+
+    app = tui.AdminTUI()
+    async with app.run_test() as pilot:
+        await pilot.pause(0.2)
+        from textual.widgets import Button
+
+        await pilot.click("#universe")
+        await pilot.pause(0.3)
+        # 실행 중: 세 잡 버튼 모두 비활성화
+        assert app._job_running is True
+        assert all(app.query_one(f"#{b}", Button).disabled for b in tui.AdminTUI._JOB_BUTTONS)
+
+        release.set()
+        await pilot.pause(0.5)
+        # 완료 후: 재활성화
+        assert app._job_running is False
+        assert not any(app.query_one(f"#{b}", Button).disabled for b in tui.AdminTUI._JOB_BUTTONS)

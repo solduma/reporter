@@ -25,15 +25,20 @@ from app.services import admin_status, growth_ingest, ingest, universe_ingest
 
 
 class _LogHandler(logging.Handler):
-    """서비스 로거 → TUI Log 위젯으로 흘려보낸다."""
+    """서비스 로거 → TUI Log 위젯으로 흘려보낸다.
 
-    def __init__(self, log_widget: Log):
+    서비스는 워커 스레드에서 로그를 남기므로, 위젯 갱신은 반드시 이벤트 루프로
+    마셜링한다(call_from_thread). 직접 write_line 은 스레드 안전하지 않다.
+    """
+
+    def __init__(self, app: App, log_widget: Log):
         super().__init__(level=logging.INFO)
+        self._app = app
         self._log = log_widget
 
     def emit(self, record: logging.LogRecord) -> None:
-        with contextlib.suppress(Exception):  # 위젯 파괴 등은 무시
-            self._log.write_line(self.format(record))
+        with contextlib.suppress(Exception):  # 위젯 파괴·루프 종료 등은 무시
+            self._app.call_from_thread(self._log.write_line, self.format(record))
 
 
 class AdminTUI(App):
@@ -64,19 +69,29 @@ class AdminTUI(App):
             yield DataTable(id="preview")
         yield Footer()
 
+    _log_handler: _LogHandler | None = None
+
     def on_mount(self) -> None:
         init_db()
         # 서비스 로그를 TUI 로그 패널로 라우팅
-        handler = _LogHandler(self.query_one("#log", Log))
+        handler = _LogHandler(self, self.query_one("#log", Log))
         handler.setFormatter(logging.Formatter("%(asctime)s %(name)s: %(message)s", "%H:%M:%S"))
-        logging.getLogger("app").addHandler(handler)
-        logging.getLogger("app").setLevel(logging.INFO)
-        logging.getLogger("reporter").addHandler(handler)
-        logging.getLogger("reporter").setLevel(logging.INFO)
+        for name in ("app", "reporter"):
+            logger = logging.getLogger(name)
+            logger.addHandler(handler)
+            logger.setLevel(logging.INFO)
+        self._log_handler = handler
 
         table = self.query_one("#preview", DataTable)
         table.add_columns("스몰캡 성장주 (매출YoY순)", "시총(억)", "매출YoY", "모멘텀")
         self.action_refresh()
+
+    def on_unmount(self) -> None:
+        # 핸들러 누수 방지(다음 실행/테스트에 파괴된 위젯을 참조하지 않도록).
+        if self._log_handler:
+            for name in ("app", "reporter"):
+                logging.getLogger(name).removeHandler(self._log_handler)
+            self._log_handler = None
 
     # --- 상태 ---
     def action_refresh(self) -> None:
@@ -112,61 +127,61 @@ class AdminTUI(App):
             mm = f"{r.momentum_3m:+.0f}%" if r.momentum_3m is not None else "—"
             table.add_row(r.stock_name, cap, ry, mm)
 
+    _job_running = False
+    _JOB_BUTTONS = ("ingest", "universe", "growth")
+
+    # 잡 종류별 (시작 메시지, 실행 함수). 실행 함수는 (db) → 결과문자열.
+    def _jobs(self) -> dict:
+        settings = get_settings()
+
+        def _ingest(db) -> str:
+            n = ingest.ingest_reports(db, settings)
+            ingest.build_market_brief(db, settings)
+            return f"신규 {n}건"
+
+        return {
+            "ingest": ("리포트 수집", _ingest),
+            "universe": (
+                "유니버스 스냅샷",
+                lambda db: f"{universe_ingest.snapshot_universe(db, datetime.now().date())}종목",
+            ),
+            "growth": ("성장 배치", lambda db: str(growth_ingest.run_growth_batch(db))),
+        }
+
     # --- 액션 (워커 스레드) ---
     def on_button_pressed(self, event: Button.Pressed) -> None:
         bid = event.button.id
         if bid == "refresh":
             self.action_refresh()
-        elif bid == "ingest":
-            self._run_ingest()
-        elif bid == "universe":
-            self._run_universe()
-        elif bid == "growth":
-            self._run_growth()
+        elif bid in self._JOB_BUTTONS:
+            if self._job_running:  # 실행 중엔 이중 크롤/GLM 방지
+                self._log_line("⚠ 다른 작업이 실행 중입니다. 완료 후 다시 시도하세요.")
+                return
+            self._run_job(bid)
 
     def _log_line(self, msg: str) -> None:
         self.query_one("#log", Log).write_line(f"[{datetime.now():%H:%M:%S}] {msg}")
 
-    @work(thread=True, exclusive=True, group="job")
-    def _run_ingest(self) -> None:
-        self.call_from_thread(self._log_line, "▶ 리포트 수집 시작…")
-        db = SessionLocal()
-        try:
-            settings = get_settings()
-            n = ingest.ingest_reports(db, settings)
-            ingest.build_market_brief(db, settings)
-            self.call_from_thread(self._log_line, f"✔ 리포트 수집 완료: 신규 {n}건")
-        except Exception as e:
-            self.call_from_thread(self._log_line, f"✖ 리포트 수집 실패: {e}")
-        finally:
-            db.close()
-        self.call_from_thread(self.action_refresh)
+    def _set_jobs_enabled(self, enabled: bool) -> None:
+        self._job_running = not enabled
+        for bid in self._JOB_BUTTONS:
+            self.query_one(f"#{bid}", Button).disabled = not enabled
 
     @work(thread=True, exclusive=True, group="job")
-    def _run_universe(self) -> None:
-        self.call_from_thread(self._log_line, "▶ 유니버스 스냅샷 시작…")
+    def _run_job(self, job_id: str) -> None:
+        label, fn = self._jobs()[job_id]
+        self.call_from_thread(self._set_jobs_enabled, False)
+        self.call_from_thread(self._log_line, f"▶ {label} 시작…")
         db = SessionLocal()
         try:
-            n = universe_ingest.snapshot_universe(db, datetime.now().date())
-            self.call_from_thread(self._log_line, f"✔ 유니버스 스냅샷 완료: {n}종목")
+            result = fn(db)
+            self.call_from_thread(self._log_line, f"✔ {label} 완료: {result}")
         except Exception as e:
-            self.call_from_thread(self._log_line, f"✖ 유니버스 스냅샷 실패: {e}")
+            self.call_from_thread(self._log_line, f"✖ {label} 실패: {e}")
         finally:
             db.close()
         self.call_from_thread(self.action_refresh)
-
-    @work(thread=True, exclusive=True, group="job")
-    def _run_growth(self) -> None:
-        self.call_from_thread(self._log_line, "▶ 성장 배치 시작… (수 분 소요)")
-        db = SessionLocal()
-        try:
-            result = growth_ingest.run_growth_batch(db)
-            self.call_from_thread(self._log_line, f"✔ 성장 배치 완료: {result}")
-        except Exception as e:
-            self.call_from_thread(self._log_line, f"✖ 성장 배치 실패: {e}")
-        finally:
-            db.close()
-        self.call_from_thread(self.action_refresh)
+        self.call_from_thread(self._set_jobs_enabled, True)
 
 
 def main() -> None:
