@@ -1,0 +1,25 @@
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.buy {
+  color: var(--buy);
+  background: var(--buy-bg);
+}
+
+.sell {
+  color: var(--sell);
+  background: var(--sell-bg);
+}
+
+.hold {
+  color: var(--hold);
+  background: var(--hold-bg);
+}
