@@ -61,7 +61,11 @@ class ScreenerRow(BaseModel):
     change_pct: float | None
     market_cap: int | None  # 원
     trading_value: int | None
-    three_month_rate: float | None
+    momentum_3m: float | None  # 3개월 수익률%
+    revenue_yoy: float | None  # 매출 YoY (0.28=+28%)
+    op_yoy: float | None
+    op_turnaround: bool
+    growth_score: float | None  # 0~100
 
 
 class ScreenerResult(BaseModel):

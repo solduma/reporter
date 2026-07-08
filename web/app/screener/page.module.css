@@ -217,6 +217,80 @@
   color: var(--muted);
 }
 
+/* 성장 지표(매출·영업이익·모멘텀) 색: 개선 초록 / 악화 빨강 */
+.gpos {
+  color: var(--buy);
+  font-weight: 600;
+}
+
+.gneg {
+  color: var(--sell);
+  font-weight: 600;
+}
+
+/* 영업이익 흑자전환 강조 배지 */
+.turnaround {
+  background: var(--buy-bg);
+  color: var(--buy);
+}
+
+/* 성장스코어: 기본 정렬 헤드라인 지표라 숫자+바로 강조 */
+.scoreCell {
+  min-width: 96px;
+}
+
+.score {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.scoreNum {
+  font-size: 1.05rem;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.scoreHigh {
+  color: var(--buy);
+}
+
+.scoreMid {
+  color: var(--accent);
+}
+
+.scoreLow {
+  color: var(--muted);
+}
+
+.scoreBar {
+  width: 100%;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--hold-bg);
+  overflow: hidden;
+}
+
+.scoreFill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+}
+
+.scoreFillHigh {
+  background: var(--buy);
+}
+
+.scoreFillMid {
+  background: var(--accent);
+}
+
+.scoreFillLow {
+  background: var(--hold);
+}
+
 .pagination {
   display: flex;
   align-items: center;
