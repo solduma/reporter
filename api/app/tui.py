@@ -22,6 +22,7 @@ from textual.widgets import Button, DataTable, Footer, Header, Log, Static
 from app.config import get_settings
 from app.db.session import SessionLocal, init_db
 from app.services import admin_status, growth_ingest, ingest, universe_ingest
+from app.services.server_control import ServerControl
 
 
 class _LogHandler(logging.Handler):
@@ -47,6 +48,9 @@ class AdminTUI(App):
     #status { height: auto; border: round $accent; padding: 1; }
     #actions { height: auto; padding: 1; }
     #actions Button { margin: 0 1; }
+    #servers { height: auto; padding: 0 1; align: left middle; }
+    #servers Button { margin: 0 1; min-width: 10; }
+    #server_status { width: 1fr; content-align: left middle; }
     #log { height: 10; border: round $secondary; }
     #preview_bar { height: auto; align: left middle; padding: 0 1; }
     #preview_bar Button { margin: 0 1; min-width: 8; }
@@ -70,6 +74,7 @@ class AdminTUI(App):
         self._sort_idx = 0
         self._page = 0  # 0-based
         self._total = 0
+        self._servers = ServerControl()
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -80,6 +85,12 @@ class AdminTUI(App):
                 yield Button("유니버스 스냅샷", id="universe", variant="primary")
                 yield Button("성장 배치", id="growth", variant="primary")
                 yield Button("새로고침", id="refresh")
+            with Horizontal(id="servers"):
+                yield Static(id="server_status")
+                yield Button("API 시작", id="api_start", variant="success")
+                yield Button("API 종료", id="api_stop", variant="error")
+                yield Button("WEB 시작", id="web_start", variant="success")
+                yield Button("WEB 종료", id="web_stop", variant="error")
             yield Log(id="log", highlight=True)
             with Horizontal(id="preview_bar"):
                 yield Button("◀ 이전", id="prev")
@@ -104,14 +115,24 @@ class AdminTUI(App):
 
         table = self.query_one("#preview", DataTable)
         table.add_columns("종목", "시총(억)", "매출YoY", "모멘텀")
+        self._refresh_server_status()
         self.action_refresh()
 
     def on_unmount(self) -> None:
+        # TUI 종료 시 자신이 띄운 서버를 정리한다.
+        self._servers.stop_all()
         # 핸들러 누수 방지(다음 실행/테스트에 파괴된 위젯을 참조하지 않도록).
         if self._log_handler:
             for name in ("app", "reporter"):
                 logging.getLogger(name).removeHandler(self._log_handler)
             self._log_handler = None
+
+    def _refresh_server_status(self) -> None:
+        parts = []
+        for s in self._servers.status():
+            mark = f"[green]●[/green] 실행중(pid {s.pid})" if s.running else "[dim]○ 중지[/dim]"
+            parts.append(f"{s.label} :{s.port} {mark}")
+        self.query_one("#server_status", Static).update("서버:  " + "   ".join(parts))
 
     # --- 상태 ---
     def action_refresh(self) -> None:
@@ -216,11 +237,19 @@ class AdminTUI(App):
             self.action_next_page()
         elif bid == "prev":
             self.action_prev_page()
+        elif bid in ("api_start", "api_stop", "web_start", "web_stop"):
+            self._handle_server_button(bid)
         elif bid in self._JOB_BUTTONS:
             if self._job_running:  # 실행 중엔 이중 크롤/GLM 방지
                 self._log_line("⚠ 다른 작업이 실행 중입니다. 완료 후 다시 시도하세요.")
                 return
             self._run_job(bid)
+
+    def _handle_server_button(self, bid: str) -> None:
+        key, op = bid.split("_")  # api_start → ("api","start")
+        msg = self._servers.start(key) if op == "start" else self._servers.stop(key)
+        self._log_line(msg)
+        self._refresh_server_status()
 
     def _log_line(self, msg: str) -> None:
         self.query_one("#log", Log).write_line(f"[{datetime.now():%H:%M:%S}] {msg}")
