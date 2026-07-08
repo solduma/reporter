@@ -46,6 +46,30 @@ def _extract_json(raw: str) -> dict | None:
     return None
 
 
+_DISCLOSURE_SYSTEM = (
+    "너는 DART 공시 제목을 보고 해당 종목 주가에 미칠 영향을 판단하는 애널리스트다. "
+    "긍정적이면 BUY, 부정적이면 SELL, 중립·판단불가면 HOLD 로 분류한다. "
+    "반드시 아래 JSON 형식만 출력한다.\n"
+    '{"sentiment": "BUY|SELL|HOLD", "rationale": "공시 유형이 주가에 미칠 영향을 한 줄로(100자 이내)"}'
+)
+
+
+def classify_disclosure(client: OllamaClient, model: str, report_nm: str) -> SentimentResult:
+    """공시 제목만으로 주가 영향(BUY/SELL/HOLD)+근거를 분류한다. 실패 시 HOLD."""
+    try:
+        raw = client.chat(model, _DISCLOSURE_SYSTEM, report_nm, temperature=0.2)
+    except OllamaError as e:
+        logger.warning("disclosure sentiment failed for %s: %s", report_nm, e)
+        return SentimentResult("HOLD", "", "")
+    data = _extract_json(raw)
+    if not data:
+        return SentimentResult("HOLD", "", "")
+    sentiment = str(data.get("sentiment", "")).upper().strip()
+    if sentiment not in _VALID:
+        sentiment = "HOLD"
+    return SentimentResult(sentiment=sentiment, one_liner="", rationale=str(data.get("rationale", "")).strip())
+
+
 def classify(client: OllamaClient, model: str, category: str, title: str, text: str) -> SentimentResult:
     """리포트 본문(앞 5페이지 권장)으로 센티먼트를 분류한다. 실패 시 HOLD 폴백."""
     prompt = f"[{category}] {title}\n\n{text[:6000]}"
