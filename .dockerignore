@@ -1,0 +1,16 @@
+# api/Dockerfile 빌드 컨텍스트(저장소 루트)에서 이미지로 새면 안 되는 것들.
+**/.venv
+**/__pycache__
+**/*.pyc
+**/.env
+**/.env.*
+!**/.env.example
+web/
+node_modules/
+**/node_modules
+.git
+.ruff_cache
+.pytest_cache
+logs/
+**/.DS_Store
+.claude/

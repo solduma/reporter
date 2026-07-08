@@ -69,3 +69,34 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+  # 수집 스케줄러(launchd 대체). 평일 09-19시 매 30분 ingest. 별도 프로세스라
+  # API 재시작·멀티워커와 무관하게 배치 1회를 보장한다. 컨테이너 내부에서는
+  # 서비스명:표준포트로 접속한다(호스트 매핑 포트 5433/6380/9010 아님).
+  reporter-worker:
+    build:
+      context: ..
+      dockerfile: api/Dockerfile
+    container_name: reporter-worker
+    restart: unless-stopped
+    # --no-sync: 이미지 빌드 시 설치한 의존성을 그대로 쓴다. 매 부팅마다 PyPI 재설치
+    # (dev 그룹 재설치·네트워크 의존)를 막아 restart 안정성을 높인다.
+    command: ["uv", "run", "--no-sync", "reporter-worker"]
+    environment:
+      POSTGRES_URL: postgresql+psycopg://${POSTGRES_USER:-reporter}:${POSTGRES_PASSWORD:-reporter}@reporter-postgres:5432/${POSTGRES_DB:-reporter}
+      REDIS_URL: redis://reporter-redis:6379/0
+      MINIO_ENDPOINT: reporter-minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-reporter}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-reporter-secret}
+      MINIO_BUCKET: reporter-pdfs
+      OLLAMA_HOST: ${OLLAMA_HOST:-https://ollama.com}
+      OLLAMA_API_KEY: ${OLLAMA_API_KEY:-}
+      SUMMARY_MODEL: ${SUMMARY_MODEL:-glm-5.2:cloud}
+      INSIGHT_MODEL: ${INSIGHT_MODEL:-glm-5.2:cloud}
+    depends_on:
+      reporter-postgres:
+        condition: service_healthy
+      reporter-minio:
+        condition: service_healthy
+    networks:
+      - reporter-net

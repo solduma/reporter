@@ -34,10 +34,21 @@ uv sync
 uv run uvicorn app.main:app --port 8010 --reload
 ```
 
-- `POST /api/admin/ingest?date=YY.MM.DD` — 당일(또는 지정일) 종목·산업 리포트 크롤→PDF(MinIO)→GLM 요약·센티먼트→Postgres 적재 + 시황 브리핑 생성. (2단계에서 스케줄러가 대체)
+- `POST /api/admin/ingest?date=YY.MM.DD` — 당일(또는 지정일) 종목·산업 리포트 크롤→PDF(MinIO)→GLM 요약·센티먼트→Postgres 적재 + 시황 브리핑 생성. 수동 백필용(정기 수집은 워커가 담당).
 - `GET /api/today/market` — 당일 시황 요약
 - `GET /api/today/reports?category=company|industry` — 리포트 카드 목록
 - `GET /api/reports/{id}/pdf` — PDF 원본 스트림
+
+## 수집 스케줄러 (worker)
+
+정기 수집은 별도 워커 프로세스가 담당한다(`docker compose up -d reporter-worker`).
+평일(월~금) **09:00–19:00, 매 30분** ingest + 시황 갱신. 멱등 수집이라 매 실행마다
+신규 리포트만 저장·분석한다(중복 저장·GLM 재호출 없음).
+
+로컬 실행: `cd api && uv run reporter-worker`
+
+> 기존 `launchd/`·`crontab.example` 은 **CLI 텔레그램 발송용**으로 별개다. 이 워커는
+> 웹서비스 DB 적재만 하므로 둘은 목적이 다르고 함께 두어도 무방하다.
 
 ## 프론트엔드 (web)
 
