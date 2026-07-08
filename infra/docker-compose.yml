@@ -1,0 +1,71 @@
+# reporter 웹서비스 전용 인프라. compose project 이름을 'reporter' 로 고정해
+# 기존 analytics-agent(weaviate 8085 / redis 6379 / minio 9000-9001) 및
+# standalone postgres(5432) 와 포트·볼륨·네트워크가 섞이지 않도록 완전 격리한다.
+name: reporter
+
+networks:
+  reporter-net:
+    driver: bridge
+
+volumes:
+  reporter-pgdata:
+  reporter-redisdata:
+  reporter-miniodata:
+
+services:
+  reporter-postgres:
+    image: postgres:16
+    container_name: reporter-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-reporter}
+      POSTGRES_USER: ${POSTGRES_USER:-reporter}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-reporter}
+    ports:
+      - "5433:5432"  # host 5433 → 컨테이너 표준 5432 (5432 는 standalone 이 점유)
+    volumes:
+      - reporter-pgdata:/var/lib/postgresql/data
+    networks:
+      - reporter-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-reporter} -d ${POSTGRES_DB:-reporter}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  reporter-redis:
+    image: redis:7-alpine
+    container_name: reporter-redis
+    restart: unless-stopped
+    ports:
+      - "6380:6379"  # 6379 는 analytics-agent 가 점유
+    volumes:
+      - reporter-redisdata:/data
+    networks:
+      - reporter-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  reporter-minio:
+    image: minio/minio
+    container_name: reporter-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-reporter}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-reporter-secret}
+    ports:
+      - "9010:9000"  # API — 9000-9001 은 analytics-agent 가 점유
+      - "9011:9001"  # Console
+    volumes:
+      - reporter-miniodata:/data
+    networks:
+      - reporter-net
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10

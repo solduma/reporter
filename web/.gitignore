@@ -1,0 +1,11 @@
+/node_modules
+/.next
+/out
+/build
+next-env.d.ts
+.env*.local
+.DS_Store
+*.tsbuildinfo
+
+# pdf.js worker — postinstall/prebuild 가 node_modules 에서 복사 생성
+/public/pdf.worker.min.mjs
