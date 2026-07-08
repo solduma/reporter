@@ -216,6 +216,25 @@ class TradeStat(Base):
     )
 
 
+class UniverseSnapshot(Base):
+    """전종목 일일 스냅샷 — 네이버 marketValue. 스몰캡 스크리너의 유니버스."""
+
+    __tablename__ = "universe_snapshot"
+    __table_args__ = (UniqueConstraint("snapshot_date", "stock_code", name="uq_universe"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    snapshot_date: Mapped[date] = mapped_column(Date, index=True)
+    stock_code: Mapped[str] = mapped_column(String(6), index=True)
+    market: Mapped[str] = mapped_column(String(8))  # KOSPI | KOSDAQ
+    stock_name: Mapped[str] = mapped_column(String(128))
+    stock_type: Mapped[str] = mapped_column(String(16), default="stock")  # stock | etf | etn ...
+    close_price: Mapped[int | None] = mapped_column(BigInteger)
+    change_pct: Mapped[float | None] = mapped_column(Float)
+    market_cap: Mapped[int | None] = mapped_column(BigInteger, index=True)
+    trading_value: Mapped[int | None] = mapped_column(BigInteger)
+    three_month_rate: Mapped[float | None] = mapped_column(Float)
+
+
 class DailyMarketInfo(Base):
     __tablename__ = "daily_market_info"
     __table_args__ = (UniqueConstraint("market_date", name="uq_market_date"),)

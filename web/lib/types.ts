@@ -90,6 +90,28 @@ export interface TradePoint {
   balance_usd: number;
 }
 
+export type ScreenerMarket = "KOSPI" | "KOSDAQ";
+
+// market_cap(시총 작은순) · momentum(3개월 수익률, 데이터 준비중) · trading_value(거래대금) · change(등락률)
+export type ScreenerSort = "market_cap" | "momentum" | "trading_value" | "change";
+
+export interface ScreenerRow {
+  stock_code: string;
+  stock_name: string;
+  market: ScreenerMarket;
+  close_price: number | null;
+  change_pct: number | null;
+  market_cap: number | null; // 원 단위(KRW)
+  trading_value: number | null; // 거래대금, 원 단위
+  three_month_rate: number | null; // 3개월 수익률% — 현재는 항상 null (데이터 소스 미비)
+}
+
+export interface ScreenerResult {
+  as_of: string | null;
+  total: number;
+  items: ScreenerRow[];
+}
+
 export type TimelineItemType = "report" | "disclosure";
 
 export interface TimelineItem {
