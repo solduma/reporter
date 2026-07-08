@@ -84,7 +84,8 @@ def _resample_30min(minute_rows: list[dict]) -> list[Candle]:
 
     candles: list[Candle] = []
     for bucket_ts in sorted(buckets):
-        rows = buckets[bucket_ts]
+        # 소스 정렬에 의존하지 않도록 버킷 내부를 시각순으로 정렬(open/close 정확성).
+        rows = sorted(buckets[bucket_ts], key=lambda r: r.get("localDateTime", ""))
         try:
             highs = [float(r["highPrice"]) for r in rows]
             lows = [float(r["lowPrice"]) for r in rows]
@@ -95,6 +96,7 @@ def _resample_30min(minute_rows: list[dict]) -> list[Candle]:
                     high=max(highs),
                     low=min(lows),
                     close=float(rows[-1]["currentPrice"]),  # 분봉 종가는 currentPrice
+                    # accumulatedTradingVolume 은 분봉 엔드포인트에선 per-bar 이므로 합산이 맞다.
                     volume=sum(int(r.get("accumulatedTradingVolume", 0)) for r in rows),
                 )
             )

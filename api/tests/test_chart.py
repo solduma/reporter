@@ -48,6 +48,19 @@ def test_resample_30min_buckets_and_aggregates():
     assert candles[1].open == 92
 
 
+def test_resample_sorts_bucket_for_correct_open_close():
+    # 입력이 뒤섞여 와도 버킷 내부를 시각순 정렬해 open=첫 시각, close=마지막 시각이어야 한다
+    rows = [
+        _minute("20260708091500", 105, 120, 100, 118, 20),
+        _minute("20260708090000", 100, 110, 95, 105, 10),  # 실제로는 더 이른 시각
+        _minute("20260708092900", 118, 119, 90, 92, 5),
+    ]
+    candles = chart._resample_30min(rows)
+    assert len(candles) == 1
+    assert candles[0].open == 100  # 09:00 시가
+    assert candles[0].close == 92  # 09:29 종가
+
+
 def test_resample_skips_malformed_rows():
     rows = [
         _minute("20260708090000", 100, 110, 95, 105, 10),

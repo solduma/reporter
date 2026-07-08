@@ -92,9 +92,14 @@ def company_candles(
         fresh = chart.fetch_intraday_30min(code, session)
         if fresh:
             _upsert_intraday(db, code, fresh)
+        # 요구사항은 '최근 2주' 30분봉. cron 누적(8단계)으로 더 쌓여도 2주만 반환한다.
+        window_start = datetime.now() - timedelta(days=14)
         rows = db.scalars(
             select(PriceCandleIntraday)
-            .where(PriceCandleIntraday.stock_code == code)
+            .where(
+                PriceCandleIntraday.stock_code == code,
+                PriceCandleIntraday.bar_ts >= window_start,
+            )
             .order_by(PriceCandleIntraday.bar_ts)
         ).all()
         return [
