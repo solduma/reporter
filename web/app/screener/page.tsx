@@ -77,6 +77,26 @@ const MARKET_PRESETS: Preset<ScreenerMarket | "">[] = [
   { label: "KOSPI", value: "KOSPI" },
 ];
 
+// 리포트 커버리지 프리셋: 단일 선택 키를 coverage/recent_buy 쿼리로 환산한다.
+type CoverageKey = "none" | "has" | "recent_buy";
+
+const COVERAGE_PRESETS: Preset<CoverageKey>[] = [
+  { label: "없음", value: "none" },
+  { label: "커버리지있음", value: "has" },
+  { label: "최근BUY", value: "recent_buy" },
+];
+
+function coverageParams(key: CoverageKey): { coverage?: "has" | "none"; recentBuy?: boolean } {
+  switch (key) {
+    case "has":
+      return { coverage: "has" };
+    case "recent_buy":
+      return { recentBuy: true };
+    default:
+      return {};
+  }
+}
+
 const SORT_PRESETS: Preset<ScreenerSort>[] = [
   { label: "성장스코어", value: "score" },
   { label: "매출성장률", value: "rev_yoy" },
@@ -84,6 +104,7 @@ const SORT_PRESETS: Preset<ScreenerSort>[] = [
   { label: "시총 작은순", value: "market_cap" },
   { label: "거래대금", value: "trading_value" },
   { label: "등락률", value: "change" },
+  { label: "리포트순", value: "coverage" },
 ];
 
 function formatEok(won: number | null): string {
@@ -165,6 +186,7 @@ export default function ScreenerPage() {
   const [revYoyMin, setRevYoyMin] = useState<number | undefined>(undefined);
   const [opGrowth, setOpGrowth] = useState<ScreenerOpGrowth | undefined>(undefined);
   const [mom, setMom] = useState<MomKey>("none");
+  const [coverage, setCoverage] = useState<CoverageKey>("none");
   const [sort, setSort] = useState<ScreenerSort>("score");
   const [offset, setOffset] = useState<number>(0);
 
@@ -179,6 +201,7 @@ export default function ScreenerPage() {
       setError(null);
       try {
         const { momMin, momMax } = momParams(mom);
+        const { coverage: coverageParam, recentBuy } = coverageParams(coverage);
         const res = await fetchScreener({
           mktcapMax,
           mktcapMin,
@@ -188,6 +211,8 @@ export default function ScreenerPage() {
           momMin,
           momMax,
           market,
+          coverage: coverageParam,
+          recentBuy,
           sort,
           limit: PAGE_SIZE,
           offset,
@@ -210,7 +235,7 @@ export default function ScreenerPage() {
     return () => {
       active = false;
     };
-  }, [market, mktcapMax, mktcapMin, liqMin, revYoyMin, opGrowth, mom, sort, offset]);
+  }, [market, mktcapMax, mktcapMin, liqMin, revYoyMin, opGrowth, mom, coverage, sort, offset]);
 
   // 필터 변경 시 첫 페이지로 되돌린다.
   function resetPaging() {
@@ -293,6 +318,11 @@ export default function ScreenerPage() {
         </div>
 
         <div className={styles.filterGroup}>
+          <span className={styles.filterLabel}>리포트</span>
+          {renderChips(COVERAGE_PRESETS, coverage, setCoverage)}
+        </div>
+
+        <div className={styles.filterGroup}>
           <span className={styles.filterLabel}>시장</span>
           {renderChips(MARKET_PRESETS, market, setMarket)}
         </div>
@@ -333,6 +363,8 @@ export default function ScreenerPage() {
                   <th scope="col">현재가</th>
                   <th scope="col">등락률</th>
                   <th scope="col">거래대금</th>
+                  <th scope="col">리포트</th>
+                  <th scope="col">의견</th>
                 </tr>
               </thead>
               <tbody>
@@ -385,6 +417,26 @@ export default function ScreenerPage() {
                     <td>{formatPrice(row.close_price)}</td>
                     <td className={changeClass(row.change_pct)}>{formatPct(row.change_pct)}</td>
                     <td>{formatEok(row.trading_value)}</td>
+                    <td>
+                      {row.coverage_count > 0 ? (
+                        `${row.coverage_count.toLocaleString("ko-KR")}건`
+                      ) : (
+                        <span className={styles.muted}>—</span>
+                      )}
+                    </td>
+                    <td>
+                      {row.recent_sentiment === null ? (
+                        <span className={styles.muted}>—</span>
+                      ) : (
+                        <span
+                          className={`${styles.badge} ${
+                            row.recent_sentiment === "BUY" ? styles.senBuy : styles.senHold
+                          }`}
+                        >
+                          {row.recent_sentiment}
+                        </span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
