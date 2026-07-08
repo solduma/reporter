@@ -79,7 +79,9 @@ services:
       dockerfile: api/Dockerfile
     container_name: reporter-worker
     restart: unless-stopped
-    command: ["uv", "run", "reporter-worker"]
+    # --no-sync: 이미지 빌드 시 설치한 의존성을 그대로 쓴다. 매 부팅마다 PyPI 재설치
+    # (dev 그룹 재설치·네트워크 의존)를 막아 restart 안정성을 높인다.
+    command: ["uv", "run", "--no-sync", "reporter-worker"]
     environment:
       POSTGRES_URL: postgresql+psycopg://${POSTGRES_USER:-reporter}:${POSTGRES_PASSWORD:-reporter}@reporter-postgres:5432/${POSTGRES_DB:-reporter}
       REDIS_URL: redis://reporter-redis:6379/0

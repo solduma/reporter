@@ -18,8 +18,13 @@ from app.services import ingest
 
 logger = logging.getLogger(__name__)
 
+_TZ = "Asia/Seoul"
+
 # 리포트는 장 시작 후 순차 발행되므로 넉넉히 커버한다. 멱등이라 중복 실행 무해.
-_CRON = CronTrigger(day_of_week="mon-fri", hour="9-19", minute="0,30")
+# timezone 을 트리거에 직접 지정: 지정하지 않으면 프로세스 로컬 tz(컨테이너=UTC)로
+# 고정되고, BlockingScheduler(timezone=...) 는 이미 tz 를 가진 트리거를 덮어쓰지 않는다.
+# (19:30 도 발화 — 장 마감 후 늦게 올라오는 리포트를 잡기 위해 의도한 것.)
+_CRON = CronTrigger(day_of_week="mon-fri", hour="9-19", minute="0,30", timezone=_TZ)
 
 
 def run_ingest_cycle(settings: Settings | None = None) -> dict:
@@ -39,7 +44,7 @@ def run_ingest_cycle(settings: Settings | None = None) -> dict:
 def build_scheduler(settings: Settings | None = None) -> BlockingScheduler:
     """잡이 등록된 스케줄러를 반환한다 (start 는 호출자가)."""
     settings = settings or get_settings()
-    scheduler = BlockingScheduler(timezone="Asia/Seoul")
+    scheduler = BlockingScheduler(timezone=_TZ)
     scheduler.add_job(
         run_ingest_cycle,
         trigger=_CRON,

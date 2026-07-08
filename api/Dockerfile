@@ -5,6 +5,9 @@ FROM python:3.11-slim
 # uv 설치 (프로젝트 표준 패키지 매니저)
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
+# 스케줄러 tz 는 코드에서 명시하지만, 로그·기타 시간 표기도 KST 로 통일.
+ENV TZ=Asia/Seoul
+
 WORKDIR /app
 
 # 루트 reporter 패키지(크롤·PDF·GLM 로직) + api 소스
