@@ -10,10 +10,22 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from app.db.models import PriceCandle, PriceCandleIntraday, Report, Timeframe
+from app.db.models import (
+    Financial,
+    Peer,
+    PriceCandle,
+    PriceCandleIntraday,
+    Report,
+    Timeframe,
+)
 from app.db.session import get_session
-from app.schemas import CandlePoint, CompanySummary
-from app.services import chart
+from app.schemas import (
+    CandlePoint,
+    CompanySummary,
+    FinancialPeriodOut,
+    PeerOut,
+)
+from app.services import chart, quote
 
 router = APIRouter(prefix="/api/companies", tags=["companies"])
 
@@ -120,5 +132,103 @@ def company_candles(
     ).all()
     return [
         CandlePoint(t=r.bar_date.isoformat(), o=r.open, h=r.high, low=r.low, c=r.close, v=r.volume)
+        for r in rows
+    ]
+
+
+# 동일업종 테이블의 한글 행 라벨 → peers 컬럼
+_PEER_FIELDS = {
+    "price": "현재가",
+    "market_cap": "시가총액(억)",
+    "foreign_ratio": "외국인비율(%)",
+    "per": "PER(%)",
+    "pbr": "PBR(배)",
+    "roe": "ROE(%)",
+}
+
+
+@router.get("/{code}/financials", response_model=list[FinancialPeriodOut])
+def company_financials(code: str, db: Session = Depends(get_session)) -> list[FinancialPeriodOut]:
+    session = requests.Session()
+    fetched = quote.fetch_financials(code, session)
+    for f in fetched:
+        stmt = insert(Financial).values(
+            stock_code=code,
+            period=f.period,
+            is_estimate=f.is_estimate,
+            revenue=f.revenue,
+            operating_income=f.operating_income,
+            net_income=f.net_income,
+            eps=f.eps,
+            bps=f.bps,
+            per=f.per,
+            pbr=f.pbr,
+            roe=f.roe,
+        )
+        stmt = stmt.on_conflict_do_update(
+            constraint="uq_financial",
+            set_={
+                c: getattr(stmt.excluded, c)
+                for c in ("is_estimate", "revenue", "operating_income", "net_income",
+                          "eps", "bps", "per", "pbr", "roe")
+            },
+        )
+        db.execute(stmt)
+    if fetched:
+        db.commit()
+
+    rows = db.scalars(
+        select(Financial).where(Financial.stock_code == code).order_by(Financial.period)
+    ).all()
+    return [
+        FinancialPeriodOut(
+            period=r.period,
+            is_estimate=r.is_estimate,
+            revenue=r.revenue,
+            operating_income=r.operating_income,
+            net_income=r.net_income,
+            eps=r.eps,
+            per=r.per,
+            pbr=r.pbr,
+            roe=r.roe,
+        )
+        for r in rows
+    ]
+
+
+@router.get("/{code}/peers", response_model=list[PeerOut])
+def company_peers(code: str, db: Session = Depends(get_session)) -> list[PeerOut]:
+    session = requests.Session()
+    fetched = quote.fetch_peers(code, session)
+    for p in fetched:
+        vals = {field: p.values.get(label) for field, label in _PEER_FIELDS.items()}
+        stmt = insert(Peer).values(
+            base_stock_code=code,
+            peer_stock_code=p.stock_code,
+            peer_name=p.name,
+            **vals,
+        )
+        stmt = stmt.on_conflict_do_update(
+            constraint="uq_peer",
+            set_={"peer_name": stmt.excluded.peer_name, **{f: getattr(stmt.excluded, f) for f in _PEER_FIELDS}},
+        )
+        db.execute(stmt)
+    if fetched:
+        db.commit()
+
+    rows = db.scalars(
+        select(Peer).where(Peer.base_stock_code == code)
+    ).all()
+    return [
+        PeerOut(
+            stock_code=r.peer_stock_code,
+            name=r.peer_name,
+            price=r.price,
+            market_cap=r.market_cap,
+            foreign_ratio=r.foreign_ratio,
+            per=r.per,
+            pbr=r.pbr,
+            roe=r.roe,
+        )
         for r in rows
     ]

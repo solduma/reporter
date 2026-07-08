@@ -3,8 +3,15 @@
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 
-import { fetchCandles, fetchCompanySummary } from "@/lib/api";
-import type { CandlePoint, CompanySummary, Timeframe } from "@/lib/types";
+import PeersTable from "@/components/PeersTable";
+import { fetchCandles, fetchCompanySummary, fetchFinancials, fetchPeers } from "@/lib/api";
+import type {
+  CandlePoint,
+  CompanySummary,
+  FinancialPeriod,
+  Peer,
+  Timeframe,
+} from "@/lib/types";
 
 import styles from "./page.module.css";
 
@@ -12,6 +19,12 @@ import styles from "./page.module.css";
 const CandleChart = dynamic(() => import("@/components/CandleChart"), {
   ssr: false,
   loading: () => <div className={styles.chartStatus}>차트 불러오는 중…</div>,
+});
+
+// Recharts는 브라우저 전용(ResponsiveContainer가 DOM 크기에 의존)이라 SSR을 끈다.
+const FinancialsChart = dynamic(() => import("@/components/FinancialsChart"), {
+  ssr: false,
+  loading: () => <div className={styles.sectionStatus}>차트 불러오는 중…</div>,
 });
 
 // 최근 3개월 ≈ 63 거래일. 일봉 전체를 잘라 재사용한다.
@@ -32,6 +45,9 @@ const VIEWS: ViewDef[] = [
   { id: "3y", label: "3년 월봉", timeframe: "month" },
 ];
 
+// 각 섹션이 독립적으로 로딩/실패하도록 상태를 분리해 관리한다.
+type SectionState<T> = { status: "loading" | "ready" | "error"; data: T; message?: string };
+
 export default function CompanyDetailPage({ params }: { params: { code: string } }) {
   const { code } = params;
 
@@ -40,6 +56,12 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
   const [candlesByTf, setCandlesByTf] = useState<Partial<Record<Timeframe, CandlePoint[]>>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [financials, setFinancials] = useState<SectionState<FinancialPeriod[]>>({
+    status: "loading",
+    data: [],
+  });
+  const [peers, setPeers] = useState<SectionState<Peer[]>>({ status: "loading", data: [] });
 
   const timeframe = VIEWS.find((v) => v.id === view)?.timeframe ?? "day";
 
@@ -95,6 +117,56 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
     };
   }, [code, timeframe, candlesByTf]);
 
+  useEffect(() => {
+    let active = true;
+    async function load() {
+      setFinancials({ status: "loading", data: [] });
+      try {
+        const res = await fetchFinancials(code);
+        if (active) {
+          setFinancials({ status: "ready", data: res });
+        }
+      } catch (e) {
+        if (active) {
+          setFinancials({
+            status: "error",
+            data: [],
+            message: e instanceof Error ? e.message : "재무 데이터를 불러오지 못했습니다",
+          });
+        }
+      }
+    }
+    void load();
+    return () => {
+      active = false;
+    };
+  }, [code]);
+
+  useEffect(() => {
+    let active = true;
+    async function load() {
+      setPeers({ status: "loading", data: [] });
+      try {
+        const res = await fetchPeers(code);
+        if (active) {
+          setPeers({ status: "ready", data: res });
+        }
+      } catch (e) {
+        if (active) {
+          setPeers({
+            status: "error",
+            data: [],
+            message: e instanceof Error ? e.message : "동일업종 데이터를 불러오지 못했습니다",
+          });
+        }
+      }
+    }
+    void load();
+    return () => {
+      active = false;
+    };
+  }, [code]);
+
   const chartData = useMemo(() => {
     const raw = candlesByTf[timeframe] ?? [];
     if (view === "3m") {
@@ -112,6 +184,32 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
     }
     return <CandleChart data={chartData} timeframe={timeframe} />;
   }, [loading, candlesByTf, timeframe, chartData]);
+
+  const financialsArea = useMemo(() => {
+    if (financials.status === "loading") {
+      return <div className={styles.sectionStatus}>불러오는 중…</div>;
+    }
+    if (financials.status === "error") {
+      return <p className={styles.error}>API 연결 실패: {financials.message}</p>;
+    }
+    if (financials.data.length === 0) {
+      return <div className={styles.sectionStatus}>재무 데이터가 없습니다</div>;
+    }
+    return <FinancialsChart data={financials.data} />;
+  }, [financials]);
+
+  const peersArea = useMemo(() => {
+    if (peers.status === "loading") {
+      return <div className={styles.sectionStatus}>불러오는 중…</div>;
+    }
+    if (peers.status === "error") {
+      return <p className={styles.error}>API 연결 실패: {peers.message}</p>;
+    }
+    if (peers.data.length === 0) {
+      return <div className={styles.sectionStatus}>동일업종 데이터가 없습니다</div>;
+    }
+    return <PeersTable peers={peers.data} baseCode={code} />;
+  }, [peers, code]);
 
   const displayName = summary?.stock_name ?? "이름 미상";
 
@@ -143,6 +241,16 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
           })}
         </div>
         {chartArea}
+      </section>
+
+      <section className={styles.chartCard}>
+        <h2 className={styles.sectionTitle}>재무제표</h2>
+        {financialsArea}
+      </section>
+
+      <section className={styles.chartCard}>
+        <h2 className={styles.sectionTitle}>동일업종비교</h2>
+        {peersArea}
       </section>
     </div>
   );
