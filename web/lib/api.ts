@@ -7,6 +7,9 @@ import type {
   Peer,
   Report,
   ReportCategory,
+  ScreenerMarket,
+  ScreenerResult,
+  ScreenerSort,
   SentimentPoint,
   Timeframe,
   TimelineItem,
@@ -60,6 +63,41 @@ export function fetchIndustrySentiment(
   return getJson<SentimentPoint[]>(
     `/api/industries/${encodeURIComponent(name)}/sentiment${suffix}`,
   );
+}
+
+export interface ScreenerQuery {
+  mktcapMax?: number;
+  mktcapMin?: number;
+  momMin?: number;
+  momMax?: number;
+  liqMin?: number;
+  market?: ScreenerMarket | "";
+  includeEtf?: boolean;
+  sort?: ScreenerSort;
+  limit?: number;
+  offset?: number;
+}
+
+export function fetchScreener(query: ScreenerQuery): Promise<ScreenerResult> {
+  const params = new URLSearchParams();
+  const set = (key: string, value: number | string | undefined | null) => {
+    if (value !== undefined && value !== null && value !== "") {
+      params.set(key, String(value));
+    }
+  };
+  set("mktcap_max", query.mktcapMax);
+  set("mktcap_min", query.mktcapMin);
+  set("mom_min", query.momMin);
+  set("mom_max", query.momMax);
+  set("liq_min", query.liqMin);
+  set("market", query.market);
+  if (query.includeEtf) {
+    params.set("include_etf", "true");
+  }
+  set("sort", query.sort);
+  set("limit", query.limit);
+  set("offset", query.offset);
+  return getJson<ScreenerResult>(`/api/screener?${params.toString()}`);
 }
 
 export function fetchCompanySummary(code: string): Promise<CompanySummary> {

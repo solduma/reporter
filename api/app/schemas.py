@@ -53,6 +53,23 @@ class TradePoint(BaseModel):
     balance_usd: int
 
 
+class ScreenerRow(BaseModel):
+    stock_code: str
+    stock_name: str
+    market: str
+    close_price: int | None
+    change_pct: float | None
+    market_cap: int | None  # 원
+    trading_value: int | None
+    three_month_rate: float | None
+
+
+class ScreenerResult(BaseModel):
+    as_of: date | None
+    total: int
+    items: list[ScreenerRow]
+
+
 class CandlePoint(BaseModel):
     t: str  # ISO 시각 (일/주/월봉은 YYYY-MM-DD, 30분봉은 ISO datetime)
     o: float

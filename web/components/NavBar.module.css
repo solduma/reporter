@@ -53,12 +53,35 @@
   color: var(--accent);
 }
 
+.featured {
+  color: var(--accent);
+  font-weight: 700;
+  background: var(--accent-soft);
+}
+
+.featured::before {
+  content: "★";
+  font-size: 0.72rem;
+  margin-right: 5px;
+  vertical-align: 1px;
+}
+
+.featured:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
 .active {
   background: var(--accent);
   color: #fff;
 }
 
 .active:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+.featured.active {
   background: var(--accent);
   color: #fff;
 }
