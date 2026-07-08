@@ -14,5 +14,6 @@ __pycache__/
 # Runtime artifacts
 logs/*.txt
 logs/*.log
+logs/*.json
 data/
 *.pdf

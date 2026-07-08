@@ -152,3 +152,67 @@ def test_reset_log_needs_no_env(monkeypatch, patch_config, tmp_path):
 
     assert cli.main(["--reset-log"]) == 0
     assert (tmp_path / "logs" / "today_briefing.txt").read_text() == ""
+
+
+def test_digest_dispatches_with_category(monkeypatch, patch_config, tmp_path):
+    patch_config(_config(tmp_path))
+    seen = {}
+    monkeypatch.setattr(cli, "run_category_digest", lambda c, cat: seen.setdefault("cat", cat) or "msg")
+    assert cli.main(["--digest", "market_info"]) == 0
+    assert seen["cat"] == "market_info"
+
+
+def test_closing_dispatches_market_info_closing(monkeypatch, patch_config, tmp_path):
+    patch_config(_config(tmp_path))
+    seen = {}
+
+    def _fake(config, category, closing=False):
+        seen["category"] = category
+        seen["closing"] = closing
+        return "msg"
+
+    monkeypatch.setattr(cli, "run_category_digest", _fake)
+    assert cli.main(["--closing"]) == 0
+    assert seen == {"category": "market_info", "closing": True}
+
+
+def test_per_entity_dispatches_batch1(monkeypatch, patch_config, tmp_path):
+    patch_config(_config(tmp_path))
+    seen = {}
+
+    def _fake(config, categories, target_date=None):
+        seen["categories"] = categories
+        return 2
+
+    monkeypatch.setattr(cli, "run_per_entity_briefing", _fake)
+    assert cli.main(["--per-entity"]) == 0
+    assert seen["categories"] == ["company", "industry"]
+
+
+def test_news_needs_only_telegram(monkeypatch, patch_config, tmp_path):
+    # 뉴스는 무키(ollama 불필요) — ollama 키 없어도 동작해야 한다
+    patch_config(_config(tmp_path, ollama_api_key=""))
+    monkeypatch.setattr(cli, "run_market_news", lambda c: 1)
+    assert cli.main(["--news"]) == 0
+
+
+def test_news_aborts_without_telegram(monkeypatch, patch_config, tmp_path):
+    patch_config(_config(tmp_path, telegram_bot_token=""))
+    called = False
+
+    def _should_not_run(c):
+        nonlocal called
+        called = True
+        return 1
+
+    monkeypatch.setattr(cli, "run_market_news", _should_not_run)
+    assert cli.main(["--news"]) == 2
+    assert called is False
+
+
+def test_premarket_dispatches(monkeypatch, patch_config, tmp_path):
+    patch_config(_config(tmp_path, ollama_api_key=""))  # 무키
+    seen = {}
+    monkeypatch.setattr(cli, "run_premarket", lambda c: seen.setdefault("ran", True) or 1)
+    assert cli.main(["--premarket"]) == 0
+    assert seen["ran"] is True

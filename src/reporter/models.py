@@ -57,3 +57,13 @@ class Briefing:
     text: str
     report_count: int
     categories: list[str] = field(default_factory=list)
+
+
+@dataclass
+class DigestResult:
+    """카테고리 장문 종합 + 인용도 상위 소스 선정 결과."""
+
+    text: str
+    category: str
+    report_count: int
+    sources: list[Report] = field(default_factory=list)  # 인용 상위(발췌 많이 된) 리포트

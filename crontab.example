@@ -5,20 +5,28 @@
 PROJECT=/Users/you/workspace/reporter
 PY=/Users/you/workspace/reporter/.venv/bin/python
 
-# 매일 오전 9시 — 전날 브리핑 로그 초기화 (월~금)
+# 07:00 — 미국증시 마감 + 간밤 뉴스 종합 (월~금)
+0 7 * * 1-5 cd $PROJECT && $PY -m reporter.cli --premarket >> logs/cron.log 2>&1
+
+# 09:00 — 전날 브리핑 로그 초기화
 0 9 * * 1-5 cd $PROJECT && $PY -m reporter.cli --reset-log
 
-# 9:30 — 종목분석 + 산업분석 (batch 1)
-30 9 * * 1-5 cd $PROJECT && $PY -m reporter.cli --batch 1 >> logs/cron.log 2>&1
+# 09:30 — 종목분석·산업분석 개별(종목/산업 단위 종합)
+30 9 * * 1-5 cd $PROJECT && $PY -m reporter.cli --per-entity >> logs/cron.log 2>&1
 
-# 10:00 — 시황정보 + 투자정보 (batch 2)
-0 10 * * 1-5 cd $PROJECT && $PY -m reporter.cli --batch 2 >> logs/cron.log 2>&1
+# 10:00 — 시황·투자 종합 (각각 장문 1건)
+0 10 * * 1-5 cd $PROJECT && $PY -m reporter.cli --digest market_info >> logs/cron.log 2>&1
+0 10 * * 1-5 cd $PROJECT && $PY -m reporter.cli --digest invest >> logs/cron.log 2>&1
 
-# 10:30 — 경제분석 (batch 3)
-30 10 * * 1-5 cd $PROJECT && $PY -m reporter.cli --batch 3 >> logs/cron.log 2>&1
-
-# 11:00 — 채권분석 (batch 4)
-0 11 * * 1-5 cd $PROJECT && $PY -m reporter.cli --batch 4 >> logs/cron.log 2>&1
+# 10:30 — 경제 종합 / 11:00 — 채권 종합
+30 10 * * 1-5 cd $PROJECT && $PY -m reporter.cli --digest economy >> logs/cron.log 2>&1
+0 11 * * 1-5 cd $PROJECT && $PY -m reporter.cli --digest debenture >> logs/cron.log 2>&1
 
 # 14:00 — 오후 능동 리서치
 0 14 * * 1-5 cd $PROJECT && $PY -m reporter.cli --afternoon >> logs/cron.log 2>&1
+
+# 17:00 — 마감 시황 종합
+0 17 * * 1-5 cd $PROJECT && $PY -m reporter.cli --closing >> logs/cron.log 2>&1
+
+# 09~16시 매시 정각 — 장중 시장 뉴스 종합 (cron 은 range 지원)
+0 9-16 * * 1-5 cd $PROJECT && $PY -m reporter.cli --news >> logs/cron.log 2>&1

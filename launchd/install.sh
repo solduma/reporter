@@ -15,19 +15,38 @@ AGENTS="$HOME/Library/LaunchAgents"
 LABEL_PREFIX="com.reporter"
 
 # job: 라벨접미사 | 시(hour) | 분(minute) | reporter 인자
-# 월~금(Weekday 1-5) 만 실행. 09:00 로그 초기화 → 배치 순차 → 14:00 오후 리서치.
+# 월~금(Weekday 1-5) 만 실행.
+# 07:00 미장마감+간밤뉴스 → 09:00 로그초기화 → 09:30 종목/산업 개별 →
+# 10:00 시황/투자 종합 → 10:30 경제 → 11:00 채권 → 14:00 오후리서치 →
+# 17:00 마감시황 / 09~16시 매시 장중뉴스.
 JOBS=(
+  "premarket|7|0|--premarket"
   "reset|9|0|--reset-log"
-  "batch1|9|30|--batch 1"
-  "batch2|10|0|--batch 2"
-  "batch3|10|30|--batch 3"
-  "batch4|11|0|--batch 4"
+  "perentity|9|30|--per-entity"
+  "digest_market|10|0|--digest market_info"
+  "digest_invest|10|0|--digest invest"
+  "digest_econ|10|30|--digest economy"
+  "digest_bond|11|0|--digest debenture"
   "afternoon|14|0|--afternoon"
+  "closing|17|0|--closing"
+  "news09|9|0|--news"
+  "news10|10|0|--news"
+  "news11|11|0|--news"
+  "news12|12|0|--news"
+  "news13|13|0|--news"
+  "news14|14|0|--news"
+  "news15|15|0|--news"
+  "news16|16|0|--news"
 )
 
+# 이전 버전에서 설치했던 레거시 라벨(uninstall 시 함께 정리).
+LEGACY_SUFFIXES=(batch1 batch2 batch3 batch4)
+
 uninstall() {
-  for job in "${JOBS[@]}"; do
-    suffix="${job%%|*}"
+  local suffixes=()
+  for job in "${JOBS[@]}"; do suffixes+=("${job%%|*}"); done
+  suffixes+=("${LEGACY_SUFFIXES[@]}")
+  for suffix in "${suffixes[@]}"; do
     label="$LABEL_PREFIX.$suffix"
     plist="$AGENTS/$label.plist"
     launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
@@ -105,6 +124,14 @@ if [[ ! -x "$PY" ]]; then
 fi
 
 mkdir -p "$AGENTS" "$PROJECT/logs"
+
+# 설치 시 레거시 라벨(구 batch1~4 등)을 먼저 정리해 중복 발송을 막는다.
+for suffix in "${LEGACY_SUFFIXES[@]}"; do
+  label="$LABEL_PREFIX.$suffix"
+  launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
+  rm -f "$AGENTS/$label.plist"
+done
+
 for job in "${JOBS[@]}"; do
   IFS='|' read -r suffix hour minute args <<< "$job"
   install_job "$suffix" "$hour" "$minute" "$args"
@@ -112,6 +139,6 @@ done
 
 echo ""
 echo "완료. 재부팅/재로그인 후에도 자동 유지됩니다."
-echo "확인:   launchctl print gui/$(id -u)/$LABEL_PREFIX.batch1 | grep -A3 state"
+echo "확인:   launchctl print gui/$(id -u)/$LABEL_PREFIX.perentity | grep -A3 state"
 echo "목록:   launchctl list | grep $LABEL_PREFIX"
 echo "제거:   $0 uninstall"

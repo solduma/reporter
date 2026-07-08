@@ -5,16 +5,35 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
-from . import analyzer
+from . import analyzer, article, news, us_market
 from .config import Config
 from .crawler import crawl_categories
-from .models import CATEGORY_NAMES, Briefing, Report
+from .grouping import group_by_entity
+from .models import CATEGORY_NAMES, Briefing, DigestResult, Report
 from .ollama_client import OllamaClient
 from .pdf import enrich_with_text
 from .selector import select_top
+from .shortener import UrlShortener
 from .telegram import TelegramSender
 
+# 뉴스 종합 시 본문까지 크롤할 상위 기사 수(headless 라 무거워 소수만).
+_ARTICLE_CRAWL_TOP = 6
+
 logger = logging.getLogger(__name__)
+
+_DIVIDER = "─" * 20
+
+# 카테고리별 종합 digest 헤더 이모지
+_DIGEST_HEADER = {
+    "market_info": "📈 시황 종합",
+    "invest": "💡 투자 종합",
+    "economy": "🌍 경제 종합",
+    "debenture": "💵 채권 종합",
+}
+# 장중 시장 뉴스 검색 키워드
+_MARKET_NEWS_KEYWORDS = ["코스피", "코스닥", "증시", "환율", "금리"]
+# 간밤 미국/글로벌 뉴스 검색 키워드
+_GLOBAL_NEWS_KEYWORDS = ["미국 증시", "나스닥", "연준", "뉴욕증시", "글로벌 경제"]
 
 
 def _format_message(briefing: Briefing) -> str:
@@ -32,6 +51,78 @@ def _format_report_message(report: Report) -> str:
     link = report.pdf_url or report.read_url
     if link:
         lines += ["", f"🔗 {link}"]
+    return "\n".join(lines)
+
+
+def _report_link(report: Report) -> str:
+    return report.pdf_url or report.read_url or ""
+
+
+def _format_entity_message(
+    entity: str, category: str, summary: str, reports: list[Report], shortener: UrlShortener
+) -> str:
+    """종목/산업 단위 종합 + 그 단위 모든 리포트 링크(단축)."""
+    header = "🏢 종목 브리핑" if category == "company" else "🏭 산업 브리핑"
+    lines = [f"{header} — {entity}", f"(리포트 {len(reports)}건 종합)", _DIVIDER, summary, "", "🔗 리포트 원문"]
+    for r in reports:
+        link = _report_link(r)
+        if link:
+            lines.append(f"• [{r.broker}] {r.title}\n{shortener.shorten(link)}")
+    return "\n".join(lines)
+
+
+def _format_digest_message(
+    digest: DigestResult, shortener: UrlShortener, closing: bool = False
+) -> str:
+    """카테고리 장문 종합 + 인용 상위 5개 소스 링크(단축)."""
+    date = datetime.now().strftime("%Y-%m-%d")
+    header = "🔔 마감 시황 종합" if closing else _DIGEST_HEADER.get(digest.category, "📊 종합")
+    lines = [f"{header} — {date}", f"(리포트 {digest.report_count}건 참고)", _DIVIDER, digest.text]
+    if digest.sources:
+        lines += ["", "📚 핵심 근거 리포트"]
+        for i, r in enumerate(digest.sources, 1):
+            link = _report_link(r)
+            short = shortener.shorten(link) if link else ""
+            lines.append(f"{i}. [{r.broker}] {r.title}\n{short}" if short else f"{i}. [{r.broker}] {r.title}")
+    return "\n".join(lines)
+
+
+def _collect_market_news(keywords: list[str], limit: int, session) -> list[news.NewsItem]:
+    """여러 키워드로 뉴스를 모아 제목 중복을 제거하고 상위 limit 건을 반환한다."""
+    seen: set[str] = set()
+    collected: list[news.NewsItem] = []
+    for kw in keywords:
+        for item in news.search(kw, limit=5, session=session):
+            if item.title and item.title not in seen:
+                seen.add(item.title)
+                collected.append(item)
+    return collected[:limit]
+
+
+def _shortener(config: Config, session) -> UrlShortener:
+    return UrlShortener(config.logs_dir / "url_cache.json", session=session)
+
+
+def _synthesize_news(client: OllamaClient, model: str, items: list[news.NewsItem]) -> str:
+    """상위 기사 본문(headless)+나머지 제목으로 서술형 시장 요약을 만든다."""
+    blocks: list[str] = []
+    for it in items[:_ARTICLE_CRAWL_TOP]:
+        body = article.fetch_article_text(it.link)
+        blocks.append(f"[{it.source}] {it.title}\n{body}" if body else f"[{it.source}] {it.title}")
+    for it in items[_ARTICLE_CRAWL_TOP:]:
+        blocks.append(f"[{it.source}] {it.title}")
+    return analyzer.synthesize_news(client, model, blocks)
+
+
+def _format_news_digest(
+    header: str, summary: str, items: list[news.NewsItem], shortener: UrlShortener
+) -> str:
+    date = datetime.now().strftime("%m-%d %H:%M")
+    lines = [f"{header} — {date}", _DIVIDER]
+    if summary:
+        lines += [summary, "", "🔗 관련 기사"]
+    for i, it in enumerate(items, 1):
+        lines.append(f"{i}. {it.title} ({it.source})\n{shortener.shorten(it.link)}")
     return "\n".join(lines)
 
 
@@ -96,3 +187,107 @@ def run_per_report_briefing(
 
     logger.info("per-report briefing sent %d reports", len(summarized))
     return len(summarized)
+
+
+def run_per_entity_briefing(config: Config, categories: list[str], target_date: str | None = None) -> int:
+    """종목·산업을 개별 종목/산업 단위로 종합해 발송한다(단위별 모든 링크 포함).
+
+    발송한 메시지(종목/산업) 수를 반환한다.
+    """
+    reports = crawl_categories(categories, target_date=target_date)
+    if not reports:
+        logger.info("no reports for %s", categories)
+        return 0
+    enriched = enrich_with_text(reports)
+    if not enriched:
+        return 0
+
+    client = OllamaClient(config.ollama_host, config.ollama_api_key)
+    summarized = analyzer.summarize_reports(client, config.summary_model, enriched)
+    if not summarized:
+        return 0
+
+    import requests
+
+    sender = TelegramSender(config.telegram_bot_token, config.telegram_chat_id)
+    shortener = _shortener(config, requests.Session())
+    groups = group_by_entity(summarized)
+    sent = 0
+    for entity, group in groups.items():
+        group.sort(key=lambda r: r.views, reverse=True)
+        summary = analyzer.synthesize_entity(client, config.insight_model, group)
+        message = _format_entity_message(entity, group[0].category, summary, group, shortener)
+        sender.send(message)
+        sent += 1
+    logger.info("per-entity briefing sent %d messages", sent)
+    return sent
+
+
+def run_category_digest(
+    config: Config, category: str, closing: bool = False, target_date: str | None = None
+) -> str | None:
+    """한 카테고리를 장문 종합 1건으로 발송한다(인용 상위 5개 링크 포함)."""
+    reports = crawl_categories([category], target_date=target_date)
+    if not reports:
+        logger.info("no reports for %s", category)
+        return None
+    enriched = enrich_with_text(reports)
+    if not enriched:
+        return None
+
+    client = OllamaClient(config.ollama_host, config.ollama_api_key)
+    summarized = analyzer.summarize_reports(client, config.summary_model, enriched)
+    if not summarized:
+        return None
+
+    import requests
+
+    digest = analyzer.synthesize_digest(client, config.insight_model, summarized)
+    shortener = _shortener(config, requests.Session())
+    message = _format_digest_message(digest, shortener, closing=closing)
+    TelegramSender(config.telegram_bot_token, config.telegram_chat_id).send(message)
+    logger.info("%s digest sent (closing=%s)", category, closing)
+    return message
+
+
+def run_market_news(config: Config) -> int:
+    """장중 시장 뉴스를 종합·요약해 발송한다(제목 나열 아님). 발송 청크 수 반환."""
+    import requests
+
+    session = requests.Session()
+    items = _collect_market_news(_MARKET_NEWS_KEYWORDS, limit=8, session=session)
+    if not items:
+        logger.info("no market news")
+        return 0
+
+    client = OllamaClient(config.ollama_host, config.ollama_api_key)
+    summary = _synthesize_news(client, config.insight_model, items)
+    shortener = _shortener(config, session)
+    message = _format_news_digest("📰 장중 시장 뉴스", summary, items[:5], shortener)
+    return TelegramSender(config.telegram_bot_token, config.telegram_chat_id).send(message)
+
+
+def run_premarket(config: Config) -> int:
+    """아침 미국증시 마감(지수 수치) + 간밤 주요 뉴스 종합 발송."""
+    import requests
+
+    session = requests.Session()
+    date = datetime.now().strftime("%Y-%m-%d")
+    lines = [f"🌅 굿모닝 미국증시 — {date}", _DIVIDER, "📊 간밤 미국 증시"]
+    for q in us_market.fetch_us_indices(session):
+        arrow = "▲" if q.rising else "▼" if q.rising is False else "-"
+        lines.append(f"• {q.name}  {q.close}  {arrow} {q.change} ({q.change_ratio}%)")
+
+    items = _collect_market_news(_GLOBAL_NEWS_KEYWORDS, limit=10, session=session)
+    if items:
+        client = OllamaClient(config.ollama_host, config.ollama_api_key)
+        summary = _synthesize_news(client, config.insight_model, items)
+        if summary:
+            lines += ["", "📝 간밤 시장 요약", summary]
+        shortener = _shortener(config, session)
+        lines += ["", "🗞 주요 뉴스"]
+        for i, it in enumerate(items[:10], 1):
+            lines.append(f"{i}. {it.title} ({it.source})\n{shortener.shorten(it.link)}")
+
+    message = "\n".join(lines)
+    return TelegramSender(config.telegram_bot_token, config.telegram_chat_id).send(message)

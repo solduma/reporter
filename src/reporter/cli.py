@@ -16,8 +16,18 @@ import sys
 from .afternoon import run_afternoon_research
 from .config import Config, load_config
 from .models import BATCHES
-from .pipeline import run_morning_briefing, run_per_report_briefing
+from .pipeline import (
+    run_category_digest,
+    run_market_news,
+    run_morning_briefing,
+    run_per_entity_briefing,
+    run_per_report_briefing,
+    run_premarket,
+)
 from .telegram import resolve_chat_ids
+
+# --digest 대상 카테고리(종목·산업은 --per-entity 로 개별 발송)
+_DIGEST_CATEGORIES = ("market_info", "invest", "economy", "debenture")
 
 # 모드별로 실제 사용하는 env. 존재하지 않는 값으로 API 를 호출하기 전에 미리 검증한다.
 _OLLAMA = ("ollama_api_key",)
@@ -68,6 +78,20 @@ def main(argv: list[str] | None = None) -> int:
         metavar="BATCH",
         help="해당 batch 리포트를 리포트당 1건씩 개별 요약 발송",
     )
+    group.add_argument(
+        "--per-entity",
+        action="store_true",
+        help="종목분석·산업분석을 종목/산업 단위로 종합 발송(단위별 전체 링크 포함)",
+    )
+    group.add_argument(
+        "--digest",
+        choices=_DIGEST_CATEGORIES,
+        metavar="CATEGORY",
+        help="한 카테고리를 장문 종합 1건으로 발송(인용 상위 5개 링크)",
+    )
+    group.add_argument("--closing", action="store_true", help="마감 시황 종합 발송(17시)")
+    group.add_argument("--news", action="store_true", help="장중 시장 뉴스 Top5 발송")
+    group.add_argument("--premarket", action="store_true", help="아침 미국증시 마감 + 간밤 뉴스 Top10")
     group.add_argument("--reset-log", action="store_true", help="당일 브리핑 로그 초기화")
     group.add_argument("--chat-id", action="store_true", help="getUpdates 로 텔레그램 chat_id 조회")
     parser.add_argument("--top-n", type=int, default=5, help="카테고리별 선별 개수 (기본 5)")
@@ -93,11 +117,40 @@ def main(argv: list[str] | None = None) -> int:
             print(f"chat_id={cid}  ({name})")
         return 0
 
-    if err := _require(config, *_OLLAMA, *_TELEGRAM):
+    # 뉴스·미국지수는 무키(텔레그램만 필요), 나머지 발송 모드는 GLM+텔레그램.
+    if args.news or args.premarket:
+        if err := _require(config, *_TELEGRAM):
+            return err
+    elif err := _require(config, *_OLLAMA, *_TELEGRAM):
         return err
+
+    if args.news:
+        if run_market_news(config) == 0:
+            print("발송할 뉴스가 없습니다.", file=sys.stderr)
+        return 0
+
+    if args.premarket:
+        run_premarket(config)
+        return 0
 
     if args.afternoon:
         run_afternoon_research(config)
+        return 0
+
+    if args.closing:
+        if run_category_digest(config, "market_info", closing=True) is None:
+            print("마감 시황 리포트가 없습니다.", file=sys.stderr)
+        return 0
+
+    if args.digest:
+        if run_category_digest(config, args.digest) is None:
+            print("발송할 리포트가 없습니다.", file=sys.stderr)
+        return 0
+
+    if args.per_entity:
+        # 종목분석·산업분석(batch 1) 대상
+        if run_per_entity_briefing(config, BATCHES[1], target_date=args.date) == 0:
+            print("발송할 리포트가 없습니다.", file=sys.stderr)
         return 0
 
     if args.per_report is not None:

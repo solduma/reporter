@@ -54,23 +54,39 @@ TELEGRAM_CHAT_ID=...          # 아래 방법으로 확인
 
 ## 실행
 
-```bash
-# 오전 브리핑 — batch 단위 (증권사 리포트가 9~11시 순차 발행되므로 시간차 실행)
-uv run reporter --batch 1     # 종목분석 + 산업분석
-uv run reporter --batch 2     # 시황정보 + 투자정보
-uv run reporter --batch 3     # 경제분석
-uv run reporter --batch 4     # 채권분석
-uv run reporter --all         # 전체 한 번에
+각 메시지는 최상단에 이모지 헤더로 종류를 표시한다.
 
-# 오후 능동 리서치
+```bash
+# 07:00 미국증시 마감(지수 수치) + 간밤 뉴스 종합
+uv run reporter --premarket
+
+# 09:30 종목분석·산업분석 — 종목/산업 단위로 종합(단위별 리포트 링크 전부)
+uv run reporter --per-entity
+
+# 10:00~ 카테고리별 장문 종합 1건 + 인용 상위 5개 링크
+uv run reporter --digest market_info   # 시황  (📈)
+uv run reporter --digest invest        # 투자  (💡)
+uv run reporter --digest economy       # 경제  (🌍)
+uv run reporter --digest debenture     # 채권  (💵)
+
+# 17:00 마감 시황 종합
+uv run reporter --closing
+
+# 09~16시 매시 — 장중 시장 뉴스 종합(본문 크롤+GLM, 링크 단축)
+uv run reporter --news
+
+# 14:00 오후 능동 리서치(키워드별 뉴스 연결)
 uv run reporter --afternoon
 
-# 당일 로그 초기화
-uv run reporter --reset-log
-
-# 텔레그램 chat_id 조회 (봇에게 메시지 보낸 뒤 실행)
-uv run reporter --chat-id
+# 기타
+uv run reporter --reset-log           # 당일 로그 초기화
+uv run reporter --chat-id             # 텔레그램 chat_id 조회
+uv run reporter --per-report 1        # (레거시) 리포트당 1건 개별 발송
+uv run reporter --batch 1 | --all     # (레거시) 종합 브리핑
 ```
+
+> 링크는 TinyURL 로 단축해 발송한다(캐시: `logs/url_cache.json`). 장중/미장 뉴스는
+> 상위 기사 본문을 headless Chrome 으로 크롤해 GLM 이 서술형으로 종합한다(시스템 Chrome 필요).
 
 ## 자동 실행 (launchd — macOS 권장)
 
