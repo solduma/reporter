@@ -58,3 +58,26 @@ class CandlePoint(BaseModel):
 class CompanySummary(BaseModel):
     stock_code: str
     stock_name: str | None
+
+
+class FinancialPeriodOut(BaseModel):
+    period: str
+    is_estimate: bool
+    revenue: float | None
+    operating_income: float | None
+    net_income: float | None
+    eps: float | None
+    per: float | None
+    pbr: float | None
+    roe: float | None
+
+
+class PeerOut(BaseModel):
+    stock_code: str
+    name: str
+    price: str | None
+    market_cap: str | None
+    foreign_ratio: str | None
+    per: str | None
+    pbr: str | None
+    roe: str | None

@@ -113,6 +113,52 @@ class PriceCandleIntraday(Base):
     volume: Mapped[int] = mapped_column(BigInteger, default=0)
 
 
+class Financial(Base):
+    """기간별(연간/분기) 재무·밸류에이션. main.naver 스크래핑 결과 upsert."""
+
+    __tablename__ = "financials"
+    __table_args__ = (UniqueConstraint("stock_code", "period", name="uq_financial"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    stock_code: Mapped[str] = mapped_column(String(6), index=True)
+    period: Mapped[str] = mapped_column(String(16))  # '2026.03' / '2026.12(E)'
+    is_estimate: Mapped[bool] = mapped_column(default=False)
+    revenue: Mapped[float | None] = mapped_column(Float)
+    operating_income: Mapped[float | None] = mapped_column(Float)
+    net_income: Mapped[float | None] = mapped_column(Float)
+    eps: Mapped[float | None] = mapped_column(Float)
+    bps: Mapped[float | None] = mapped_column(Float)
+    per: Mapped[float | None] = mapped_column(Float)
+    pbr: Mapped[float | None] = mapped_column(Float)
+    roe: Mapped[float | None] = mapped_column(Float)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class Peer(Base):
+    """동일업종비교 한 종목. 표시값을 JSON 유사 컬럼 대신 정규 컬럼으로 저장."""
+
+    __tablename__ = "peers"
+    __table_args__ = (
+        UniqueConstraint("base_stock_code", "peer_stock_code", name="uq_peer"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    base_stock_code: Mapped[str] = mapped_column(String(6), index=True)
+    peer_stock_code: Mapped[str] = mapped_column(String(6))
+    peer_name: Mapped[str] = mapped_column(String(128))
+    price: Mapped[str | None] = mapped_column(String(32))
+    market_cap: Mapped[str | None] = mapped_column(String(32))
+    foreign_ratio: Mapped[str | None] = mapped_column(String(32))
+    per: Mapped[str | None] = mapped_column(String(32))
+    pbr: Mapped[str | None] = mapped_column(String(32))
+    roe: Mapped[str | None] = mapped_column(String(32))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class DailyMarketInfo(Base):
     __tablename__ = "daily_market_info"
     __table_args__ = (UniqueConstraint("market_date", name="uq_market_date"),)

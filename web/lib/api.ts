@@ -1,8 +1,10 @@
 import type {
   CandlePoint,
   CompanySummary,
+  FinancialPeriod,
   Industry,
   MarketBrief,
+  Peer,
   Report,
   ReportCategory,
   SentimentPoint,
@@ -65,4 +67,12 @@ export function fetchCandles(code: string, tf: Timeframe): Promise<CandlePoint[]
   return getJson<CandlePoint[]>(
     `/api/companies/${encodeURIComponent(code)}/candles?tf=${tf}`,
   );
+}
+
+export function fetchFinancials(code: string): Promise<FinancialPeriod[]> {
+  return getJson<FinancialPeriod[]>(`/api/companies/${encodeURIComponent(code)}/financials`);
+}
+
+export function fetchPeers(code: string): Promise<Peer[]> {
+  return getJson<Peer[]>(`/api/companies/${encodeURIComponent(code)}/peers`);
 }

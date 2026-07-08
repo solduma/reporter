@@ -56,3 +56,26 @@ export interface CandlePoint {
   c: number;
   v: number;
 }
+
+export interface FinancialPeriod {
+  period: string;
+  is_estimate: boolean;
+  revenue: number | null;
+  operating_income: number | null;
+  net_income: number | null;
+  eps: number | null;
+  per: number | null;
+  pbr: number | null;
+  roe: number | null;
+}
+
+export interface Peer {
+  stock_code: string;
+  name: string;
+  price: string | null;
+  market_cap: string | null;
+  foreign_ratio: string | null;
+  per: string | null;
+  pbr: string | null;
+  roe: string | null;
+}
