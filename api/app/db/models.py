@@ -10,6 +10,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     Enum,
+    Float,
     ForeignKey,
     Integer,
     String,
@@ -68,6 +69,48 @@ class ReportAnalysis(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     report: Mapped[Report] = relationship(back_populates="analysis")
+
+
+class Timeframe(enum.StrEnum):
+    DAY = "day"
+    WEEK = "week"
+    MONTH = "month"
+
+
+class PriceCandle(Base):
+    """일/주/월봉 캐시. 네이버 신형 차트 API 응답을 upsert 한다."""
+
+    __tablename__ = "price_candles"
+    __table_args__ = (
+        UniqueConstraint("stock_code", "timeframe", "bar_date", name="uq_candle"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    stock_code: Mapped[str] = mapped_column(String(6), index=True)
+    timeframe: Mapped[Timeframe] = mapped_column(Enum(Timeframe))
+    bar_date: Mapped[date] = mapped_column(Date)
+    open: Mapped[float] = mapped_column(Float)
+    high: Mapped[float] = mapped_column(Float)
+    low: Mapped[float] = mapped_column(Float)
+    close: Mapped[float] = mapped_column(Float)
+    volume: Mapped[int] = mapped_column(BigInteger, default=0)
+    foreign_ratio: Mapped[float | None] = mapped_column(Float)
+
+
+class PriceCandleIntraday(Base):
+    """30분봉(1분봉 리샘플 결과) 누적. 네이버 분봉 보존기간이 짧아 매 거래일 cron 으로 쌓는다."""
+
+    __tablename__ = "price_candles_intraday"
+    __table_args__ = (UniqueConstraint("stock_code", "bar_ts", name="uq_candle_intraday"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    stock_code: Mapped[str] = mapped_column(String(6), index=True)
+    bar_ts: Mapped[datetime] = mapped_column(DateTime)
+    open: Mapped[float] = mapped_column(Float)
+    high: Mapped[float] = mapped_column(Float)
+    low: Mapped[float] = mapped_column(Float)
+    close: Mapped[float] = mapped_column(Float)
+    volume: Mapped[int] = mapped_column(BigInteger, default=0)
 
 
 class DailyMarketInfo(Base):

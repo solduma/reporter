@@ -1,9 +1,12 @@
 import type {
+  CandlePoint,
+  CompanySummary,
   Industry,
   MarketBrief,
   Report,
   ReportCategory,
   SentimentPoint,
+  Timeframe,
 } from "@/lib/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8010";
@@ -51,5 +54,15 @@ export function fetchIndustrySentiment(
   const suffix = query ? `?${query}` : "";
   return getJson<SentimentPoint[]>(
     `/api/industries/${encodeURIComponent(name)}/sentiment${suffix}`,
+  );
+}
+
+export function fetchCompanySummary(code: string): Promise<CompanySummary> {
+  return getJson<CompanySummary>(`/api/companies/${encodeURIComponent(code)}/summary`);
+}
+
+export function fetchCandles(code: string, tf: Timeframe): Promise<CandlePoint[]> {
+  return getJson<CandlePoint[]>(
+    `/api/companies/${encodeURIComponent(code)}/candles?tf=${tf}`,
   );
 }
