@@ -80,6 +80,16 @@ export interface Peer {
   roe: string | null;
 }
 
+// 관세청 수출입 무역통계 — HS 코드(문자열) → 한글 품목명
+export type TradePresets = Record<string, string>;
+
+export interface TradePoint {
+  period: string; // "YYYY.MM"
+  export_usd: number;
+  import_usd: number;
+  balance_usd: number;
+}
+
 export type TimelineItemType = "report" | "disclosure";
 
 export interface TimelineItem {

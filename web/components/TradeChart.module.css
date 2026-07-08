@@ -1,0 +1,21 @@
+.tooltip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  padding: 8px 12px;
+  font-size: 0.8rem;
+}
+
+.tooltipLabel {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.tooltipRow {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}

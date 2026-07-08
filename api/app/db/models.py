@@ -199,6 +199,23 @@ class Disclosure(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class TradeStat(Base):
+    """HS 품목별 월별 수출입 실적(전체 국가 합산). 관세청 API 캐시."""
+
+    __tablename__ = "trade_stats"
+    __table_args__ = (UniqueConstraint("hs_code", "period", name="uq_trade_stat"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    hs_code: Mapped[str] = mapped_column(String(12), index=True)
+    period: Mapped[str] = mapped_column(String(7))  # 'YYYY.MM'
+    export_usd: Mapped[int] = mapped_column(BigInteger, default=0)
+    import_usd: Mapped[int] = mapped_column(BigInteger, default=0)
+    balance_usd: Mapped[int] = mapped_column(BigInteger, default=0)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class DailyMarketInfo(Base):
     __tablename__ = "daily_market_info"
     __table_args__ = (UniqueConstraint("market_date", name="uq_market_date"),)

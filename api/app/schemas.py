@@ -46,6 +46,13 @@ class SentimentPoint(BaseModel):
     reports: list[ReportRef]
 
 
+class TradePoint(BaseModel):
+    period: str  # 'YYYY.MM'
+    export_usd: int
+    import_usd: int
+    balance_usd: int
+
+
 class CandlePoint(BaseModel):
     t: str  # ISO 시각 (일/주/월봉은 YYYY-MM-DD, 30분봉은 ISO datetime)
     o: float

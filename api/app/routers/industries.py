@@ -4,13 +4,17 @@ from __future__ import annotations
 
 from datetime import date
 
+import requests
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from app.db.models import Report, ReportAnalysis, Sentiment
+from app.config import get_settings
+from app.db.models import Report, ReportAnalysis, Sentiment, TradeStat
 from app.db.session import get_session
-from app.schemas import IndustrySummary, ReportRef, SentimentPoint
+from app.schemas import IndustrySummary, ReportRef, SentimentPoint, TradePoint
+from app.services import customs
 
 router = APIRouter(prefix="/api/industries", tags=["industries"])
 
@@ -76,3 +80,68 @@ def industry_sentiment(
             )
         )
     return points
+
+
+# 별도 라우터: 무역통계는 /api/trade (산업 흐름 페이지 하단).
+trade_router = APIRouter(prefix="/api/trade", tags=["trade"])
+
+# 대표 품목 프리셋(HS 4자리). 산업 흐름과 연관 큰 품목 위주.
+TRADE_PRESETS = {
+    "8542": "반도체",
+    "8471": "컴퓨터",
+    "8517": "통신기기",
+    "2710": "석유제품",
+    "8703": "승용차",
+    "8708": "자동차부품",
+}
+
+
+@trade_router.get("", response_model=list[TradePoint])
+def trade_stats(
+    hs: str = Query(default="8542", description="HS 코드(4자리 이상)"),
+    start: str = Query(..., pattern=r"^\d{6}$", description="시작 YYYYMM"),
+    end: str = Query(..., pattern=r"^\d{6}$", description="종료 YYYYMM"),
+    db: Session = Depends(get_session),
+) -> list[TradePoint]:
+    settings = get_settings()
+    if settings.customs_api_key:
+        fetched = customs.fetch_trade_by_hs(
+            settings.customs_api_key, hs, start, end, requests.Session()
+        )
+        for m in fetched:
+            stmt = insert(TradeStat).values(
+                hs_code=hs,
+                period=m.period,
+                export_usd=m.export_usd,
+                import_usd=m.import_usd,
+                balance_usd=m.balance_usd,
+            )
+            stmt = stmt.on_conflict_do_update(
+                constraint="uq_trade_stat",
+                set_={
+                    "export_usd": stmt.excluded.export_usd,
+                    "import_usd": stmt.excluded.import_usd,
+                    "balance_usd": stmt.excluded.balance_usd,
+                },
+            )
+            db.execute(stmt)
+        if fetched:
+            db.commit()
+
+    rows = db.scalars(
+        select(TradeStat).where(TradeStat.hs_code == hs).order_by(TradeStat.period)
+    ).all()
+    return [
+        TradePoint(
+            period=r.period,
+            export_usd=r.export_usd,
+            import_usd=r.import_usd,
+            balance_usd=r.balance_usd,
+        )
+        for r in rows
+    ]
+
+
+@trade_router.get("/presets")
+def trade_presets() -> dict:
+    return TRADE_PRESETS
