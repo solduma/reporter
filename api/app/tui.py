@@ -47,14 +47,16 @@ class AdminTUI(App):
     #status { height: auto; border: round $accent; padding: 1; }
     #actions { height: auto; padding: 1; }
     #actions Button { margin: 0 1; }
-    #log { height: 1fr; border: round $secondary; }
-    #preview { height: 15; border: round $primary; }
+    #log { height: 10; border: round $secondary; }
+    #preview { height: 1fr; border: round $primary; }
     .running { color: $warning; }
     """
     BINDINGS: ClassVar = [
         ("r", "refresh", "상태 새로고침"),
         ("q", "quit", "종료"),
     ]
+
+    _PREVIEW_LIMIT = 50  # 미리보기 테이블은 스크롤되므로 넉넉히
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -116,7 +118,7 @@ class AdminTUI(App):
         """스몰캡 성장주 상위(매출 YoY) 미리보기."""
         db = SessionLocal()
         try:
-            rows = admin_status.screener_preview(db, limit=10)
+            rows = admin_status.screener_preview(db, limit=self._PREVIEW_LIMIT)
         finally:
             db.close()
         table = self.query_one("#preview", DataTable)
