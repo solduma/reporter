@@ -8,6 +8,7 @@ import type {
   Report,
   ReportCategory,
   ScreenerMarket,
+  ScreenerOpGrowth,
   ScreenerResult,
   ScreenerSort,
   SentimentPoint,
@@ -68,6 +69,8 @@ export function fetchIndustrySentiment(
 export interface ScreenerQuery {
   mktcapMax?: number;
   mktcapMin?: number;
+  revYoyMin?: number;
+  opGrowth?: ScreenerOpGrowth;
   momMin?: number;
   momMax?: number;
   liqMin?: number;
@@ -87,6 +90,8 @@ export function fetchScreener(query: ScreenerQuery): Promise<ScreenerResult> {
   };
   set("mktcap_max", query.mktcapMax);
   set("mktcap_min", query.mktcapMin);
+  set("rev_yoy_min", query.revYoyMin);
+  set("op_growth", query.opGrowth);
   set("mom_min", query.momMin);
   set("mom_max", query.momMax);
   set("liq_min", query.liqMin);

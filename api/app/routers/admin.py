@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db.session import get_session
-from app.services import ingest, universe_ingest
+from app.services import growth_ingest, ingest, universe_ingest
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -33,3 +33,11 @@ def trigger_universe_snapshot(
     market_tuple = tuple(m.strip() for m in markets.split(",") if m.strip())
     rows = universe_ingest.snapshot_universe(db, datetime.now().date(), market_tuple)
     return {"rows_upserted": rows}
+
+
+@router.post("/growth/batch")
+def trigger_growth_batch(
+    limit: int | None = Query(default=None, description="처리 종목 수 상한(테스트용)"),
+    db: Session = Depends(get_session),
+) -> dict:
+    return growth_ingest.run_growth_batch(db, limit=limit)

@@ -232,7 +232,25 @@ class UniverseSnapshot(Base):
     change_pct: Mapped[float | None] = mapped_column(Float)
     market_cap: Mapped[int | None] = mapped_column(BigInteger, index=True)
     trading_value: Mapped[int | None] = mapped_column(BigInteger)
-    three_month_rate: Mapped[float | None] = mapped_column(Float)
+    three_month_rate: Mapped[float | None] = mapped_column(Float)  # 네이버 제공(대개 결측)
+    momentum_3m: Mapped[float | None] = mapped_column(Float)  # price_candles 로 계산한 3개월 수익률%
+
+
+class GrowthMetric(Base):
+    """종목 성장지표 — financials 분기 데이터에서 파생한 YoY·흑자전환 캐시."""
+
+    __tablename__ = "growth_metric"
+    __table_args__ = (UniqueConstraint("stock_code", name="uq_growth_stock"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    stock_code: Mapped[str] = mapped_column(String(6), index=True)
+    period: Mapped[str] = mapped_column(String(16))  # 기준 분기
+    revenue_yoy: Mapped[float | None] = mapped_column(Float)
+    op_yoy: Mapped[float | None] = mapped_column(Float)
+    op_turnaround: Mapped[bool] = mapped_column(default=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class DailyMarketInfo(Base):

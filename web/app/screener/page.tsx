@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { fetchScreener } from "@/lib/api";
-import type { ScreenerMarket, ScreenerResult, ScreenerSort } from "@/lib/types";
+import type { ScreenerMarket, ScreenerOpGrowth, ScreenerResult, ScreenerSort } from "@/lib/types";
 
 import styles from "./page.module.css";
 
@@ -36,22 +36,54 @@ const LIQ_PRESETS: Preset<number>[] = [
   { label: "100억", value: 10_000_000_000 },
 ];
 
+// undefined = 하한 없음 → rev_yoy_min 생략. 값은 비율(0.15 = +15%).
+const REV_YOY_PRESETS: Preset<number | undefined>[] = [
+  { label: "없음", value: undefined },
+  { label: "+15%", value: 0.15 },
+  { label: "+30%", value: 0.3 },
+  { label: "+50%", value: 0.5 },
+];
+
+// undefined = 조건 없음 → op_growth 생략.
+const OP_GROWTH_PRESETS: Preset<ScreenerOpGrowth | undefined>[] = [
+  { label: "없음", value: undefined },
+  { label: "흑자전환", value: "turnaround" },
+  { label: "YoY성장", value: "growth" },
+];
+
+// 모멘텀 프리셋: 단일 선택 키를 mom_min/mom_max 조합으로 환산한다.
+type MomKey = "none" | "up20" | "cut60";
+
+const MOM_PRESETS: Preset<MomKey>[] = [
+  { label: "없음", value: "none" },
+  { label: "+20%↑", value: "up20" },
+  { label: "과열컷(≤60%)", value: "cut60" },
+];
+
+function momParams(key: MomKey): { momMin?: number; momMax?: number } {
+  switch (key) {
+    case "up20":
+      return { momMin: 20 };
+    case "cut60":
+      return { momMax: 60 };
+    default:
+      return {};
+  }
+}
+
 const MARKET_PRESETS: Preset<ScreenerMarket | "">[] = [
   { label: "전체", value: "" },
   { label: "KOSDAQ", value: "KOSDAQ" },
   { label: "KOSPI", value: "KOSPI" },
 ];
 
-interface SortPreset extends Preset<ScreenerSort> {
-  // 3개월 수익률 데이터가 아직 없어 모멘텀 정렬은 비활성화한다.
-  disabled?: boolean;
-}
-
-const SORT_PRESETS: SortPreset[] = [
+const SORT_PRESETS: Preset<ScreenerSort>[] = [
+  { label: "성장스코어", value: "score" },
+  { label: "매출성장률", value: "rev_yoy" },
+  { label: "모멘텀", value: "momentum" },
   { label: "시총 작은순", value: "market_cap" },
   { label: "거래대금", value: "trading_value" },
   { label: "등락률", value: "change" },
-  { label: "모멘텀(준비중)", value: "momentum", disabled: true },
 ];
 
 function formatEok(won: number | null): string {
@@ -76,16 +108,50 @@ function formatPct(pct: number | null): string {
   return `${sign}${pct.toFixed(2)}%`;
 }
 
-// 3개월 수익률(모멘텀). 데이터 소스 미비로 현재는 항상 null → "—".
-function formatMomentum(rate: number | null): string {
-  return formatPct(rate);
+// YoY 비율(0.28)을 반올림 정수 퍼센트("+28%", 대형 성장 "+1,818%")로 표기.
+function formatYoy(ratio: number | null): string {
+  if (ratio === null) {
+    return "—";
+  }
+  const pct = Math.round(ratio * 100);
+  const sign = pct > 0 ? "+" : "";
+  return `${sign}${pct.toLocaleString("ko-KR")}%`;
 }
 
+// 등락률 색: 한국 관행(상승 빨강/하락 파랑)
 function changeClass(pct: number | null): string {
   if (pct === null || pct === 0) {
     return styles.flat;
   }
   return pct > 0 ? styles.up : styles.down;
+}
+
+// 성장 지표 색: 개선 초록 / 악화 빨강 (등락률과 별개 관례)
+function growthClass(value: number | null): string {
+  if (value === null || value === 0) {
+    return styles.flat;
+  }
+  return value > 0 ? styles.gpos : styles.gneg;
+}
+
+function scoreNumClass(score: number): string {
+  if (score >= 70) {
+    return styles.scoreHigh;
+  }
+  if (score >= 40) {
+    return styles.scoreMid;
+  }
+  return styles.scoreLow;
+}
+
+function scoreFillClass(score: number): string {
+  if (score >= 70) {
+    return styles.scoreFillHigh;
+  }
+  if (score >= 40) {
+    return styles.scoreFillMid;
+  }
+  return styles.scoreFillLow;
 }
 
 export default function ScreenerPage() {
@@ -96,7 +162,10 @@ export default function ScreenerPage() {
   const [mktcapMax, setMktcapMax] = useState<number>(500_000_000_000);
   const [mktcapMin, setMktcapMin] = useState<number | undefined>(undefined);
   const [liqMin, setLiqMin] = useState<number>(0);
-  const [sort, setSort] = useState<ScreenerSort>("market_cap");
+  const [revYoyMin, setRevYoyMin] = useState<number | undefined>(undefined);
+  const [opGrowth, setOpGrowth] = useState<ScreenerOpGrowth | undefined>(undefined);
+  const [mom, setMom] = useState<MomKey>("none");
+  const [sort, setSort] = useState<ScreenerSort>("score");
   const [offset, setOffset] = useState<number>(0);
 
   const [result, setResult] = useState<ScreenerResult | null>(null);
@@ -109,10 +178,15 @@ export default function ScreenerPage() {
       setLoading(true);
       setError(null);
       try {
+        const { momMin, momMax } = momParams(mom);
         const res = await fetchScreener({
           mktcapMax,
           mktcapMin,
           liqMin: liqMin > 0 ? liqMin : undefined,
+          revYoyMin,
+          opGrowth,
+          momMin,
+          momMax,
           market,
           sort,
           limit: PAGE_SIZE,
@@ -136,7 +210,7 @@ export default function ScreenerPage() {
     return () => {
       active = false;
     };
-  }, [market, mktcapMax, mktcapMin, liqMin, sort, offset]);
+  }, [market, mktcapMax, mktcapMin, liqMin, revYoyMin, opGrowth, mom, sort, offset]);
 
   // 필터 변경 시 첫 페이지로 되돌린다.
   function resetPaging() {
@@ -150,16 +224,10 @@ export default function ScreenerPage() {
   const hasPrev = offset > 0;
   const hasNext = offset + PAGE_SIZE < total;
 
-  function renderChips<T>(
-    presets: Preset<T>[],
-    selected: T,
-    onSelect: (value: T) => void,
-    isDisabled?: (value: T) => boolean,
-  ) {
+  function renderChips<T>(presets: Preset<T>[], selected: T, onSelect: (value: T) => void) {
     return (
       <div className={styles.chips} role="group">
         {presets.map((preset) => {
-          const disabled = isDisabled?.(preset.value) ?? false;
           const activeChip = preset.value === selected;
           const classes = [styles.chip];
           if (activeChip) {
@@ -169,14 +237,11 @@ export default function ScreenerPage() {
             <button
               key={preset.label}
               type="button"
-              disabled={disabled}
               aria-pressed={activeChip}
               className={classes.join(" ")}
               onClick={() => {
-                if (!disabled) {
-                  onSelect(preset.value);
-                  resetPaging();
-                }
+                onSelect(preset.value);
+                resetPaging();
               }}
             >
               {preset.label}
@@ -192,7 +257,7 @@ export default function ScreenerPage() {
       <header className={styles.head}>
         <h1 className={styles.title}>스몰캡 성장 스크리너</h1>
         <p className={styles.subtitle}>
-          시가총액 상한과 유동성으로 소형 성장주 후보를 좁혀보세요 — 톱다운 관점의 1차 스크리닝
+          매출·영업이익 성장과 모멘텀으로 소형 성장주 후보를 좁혀보세요 — 톱다운 관점의 1차 스크리닝
         </p>
       </header>
 
@@ -213,15 +278,28 @@ export default function ScreenerPage() {
         </div>
 
         <div className={styles.filterGroup}>
+          <span className={styles.filterLabel}>매출 성장률(YoY) 최소</span>
+          {renderChips(REV_YOY_PRESETS, revYoyMin, setRevYoyMin)}
+        </div>
+
+        <div className={styles.filterGroup}>
+          <span className={styles.filterLabel}>영업이익</span>
+          {renderChips(OP_GROWTH_PRESETS, opGrowth, setOpGrowth)}
+        </div>
+
+        <div className={styles.filterGroup}>
+          <span className={styles.filterLabel}>3개월 모멘텀</span>
+          {renderChips(MOM_PRESETS, mom, setMom)}
+        </div>
+
+        <div className={styles.filterGroup}>
           <span className={styles.filterLabel}>시장</span>
           {renderChips(MARKET_PRESETS, market, setMarket)}
         </div>
 
         <div className={styles.filterGroup}>
           <span className={styles.filterLabel}>정렬</span>
-          {renderChips(SORT_PRESETS, sort, setSort, (value) =>
-            Boolean(SORT_PRESETS.find((p) => p.value === value)?.disabled),
-          )}
+          {renderChips(SORT_PRESETS, sort, setSort)}
         </div>
       </section>
 
@@ -247,11 +325,14 @@ export default function ScreenerPage() {
                   <th className={styles.nameCol} scope="col">
                     종목명
                   </th>
+                  <th scope="col">성장스코어</th>
+                  <th scope="col">매출YoY</th>
+                  <th scope="col">영업이익</th>
+                  <th scope="col">모멘텀</th>
                   <th scope="col">시가총액</th>
                   <th scope="col">현재가</th>
                   <th scope="col">등락률</th>
                   <th scope="col">거래대금</th>
-                  <th scope="col">3개월 수익률</th>
                 </tr>
               </thead>
               <tbody>
@@ -274,11 +355,36 @@ export default function ScreenerPage() {
                         <span className={styles.code}>{row.stock_code}</span>
                       </span>
                     </th>
+                    <td className={styles.scoreCell}>
+                      {row.growth_score === null ? (
+                        <span className={styles.muted}>—</span>
+                      ) : (
+                        <div className={styles.score}>
+                          <span className={`${styles.scoreNum} ${scoreNumClass(row.growth_score)}`}>
+                            {Math.round(row.growth_score)}
+                          </span>
+                          <span className={styles.scoreBar}>
+                            <span
+                              className={`${styles.scoreFill} ${scoreFillClass(row.growth_score)}`}
+                              style={{ width: `${Math.max(0, Math.min(100, row.growth_score))}%` }}
+                            />
+                          </span>
+                        </div>
+                      )}
+                    </td>
+                    <td className={growthClass(row.revenue_yoy)}>{formatYoy(row.revenue_yoy)}</td>
+                    <td>
+                      {row.op_turnaround ? (
+                        <span className={`${styles.badge} ${styles.turnaround}`}>흑자전환</span>
+                      ) : (
+                        <span className={growthClass(row.op_yoy)}>{formatYoy(row.op_yoy)}</span>
+                      )}
+                    </td>
+                    <td className={growthClass(row.momentum_3m)}>{formatPct(row.momentum_3m)}</td>
                     <td>{formatEok(row.market_cap)}</td>
                     <td>{formatPrice(row.close_price)}</td>
                     <td className={changeClass(row.change_pct)}>{formatPct(row.change_pct)}</td>
                     <td>{formatEok(row.trading_value)}</td>
-                    <td className={styles.muted}>{formatMomentum(row.three_month_rate)}</td>
                   </tr>
                 ))}
               </tbody>
