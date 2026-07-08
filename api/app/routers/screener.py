@@ -117,6 +117,7 @@ def screen(
             "momentum": U.momentum_3m.desc().nulls_last(),
             "rev_yoy": G.revenue_yoy.desc().nulls_last(),
             "trading_value": U.trading_value.desc().nulls_last(),
+            "change": U.change_pct.desc().nulls_last(),
         }.get(sort, U.market_cap.asc())
         rows = db.execute(
             base.order_by(db_sort, U.stock_code).limit(limit).offset(offset)

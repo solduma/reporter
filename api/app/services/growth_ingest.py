@@ -97,6 +97,7 @@ def _ingest_one(db: Session, code: str, snap_date: date, session: requests.Sessi
                 "revenue_yoy": stmt.excluded.revenue_yoy,
                 "op_yoy": stmt.excluded.op_yoy,
                 "op_turnaround": stmt.excluded.op_turnaround,
+                "updated_at": func.now(),  # onupdate 는 on_conflict 에 안 걸려 명시
             },
         )
         db.execute(stmt)
