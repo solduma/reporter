@@ -36,7 +36,7 @@ def screen(
     mktcap_min: int | None = Query(default=None, description="시총 하한(원)"),
     mom_min: float | None = Query(default=None, description="3개월 수익률 최소 %"),
     mom_max: float | None = Query(default=None, description="3개월 수익률 최대 %(과열 컷)"),
-    liq_min: int | None = Query(default=None, description="거래대금 최소(원)"),
+    liq_min: int | None = Query(default=100_000_000, description="거래대금 최소(원). 기본 1억(초저유동 제외)"),
     market: str | None = Query(default=None, pattern="^(KOSPI|KOSDAQ)$"),
     include_etf: bool = Query(default=False, description="ETF/ETN 포함 여부(기본 제외)"),
     sort: str = Query(default="market_cap"),
@@ -63,13 +63,22 @@ def screen(
         conds.append(UniverseSnapshot.market == market)
     if not include_etf:  # 성장주 스크리닝은 일반 주식만 (ETF/ETN 제외)
         conds.append(UniverseSnapshot.stock_type == "stock")
+        # 우선주(이름이 '우'·'우B'·'우C' 로 끝남)는 성장 발굴 대상이 아니라 제외.
+        conds.append(~UniverseSnapshot.stock_name.op("~")(r"우[A-C]?$"))
     # 시총 0/결측은 스몰캡 판정 불가라 제외
     conds.append(UniverseSnapshot.market_cap.is_not(None))
+    # 거래대금 0(사실상 거래정지·초저유동)은 성장주 발굴 대상이 아니라 기본 제외.
+    conds.append(UniverseSnapshot.trading_value > 0)
 
     total = db.scalar(select(func.count()).select_from(UniverseSnapshot).where(*conds)) or 0
     order = _SORTS.get(sort, _SORTS["market_cap"])
+    # 2차 키(stock_code)로 동률 시 페이지네이션 순서를 결정적으로 고정.
     rows = db.scalars(
-        select(UniverseSnapshot).where(*conds).order_by(order).limit(limit).offset(offset)
+        select(UniverseSnapshot)
+        .where(*conds)
+        .order_by(order, UniverseSnapshot.stock_code)
+        .limit(limit)
+        .offset(offset)
     ).all()
 
     return ScreenerResult(

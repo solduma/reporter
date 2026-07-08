@@ -87,7 +87,8 @@ def fetch_market(market: str, session: requests.Session | None = None) -> list[U
         if not stocks:
             break
         rows.extend(r for r in (_parse(s, market) for s in stocks) if r)
-        if page * _PAGE_SIZE >= data.get("totalCount", 0):
+        # 누적 수집 행수 기준으로 종료(중간 페이지가 부분 반환해도 누락 없이 진행).
+        if len(rows) >= data.get("totalCount", 0):
             break
         time.sleep(_PAGE_DELAY)
 

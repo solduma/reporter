@@ -75,6 +75,8 @@ def test_pagination_stops_at_total():
 
 
 def test_row_without_code_skipped():
-    payload = {"totalCount": 1, "stocks": [{"stockName": "코드없음"}]}
-    rows = universe.fetch_market("KOSDAQ", _session([payload]))
+    # 코드 없는 행은 스킵. totalCount 미달로 다음 페이지를 시도하므로 빈 페이지로 종료.
+    p1 = {"totalCount": 1, "stocks": [{"stockName": "코드없음"}]}
+    p2 = {"totalCount": 1, "stocks": []}
+    rows = universe.fetch_market("KOSDAQ", _session([p1, p2]))
     assert rows == []
