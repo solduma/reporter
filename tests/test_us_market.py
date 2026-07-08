@@ -2,7 +2,17 @@
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from reporter import us_market
+
+
+@pytest.fixture(autouse=True)
+def _reset_cache():
+    # 프로세스 인메모리 캐시가 테스트 간 누수되지 않게 초기화
+    us_market._cache = None
+    yield
+    us_market._cache = None
 
 
 def _session(payloads: dict) -> MagicMock:
@@ -44,3 +54,18 @@ def test_skips_index_without_close():
     quotes = us_market.fetch_us_indices(_session(payloads))
     # close 없는 다우·S&P 는 빠지고 나스닥만
     assert [q.name for q in quotes] == ["나스닥"]
+
+
+def test_cache_avoids_refetch():
+    payloads = {".DJI": {"closePrice": "1", "compareToPreviousPrice": {"code": "2"}},
+                ".IXIC": {"closePrice": "2", "compareToPreviousPrice": {"code": "2"}},
+                ".INX": {"closePrice": "3", "compareToPreviousPrice": {"code": "2"}}}
+    s1 = _session(payloads)
+    first = us_market.fetch_us_indices(s1)
+    calls_after_first = s1.get.call_count
+    # 두 번째 호출은 캐시 → 새 세션을 안 씀
+    s2 = _session(payloads)
+    second = us_market.fetch_us_indices(s2)
+    assert [q.close for q in first] == [q.close for q in second]
+    assert s2.get.call_count == 0  # 캐시 히트 → 네트워크 없음
+    assert calls_after_first == 3

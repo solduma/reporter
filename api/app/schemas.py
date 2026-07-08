@@ -141,7 +141,7 @@ class MarketOverview(BaseModel):
     us_indices: list[dict]  # {name, close, change, change_ratio, rising}
     brief_summary: str
     hot_sectors: list[dict]  # {sector, report_count, avg_sentiment}
-    trade_spark: list[dict]  # {hs, name, latest_export}
+    trade_spark: list[dict]  # {hs, period, export_usd}
 
 
 class TimelineItem(BaseModel):

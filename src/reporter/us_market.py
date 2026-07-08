@@ -7,6 +7,7 @@ news.search 와 동일하게 실패는 조용히 흡수(해당 지수 skip).
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 
 import requests
@@ -16,6 +17,10 @@ logger = logging.getLogger(__name__)
 _BASE = "https://api.stock.naver.com/index/{symbol}/basic"
 _HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; reporter-bot/1.0)"}
 _INDICES = [(".DJI", "다우"), (".IXIC", "나스닥"), (".INX", "S&P500")]
+
+# 대시보드 최상단에서 매 로드마다 3회 네이버 호출을 막는 프로세스 인메모리 캐시(전 사용자 공통).
+_CACHE_TTL = 120.0  # 초
+_cache: tuple[float, list[IndexQuote]] | None = None
 
 
 @dataclass
@@ -28,7 +33,14 @@ class IndexQuote:
 
 
 def fetch_us_indices(session: requests.Session | None = None) -> list[IndexQuote]:
-    """다우·나스닥·S&P500 종가·등락을 조회한다. 실패한 지수는 결과에서 빠진다."""
+    """다우·나스닥·S&P500 종가·등락을 조회한다. 실패한 지수는 결과에서 빠진다.
+
+    _CACHE_TTL 초 안의 재호출은 캐시된 결과를 돌려준다(대시보드 로딩 지연 완화).
+    """
+    global _cache
+    if _cache and time.monotonic() - _cache[0] < _CACHE_TTL:
+        return _cache[1]
+
     session = session or requests.Session()
     quotes: list[IndexQuote] = []
     for symbol, name in _INDICES:
@@ -55,4 +67,6 @@ def fetch_us_indices(session: requests.Session | None = None) -> list[IndexQuote
                 rising=rising,
             )
         )
+    if quotes:  # 부분 성공만 캐시(전량 실패는 다음 호출에서 재시도)
+        _cache = (time.monotonic(), quotes)
     return quotes
