@@ -63,9 +63,11 @@ async def test_tui_mounts_and_shows_status():
         table = app.query_one("#preview", DataTable)
         assert table.row_count == 50  # 페이지당 _PREVIEW_LIMIT
 
-        assert {b.id for b in app.query(Button)} == {
+        ids = {b.id for b in app.query(Button)}
+        assert {
             "ingest", "universe", "growth", "refresh", "prev", "next", "sort",
-        }
+            "api_start", "api_stop", "web_start", "web_stop",
+        } <= ids
 
 
 async def test_refresh_action_reloads():
@@ -153,3 +155,51 @@ async def test_running_job_disables_buttons(monkeypatch):
         # 완료 후: 재활성화
         assert app._job_running is False
         assert not any(app.query_one(f"#{b}", Button).disabled for b in tui.AdminTUI._JOB_BUTTONS)
+
+
+async def test_server_buttons_and_status(monkeypatch):
+    # ServerControl 을 목킹해 실제 프로세스 없이 버튼·상태 렌더만 검증
+    from app.services.server_control import ServerStatus
+
+    state = {"api": False}
+
+    class _FakeControl:
+        def start(self, key):
+            state[key] = True
+            return f"{key} 기동"
+
+        def stop(self, key):
+            state[key] = False
+            return f"{key} 종료"
+
+        def status(self):
+            return [
+                ServerStatus("api", "API", 8010, state.get("api", False), 111 if state.get("api") else None),
+                ServerStatus("web", "WEB", 3000, False, None),
+            ]
+
+        def stop_all(self):
+            pass
+
+    monkeypatch.setattr(tui, "ServerControl", _FakeControl)
+
+    app = tui.AdminTUI()
+    async with app.run_test() as pilot:
+        await pilot.pause(0.3)
+        from textual.widgets import Button, Static
+
+        # 서버 버튼 4종 존재
+        ids = {b.id for b in app.query(Button)}
+        assert {"api_start", "api_stop", "web_start", "web_stop"} <= ids
+
+        info = app.query_one("#server_status", Static)
+        assert "중지" in str(info.render())  # 초기엔 중지
+
+        await pilot.click("#api_start")
+        await pilot.pause(0.2)
+        assert state["api"] is True
+        assert "실행중" in str(app.query_one("#server_status", Static).render())
+
+        await pilot.click("#api_stop")
+        await pilot.pause(0.2)
+        assert state["api"] is False
