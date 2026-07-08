@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.db.session import init_db
-from app.routers import admin, today
+from app.routers import admin, industries, today
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -31,6 +31,7 @@ app.add_middleware(
 )
 
 app.include_router(today.router)
+app.include_router(industries.router)
 app.include_router(admin.router)
 
 

@@ -1,4 +1,10 @@
-import type { MarketBrief, Report, ReportCategory } from "@/lib/types";
+import type {
+  Industry,
+  MarketBrief,
+  Report,
+  ReportCategory,
+  SentimentPoint,
+} from "@/lib/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8010";
 
@@ -24,4 +30,26 @@ export function fetchReports(category: ReportCategory): Promise<Report[]> {
 
 export function reportPdfUrl(id: number): string {
   return apiUrl(`/api/reports/${id}/pdf`);
+}
+
+export function fetchIndustries(): Promise<Industry[]> {
+  return getJson<Industry[]>("/api/industries");
+}
+
+export function fetchIndustrySentiment(
+  name: string,
+  range?: { from?: string; to?: string },
+): Promise<SentimentPoint[]> {
+  const params = new URLSearchParams();
+  if (range?.from) {
+    params.set("from", range.from);
+  }
+  if (range?.to) {
+    params.set("to", range.to);
+  }
+  const query = params.toString();
+  const suffix = query ? `?${query}` : "";
+  return getJson<SentimentPoint[]>(
+    `/api/industries/${encodeURIComponent(name)}/sentiment${suffix}`,
+  );
 }

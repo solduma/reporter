@@ -106,6 +106,49 @@ _DATED_HTML = """
 """
 
 
+_INDUSTRY_HTML = """
+<table class="type_1" summary="산업분석 리포트 게시판 글목록">
+<tr><th>분류</th><th>제목</th><th>증권사</th><th>첨부</th><th>작성일</th><th>조회수</th></tr>
+<tr>
+  <td>자동차</td>
+  <td><a href="industry_read.naver?nid=100&page=1">로보틱스 아젠다</a></td>
+  <td>DS투자증권</td>
+  <td class="file"><a href="https://x/a.pdf"></a></td>
+  <td class="date">{today}</td>
+  <td class="date">496</td>
+</tr>
+<tr>
+  <td>반도체</td>
+  <td><a href="industry_read.naver?nid=90&page=1">어제 산업 리포트</a></td>
+  <td>하나증권</td>
+  <td class="file"><a href="https://x/b.pdf"></a></td>
+  <td class="date">25.01.01</td>
+  <td class="date">10</td>
+</tr>
+</table>
+"""
+
+
+def test_industry_captures_classification_column():
+    # 산업분석 목록의 첫 컬럼('분류')을 industry 로 채워야 한다 (종목명 앵커 없음)
+    today = datetime.now().strftime("%y.%m.%d")
+    session = _mock_session(_INDUSTRY_HTML.format(today=today))
+    reports = crawler.crawl_category("industry", session=session)
+    # 오늘 1건만(어제 25.01.01 은 제외), 분류 컬럼이 industry 로 채워짐
+    assert len(reports) == 1
+    assert reports[0].industry == "자동차"
+    assert reports[0].stock_name is None
+    assert reports[0].title == "로보틱스 아젠다"
+
+
+def test_company_does_not_set_industry():
+    # 종목분석은 industry 를 채우지 않는다 (분류 컬럼 개념이 다름)
+    today = datetime.now().strftime("%y.%m.%d")
+    session = _mock_session(_COMPANY_HTML.format(today=today))
+    reports = crawler.crawl_category("company", session=session)
+    assert all(r.industry is None for r in reports)
+
+
 def test_target_date_skips_newer_and_collects_only_target():
     # 최신순 목록에서 target 보다 최신 행은 건너뛰고, target 행만 담고, 과거 행 만나 멈춘다
     session = _mock_session(_DATED_HTML)
