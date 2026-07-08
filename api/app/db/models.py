@@ -169,6 +169,17 @@ class CorpCodeMap(Base):
     corp_name: Mapped[str] = mapped_column(String(128))
 
 
+class DisclosureSyncState(Base):
+    """종목별 DART 마지막 동기화 시각. 공시가 0건이거나 신규가 없어도 재조회를 억제한다."""
+
+    __tablename__ = "disclosure_sync_state"
+
+    stock_code: Mapped[str] = mapped_column(String(6), primary_key=True)
+    synced_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class Disclosure(Base):
     """DART 공시 1건 + 주가 긍/부정 센티먼트."""
 

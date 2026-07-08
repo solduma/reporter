@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import io
 import zipfile
-from datetime import date
+from datetime import UTC, date
 from unittest.mock import MagicMock
 
 from app.services import dart
@@ -77,3 +77,28 @@ def test_fetch_disclosures_empty_status_returns_empty():
         _list_session({"status": "013", "message": "조회된 데이타가 없습니다."}),
     )
     assert discs == []
+
+
+def test_sync_disclosures_skips_within_ttl(monkeypatch):
+    # 최근 _SYNC_TTL 안에 동기화 이력이 있으면 DART 를 호출하지 않고 0 반환
+    from datetime import datetime, timedelta
+
+    from app.services import dart_ingest
+
+    recent = datetime.now(UTC) - timedelta(hours=1)  # TTL(6h) 이내
+    db = MagicMock()
+    db.scalar.return_value = recent  # last_synced
+
+    called = {"fetch": False}
+
+    def _should_not_fetch(*a, **k):
+        called["fetch"] = True
+        return []
+
+    monkeypatch.setattr(dart_ingest.dart, "fetch_disclosures", _should_not_fetch)
+
+    settings = MagicMock()
+    result = dart_ingest.sync_disclosures(db, settings, "005930", date(2026, 4, 1), date(2026, 7, 8))
+
+    assert result == 0
+    assert called["fetch"] is False  # DART 재조회 억제
