@@ -16,8 +16,14 @@ from app.storage import minio_store
 router = APIRouter(prefix="/api", tags=["today"])
 
 
-def _latest_market_date(db: Session) -> date | None:
-    return db.scalar(select(Report.published_date).order_by(Report.published_date.desc()).limit(1))
+def _latest_date_for(db: Session, category: str) -> date | None:
+    """해당 카테고리의 최신 발행일. 카테고리마다 최신일이 달라도 컬럼이 비지 않도록 분리 산출."""
+    return db.scalar(
+        select(Report.published_date)
+        .where(Report.category == category)
+        .order_by(Report.published_date.desc())
+        .limit(1)
+    )
 
 
 @router.get("/today/market", response_model=MarketBrief)
@@ -43,7 +49,7 @@ def today_reports(
     date_: date | None = Query(default=None, alias="date"),
     db: Session = Depends(get_session),
 ) -> list[ReportCard]:
-    target = date_ or _latest_market_date(db)
+    target = date_ or _latest_date_for(db, category)
     if not target:
         return []
     rows = db.scalars(

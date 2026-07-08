@@ -34,14 +34,16 @@ class SentimentResult:
 
 
 def _extract_json(raw: str) -> dict | None:
-    """LLM 응답에서 첫 JSON 오브젝트를 관대하게 추출한다 (코드펜스·잡텍스트 허용)."""
-    match = re.search(r"\{.*\}", raw, re.DOTALL)
-    if not match:
-        return None
-    try:
-        return json.loads(match.group(0))
-    except json.JSONDecodeError:
-        return None
+    """LLM 응답에서 첫 JSON 오브젝트를 관대하게 추출한다 (코드펜스·잡텍스트·후행 텍스트 허용)."""
+    decoder = json.JSONDecoder()
+    for start in (m.start() for m in re.finditer(r"\{", raw)):
+        try:
+            obj, _ = decoder.raw_decode(raw[start:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(obj, dict):
+            return obj
+    return None
 
 
 def classify(client: OllamaClient, model: str, category: str, title: str, text: str) -> SentimentResult:

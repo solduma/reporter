@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from datetime import date, datetime
 
@@ -44,12 +45,18 @@ def _download_pdf(url: str, session: requests.Session) -> bytes | None:
         return None
 
 
+def _dedup_key(cr: CrawledReport) -> str:
+    """리포트 고유 식별자. read_url 이 없으면 (제목·증권사·발행일) 조합으로 안정적 폴백."""
+    return cr.read_url or f"{cr.category}|{cr.title}|{cr.broker}|{cr.date}"
+
+
 def _ingest_one(
     db: Session, client: OllamaClient, settings: Settings, cr: CrawledReport, session: requests.Session
 ) -> Report | None:
-    """크롤된 리포트 1건을 저장·분석한다. 이미 있으면(read_url) 건너뛴다. PDF 없으면 None."""
-    if cr.read_url and db.scalar(select(Report).where(Report.read_url == cr.read_url)):
-        return None  # 멱등성: 이미 수집됨
+    """크롤된 리포트 1건을 저장·분석한다. 이미 있으면 건너뛴다. PDF 없으면 None."""
+    dedup = _dedup_key(cr)
+    if db.scalar(select(Report).where(Report.read_url == dedup)):
+        return None  # 멱등성: 이미 수집됨 (read_url 없으면 조합키가 read_url 컬럼에 저장됨)
     if not cr.pdf_url:
         return None
 
@@ -62,8 +69,9 @@ def _ingest_one(
         return None
     sentiment_text = extract_text_from_bytes(pdf_bytes, _SENTIMENT_PAGES)
 
-    object_key = f"{cr.category}/{_to_date(cr.date).isoformat()}/{abs(hash(cr.read_url or cr.title))}.pdf"
-    minio_store.put_pdf(object_key, pdf_bytes)
+    # 결정적 키: 재시도해도 동일 객체를 덮어써 고아가 쌓이지 않는다.
+    digest = hashlib.sha256(dedup.encode()).hexdigest()[:16]
+    object_key = f"{cr.category}/{_to_date(cr.date).isoformat()}/{digest}.pdf"
 
     report = Report(
         category=cr.category,
@@ -73,8 +81,7 @@ def _ingest_one(
         views=cr.views,
         stock_code=cr.stock_code,
         stock_name=cr.stock_name,
-        industry_name=cr.stock_name if cr.category == "industry" else None,
-        read_url=cr.read_url,
+        read_url=dedup,  # 실제 URL 또는 폴백 조합키. UNIQUE 제약이 NULL 케이스도 보호하도록.
         pdf_url=cr.pdf_url,
         pdf_object_key=object_key,
     )
@@ -93,6 +100,8 @@ def _ingest_one(
         rationale=sent.rationale,
         model=settings.summary_model,
     )
+    # 분석까지 성공한 뒤에 PDF 를 저장해, 중간 실패 시 MinIO 고아가 남지 않게 한다.
+    minio_store.put_pdf(object_key, pdf_bytes)
     db.add(report)
     return report
 

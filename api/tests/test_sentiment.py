@@ -54,3 +54,11 @@ def test_glm_error_falls_back_to_hold():
 def test_lowercase_sentiment_is_normalized():
     r = _classify('{"sentiment": "buy", "one_liner": "a", "rationale": "b"}')
     assert r.sentiment == "BUY"
+
+
+def test_recovers_first_object_with_trailing_text():
+    # 후행 텍스트나 두 번째 객체가 붙어도 첫 유효 객체를 복구해야 한다 (greedy 정규식 회귀 방지)
+    reply = '설명: {"sentiment": "SELL", "one_liner": "고평가", "rationale": "PER 과열"} 추가 잡담 {망가진'
+    r = _classify(reply)
+    assert r.sentiment == "SELL"
+    assert r.one_liner == "고평가"
