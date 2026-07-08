@@ -50,6 +50,21 @@ uv run uvicorn app.main:app --port 8010 --reload
 > 기존 `launchd/`·`crontab.example` 은 **CLI 텔레그램 발송용**으로 별개다. 이 워커는
 > 웹서비스 DB 적재만 하므로 둘은 목적이 다르고 함께 두어도 무방하다.
 
+## Admin TUI
+
+관리자용 터미널 대시보드(Textual). 서비스 계층을 직접 호출한다(HTTP 미경유).
+
+```bash
+cd api && uv run reporter-tui
+```
+
+- **상태 패널**: 테이블 행수(reports/universe/growth/…)·최신 스냅샷 날짜 (`r` 새로고침).
+- **수집 트리거 버튼**: 리포트 수집 / 유니버스 스냅샷 / 성장 배치 — 워커 스레드로 실행,
+  진행 로그를 하단 패널에 스트리밍. (텔레그램 미발송, DB 적재만.)
+- **스몰캡 성장주 미리보기**: 매출 YoY 상위 종목 테이블.
+
+> 트리거는 실제 크롤·GLM·네이버 호출을 수행한다(라이브 자원 사용).
+
 ## 프론트엔드 (web)
 
 ```bash
