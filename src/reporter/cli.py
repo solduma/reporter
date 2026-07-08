@@ -117,11 +117,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"chat_id={cid}  ({name})")
         return 0
 
-    # 뉴스·미국지수는 무키(텔레그램만 필요), 나머지 발송 모드는 GLM+텔레그램.
-    if args.news or args.premarket:
-        if err := _require(config, *_TELEGRAM):
-            return err
-    elif err := _require(config, *_OLLAMA, *_TELEGRAM):
+    # 모든 발송 모드는 GLM 종합(뉴스·미장 요약 포함) + 텔레그램을 쓴다.
+    if err := _require(config, *_OLLAMA, *_TELEGRAM):
         return err
 
     if args.news:

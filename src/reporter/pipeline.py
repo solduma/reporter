@@ -17,7 +17,8 @@ from .shortener import UrlShortener
 from .telegram import TelegramSender
 
 # 뉴스 종합 시 본문까지 크롤할 상위 기사 수(headless 라 무거워 소수만).
-_ARTICLE_CRAWL_TOP = 6
+# 매시 실행(--news)이라 런타임을 bound 하려 3건으로 제한. 나머지는 제목만 참고.
+_ARTICLE_CRAWL_TOP = 3
 
 logger = logging.getLogger(__name__)
 

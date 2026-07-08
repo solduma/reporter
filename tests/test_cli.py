@@ -189,11 +189,25 @@ def test_per_entity_dispatches_batch1(monkeypatch, patch_config, tmp_path):
     assert seen["categories"] == ["company", "industry"]
 
 
-def test_news_needs_only_telegram(monkeypatch, patch_config, tmp_path):
-    # 뉴스는 무키(ollama 불필요) — ollama 키 없어도 동작해야 한다
-    patch_config(_config(tmp_path, ollama_api_key=""))
+def test_news_runs_with_full_env(monkeypatch, patch_config, tmp_path):
+    patch_config(_config(tmp_path))
     monkeypatch.setattr(cli, "run_market_news", lambda c: 1)
     assert cli.main(["--news"]) == 0
+
+
+def test_news_aborts_when_ollama_missing(monkeypatch, patch_config, tmp_path):
+    # 뉴스도 GLM 종합을 쓰므로 ollama 키 없으면 크래시 대신 조기 종료(exit 2)
+    patch_config(_config(tmp_path, ollama_api_key=""))
+    called = False
+
+    def _should_not_run(c):
+        nonlocal called
+        called = True
+        return 1
+
+    monkeypatch.setattr(cli, "run_market_news", _should_not_run)
+    assert cli.main(["--news"]) == 2
+    assert called is False
 
 
 def test_news_aborts_without_telegram(monkeypatch, patch_config, tmp_path):
@@ -211,8 +225,22 @@ def test_news_aborts_without_telegram(monkeypatch, patch_config, tmp_path):
 
 
 def test_premarket_dispatches(monkeypatch, patch_config, tmp_path):
-    patch_config(_config(tmp_path, ollama_api_key=""))  # 무키
+    patch_config(_config(tmp_path))
     seen = {}
     monkeypatch.setattr(cli, "run_premarket", lambda c: seen.setdefault("ran", True) or 1)
     assert cli.main(["--premarket"]) == 0
     assert seen["ran"] is True
+
+
+def test_premarket_aborts_when_ollama_missing(monkeypatch, patch_config, tmp_path):
+    patch_config(_config(tmp_path, ollama_api_key=""))
+    called = False
+
+    def _should_not_run(c):
+        nonlocal called
+        called = True
+        return 1
+
+    monkeypatch.setattr(cli, "run_premarket", _should_not_run)
+    assert cli.main(["--premarket"]) == 2
+    assert called is False
