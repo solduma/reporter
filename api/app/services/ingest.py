@@ -81,6 +81,7 @@ def _ingest_one(
         views=cr.views,
         stock_code=cr.stock_code,
         stock_name=cr.stock_name,
+        industry_name=cr.industry,  # 산업분석 목록의 '분류' 컬럼(업종명)
         read_url=dedup,  # 실제 URL 또는 폴백 조합키. UNIQUE 제약이 NULL 케이스도 보호하도록.
         pdf_url=cr.pdf_url,
         pdf_object_key=object_key,
@@ -128,6 +129,26 @@ def ingest_reports(db: Session, settings: Settings, target_date: str | None = No
             logger.warning("ingest failed for %s: %s", cr.title, e)
     logger.info("ingested %d new reports", saved)
     return saved
+
+
+def backfill_industry_names(db: Session, target_date: str | None = None) -> int:
+    """기존 산업 리포트의 누락된 industry_name('분류')을 재크롤해 채운다.
+
+    크롤러가 '분류' 컬럼을 잡기 전에 적재된 데이터 보정용. read_url 로 매칭한다.
+    갱신한 행 수를 반환한다.
+    """
+    crawled = crawl_categories(["industry"], target_date=target_date)
+    updated = 0
+    for cr in crawled:
+        if not cr.industry or not cr.read_url:
+            continue
+        report = db.scalar(select(Report).where(Report.read_url == cr.read_url))
+        if report and not report.industry_name:
+            report.industry_name = cr.industry
+            updated += 1
+    if updated:
+        db.commit()
+    return updated
 
 
 def build_market_brief(db: Session, settings: Settings, target_date: str | None = None) -> str | None:

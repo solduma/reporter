@@ -1,0 +1,34 @@
+.dotGroup {
+  cursor: pointer;
+  outline: none;
+}
+
+.dotGroup:focus-visible circle:last-child {
+  stroke: var(--accent);
+}
+
+.tooltip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  padding: 8px 12px;
+  font-size: 0.8rem;
+}
+
+.tooltipDate {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.tooltipValue {
+  font-weight: 600;
+}
+
+.tooltipCount {
+  color: var(--muted);
+  font-size: 0.76rem;
+}

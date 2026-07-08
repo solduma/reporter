@@ -18,6 +18,7 @@ class Report:
     pdf_url: str | None = None
     stock_name: str | None = None
     stock_code: str | None = None
+    industry: str | None = None  # 산업분석 목록의 '분류' 컬럼(업종명)
 
     # 파이프라인 진행 중 채워지는 값
     score: float = 0.0

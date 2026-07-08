@@ -58,6 +58,13 @@ def _fetch_list_page(category: str, page: int, session: requests.Session) -> lis
         if stock_a and "code=" in stock_a.get("href", ""):
             stock_code = stock_a["href"].split("code=")[-1]
 
+        # 산업분석 목록의 첫 컬럼('분류')은 업종명 평문이다(종목분석의 종목명 앵커와 다름).
+        industry = None
+        if category == "industry":
+            first_td = tr.find("td")
+            if first_td and "date" not in first_td.get("class", []):
+                industry = first_td.get_text(strip=True) or None
+
         reports.append(
             Report(
                 category=category,
@@ -69,6 +76,7 @@ def _fetch_list_page(category: str, page: int, session: requests.Session) -> lis
                 pdf_url=pdf_a["href"] if pdf_a else None,
                 stock_name=stock_a.get_text(strip=True) if stock_a else None,
                 stock_code=stock_code,
+                industry=industry,
             )
         )
     return reports

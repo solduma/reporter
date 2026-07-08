@@ -19,3 +19,24 @@ export interface Report {
   published_date: string;
   has_pdf: boolean;
 }
+
+export interface Industry {
+  industry: string;
+  report_count: number;
+}
+
+export interface ReportRef {
+  id: number;
+  title: string;
+  broker: string;
+  sentiment: Sentiment;
+  summary: string;
+  read_url: string | null;
+  has_pdf: boolean;
+}
+
+export interface SentimentPoint {
+  date: string;
+  avg_sentiment: number;
+  reports: ReportRef[];
+}

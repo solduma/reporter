@@ -23,3 +23,24 @@ class ReportCard(BaseModel):
     rationale: str
     published_date: date
     has_pdf: bool
+
+
+class IndustrySummary(BaseModel):
+    industry: str
+    report_count: int
+
+
+class ReportRef(BaseModel):
+    id: int
+    title: str
+    broker: str
+    sentiment: str
+    summary: str
+    read_url: str | None
+    has_pdf: bool
+
+
+class SentimentPoint(BaseModel):
+    date: date
+    avg_sentiment: float  # BUY=+1 / HOLD=0 / SELL=-1 평균
+    reports: list[ReportRef]
