@@ -1,0 +1,103 @@
+.grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  min-width: 0;
+}
+
+.label {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.value {
+  font-size: 1.25rem;
+  font-weight: 800;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.sub {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 등락률 색: 한국 관행 — 상승 빨강 / 하락 파랑 */
+.up {
+  color: var(--sell);
+}
+
+.down {
+  color: #1d5fd6;
+}
+
+.flat {
+  color: var(--muted);
+}
+
+.muted {
+  color: var(--muted);
+}
+
+/* 성장 지표(매출·영업이익·모멘텀) 색: 개선 초록 / 악화 빨강 */
+.gpos {
+  color: var(--buy);
+}
+
+.gneg {
+  color: var(--sell);
+}
+
+/* 영업이익 흑자전환 강조 배지 */
+.turnaround {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  background: var(--buy-bg);
+  color: var(--buy);
+}
+
+/* BUY 비율 태그 — 커버리지 강조 */
+.buyTag {
+  color: var(--buy);
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 120px;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.error {
+  margin: 0;
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: var(--sell-bg);
+  color: var(--sell);
+  font-size: 0.88rem;
+}
+
+@media (max-width: 640px) {
+  .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

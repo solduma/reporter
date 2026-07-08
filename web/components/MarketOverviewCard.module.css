@@ -1,0 +1,212 @@
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 22px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.title {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.date {
+  color: var(--muted);
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.status {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.error {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--sell-bg);
+  color: var(--sell);
+  font-size: 0.84rem;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sectionLabel {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+/* 미국 3대 지수 */
+.indices {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.tile {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* 나스닥 = 성장주 프록시 → 강조 */
+.tileEmphasis {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.tileName {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.tileEmphasis .tileName {
+  color: var(--accent);
+}
+
+.tileClose {
+  font-size: 1.24rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.tileChange {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+/* 한국식 표기 — 상승 빨강 · 하락 파랑 · 미확인 무채색 */
+.up {
+  color: #c02b2b;
+}
+
+.down {
+  color: #1d4ed8;
+}
+
+.flat {
+  color: var(--muted);
+}
+
+/* 핫 섹터 칩 */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  padding: 7px 14px;
+  border-radius: 999px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  transition: border-color 0.15s ease;
+}
+
+.chip:hover {
+  border-color: var(--accent);
+}
+
+.chipName {
+  white-space: nowrap;
+}
+
+.chipSentiment {
+  font-size: 0.76rem;
+  font-weight: 700;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.chipPos {
+  background: var(--buy-bg);
+  color: var(--buy);
+}
+
+.chipNeg {
+  background: var(--sell-bg);
+  color: var(--sell);
+}
+
+/* 무역 스파크 */
+.sparks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.spark {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 7px 12px;
+  background: var(--bg);
+}
+
+.sparkName {
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.sparkValue {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.sparkPeriod {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+@media (max-width: 560px) {
+  .indices {
+    grid-template-columns: 1fr;
+  }
+}
