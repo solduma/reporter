@@ -19,6 +19,7 @@ dependencies = [
 
 [project.scripts]
 reporter-api = "app.main:run"
+reporter-worker = "app.scheduler:main"
 
 [dependency-groups]
 dev = [
