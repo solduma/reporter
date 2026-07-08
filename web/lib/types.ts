@@ -7,6 +7,35 @@ export interface MarketBrief {
   summary: string;
 }
 
+// 미국 3대 지수 한 종목. 값은 표시용 문자열, rising: true=상승 · false=하락 · null=미확인
+export interface UsIndex {
+  name: string;
+  close: string;
+  change: string;
+  change_ratio: string;
+  rising: boolean | null;
+}
+
+export interface HotSector {
+  sector: string;
+  report_count: number;
+  avg_sentiment: number; // -1..+1 (BUY+1 · HOLD 0 · SELL−1 평균)
+}
+
+export interface TradeSpark {
+  hs: string;
+  period: string; // "YYYY.MM"
+  export_usd: number; // USD
+}
+
+export interface MarketOverview {
+  market_date: string | null;
+  us_indices: UsIndex[];
+  brief_summary: string;
+  hot_sectors: HotSector[];
+  trade_spark: TradeSpark[];
+}
+
 export interface Report {
   id: number;
   category: ReportCategory;
@@ -23,6 +52,13 @@ export interface Report {
 export interface Industry {
   industry: string;
   report_count: number;
+}
+
+export interface SectorRow {
+  sector: string;
+  report_count: number;
+  avg_sentiment: number; // -1..+1 (BUY+1 · HOLD 0 · SELL−1 평균)
+  rotation_score: number; // 0..100
 }
 
 export interface ReportRef {
@@ -46,6 +82,22 @@ export type Timeframe = "30m" | "day" | "month";
 export interface CompanySummary {
   stock_code: string;
   stock_name: string | null;
+}
+
+export interface CompanyGrowth {
+  stock_code: string;
+  stock_name: string | null;
+  market: string | null;
+  market_cap: number | null; // 원 단위(KRW)
+  close_price: number | null;
+  change_pct: number | null; // 등락률 %
+  momentum_3m: number | null; // 3개월 수익률 %
+  revenue_yoy: number | null; // 매출 YoY 비율 (0.25 = +25%)
+  op_yoy: number | null; // 영업이익 YoY 비율
+  op_turnaround: boolean; // 흑자전환 여부
+  period: string | null; // 기준 분기 "YYYY.MM"
+  coverage_count: number; // 최근 90일 리포트 수
+  buy_ratio: number | null; // 최근 90일 BUY 비율 0~1
 }
 
 export interface CandlePoint {

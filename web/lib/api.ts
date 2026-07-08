@@ -1,9 +1,11 @@
 import type {
   CandlePoint,
+  CompanyGrowth,
   CompanySummary,
   FinancialPeriod,
   Industry,
   MarketBrief,
+  MarketOverview,
   Peer,
   Report,
   ReportCategory,
@@ -11,6 +13,7 @@ import type {
   ScreenerOpGrowth,
   ScreenerResult,
   ScreenerSort,
+  SectorRow,
   SentimentPoint,
   Timeframe,
   TimelineItem,
@@ -36,6 +39,10 @@ export function fetchMarketBrief(): Promise<MarketBrief> {
   return getJson<MarketBrief>("/api/today/market");
 }
 
+export function fetchMarketOverview(): Promise<MarketOverview> {
+  return getJson<MarketOverview>("/api/market/overview");
+}
+
 export function fetchReports(category: ReportCategory): Promise<Report[]> {
   return getJson<Report[]>(`/api/today/reports?category=${category}`);
 }
@@ -46,6 +53,11 @@ export function reportPdfUrl(id: number): string {
 
 export function fetchIndustries(): Promise<Industry[]> {
   return getJson<Industry[]>("/api/industries");
+}
+
+// rotation_score 내림차순으로 정렬되어 반환된다.
+export function fetchSectors(): Promise<SectorRow[]> {
+  return getJson<SectorRow[]>("/api/sectors");
 }
 
 export function fetchIndustrySentiment(
@@ -113,6 +125,10 @@ export function fetchScreener(query: ScreenerQuery): Promise<ScreenerResult> {
 
 export function fetchCompanySummary(code: string): Promise<CompanySummary> {
   return getJson<CompanySummary>(`/api/companies/${encodeURIComponent(code)}/summary`);
+}
+
+export function fetchCompanyGrowth(code: string): Promise<CompanyGrowth> {
+  return getJson<CompanyGrowth>(`/api/companies/${encodeURIComponent(code)}/growth`);
 }
 
 export function fetchCandles(code: string, tf: Timeframe): Promise<CandlePoint[]> {

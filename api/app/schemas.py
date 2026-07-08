@@ -113,6 +113,37 @@ class PeerOut(BaseModel):
     roe: str | None
 
 
+class CompanyGrowth(BaseModel):
+    stock_code: str
+    stock_name: str | None
+    market: str | None
+    market_cap: int | None
+    close_price: int | None
+    change_pct: float | None
+    momentum_3m: float | None
+    revenue_yoy: float | None
+    op_yoy: float | None
+    op_turnaround: bool
+    period: str | None
+    coverage_count: int
+    buy_ratio: float | None  # 최근 90일 BUY 비율
+
+
+class SectorRow(BaseModel):
+    sector: str
+    report_count: int
+    avg_sentiment: float  # BUY+1/HOLD0/SELL-1 평균
+    rotation_score: float  # 0~100
+
+
+class MarketOverview(BaseModel):
+    market_date: date | None
+    us_indices: list[dict]  # {name, close, change, change_ratio, rising}
+    brief_summary: str
+    hot_sectors: list[dict]  # {sector, report_count, avg_sentiment}
+    trade_spark: list[dict]  # {hs, period, export_usd}
+
+
 class TimelineItem(BaseModel):
     type: str  # 'report' | 'disclosure'
     date: date

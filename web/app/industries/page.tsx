@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import IndustrySelector from "@/components/IndustrySelector";
@@ -8,10 +9,17 @@ import ReportRefDrawer from "@/components/ReportRefDrawer";
 import {
   fetchIndustries,
   fetchIndustrySentiment,
+  fetchSectors,
   fetchTrade,
   fetchTradePresets,
 } from "@/lib/api";
-import type { Industry, SentimentPoint, TradePoint, TradePresets } from "@/lib/types";
+import type {
+  Industry,
+  SectorRow,
+  SentimentPoint,
+  TradePoint,
+  TradePresets,
+} from "@/lib/types";
 
 import styles from "./page.module.css";
 
@@ -37,6 +45,41 @@ function formatRange(yyyymm: string): string {
   return `${yyyymm.slice(0, 4)}.${yyyymm.slice(4, 6)}`;
 }
 
+// -1~+1 센티먼트를 부호 포함 소수 2자리로. 긍정 초록 · 부정 빨강 · 0 무채색.
+function formatSentiment(value: number): string {
+  return `${value >= 0 ? "+" : "−"}${Math.abs(value).toFixed(2)}`;
+}
+
+function sentimentClass(value: number): string {
+  if (value > 0) {
+    return styles.gpos;
+  }
+  if (value < 0) {
+    return styles.gneg;
+  }
+  return styles.muted;
+}
+
+function rotationNumClass(score: number): string {
+  if (score >= 70) {
+    return styles.scoreHigh;
+  }
+  if (score >= 40) {
+    return styles.scoreMid;
+  }
+  return styles.scoreLow;
+}
+
+function rotationFillClass(score: number): string {
+  if (score >= 70) {
+    return styles.scoreFillHigh;
+  }
+  if (score >= 40) {
+    return styles.scoreFillMid;
+  }
+  return styles.scoreFillLow;
+}
+
 export default function IndustriesPage() {
   const [industries, setIndustries] = useState<Industry[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
@@ -51,6 +94,10 @@ export default function IndustriesPage() {
   const [tradePoints, setTradePoints] = useState<TradePoint[]>([]);
   const [tradeLoading, setTradeLoading] = useState(true);
   const [tradeError, setTradeError] = useState<string | null>(null);
+
+  const [sectors, setSectors] = useState<SectorRow[]>([]);
+  const [sectorsLoading, setSectorsLoading] = useState(true);
+  const [sectorsError, setSectorsError] = useState<string | null>(null);
 
   // 현재 날짜 기준 최근 12개월. 마운트 시 한 번만 고정한다.
   const range = useMemo(() => tradeRange(new Date()), []);
@@ -74,6 +121,35 @@ export default function IndustriesPage() {
       } finally {
         if (active) {
           setIndustriesLoading(false);
+        }
+      }
+    }
+    void load();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // 섹터 로테이션 랭킹. 센티먼트/무역 섹션과 독립적으로 로드된다.
+  useEffect(() => {
+    let active = true;
+    async function load() {
+      setSectorsLoading(true);
+      setSectorsError(null);
+      try {
+        const res = await fetchSectors();
+        if (!active) {
+          return;
+        }
+        setSectors(res);
+      } catch (e) {
+        if (active) {
+          setSectorsError(e instanceof Error ? e.message : "섹터 데이터를 불러오지 못했습니다");
+          setSectors([]);
+        }
+      } finally {
+        if (active) {
+          setSectorsLoading(false);
         }
       }
     }
@@ -200,6 +276,70 @@ export default function IndustriesPage() {
     return <TradeChart data={tradePoints} />;
   }, [tradeError, tradeLoading, tradePoints]);
 
+  const sectorArea = useMemo(() => {
+    if (sectorsError) {
+      return <p className={styles.error}>섹터 로테이션 로드 실패: {sectorsError}</p>;
+    }
+    if (sectorsLoading) {
+      return <p className={styles.loading}>섹터 로테이션 불러오는 중…</p>;
+    }
+    if (sectors.length === 0) {
+      return <p className={styles.loading}>섹터 데이터가 없습니다</p>;
+    }
+    return (
+      <div className={styles.scroll}>
+        <table className={styles.table}>
+          <thead>
+            <tr>
+              <th className={styles.rankCol}>순위</th>
+              <th className={styles.sectorCol}>섹터</th>
+              <th>리포트 수</th>
+              <th>평균 센티먼트</th>
+              <th className={styles.rotationCol}>로테이션 스코어</th>
+              <th className={styles.linkCol} aria-label="스몰캡 스크리너" />
+            </tr>
+          </thead>
+          <tbody>
+            {sectors.map((row, index) => (
+              <tr key={row.sector} className={styles.sectorRow}>
+                <td className={styles.rankCol}>
+                  <span className={index < 3 ? styles.rankTop : styles.rank}>{index + 1}</span>
+                </td>
+                <th className={styles.sectorCol}>
+                  <span className={styles.sectorName}>{row.sector}</span>
+                </th>
+                <td>{row.report_count}</td>
+                <td className={sentimentClass(row.avg_sentiment)}>
+                  {formatSentiment(row.avg_sentiment)}
+                </td>
+                <td className={styles.rotationCol}>
+                  <div className={styles.score}>
+                    <span
+                      className={`${styles.scoreNum} ${rotationNumClass(row.rotation_score)}`}
+                    >
+                      {row.rotation_score.toFixed(1)}
+                    </span>
+                    <span className={styles.scoreBar}>
+                      <span
+                        className={`${styles.scoreFill} ${rotationFillClass(row.rotation_score)}`}
+                        style={{ width: `${Math.max(0, Math.min(100, row.rotation_score))}%` }}
+                      />
+                    </span>
+                  </div>
+                </td>
+                <td className={styles.linkCol}>
+                  <Link href="/screener" className={styles.smallcapLink}>
+                    이 섹터 스몰캡 →
+                  </Link>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }, [sectors, sectorsLoading, sectorsError]);
+
   const presetEntries = Object.entries(presets);
 
   return (
@@ -208,6 +348,16 @@ export default function IndustriesPage() {
         <h1 className={styles.title}>산업 흐름</h1>
         <p className={styles.subtitle}>산업별 투자의견(BUY +1 · HOLD 0 · SELL −1) 추이</p>
       </header>
+
+      <section className={styles.sectorSection}>
+        <div className={styles.sectorHead}>
+          <h2 className={styles.title}>섹터 로테이션</h2>
+          <p className={styles.subtitle}>
+            로테이션 스코어(0-100) 높은 순 — 리포트 흐름과 투자의견으로 본 섹터 온도
+          </p>
+        </div>
+        {sectorArea}
+      </section>
 
       {error ? <p className={styles.error}>API 연결 실패: {error}</p> : null}
 

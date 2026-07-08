@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import MarketBriefCard from "@/components/MarketBriefCard";
+import MarketOverviewCard from "@/components/MarketOverviewCard";
 import ReportColumn from "@/components/ReportColumn";
 import { fetchMarketBrief, fetchReports } from "@/lib/api";
 import type { MarketBrief, Report } from "@/lib/types";
@@ -53,6 +54,8 @@ export default function TodaysBrewPage() {
 
   return (
     <div className={styles.page}>
+      <MarketOverviewCard />
+
       <MarketBriefCard brief={brief} />
 
       {error ? (

@@ -6,7 +6,7 @@ from datetime import date, datetime, timedelta
 
 import requests
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -14,16 +14,20 @@ from app.config import get_settings
 from app.db.models import (
     Disclosure,
     Financial,
+    GrowthMetric,
     Peer,
     PriceCandle,
     PriceCandleIntraday,
     Report,
     ReportAnalysis,
+    Sentiment,
     Timeframe,
+    UniverseSnapshot,
 )
 from app.db.session import get_session
 from app.schemas import (
     CandlePoint,
+    CompanyGrowth,
     CompanySummary,
     FinancialPeriodOut,
     PeerOut,
@@ -289,3 +293,46 @@ def company_timeline(
 
     items.sort(key=lambda x: x.date, reverse=True)  # 최신순
     return items
+
+
+@router.get("/{code}/growth", response_model=CompanyGrowth)
+def company_growth(code: str, db: Session = Depends(get_session)) -> CompanyGrowth:
+    """종목 성장지표 — universe 스냅샷(시총·모멘텀) + growth_metric(YoY) + 커버리지."""
+    snap_date = db.scalar(select(func.max(UniverseSnapshot.snapshot_date)))
+    u = db.scalar(
+        select(UniverseSnapshot).where(
+            UniverseSnapshot.snapshot_date == snap_date, UniverseSnapshot.stock_code == code
+        )
+    ) if snap_date else None
+    g = db.scalar(select(GrowthMetric).where(GrowthMetric.stock_code == code))
+
+    since = date.today() - timedelta(days=90)
+    cov = db.execute(
+        select(
+            func.count(Report.id),
+            func.sum(case((ReportAnalysis.sentiment == Sentiment.BUY, 1), else_=0)),
+        )
+        .join(ReportAnalysis, ReportAnalysis.report_id == Report.id)
+        .where(Report.stock_code == code, Report.published_date >= since)
+    ).one()
+    cov_count = int(cov[0] or 0)
+    buy_count = int(cov[1] or 0)
+
+    name = u.stock_name if u else db.scalar(
+        select(Report.stock_name).where(Report.stock_code == code, Report.stock_name.is_not(None)).limit(1)
+    )
+    return CompanyGrowth(
+        stock_code=code,
+        stock_name=name,
+        market=u.market if u else None,
+        market_cap=u.market_cap if u else None,
+        close_price=u.close_price if u else None,
+        change_pct=u.change_pct if u else None,
+        momentum_3m=u.momentum_3m if u else None,
+        revenue_yoy=g.revenue_yoy if g else None,
+        op_yoy=g.op_yoy if g else None,
+        op_turnaround=bool(g.op_turnaround) if g else False,
+        period=g.period if g else None,
+        coverage_count=cov_count,
+        buy_ratio=round(buy_count / cov_count, 2) if cov_count else None,
+    )

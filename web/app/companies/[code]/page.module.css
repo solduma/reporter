@@ -79,6 +79,27 @@
   font-weight: 700;
 }
 
+/* 성장 지표 헤더: 제목과 스냅샷 태그를 한 줄에 배치 */
+.growthHead {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.growthHead .sectionTitle {
+  margin: 0;
+}
+
+.growthTag {
+  color: var(--accent);
+  background: var(--accent-soft);
+  font-size: 0.74rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
 .sectionStatus {
   display: flex;
   align-items: center;
