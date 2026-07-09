@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.db.models import GrowthMetric, Report, ReportAnalysis, Sentiment, UniverseSnapshot
 from app.db.session import get_session
 from app.schemas import ScreenerResult, ScreenerRow
+from app.services import sector_ingest
 
 router = APIRouter(prefix="/api/screener", tags=["screener"])
 
@@ -82,6 +83,7 @@ def screen(
     mom_min: float | None = Query(default=None, description="3개월 모멘텀 최소%"),
     mom_max: float | None = Query(default=None, description="3개월 모멘텀 최대%(과열 컷)"),
     market: str | None = Query(default=None, pattern="^(KOSPI|KOSDAQ)$"),
+    sector: str | None = Query(default=None, description="섹터명(judal 테마 매칭 종목만)"),
     include_etf: bool = Query(default=False, description="ETF/ETN 포함(기본 제외)"),
     coverage: str | None = Query(default=None, pattern="^(has|none)$", description="리포트 커버리지 유무"),
     recent_buy: bool = Query(default=False, description="최근 90일 BUY 리포트 있는 종목만"),
@@ -112,6 +114,11 @@ def screen(
         conds.append(U.trading_value >= liq_min)
     if market:
         conds.append(U.market == market)
+    if sector:
+        codes = sector_ingest.sector_stock_codes(db, sector)
+        if not codes:
+            return ScreenerResult(as_of=as_of, total=0, items=[])
+        conds.append(U.stock_code.in_(codes))
     if not include_etf:
         conds.append(U.stock_type == "stock")
         conds.append(~U.stock_name.op("~")(r"우[A-C]?$"))  # 우선주 제외
@@ -167,6 +174,14 @@ def screen(
         items = [_to_row(r[0], r[1], r[2], r[3], None) for r in rows]
 
     return ScreenerResult(as_of=as_of, total=total, items=items)
+
+
+@router.get("/sectors", response_model=list[str])
+def screener_sectors() -> list[str]:
+    """섹터 필터용 섹터명 목록(국내 섹터 ETF 기준)."""
+    from reporter import sector_etf
+
+    return [e.sector for e in sector_etf.KR_SECTOR_ETFS]
 
 
 def _coverage_label(cov_n: int, buy_n: int) -> str | None:

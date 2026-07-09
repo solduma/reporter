@@ -124,6 +124,32 @@
   gap: 4px;
 }
 
+.rotationTabs {
+  display: flex;
+  gap: 8px;
+}
+
+.rotationTab {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  padding: 6px 18px;
+  border-radius: 999px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.rotationTab:hover {
+  border-color: var(--accent);
+}
+
+.rotationTabActive {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
 .scroll {
   overflow-x: auto;
   min-width: 0;
@@ -196,6 +222,13 @@
 .sectorName {
   font-weight: 700;
   color: var(--text);
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.sectorName:hover {
+  color: var(--accent);
+  text-decoration: underline;
 }
 
 .sectorRow:hover {

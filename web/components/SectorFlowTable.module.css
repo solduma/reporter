@@ -71,6 +71,39 @@
   color: var(--text);
 }
 
+.sectorLink {
+  color: var(--text);
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.sectorLink:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.linkCol {
+  text-align: right !important;
+}
+
+.smallcapLink {
+  display: inline-block;
+  padding: 5px 11px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--accent);
+  font-size: 0.8rem;
+  font-weight: 700;
+  white-space: nowrap;
+  text-decoration: none;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.smallcapLink:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
 .rank,
 .rankTop {
   display: inline-flex;

@@ -121,6 +121,7 @@ export interface ScreenerQuery {
   momMax?: number;
   liqMin?: number;
   market?: ScreenerMarket | "";
+  sector?: string;
   coverage?: "has" | "none";
   recentBuy?: boolean;
   includeEtf?: boolean;
@@ -144,6 +145,7 @@ export function fetchScreener(query: ScreenerQuery): Promise<ScreenerResult> {
   set("mom_max", query.momMax);
   set("liq_min", query.liqMin);
   set("market", query.market);
+  set("sector", query.sector);
   set("coverage", query.coverage);
   if (query.recentBuy) {
     params.set("recent_buy", "true");
@@ -155,6 +157,11 @@ export function fetchScreener(query: ScreenerQuery): Promise<ScreenerResult> {
   set("limit", query.limit);
   set("offset", query.offset);
   return getJson<ScreenerResult>(`/api/screener?${params.toString()}`);
+}
+
+// 섹터 필터용 섹터명 목록(국내 섹터 ETF 기준).
+export function fetchScreenerSectors(): Promise<string[]> {
+  return getJson<string[]>("/api/screener/sectors");
 }
 
 export function fetchCompanySummary(code: string): Promise<CompanySummary> {
