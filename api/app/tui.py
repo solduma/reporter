@@ -140,6 +140,7 @@ class AdminTUI(App):
                 yield Button("새로고침", id="refresh")
             with Horizontal(id="servers"):
                 yield Static(id="server_status")
+                yield Button("WEB 빌드", id="web_build", variant="primary")
                 yield Button("API 재기동", id="api_restart", variant="warning")
                 yield Button("WEB 재기동", id="web_restart", variant="warning")
             with Horizontal(id="schedule_bar"):
@@ -366,6 +367,11 @@ class AdminTUI(App):
             self.action_prev_page()
         elif bid in ("api_restart", "web_restart"):
             self._handle_server_button(bid)
+        elif bid == "web_build":
+            if self._build_running:
+                self._log_line("⚠ 빌드가 이미 실행 중입니다.")
+                return
+            self._run_web_build()
         elif bid == "job_toggle":
             self.action_toggle_job()
         elif bid == "job_edit":
@@ -380,6 +386,24 @@ class AdminTUI(App):
         key = bid.split("_")[0]  # api_restart → "api"
         self._log_line(self._servers.restart(key))
         self._refresh_server_status()
+
+    _build_running = False
+
+    @work(thread=True, exclusive=True, group="build")
+    def _run_web_build(self) -> None:
+        """web 프로덕션 빌드(pnpm build)를 워커 스레드에서 실행한다(수십 초 소요)."""
+        self.call_from_thread(self._set_build_enabled, False)
+        self.call_from_thread(self._log_line, "▶ WEB 빌드 시작… (수십 초 걸립니다)")
+        try:
+            msg = self._servers.build_web()
+        except Exception as e:
+            msg = f"✖ WEB 빌드 실패: {e}"
+        self.call_from_thread(self._log_line, msg)
+        self.call_from_thread(self._set_build_enabled, True)
+
+    def _set_build_enabled(self, enabled: bool) -> None:
+        self._build_running = not enabled
+        self.query_one("#web_build", Button).disabled = not enabled
 
     def _log_line(self, msg: str) -> None:
         self.query_one("#log", Log).write_line(f"[{datetime.now():%H:%M:%S}] {msg}")

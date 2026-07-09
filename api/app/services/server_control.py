@@ -10,11 +10,15 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 
 _HOST = "127.0.0.1"
 _LABEL_PREFIX = "com.reporter.server"
+# api/app/services/server_control.py → 프로젝트 루트(../../../..)의 web 디렉토리.
+_WEB_DIR = Path(__file__).resolve().parents[3] / "web"
 
 
 @dataclass
@@ -110,3 +114,21 @@ class ServerControl:
             detail = (result.stderr or result.stdout).strip()
             return f"{spec.label} 재기동 실패: {detail} — {spec.url}"
         return f"{spec.label} 재기동 요청됨 — {spec.url}"
+
+    def build_web(self) -> str:
+        """web 을 프로덕션 빌드한다(pnpm build). 빌드 산출물 반영엔 WEB 재기동이 필요하다."""
+        pnpm = shutil.which("pnpm")
+        if not pnpm:
+            return "pnpm 을 찾을 수 없습니다. Node/pnpm 설치를 확인하세요."
+        if not _WEB_DIR.is_dir():
+            return f"web 디렉토리를 찾을 수 없습니다: {_WEB_DIR}"
+        result = subprocess.run(
+            [pnpm, "build"],
+            cwd=_WEB_DIR,
+            capture_output=True, text=True, timeout=600, check=False,
+        )
+        if result.returncode != 0:
+            # 실패 원인은 stderr 말미가 유용하다(빌드 로그는 길어 마지막 줄들만).
+            tail = "\n".join((result.stderr or result.stdout).strip().splitlines()[-5:])
+            return f"WEB 빌드 실패:\n{tail}"
+        return "WEB 빌드 완료 — 'WEB 재기동'을 눌러 반영하세요."
