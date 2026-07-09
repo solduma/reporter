@@ -40,6 +40,12 @@ class Settings(BaseSettings):
     dart_api_key: str = ""
     customs_api_key: str = ""
 
+    # 차트 폴백 소스: 네이버 실패 시 KIS(한국투자증권 OpenAPI)·KRX 로 국내 봉 조회.
+    kis_app_key: str = ""
+    kis_app_secret: str = ""
+    kis_account_no: str = ""
+    krx_api: str = ""
+
     # CLI 텔레그램 발송이 남기는 브로드캐스트 스풀 경로(비우면 repo logs/broadcasts.jsonl)
     broadcast_spool: str = ""
 

@@ -170,7 +170,7 @@ def company_candles(
     frame = Timeframe(tf)
     end = datetime.now()
     start = end - timedelta(days=_RANGE_DAYS[tf])
-    fresh = chart.fetch_periodic(code, tf, start, end, session)
+    fresh = chart.fetch_periodic_with_fallback(get_settings(), code, tf, start, end, session)
     if fresh:
         _upsert_periodic(db, code, frame, fresh)
     rows = db.scalars(
@@ -189,7 +189,7 @@ def _ensure_day_candles(db: Session, code: str) -> list[PriceCandle]:
     session = requests.Session()
     end = datetime.now()
     start = end - timedelta(days=_RANGE_DAYS["day"])
-    fresh = chart.fetch_periodic(code, "day", start, end, session)
+    fresh = chart.fetch_periodic_with_fallback(get_settings(), code, "day", start, end, session)
     if fresh:
         _upsert_periodic(db, code, Timeframe.DAY, fresh)
     return list(
