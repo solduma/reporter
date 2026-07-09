@@ -1,5 +1,6 @@
 import type { MarketBrief } from "@/lib/types";
 
+import Markdown from "./Markdown";
 import styles from "./MarketBriefCard.module.css";
 
 interface Props {
@@ -33,7 +34,7 @@ export default function MarketBriefCard({ brief }: Props) {
         {dateLabel ? <span className={styles.date}>{dateLabel}</span> : null}
       </div>
       {summary ? (
-        <p className={styles.summary}>{summary}</p>
+        <Markdown content={summary} className={styles.summary} />
       ) : (
         <p className={styles.empty}>오늘의 시황 데이터가 아직 없습니다</p>
       )}
