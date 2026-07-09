@@ -18,7 +18,7 @@ from app.config import Settings
 from app.db.models import DailyMarketInfo, Report, ReportAnalysis, Sentiment
 from app.services import sentiment as sentiment_svc
 from app.storage import minio_store
-from reporter import analyzer
+from reporter import analyzer, market
 from reporter.crawler import crawl_categories
 from reporter.models import Report as CrawledReport
 from reporter.ollama_client import OllamaClient
@@ -152,15 +152,26 @@ def backfill_industry_names(db: Session, target_date: str | None = None) -> int:
 
 
 def build_market_brief(db: Session, settings: Settings, target_date: str | None = None) -> str | None:
-    """당일 시황(market_info) 리포트를 크롤·종합해 daily_market_info 에 저장한다."""
+    """당일 시황(market_info) 리포트를 크롤·종합해 daily_market_info 에 저장한다.
+
+    오늘 전망이 목적이므로 국내 마감시황(전일 장 리뷰)은 제외한다(미국 마감은 유지).
+    market_date 는 수집 실행일(또는 지정일)로 고정 — 리스트 최상단 발행일이 전일이어도
+    오늘로 저장한다(아침에 신규 발행 전 전일로 저장되던 문제 방지).
+    """
     crawled = crawl_categories(["market_info"], target_date=target_date)
     if not crawled:
+        return None
+
+    # 국내 마감시황(전일 리뷰) 제외 — 오늘 시황 오염 방지.
+    morning, _closing = market.split_by_closing(crawled)
+    if not morning:
+        logger.info("no market_info reports after excluding domestic closing")
         return None
 
     client = OllamaClient(settings.ollama_host, settings.ollama_api_key)
     session = requests.Session()
     texts: list[str] = []
-    for cr in crawled:
+    for cr in morning:
         if not cr.pdf_url:
             continue
         pdf_bytes = _download_pdf(cr.pdf_url, session)
@@ -177,7 +188,8 @@ def build_market_brief(db: Session, settings: Settings, target_date: str | None 
         return None
     briefing = analyzer.synthesize_insight(client, settings.insight_model, summarized)
 
-    market_date = _to_date(crawled[0].date)
+    # market_date = 수집 실행일(지정일 우선). 리스트 최상단 발행일에 의존하지 않는다.
+    market_date = _to_date(target_date) if target_date else datetime.now().date()
     existing = db.scalar(select(DailyMarketInfo).where(DailyMarketInfo.market_date == market_date))
     if existing:
         existing.summary = briefing.text
