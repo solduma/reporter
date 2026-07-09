@@ -95,11 +95,25 @@ _MAX_KR_STOCKS = 30
 
 
 def _kr_sector_stocks(db: Session, industry: str) -> list[SectorStock]:
-    """산업명을 judal 테마명에 매칭해 소속 종목 + 최신 시세(UniverseSnapshot)를 반환한다."""
-    # 산업명을 포함하는 judal 테마들(예: '반도체' → '반도체', '반도체 소재' …)의 종목 합집합.
-    theme_idxs = db.scalars(
-        select(SectorTheme.judal_idx).where(SectorTheme.name.ilike(f"%{industry}%"))
+    """산업명 → 대표 섹터로 접고, 그 섹터에 속하는 judal 테마 종목 + 시세를 반환한다.
+
+    '반도체'와 '반도체 소부장'을 섞지 않도록, 후보 테마를 다시 themes_to_kr_sector 로
+    분류해 요청 산업의 섹터와 일치하는 테마만 종목 소스로 쓴다.
+    """
+    target = sector_etf.themes_to_kr_sector([industry])
+    # 후보 검색어: '반도체 소부장'처럼 judal 테마명에 없는 합성 섹터는 접두어('반도체')로 넓힌다.
+    search = industry.split()[0] if target else industry
+    candidates = db.execute(
+        select(SectorTheme.judal_idx, SectorTheme.name).where(
+            SectorTheme.name.ilike(f"%{search}%")
+        )
     ).all()
+    # 각 후보 테마를 다시 분류해 요청 섹터와 일치하는 것만(소부장 vs 반도체 분리).
+    theme_idxs = (
+        [idx for idx, name in candidates if sector_etf.themes_to_kr_sector([name]) == target]
+        if target
+        else [idx for idx, _ in candidates]
+    )
     if not theme_idxs:
         return []
     codes = db.scalars(

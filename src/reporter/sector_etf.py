@@ -19,7 +19,8 @@ class SectorEtf:
 
 # 국내 대표 섹터 ETF(실측 검증). 종목코드로 domestic 차트 조회.
 KR_SECTOR_ETFS: list[SectorEtf] = [
-    SectorEtf("091160", "반도체", "KR"),
+    SectorEtf("091160", "반도체", "KR"),  # KODEX 반도체 — 완제품·대형(삼성전자·SK하이닉스 등)
+    SectorEtf("475300", "반도체 소부장", "KR"),  # SOL 반도체전공정 — 소재·부품·장비
     SectorEtf("266370", "IT", "KR"),
     SectorEtf("305720", "2차전지", "KR"),
     SectorEtf("244580", "바이오", "KR"),
@@ -50,11 +51,14 @@ US_SECTOR_ETFS: list[SectorEtf] = [
     SectorEtf("XLRE.K", "리츠", "US"),  # XLRE 는 bare 로 빈 배열 → .K 필요
     SectorEtf("XLU", "유틸리티", "US"),
     SectorEtf("SMH.O", "반도체", "US"),  # Nasdaq 상장 → .O 필요
+    SectorEtf("XSD", "반도체 소부장", "US"),  # SPDR 동일가중 — 장비·소재 비중 큼
 ]
 
 # judal 테마명 키워드 → 국내 섹터 ETF 섹터명. 종목이 속한 테마를 대표 섹터로 접는다.
 # 앞쪽 항목이 우선(더 구체적인 것부터). 소문자 부분일치.
 _THEME_TO_KR_SECTOR: list[tuple[tuple[str, ...], str]] = [
+    # 소부장(소재·부품·장비·공정)을 반도체보다 먼저 판별 — '반도체 소재'가 '반도체'로 새지 않게.
+    (("소재", "부품", "장비", "전공정", "후공정", "소부장"), "반도체 소부장"),
     (("반도체", "메모리", "dram", "시스템반도체", "네온가스"), "반도체"),
     (("2차전지", "2차 전지", "배터리", "전고체"), "2차전지"),
     (("자동차", "전기차", "수소차", "자율주행", "타이어"), "자동차"),
@@ -75,6 +79,7 @@ _THEME_TO_KR_SECTOR: list[tuple[tuple[str, ...], str]] = [
 # 국내 섹터 ETF 섹터명 → 미국 섹터 ETF 섹터명(GICS). 선행 분석용 대응.
 _KR_SECTOR_TO_US: dict[str, str] = {
     "반도체": "반도체",
+    "반도체 소부장": "반도체 소부장",
     "IT": "기술",
     "2차전지": "기술",  # 성장 테크로 나스닥·기술 흐름과 동행
     "바이오": "헬스케어",
@@ -115,6 +120,9 @@ def kr_sector_to_us(kr_sector: str | None) -> str | None:
 US_SECTOR_STOCKS: dict[str, list[tuple[str, str]]] = {
     "반도체": [("NVDA.O", "엔비디아"), ("AVGO.O", "브로드컴"), ("TSM", "TSMC"),
              ("AMD.O", "AMD"), ("QCOM.O", "퀄컴"), ("TXN.O", "텍사스인스트루먼트")],
+    "반도체 소부장": [("ASML.O", "ASML"), ("AMAT.O", "어플라이드머티어리얼즈"),
+                ("LRCX.O", "램리서치"), ("KLAC.O", "KLA"), ("TER.O", "테라다인"),
+                ("ENTG.O", "엔테그리스")],
     "기술": [("AAPL.O", "애플"), ("MSFT.O", "마이크로소프트"), ("NVDA.O", "엔비디아"),
            ("ORCL.N", "오라클"), ("CRM.N", "세일즈포스"), ("ADBE.O", "어도비")],
     "커뮤니케이션": [("GOOGL.O", "알파벳"), ("META.O", "메타"), ("NFLX.O", "넷플릭스"),
