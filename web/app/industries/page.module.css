@@ -345,6 +345,37 @@
   color: #fff;
 }
 
+/* 세부품목(6자리) 칩 — 대표품목 칩 아래, 더 작고 옅게. */
+.tradeSubChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+  padding-left: 2px;
+}
+
+.tradeSubChip {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  padding: 4px 11px;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.tradeSubChip:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.tradeSubChipActive {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 @media (max-width: 860px) {
   .layout {
     grid-template-columns: 1fr;

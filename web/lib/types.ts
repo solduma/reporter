@@ -133,8 +133,12 @@ export interface Peer {
   roe: string | null;
 }
 
-// 관세청 수출입 무역통계 — HS 코드(문자열) → 한글 품목명
-export type TradePresets = Record<string, string>;
+// 관세청 수출입 무역통계 프리셋 — 4자리 대표품목 + 하위 6자리 세부품목.
+// groups: {hs4: 명칭}, subitems: {hs4: {hs6: 명칭}} (세부품목 없는 대표품목은 subitems 키 부재)
+export interface TradePresets {
+  groups: Record<string, string>;
+  subitems: Record<string, Record<string, string>>;
+}
 
 export interface TradePoint {
   period: string; // "YYYY.MM"

@@ -90,8 +90,9 @@ export default function IndustriesPage() {
   const [seriesLoading, setSeriesLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [presets, setPresets] = useState<TradePresets>({});
-  const [selectedHs, setSelectedHs] = useState<string | null>(null);
+  const [presets, setPresets] = useState<TradePresets>({ groups: {}, subitems: {} });
+  const [selectedGroup, setSelectedGroup] = useState<string | null>(null); // 4자리 대표품목
+  const [selectedSub, setSelectedSub] = useState<string | null>(null); // 6자리 세부품목(null=대표품목 전체)
   const [tradePoints, setTradePoints] = useState<TradePoint[]>([]);
   const [tradeLoading, setTradeLoading] = useState(true);
   const [tradeError, setTradeError] = useState<string | null>(null);
@@ -203,7 +204,7 @@ export default function IndustriesPage() {
           return;
         }
         setPresets(res);
-        setSelectedHs(Object.keys(res)[0] ?? null);
+        setSelectedGroup(Object.keys(res.groups)[0] ?? null);
       } catch (e) {
         if (active) {
           setTradeError(e instanceof Error ? e.message : "무역통계 품목을 불러오지 못했습니다");
@@ -217,8 +218,16 @@ export default function IndustriesPage() {
     };
   }, []);
 
+  // 실제 조회 HS: 세부품목(6자리)이 선택돼 있으면 그것, 아니면 대표품목(4자리).
+  const activeHs = selectedSub ?? selectedGroup;
+
+  // 대표품목이 바뀌면 세부품목 선택을 초기화(다른 대분류의 6자리가 남지 않게).
   useEffect(() => {
-    if (!selectedHs) {
+    setSelectedSub(null);
+  }, [selectedGroup]);
+
+  useEffect(() => {
+    if (!activeHs) {
       return;
     }
     let active = true;
@@ -242,11 +251,11 @@ export default function IndustriesPage() {
         }
       }
     }
-    void load(selectedHs);
+    void load(activeHs);
     return () => {
       active = false;
     };
-  }, [selectedHs, range]);
+  }, [activeHs, range]);
 
   const chartArea = useMemo(() => {
     if (seriesLoading) {
@@ -341,7 +350,8 @@ export default function IndustriesPage() {
     );
   }, [sectors, sectorsLoading, sectorsError]);
 
-  const presetEntries = Object.entries(presets);
+  const groupEntries = Object.entries(presets.groups);
+  const subEntries = selectedGroup ? Object.entries(presets.subitems[selectedGroup] ?? {}) : [];
 
   return (
     <div className={styles.page}>
@@ -411,10 +421,10 @@ export default function IndustriesPage() {
           </p>
         </div>
 
-        {presetEntries.length > 0 ? (
-          <div className={styles.tradeChips} role="tablist" aria-label="품목(HS) 선택">
-            {presetEntries.map(([hs, name]) => {
-              const active = hs === selectedHs;
+        {groupEntries.length > 0 ? (
+          <div className={styles.tradeChips} role="tablist" aria-label="대표품목(HS 4자리) 선택">
+            {groupEntries.map(([hs, name]) => {
+              const active = hs === selectedGroup;
               return (
                 <button
                   key={hs}
@@ -424,7 +434,44 @@ export default function IndustriesPage() {
                   className={
                     active ? `${styles.tradeChip} ${styles.tradeChipActive}` : styles.tradeChip
                   }
-                  onClick={() => setSelectedHs(hs)}
+                  onClick={() => setSelectedGroup(hs)}
+                >
+                  {name}
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
+
+        {subEntries.length > 0 ? (
+          <div className={styles.tradeSubChips} role="tablist" aria-label="세부품목(HS 6자리) 선택">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={selectedSub === null}
+              className={
+                selectedSub === null
+                  ? `${styles.tradeSubChip} ${styles.tradeSubChipActive}`
+                  : styles.tradeSubChip
+              }
+              onClick={() => setSelectedSub(null)}
+            >
+              전체
+            </button>
+            {subEntries.map(([hs, name]) => {
+              const active = hs === selectedSub;
+              return (
+                <button
+                  key={hs}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  className={
+                    active
+                      ? `${styles.tradeSubChip} ${styles.tradeSubChipActive}`
+                      : styles.tradeSubChip
+                  }
+                  onClick={() => setSelectedSub(hs)}
                 >
                   {name}
                 </button>
