@@ -156,6 +156,14 @@ class TopDownView(BaseModel):
     kr_indices: list[dict]  # [{name, change_ratio, rising}]
 
 
+class SectorFlowDetail(BaseModel):
+    """한 섹터(산업)의 국내 ETF flow + 대응 미국 ETF flow(선행). 섹터 상세 페이지용."""
+
+    industry: str  # 요청한 산업명
+    kr: SectorFlowRow | None  # 매칭된 국내 섹터 ETF flow (매칭 실패 시 None)
+    us: SectorFlowRow | None  # 대응 미국 섹터 ETF flow
+
+
 class CompanyAnalysis(BaseModel):
     stock_code: str
     stock_name: str | None

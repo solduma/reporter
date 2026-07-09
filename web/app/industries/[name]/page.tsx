@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import BroadcastRail from "@/components/BroadcastRail";
 import ReportRefDrawer from "@/components/ReportRefDrawer";
+import SectorFlowDetailCard from "@/components/SectorFlowDetailCard";
 import SentimentChart from "@/components/SentimentChart";
 import { fetchIndustrySentiment } from "@/lib/api";
 import type { SentimentPoint } from "@/lib/types";
@@ -94,6 +95,8 @@ export default function SectorDetailPage({ params }: { params: { name: string } 
 
         <ReportRefDrawer point={selectedPoint} onClose={() => setSelectedPoint(null)} />
       </div>
+
+      <SectorFlowDetailCard industry={sector} />
 
       <BroadcastRail
         query={{ industry: sector }}

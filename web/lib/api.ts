@@ -18,6 +18,7 @@ import type {
   ScreenerOpGrowth,
   ScreenerResult,
   ScreenerSort,
+  SectorFlowDetail,
   SectorFlowRow,
   SectorRow,
   SentimentPoint,
@@ -76,6 +77,13 @@ export function fetchSectors(): Promise<SectorRow[]> {
 // 수급 기반 섹터 로테이션(섹터 ETF). flow_score 내림차순.
 export function fetchSectorFlow(market: FlowMarket): Promise<SectorFlowRow[]> {
   return getJson<SectorFlowRow[]>(`/api/sectors/flow?market=${market}`);
+}
+
+// 한 산업의 국내 섹터 ETF flow + 대응 미국 섹터 flow(선행). 섹터 상세 페이지용.
+export function fetchSectorFlowDetail(industry: string): Promise<SectorFlowDetail> {
+  return getJson<SectorFlowDetail>(
+    `/api/sectors/flow/detail?industry=${encodeURIComponent(industry)}`,
+  );
 }
 
 export function fetchIndustrySentiment(
