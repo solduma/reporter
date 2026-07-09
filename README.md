@@ -108,10 +108,16 @@ uv run reporter --batch 1 | --all     # (레거시) 종합 브리핑
 `launchd/install.sh` 를 **한 번** 실행하면 `~/Library/LaunchAgents/` 에 plist 가 설치되어
 **재부팅·재로그인 후에도 자동 유지**된다(매번 다시 등록할 필요 없음).
 
+등록 항목: ① CLI 텔레그램 예약 잡(premarket/digest/news/… — StartCalendarInterval),
+② **웹서비스 상시 서버** `com.reporter.server.api`(:8010)·`com.reporter.server.web`(:3000)
+— RunAtLoad+KeepAlive 로 부팅 시 자동 실행·죽으면 재시작. (web 서버는 `cd web && pnpm build`
+산출물이 있어야 등록된다.) 상태 확인·재기동은 Admin TUI 에서, 또는 `launchctl kickstart -k`.
+
 ```bash
-./launchd/install.sh            # 6개 작업 등록 (재실행 시 자동 갱신)
+cd web && pnpm build && cd ..    # web 상시 서버를 쓸 거면 먼저 빌드
+./launchd/install.sh             # CLI 잡 + 웹/API 서버 등록 (재실행 시 자동 갱신)
 launchctl list | grep com.reporter   # 등록 확인
-./launchd/install.sh uninstall  # 전체 제거
+./launchd/install.sh uninstall   # 전체 제거(서버 포함)
 ```
 
 cron 대비 장점: **예약 시각에 맥이 슬립 중이었으면 깨어날 때 놓친 작업을 1회 실행**한다

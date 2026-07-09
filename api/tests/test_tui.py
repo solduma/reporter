@@ -66,7 +66,7 @@ async def test_tui_mounts_and_shows_status():
         ids = {b.id for b in app.query(Button)}
         assert {
             "ingest", "universe", "growth", "refresh", "prev", "next", "sort",
-            "api_start", "api_stop", "web_start", "web_stop",
+            "api_restart", "web_restart",
         } <= ids
 
 
@@ -158,28 +158,21 @@ async def test_running_job_disables_buttons(monkeypatch):
 
 
 async def test_server_buttons_and_status(monkeypatch):
-    # ServerControl 을 목킹해 실제 프로세스 없이 버튼·상태 렌더만 검증
+    # ServerControl 을 목킹해 실제 launchctl 없이 재기동 버튼·상태 렌더만 검증
     from app.services.server_control import ServerStatus
 
-    state = {"api": False}
+    restarts = []
 
     class _FakeControl:
-        def start(self, key):
-            state[key] = True
-            return f"{key} 기동"
-
-        def stop(self, key):
-            state[key] = False
-            return f"{key} 종료"
+        def restart(self, key):
+            restarts.append(key)
+            return f"{key} 재기동 요청됨"
 
         def status(self):
             return [
-                ServerStatus("api", "API", 8010, state.get("api", False), 111 if state.get("api") else None),
-                ServerStatus("web", "WEB", 3000, False, None),
+                ServerStatus("api", "API", 8010, loaded=True, running=True, pid=111),
+                ServerStatus("web", "WEB", 3000, loaded=True, running=True, pid=222),
             ]
-
-        def stop_all(self):
-            pass
 
     monkeypatch.setattr(tui, "ServerControl", _FakeControl)
 
@@ -188,18 +181,13 @@ async def test_server_buttons_and_status(monkeypatch):
         await pilot.pause(0.3)
         from textual.widgets import Button, Static
 
-        # 서버 버튼 4종 존재
+        # 재기동 버튼 2종 존재
         ids = {b.id for b in app.query(Button)}
-        assert {"api_start", "api_stop", "web_start", "web_stop"} <= ids
+        assert {"api_restart", "web_restart"} <= ids
 
         info = app.query_one("#server_status", Static)
-        assert "중지" in str(info.render())  # 초기엔 중지
+        assert "실행중" in str(info.render())  # 로드+실행 중
 
-        await pilot.click("#api_start")
+        await pilot.click("#api_restart")
         await pilot.pause(0.2)
-        assert state["api"] is True
-        assert "실행중" in str(app.query_one("#server_status", Static).render())
-
-        await pilot.click("#api_stop")
-        await pilot.pause(0.2)
-        assert state["api"] is False
+        assert restarts == ["api"]  # 재기동을 launchctl 위임으로 호출

@@ -77,10 +77,11 @@ cd api && uv run reporter-tui
 ```
 
 - **상태 패널**: 테이블 행수(reports/universe/growth/…)·최신 스냅샷 날짜 (`r` 새로고침).
-- **서버 제어**: API(:8010)·WEB(:3000) 시작/종료 버튼 + 접속 URL 표시. TUI 가 subprocess 로
-  직접 띄우고 그 PID 만 종료하므로 다른 프로젝트·외부 서버는 건드리지 않는다. TUI 종료 시
-  자신이 띄운 서버는 자동 정리. (web 은 `pnpm build` 산출물 필요.) 포트가 이미 점유돼 있으면
-  기동을 거부하고 안내하며, 기동 직후 즉시 죽으면 실패로 보고한다(원인은 `logs/server_<key>.log`).
+- **서버 제어**: API(:8010)·WEB(:3000) 은 **launchd 서비스**(`com.reporter.server.*`)로 상시
+  실행·유지된다(RunAtLoad+KeepAlive, 재부팅 후 자동). TUI 는 그 서비스의 상태 모니터링(로드/
+  실행/PID·URL)과 **재기동**(launchctl kickstart)만 담당한다 — 직접 프로세스를 띄우지 않으므로
+  TUI 를 꺼도 서버는 유지된다. 서비스 등록: `./launchd/install.sh` (web 은 `pnpm build` 필요).
+  미등록 상태면 상태 패널이 안내하고, 로그는 `logs/server_<key>.log`.
 - **수집 트리거 버튼**: 리포트 수집 / 유니버스 스냅샷 / 성장 배치 — 워커 스레드로 실행,
   진행 로그를 패널에 스트리밍. (텔레그램 미발송, DB 적재만.)
 - **스몰캡 성장주 미리보기**: 정렬(`s`, 매출YoY/모멘텀/시총/등락률)·페이지 이동(`p`/`n`).

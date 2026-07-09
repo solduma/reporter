@@ -1,128 +1,105 @@
-"""서버 프로세스 제어 단위 테스트 — subprocess 를 목킹해 기동·종료·상태 검증."""
+"""서버 제어 단위 테스트 — launchctl 위임(status/restart)을 목킹해 검증.
+
+실제 launchctl 을 부르지 않도록 subprocess.run 을 대체한다.
+"""
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from dataclasses import dataclass
 
 import pytest
 
 from app.services import server_control
-from app.services.server_control import SERVERS, ServerControl
+from app.services.server_control import ServerControl
+
+# launchctl print 출력 예시(로드+실행 중). pid 라인이 있으면 running.
+_PRINT_RUNNING = """\
+com.reporter.server.api = {
+	active count = 1
+	state = running
+	pid = 4242
+	program = /usr/bin/uv
+}
+"""
+_PRINT_LOADED_NOT_RUNNING = """\
+com.reporter.server.api = {
+	state = waiting
+}
+"""
 
 
-class _FakeProc:
-    def __init__(self, pid=1234):
-        self.pid = pid
-        self._alive = True
-        self.returncode = None
-
-    def poll(self):
-        return None if self._alive else 0
-
-    def wait(self, timeout=None):
-        self._alive = False
-        self.returncode = 0
+@dataclass
+class _Result:
+    returncode: int
+    stdout: str = ""
+    stderr: str = ""
 
 
 @pytest.fixture
-def _patch(monkeypatch):
-    procs = []
+def fake_launchctl(monkeypatch):
+    """launchctl 호출을 가로채 (argv, 반환) 을 제어한다."""
+    calls = []
+    responses = {"print": _Result(1), "kickstart": _Result(0)}  # 기본: 미등록
 
-    def _popen(cmd, **kwargs):
-        p = _FakeProc(pid=1000 + len(procs))
-        procs.append(p)
-        return p
+    def _run(argv, **kwargs):
+        calls.append(argv)
+        sub = argv[1]  # launchctl <sub> ...
+        return responses.get(sub, _Result(0))
 
-    monkeypatch.setattr(server_control.subprocess, "Popen", _popen)
-    monkeypatch.setattr(server_control.os, "killpg", lambda pgid, sig: None)
-    monkeypatch.setattr(server_control.os, "getpgid", lambda pid: pid)
-    # 포트 비어있음·기동대기 무음·로그파일 개방을 스텁(실 소켓/파일/시간 미사용)
-    monkeypatch.setattr(server_control, "_port_in_use", lambda port: False)
-    monkeypatch.setattr(server_control.time, "sleep", lambda s: None)
-    monkeypatch.setattr(server_control.Path, "open", lambda self, *a, **k: MagicMock())
-    monkeypatch.setattr(server_control.Path, "mkdir", lambda self, *a, **k: None)
-    # web needs_build 검사를 통과시킴
-    monkeypatch.setattr(SERVERS["web"], "needs_build", None)
-    return procs
+    monkeypatch.setattr(server_control.subprocess, "run", _run)
+    return calls, responses
 
 
-def test_start_and_status(_patch):
-    sc = ServerControl()
-    msg = sc.start("api")
-    assert "기동" in msg and "8010" in msg
-    st = {s.key: s for s in sc.status()}
-    assert st["api"].running is True and st["api"].pid is not None
-    assert st["web"].running is False
-
-
-def test_double_start_is_noop(_patch):
-    sc = ServerControl()
-    sc.start("api")
-    msg = sc.start("api")
-    assert "이미 실행 중" in msg
-    assert len(_patch) == 1  # Popen 은 한 번만
-
-
-def test_stop(_patch):
-    sc = ServerControl()
-    sc.start("api")
-    msg = sc.stop("api")
-    assert "종료" in msg
-    assert sc.is_running("api") is False
-
-
-def test_stop_when_not_running(_patch):
-    sc = ServerControl()
-    assert "실행 중 아님" in sc.stop("web")
-
-
-def test_stop_all(_patch):
-    sc = ServerControl()
-    sc.start("api")
-    sc.start("web")
-    sc.stop_all()
-    assert not sc.is_running("api")
-    assert not sc.is_running("web")
-
-
-def test_web_requires_build(monkeypatch):
-    # 빌드 산출물이 없으면 web 은 실행 거부
-    monkeypatch.setattr(server_control.subprocess, "Popen", lambda *a, **k: _FakeProc())
-    fake_missing = MagicMock()
-    fake_missing.exists.return_value = False
-    monkeypatch.setattr(SERVERS["web"], "needs_build", fake_missing)
-    sc = ServerControl()
-    msg = sc.start("web")
-    assert "빌드 없음" in msg
-    assert sc.is_running("web") is False
-
-
-def test_start_detects_immediate_death(_patch, monkeypatch):
-    # 기동 직후 즉시 죽으면(bind 실패 등) 실패로 보고하고 추적하지 않아야 한다.
-    dead = _FakeProc(pid=2222)
-    dead._alive = False
-    dead.returncode = 1
-    monkeypatch.setattr(server_control.subprocess, "Popen", lambda *a, **k: dead)
-    monkeypatch.setattr(
-        server_control.ServerControl, "_log_tail", lambda self, p, lines=3: "bind 실패"
-    )
-    sc = ServerControl()
-    msg = sc.start("api")
-    assert "기동 실패" in msg
-    assert sc.is_running("api") is False
-
-
-def test_start_refuses_when_port_in_use(_patch, monkeypatch):
-    # 외부 프로세스가 포트를 점유 중이면 bind 실패 전에 미리 막는다.
-    monkeypatch.setattr(server_control, "_port_in_use", lambda port: True)
-    sc = ServerControl()
-    msg = sc.start("api")
-    assert "포트 8010 사용 중" in msg
-    assert sc.is_running("api") is False
-
-
-def test_status_includes_url(_patch):
-    sc = ServerControl()
-    st = {s.key: s for s in sc.status()}
+def test_status_not_loaded(fake_launchctl):
+    _calls, responses = fake_launchctl
+    responses["print"] = _Result(1)  # 미등록
+    st = {s.key: s for s in ServerControl().status()}
+    assert st["api"].loaded is False
+    assert st["api"].running is False
+    assert st["api"].pid is None
     assert st["api"].url == "http://127.0.0.1:8010"
-    assert st["web"].url == "http://127.0.0.1:3000"
+
+
+def test_status_loaded_and_running(fake_launchctl):
+    _calls, responses = fake_launchctl
+    responses["print"] = _Result(0, stdout=_PRINT_RUNNING)
+    st = {s.key: s for s in ServerControl().status()}
+    assert st["api"].loaded is True
+    assert st["api"].running is True
+    assert st["api"].pid == 4242
+
+
+def test_status_loaded_not_running(fake_launchctl):
+    _calls, responses = fake_launchctl
+    responses["print"] = _Result(0, stdout=_PRINT_LOADED_NOT_RUNNING)
+    st = {s.key: s for s in ServerControl().status()}
+    assert st["api"].loaded is True
+    assert st["api"].running is False  # pid 없음 → 대기(재시작 중)
+    assert st["api"].pid is None
+
+
+def test_restart_kicks_when_loaded(fake_launchctl):
+    calls, responses = fake_launchctl
+    responses["print"] = _Result(0, stdout=_PRINT_RUNNING)
+    responses["kickstart"] = _Result(0)
+    msg = ServerControl().restart("api")
+    assert "재기동 요청됨" in msg
+    # kickstart -k <domain>/<label> 이 호출됐는지
+    kick = [c for c in calls if c[1] == "kickstart"]
+    assert kick and "-k" in kick[0]
+    assert any("com.reporter.server.api" in a for a in kick[0])
+
+
+def test_restart_when_not_loaded_guides_install(fake_launchctl):
+    _calls, responses = fake_launchctl
+    responses["print"] = _Result(1)  # 미등록
+    msg = ServerControl().restart("api")
+    assert "미등록" in msg and "install.sh" in msg
+
+
+def test_restart_reports_kickstart_failure(fake_launchctl):
+    _calls, responses = fake_launchctl
+    responses["print"] = _Result(0, stdout=_PRINT_RUNNING)
+    responses["kickstart"] = _Result(1, stderr="Could not find service")
+    msg = ServerControl().restart("api")
+    assert "재기동 실패" in msg
