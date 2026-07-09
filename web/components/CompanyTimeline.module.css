@@ -26,6 +26,11 @@
   border-left-color: var(--hold);
 }
 
+/* 브로드캐스트(텔레그램 브리핑)는 보라 계열로 리포트·공시와 구분한다. */
+.broadcast {
+  border-left-color: #8b5cf6;
+}
+
 .topRow {
   display: flex;
   align-items: center;
@@ -51,6 +56,11 @@
 .disclosureBadge {
   color: var(--hold);
   background: var(--hold-bg);
+}
+
+.broadcastBadge {
+  color: #7c3aed;
+  background: #f3ecfe;
 }
 
 .date {

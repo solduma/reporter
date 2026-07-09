@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.db.session import init_db
-from app.routers import admin, companies, industries, market, screener, today
+from app.routers import admin, broadcasts, companies, industries, market, screener, today
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -37,6 +37,7 @@ app.include_router(companies.router)
 app.include_router(screener.router)
 app.include_router(market.router)
 app.include_router(admin.router)
+app.include_router(broadcasts.router)
 
 
 @app.get("/health")

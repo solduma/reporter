@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
+import BroadcastRail from "@/components/BroadcastRail";
 import IndustrySelector from "@/components/IndustrySelector";
 import ReportRefDrawer from "@/components/ReportRefDrawer";
 import {
@@ -387,6 +388,14 @@ export default function IndustriesPage() {
 
             <ReportRefDrawer point={selectedPoint} onClose={() => setSelectedPoint(null)} />
           </div>
+
+          {selected ? (
+            <BroadcastRail
+              query={{ industry: selected }}
+              title={`📣 ${selected} 관련 브리핑`}
+              emptyText="이 산업을 언급한 텔레그램 브리핑이 아직 없습니다. (배포 이후 발송분부터 축적됩니다)"
+            />
+          ) : null}
         </>
       )}
 

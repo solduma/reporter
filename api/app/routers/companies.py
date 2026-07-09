@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db.models import (
+    Broadcast,
     Disclosure,
     Financial,
     GrowthMetric,
@@ -291,8 +292,42 @@ def company_timeline(
             )
         )
 
+    # 이 종목을 언급한 텔레그램 브로드캐스트(오후 리서치·미장·종합 등)
+    bc_rows = db.scalars(
+        select(Broadcast).where(
+            Broadcast.stock_codes.contains([code]),
+            Broadcast.ref_date >= begin,
+            Broadcast.ref_date <= end,
+        )
+    ).all()
+    for b in bc_rows:
+        items.append(
+            TimelineItem(
+                type="broadcast",
+                date=b.ref_date,
+                title=b.title,
+                source="텔레그램 브리핑",
+                sentiment="HOLD",
+                rationale=_snippet(b.body),
+                link=None,
+                report_id=None,
+                broadcast_id=b.id,
+                kind=b.kind.value,
+            )
+        )
+
     items.sort(key=lambda x: x.date, reverse=True)  # 최신순
     return items
+
+
+_TIMELINE_SNIPPET = 160
+
+
+def _snippet(body: str) -> str:
+    """브로드캐스트 본문에서 헤더·구분선을 제외한 앞부분 미리보기."""
+    lines = [ln for ln in body.splitlines() if ln.strip() and set(ln.strip()) != {"─"}]
+    text = " ".join(lines[1:]) if len(lines) > 1 else " ".join(lines)
+    return text[:_TIMELINE_SNIPPET] + ("…" if len(text) > _TIMELINE_SNIPPET else "")
 
 
 @router.get("/{code}/growth", response_model=CompanyGrowth)

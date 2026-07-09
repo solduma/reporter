@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
-from . import analyzer, article, news, us_market
+from . import analyzer, archive, article, news, us_market
 from .config import Config
 from .crawler import crawl_categories
 from .grouping import group_by_entity
@@ -30,6 +30,13 @@ _DIGEST_HEADER = {
     "invest": "💡 투자 종합",
     "economy": "🌍 경제 종합",
     "debenture": "💵 채권 종합",
+}
+# digest 카테고리 → 아카이브 kind (broadcast.kind 와 일치)
+_DIGEST_KIND = {
+    "market_info": "digest_market",
+    "invest": "digest_invest",
+    "economy": "digest_econ",
+    "debenture": "digest_bond",
 }
 # 장중 시장 뉴스 검색 키워드
 _MARKET_NEWS_KEYWORDS = ["코스피", "코스닥", "증시", "환율", "금리"]
@@ -153,6 +160,7 @@ def run_morning_briefing(config: Config, categories: list[str], top_n: int = 5) 
     message = _format_message(briefing)
 
     TelegramSender(config.telegram_bot_token, config.telegram_chat_id).send(message)
+    archive.record(config, "morning", title="📈 데일리 증권 리포트 브리핑", body=message)
 
     # 오후 리서치가 참조할 수 있도록 당일 브리핑 로그 저장
     log_path = config.logs_dir / "today_briefing.txt"
@@ -216,9 +224,12 @@ def run_per_entity_briefing(config: Config, categories: list[str], target_date: 
     sent = 0
     for entity, group in groups.items():
         group.sort(key=lambda r: r.views, reverse=True)
+        category = group[0].category
         summary = analyzer.synthesize_entity(client, config.insight_model, group)
-        message = _format_entity_message(entity, group[0].category, summary, group, shortener)
+        message = _format_entity_message(entity, category, summary, group, shortener)
         sender.send(message)
+        header = "🏢 종목 브리핑" if category == "company" else "🏭 산업 브리핑"
+        archive.record_entity(config, entity, category, f"{header} — {entity}", message, group)
         sent += 1
     logger.info("per-entity briefing sent %d messages", sent)
     return sent
@@ -247,6 +258,10 @@ def run_category_digest(
     shortener = _shortener(config, requests.Session())
     message = _format_digest_message(digest, shortener, closing=closing)
     TelegramSender(config.telegram_bot_token, config.telegram_chat_id).send(message)
+
+    kind = "closing" if closing else _DIGEST_KIND.get(category, "digest_market")
+    header = "🔔 마감 시황 종합" if closing else _DIGEST_HEADER.get(category, "📊 종합")
+    archive.record_digest(config, kind, header, message, digest.sources)
     logger.info("%s digest sent (closing=%s)", category, closing)
     return message
 
@@ -264,8 +279,17 @@ def run_market_news(config: Config) -> int:
     client = OllamaClient(config.ollama_host, config.ollama_api_key)
     summary = _synthesize_news(client, config.insight_model, items)
     shortener = _shortener(config, session)
-    message = _format_news_digest("📰 장중 시장 뉴스", summary, items[:5], shortener)
-    return TelegramSender(config.telegram_bot_token, config.telegram_chat_id).send(message)
+    top = items[:5]
+    message = _format_news_digest("📰 장중 시장 뉴스", summary, top, shortener)
+    sent = TelegramSender(config.telegram_bot_token, config.telegram_chat_id).send(message)
+    archive.record(
+        config,
+        "market_news",
+        title="📰 장중 시장 뉴스",
+        body=message,
+        source_refs={"news": [{"title": it.title, "url": it.link, "source": it.source} for it in top]},
+    )
+    return sent
 
 
 def run_premarket(config: Config) -> int:
@@ -291,4 +315,12 @@ def run_premarket(config: Config) -> int:
             lines.append(f"{i}. {it.title} ({it.source})\n{shortener.shorten(it.link)}")
 
     message = "\n".join(lines)
-    return TelegramSender(config.telegram_bot_token, config.telegram_chat_id).send(message)
+    sent = TelegramSender(config.telegram_bot_token, config.telegram_chat_id).send(message)
+    archive.record(
+        config,
+        "premarket",
+        title="🌅 굿모닝 미국증시",
+        body=message,
+        source_refs={"news": [{"title": it.title, "url": it.link, "source": it.source} for it in items[:10]]},
+    )
+    return sent

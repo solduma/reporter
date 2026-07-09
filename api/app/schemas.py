@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 
 from pydantic import BaseModel
 
@@ -145,7 +145,7 @@ class MarketOverview(BaseModel):
 
 
 class TimelineItem(BaseModel):
-    type: str  # 'report' | 'disclosure'
+    type: str  # 'report' | 'disclosure' | 'broadcast'
     date: date
     title: str
     source: str  # 증권사(리포트) 또는 제출인(공시)
@@ -153,3 +153,30 @@ class TimelineItem(BaseModel):
     rationale: str
     link: str | None
     report_id: int | None = None  # 리포트면 PDF 조회용 id
+    broadcast_id: int | None = None  # 브로드캐스트면 상세 조회용 id
+    kind: str | None = None  # 브로드캐스트 종류(digest_market 등)
+
+
+class BroadcastRef(BaseModel):
+    """브로드캐스트 목록 항목(본문 미포함, snippet 만)."""
+
+    id: int
+    kind: str
+    ref_date: date
+    sent_at: datetime
+    title: str
+    snippet: str  # body 앞부분 미리보기
+    stock_codes: list[str]
+    industries: list[str]
+
+
+class BroadcastDetail(BaseModel):
+    id: int
+    kind: str
+    ref_date: date
+    sent_at: datetime
+    title: str
+    body: str
+    source_refs: dict
+    stock_codes: list[str]
+    industries: list[str]

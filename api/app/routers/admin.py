@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db.session import get_session
-from app.services import growth_ingest, ingest, universe_ingest
+from app.services import broadcast_ingest, growth_ingest, ingest, universe_ingest
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -22,7 +22,12 @@ def trigger_ingest(
     settings = get_settings()
     reports = ingest.ingest_reports(db, settings, target_date=date_)
     market = ingest.build_market_brief(db, settings, target_date=date_)
-    return {"reports_ingested": reports, "market_brief": bool(market)}
+    broadcasts = broadcast_ingest.ingest_broadcasts(db, settings)
+    return {
+        "reports_ingested": reports,
+        "market_brief": bool(market),
+        "broadcasts_ingested": broadcasts,
+    }
 
 
 @router.post("/universe/snapshot")

@@ -10,6 +10,7 @@ const LINKS = [
   { href: "/screener", label: "스몰캡 스크리너", featured: true },
   { href: "/industries", label: "산업 흐름", featured: false },
   { href: "/companies", label: "기업 분석", featured: false },
+  { href: "/archive", label: "브리핑 아카이브", featured: false },
 ] as const;
 
 export default function NavBar() {

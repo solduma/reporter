@@ -3,8 +3,10 @@
 import { useEffect, useState } from "react";
 
 import { fetchTimeline } from "@/lib/api";
+import { broadcastKindLabel } from "@/lib/broadcast";
 import type { TimelineItem } from "@/lib/types";
 
+import BroadcastModal from "./BroadcastModal";
 import PdfViewer from "./PdfViewer";
 import styles from "./CompanyTimeline.module.css";
 import SentimentBadge from "./SentimentBadge";
@@ -28,20 +30,43 @@ function formatDate(value: string): string {
 const TYPE_LABEL: Record<TimelineItem["type"], string> = {
   report: "📄 리포트",
   disclosure: "📑 공시",
+  broadcast: "📣 브리핑",
 };
+
+function typeClass(type: TimelineItem["type"]): string {
+  if (type === "report") {
+    return `${styles.item} ${styles.report}`;
+  }
+  if (type === "disclosure") {
+    return `${styles.item} ${styles.disclosure}`;
+  }
+  return `${styles.item} ${styles.broadcast}`;
+}
+
+function badgeClass(type: TimelineItem["type"]): string {
+  if (type === "report") {
+    return `${styles.typeBadge} ${styles.reportBadge}`;
+  }
+  if (type === "disclosure") {
+    return `${styles.typeBadge} ${styles.disclosureBadge}`;
+  }
+  return `${styles.typeBadge} ${styles.broadcastBadge}`;
+}
 
 function TimelineRow({ item }: { item: TimelineItem }) {
   const [viewerOpen, setViewerOpen] = useState(false);
+  const [broadcastOpen, setBroadcastOpen] = useState(false);
   const isReport = item.type === "report";
+  const isBroadcast = item.type === "broadcast";
+  // 브로드캐스트는 종류 라벨(예: 📌 오후 리서치)을 배지에 노출해 성격을 드러낸다.
+  const badgeText = isBroadcast && item.kind ? `📣 ${broadcastKindLabel(item.kind)}` : TYPE_LABEL[item.type];
 
   return (
-    <li className={isReport ? `${styles.item} ${styles.report}` : `${styles.item} ${styles.disclosure}`}>
+    <li className={typeClass(item.type)}>
       <div className={styles.topRow}>
-        <span className={isReport ? `${styles.typeBadge} ${styles.reportBadge}` : `${styles.typeBadge} ${styles.disclosureBadge}`}>
-          {TYPE_LABEL[item.type]}
-        </span>
+        <span className={badgeClass(item.type)}>{badgeText}</span>
         <span className={styles.date}>{formatDate(item.date)}</span>
-        <SentimentBadge sentiment={item.sentiment} />
+        {isBroadcast ? null : <SentimentBadge sentiment={item.sentiment} />}
       </div>
 
       <h3 className={styles.title}>{item.title}</h3>
@@ -52,7 +77,15 @@ function TimelineRow({ item }: { item: TimelineItem }) {
 
       {item.rationale ? <p className={styles.rationale}>{item.rationale}</p> : null}
 
-      {item.report_id !== null || item.link ? (
+      {isBroadcast ? (
+        typeof item.broadcast_id === "number" ? (
+          <div className={styles.actions}>
+            <button type="button" className={styles.pdfButton} onClick={() => setBroadcastOpen(true)}>
+              브리핑 전문
+            </button>
+          </div>
+        ) : null
+      ) : item.report_id !== null || item.link ? (
         <div className={styles.actions}>
           {item.report_id !== null ? (
             <button type="button" className={styles.pdfButton} onClick={() => setViewerOpen(true)}>
@@ -69,6 +102,10 @@ function TimelineRow({ item }: { item: TimelineItem }) {
 
       {viewerOpen && item.report_id !== null ? (
         <PdfViewer reportId={item.report_id} title={item.title} onClose={() => setViewerOpen(false)} />
+      ) : null}
+
+      {broadcastOpen && typeof item.broadcast_id === "number" ? (
+        <BroadcastModal broadcastId={item.broadcast_id} onClose={() => setBroadcastOpen(false)} />
       ) : null}
     </li>
   );
@@ -115,7 +152,7 @@ export default function CompanyTimeline({ code }: { code: string }) {
   return (
     <ul className={styles.list}>
       {state.data.map((item, i) => (
-        <TimelineRow key={`${item.type}-${item.report_id ?? item.link ?? item.title}-${item.date}-${i}`} item={item} />
+        <TimelineRow key={`${item.type}-${item.report_id ?? item.broadcast_id ?? item.link ?? item.title}-${item.date}-${i}`} item={item} />
       ))}
     </ul>
   );

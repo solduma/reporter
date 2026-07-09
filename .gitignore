@@ -15,5 +15,6 @@ __pycache__/
 logs/*.txt
 logs/*.log
 logs/*.json
+logs/*.jsonl
 data/
 *.pdf

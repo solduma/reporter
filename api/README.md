@@ -34,10 +34,26 @@ uv sync
 uv run uvicorn app.main:app --port 8010 --reload
 ```
 
-- `POST /api/admin/ingest?date=YY.MM.DD` — 당일(또는 지정일) 종목·산업 리포트 크롤→PDF(MinIO)→GLM 요약·센티먼트→Postgres 적재 + 시황 브리핑 생성. 수동 백필용(정기 수집은 워커가 담당).
+- `POST /api/admin/ingest?date=YY.MM.DD` — 당일(또는 지정일) 종목·산업 리포트 크롤→PDF(MinIO)→GLM 요약·센티먼트→Postgres 적재 + 시황 브리핑 생성 + 브로드캐스트 스풀 흡수. 수동 백필용(정기 수집은 워커가 담당).
+- `POST /api/admin/broadcasts/ingest` — CLI 텔레그램 발송 스풀(`logs/broadcasts.jsonl`)만 DB 로 적재.
 - `GET /api/today/market` — 당일 시황 요약
 - `GET /api/today/reports?category=company|industry` — 리포트 카드 목록
 - `GET /api/reports/{id}/pdf` — PDF 원본 스트림
+- `GET /api/broadcasts?industry=&stock=&kind=&from=&to=` — 텔레그램 브리핑 아카이브 목록(필터)
+- `GET /api/broadcasts/{id}` — 브리핑 원문 + 근거 리포트/기사 링크
+
+## 텔레그램 브리핑 아카이브
+
+CLI(`src/reporter`)가 텔레그램으로만 발송하던 콘텐츠(투자·경제·채권 종합, 장중 뉴스,
+미국증시, 오후 리서치 등)를 웹에서 열람하기 위한 브릿지다.
+
+- **CLI**: 발송 직후 `logs/broadcasts.jsonl` 에 한 줄 append(stdlib 만, 오프라인 안전).
+- **API**: 수집 사이클/관리자 트리거에서 스풀을 읽어 `broadcast` 테이블에 멱등 적재
+  (`dedup_key` UNIQUE). Postgres 는 API 가 단일 writer 라는 불변식을 유지한다.
+- **웹**: `/archive` 페이지(종류 필터·페이지네이션), 산업 흐름의 "관련 브리핑" 레일,
+  기업 타임라인의 브리핑 이벤트. 종목코드/산업 태그(`stock_codes`/`industries`)로 조인한다.
+
+> 아카이브는 배포 시점 이후 발송분부터 축적된다(과거 발송분은 소급 불가).
 
 ## 수집 스케줄러 (worker)
 
@@ -77,15 +93,17 @@ pnpm install
 pnpm dev                            # http://localhost:3000
 ```
 
-세 페이지 모두 구현 완료:
+페이지:
 
 - **Today's Brew** (`/`): 상단 당일 시황, 좌측 산업분석·우측 종목분석 카드
   (기업/산업명·제목·1줄 요약·BUY/SELL 뱃지·근거·작성일), 카드 클릭 시 PDF 뷰어.
 - **산업 흐름** (`/industries`): 업종별 발간일별 센티먼트 시계열(점 클릭 → 원문),
-  관세청 수출입 무역통계 차트(HS 품목별 수출·수입·무역수지).
-- **기업 분석** (`/companies/[code]`): 리포트+DART 공시 병합 타임라인(항목별 주가
-  긍/부정+근거), 주가 봉차트(2주 30분 / 3M·1Y 일봉 / 3Y 월봉), 분기 재무 차트
+  선택 산업 관련 텔레그램 브리핑 레일, 관세청 수출입 무역통계 차트(HS 품목별).
+- **기업 분석** (`/companies/[code]`): 리포트+DART 공시+텔레그램 브리핑 병합 타임라인
+  (항목별 주가 긍/부정+근거), 주가 봉차트(2주 30분 / 3M·1Y 일봉 / 3Y 월봉), 분기 재무 차트
   (매출·영업이익·당기순이익·EPS·PER·PBR), 동일업종비교 테이블.
+- **브리핑 아카이브** (`/archive`): 텔레그램 발송 콘텐츠 전체 이력(종류 필터·페이지네이션),
+  카드 클릭 시 원문 + 근거 링크 모달.
 
 ## 외부 데이터 소스 키
 
