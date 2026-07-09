@@ -7,6 +7,7 @@ import type {
   CompanyGrowth,
   CompanySummary,
   FinancialPeriod,
+  FlowMarket,
   Industry,
   MarketBrief,
   MarketOverview,
@@ -17,6 +18,7 @@ import type {
   ScreenerOpGrowth,
   ScreenerResult,
   ScreenerSort,
+  SectorFlowRow,
   SectorRow,
   SentimentPoint,
   StockSearchHit,
@@ -69,6 +71,11 @@ export function fetchIndustries(): Promise<Industry[]> {
 // rotation_score 내림차순으로 정렬되어 반환된다.
 export function fetchSectors(): Promise<SectorRow[]> {
   return getJson<SectorRow[]>("/api/sectors");
+}
+
+// 수급 기반 섹터 로테이션(섹터 ETF). flow_score 내림차순.
+export function fetchSectorFlow(market: FlowMarket): Promise<SectorFlowRow[]> {
+  return getJson<SectorFlowRow[]>(`/api/sectors/flow?market=${market}`);
 }
 
 export function fetchIndustrySentiment(

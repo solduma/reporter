@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+import time
+from datetime import date, datetime, timedelta
 
-from fastapi import APIRouter, Depends
+import requests
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
@@ -16,10 +18,15 @@ from app.db.models import (
     TradeStat,
 )
 from app.db.session import get_session
-from app.schemas import MarketOverview, SectorRow
-from reporter import us_market
+from app.schemas import MarketOverview, SectorFlowRow, SectorRow
+from app.services import chart, sector_flow, technicals
+from reporter import sector_etf, us_market
 
 router = APIRouter(prefix="/api", tags=["market"])
+
+# 섹터 ETF 로테이션은 시장당 12~15회 차트 조회라 무거워 프로세스 캐시(TTL)로 반복 부하를 막는다.
+_FLOW_TTL = 300.0  # 초
+_flow_cache: dict[str, tuple[float, list[SectorFlowRow]]] = {}
 
 _SENT_CASE = case(
     (ReportAnalysis.sentiment == Sentiment.BUY, 1.0),
@@ -70,6 +77,56 @@ def sectors(db: Session = Depends(get_session)) -> list[SectorRow]:
         )
     out.sort(key=lambda s: s.rotation_score, reverse=True)
     return out
+
+
+@router.get("/sectors/flow", response_model=list[SectorFlowRow])
+def sector_flow_rotation(
+    market: str = Query(default="KR", pattern="^(KR|US)$"),
+) -> list[SectorFlowRow]:
+    """수급 기반 섹터 로테이션 — 섹터 ETF 일봉의 모멘텀·거래량·신고가·외국인 순증.
+
+    flow_score 높은 순. 리포트 기반 /api/sectors 와 별개(실제 자금 흐름 관점).
+    """
+    cached = _flow_cache.get(market)
+    if cached and time.monotonic() - cached[0] < _FLOW_TTL:
+        return cached[1]
+
+    etfs = sector_etf.KR_SECTOR_ETFS if market == "KR" else sector_etf.US_SECTOR_ETFS
+    session = requests.Session()
+    end = datetime.now()
+    start = end - timedelta(days=400)
+
+    rows: list[SectorFlowRow] = []
+    for etf in etfs:
+        if market == "KR":
+            candles = chart.fetch_periodic(etf.symbol, "day", start, end, session)
+        else:
+            candles = chart.fetch_periodic_foreign(etf.symbol, "day", start, end, session)
+        if not candles:
+            continue
+        tech = technicals.compute(candles)
+        fd = (
+            sector_flow.foreign_delta([c.foreign_ratio for c in candles])
+            if market == "KR"
+            else None
+        )
+        rows.append(
+            SectorFlowRow(
+                sector=etf.sector,
+                market=market,
+                symbol=etf.symbol,
+                flow_score=sector_flow.flow_score(tech, fd),
+                return_3m=tech.return_3m,
+                near_high_pct=tech.near_high_pct,
+                vol_ratio=tech.vol_ratio,
+                foreign_delta=fd,
+            )
+        )
+
+    rows.sort(key=lambda r: (r.flow_score is not None, r.flow_score or 0), reverse=True)
+    if rows:
+        _flow_cache[market] = (time.monotonic(), rows)
+    return rows
 
 
 @router.get("/market/overview", response_model=MarketOverview)

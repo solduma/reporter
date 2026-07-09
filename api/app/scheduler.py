@@ -54,15 +54,17 @@ def run_ingest_cycle(settings: Settings | None = None) -> dict:
 
 
 def run_nightly_batch(settings: Settings | None = None) -> dict:
-    """야간 배치: 유니버스 스냅샷 + 성장지표(재무·모멘텀). 스크리너 데이터 갱신."""
-    from app.services import growth_ingest  # 무거운 의존성 → 지연 임포트
+    """야간 배치: 유니버스 스냅샷 + 성장지표 + judal 섹터 매핑. 스크리너·섹터 데이터 갱신."""
+    from app.services import growth_ingest, sector_ingest  # 무거운 의존성 → 지연 임포트
 
     session = SessionLocal()
     try:
         today = datetime.now().date()
         rows = universe_ingest.snapshot_universe(session, today)
         growth = growth_ingest.run_growth_batch(session)
-        result = {"universe_rows": rows, "growth": growth}
+        # judal 섹터·종목 매핑 갱신(테마당 1요청이라 느림 → 야간 배치에서 처리).
+        sectors = sector_ingest.refresh_sectors(session)
+        result = {"universe_rows": rows, "growth": growth, "sectors": sectors}
         logger.info("nightly batch done: %s", result)
         return result
     finally:

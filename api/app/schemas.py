@@ -171,6 +171,19 @@ class SectorRow(BaseModel):
     rotation_score: float  # 0~100
 
 
+class SectorFlowRow(BaseModel):
+    """수급 기반 섹터 로테이션 한 행(섹터 ETF)."""
+
+    sector: str
+    market: str  # KR | US
+    symbol: str
+    flow_score: float | None  # 0~100 자금유입 강도
+    return_3m: float | None
+    near_high_pct: float | None
+    vol_ratio: float | None
+    foreign_delta: float | None  # 외국인비율 변화(pp), 국내만
+
+
 class MarketOverview(BaseModel):
     market_date: date | None
     us_indices: list[dict]  # {name, close, change, change_ratio, rising}

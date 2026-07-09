@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import BroadcastRail from "@/components/BroadcastRail";
 import IndustrySelector from "@/components/IndustrySelector";
 import ReportRefDrawer from "@/components/ReportRefDrawer";
+import SectorFlowTable from "@/components/SectorFlowTable";
 import {
   fetchIndustries,
   fetchIndustrySentiment,
@@ -362,9 +363,19 @@ export default function IndustriesPage() {
 
       <section className={styles.sectorSection}>
         <div className={styles.sectorHead}>
-          <h2 className={styles.title}>섹터 로테이션</h2>
+          <h2 className={styles.title}>수급 섹터 로테이션</h2>
           <p className={styles.subtitle}>
-            로테이션 스코어(0-100) 높은 순 — 리포트 흐름과 투자의견으로 본 섹터 온도
+            섹터 ETF의 자금유입 강도(0-100) 높은 순 — 주가 추세·거래량·신고가·외국인 수급 기반
+          </p>
+        </div>
+        <SectorFlowTable />
+      </section>
+
+      <section className={styles.sectorSection}>
+        <div className={styles.sectorHead}>
+          <h2 className={styles.title}>리서치 섹터 로테이션</h2>
+          <p className={styles.subtitle}>
+            로테이션 스코어(0-100) 높은 순 — 증권사 리포트 흐름과 투자의견으로 본 섹터 온도
           </p>
         </div>
         {sectorArea}
