@@ -10,6 +10,7 @@ import requests
 from . import archive, news
 from .config import Config
 from .ollama_client import OllamaClient
+from .shortener import UrlShortener
 from .telegram import TelegramSender
 
 logger = logging.getLogger(__name__)
@@ -60,6 +61,7 @@ def run_afternoon_research(config: Config) -> int:
 
     sender = TelegramSender(config.telegram_bot_token, config.telegram_chat_id)
     session = requests.Session()
+    shortener = UrlShortener(config.logs_dir / "url_cache.json", session=session)
     sent = 0
     for keyword in keywords:
         articles = news.search(keyword, limit=5, session=session)
@@ -77,7 +79,9 @@ def run_afternoon_research(config: Config) -> int:
 
         # 출처 이름만이 아니라 실제 기사 페이지 링크를 함께 붙인다(상위 3건).
         source_lines = "\n".join(
-            f"• {a.title} ({a.source})\n{a.link}" for a in articles[:3] if a.link
+            f"• {a.title} ({a.source})\n{shortener.shorten(a.link)}"
+            for a in articles[:3]
+            if a.link
         )
         message = f"📌 {keyword} 업데이트\n{analysis}\n\n📰 관련 기사\n{source_lines}"
         sender.send(message)
