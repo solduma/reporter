@@ -136,6 +136,34 @@ class CompanyGrowth(BaseModel):
     buy_ratio: float | None  # 최근 90일 BUY 비율
 
 
+class AnalysisAxis(BaseModel):
+    """분석 한 축(성장/기술/탑다운)의 점수와 근거 지표."""
+
+    key: str  # growth | technical | topdown
+    label: str  # 성장(피터 린치) 등 표시명
+    score: float | None  # 0~100 (계산 불가 시 None)
+    metrics: list[dict]  # [{label, value}] 표시용 지표
+
+
+class TopDownView(BaseModel):
+    """지수 → 섹터 → 종목 흐름. 미국 프록시(선행) + 국내 지수 병행."""
+
+    us_proxy_name: str  # 예: 미국 반도체(.SOX)
+    us_proxy_rising: bool | None
+    us_proxy_change_ratio: str
+    kr_indices: list[dict]  # [{name, change_ratio, rising}]
+
+
+class CompanyAnalysis(BaseModel):
+    stock_code: str
+    stock_name: str | None
+    market: str | None
+    overall_score: float | None  # 3축 종합 0~100
+    axes: list[AnalysisAxis]
+    topdown: TopDownView | None
+    comment: str | None  # LLM 종합 코멘트(키 없으면 None)
+
+
 class SectorRow(BaseModel):
     sector: str
     report_count: int

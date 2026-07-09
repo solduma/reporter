@@ -27,15 +27,18 @@ from app.db.models import (
 )
 from app.db.session import get_session
 from app.schemas import (
+    AnalysisAxis,
     CandlePoint,
+    CompanyAnalysis,
     CompanyGrowth,
     CompanySummary,
     FinancialPeriodOut,
     PeerOut,
     StockSearchHit,
     TimelineItem,
+    TopDownView,
 )
-from app.services import chart, dart_ingest, intraday, quote
+from app.services import analysis, chart, dart_ingest, intraday, quote, technicals
 
 router = APIRouter(prefix="/api/companies", tags=["companies"])
 
@@ -177,6 +180,130 @@ def company_candles(
         CandlePoint(t=r.bar_date.isoformat(), o=r.open, h=r.high, low=r.low, c=r.close, v=r.volume)
         for r in rows
     ]
+
+
+def _ensure_day_candles(db: Session, code: str) -> list[PriceCandle]:
+    """일봉을 확보(cache-aside)하고 날짜 오름차순으로 반환한다. 기술 지표 계산용."""
+    session = requests.Session()
+    end = datetime.now()
+    start = end - timedelta(days=_RANGE_DAYS["day"])
+    fresh = chart.fetch_periodic(code, "day", start, end, session)
+    if fresh:
+        _upsert_periodic(db, code, Timeframe.DAY, fresh)
+    return list(
+        db.scalars(
+            select(PriceCandle)
+            .where(PriceCandle.stock_code == code, PriceCandle.timeframe == Timeframe.DAY)
+            .order_by(PriceCandle.bar_date)
+        ).all()
+    )
+
+
+@router.get("/{code}/analysis", response_model=CompanyAnalysis)
+def company_analysis(code: str, db: Session = Depends(get_session)) -> CompanyAnalysis:
+    """테크노펀더멘탈 종합 — 성장(린치)·기술(오닐/미너비니)·탑다운(리버모어)."""
+    settings = get_settings()
+    snap = db.scalars(
+        select(UniverseSnapshot)
+        .where(UniverseSnapshot.stock_code == code)
+        .order_by(UniverseSnapshot.snapshot_date.desc())
+        .limit(1)
+    ).first()
+    name = snap.stock_name if snap else db.scalar(
+        select(Report.stock_name)
+        .where(Report.stock_code == code, Report.stock_name.is_not(None))
+        .order_by(Report.published_date.desc())
+        .limit(1)
+    )
+    market = snap.market if snap else None
+
+    # 성장 축 — GrowthMetric.
+    g = db.scalars(select(GrowthMetric).where(GrowthMetric.stock_code == code)).first()
+    growth_sc = analysis.growth_score(
+        g.revenue_yoy if g else None,
+        g.op_yoy if g else None,
+        g.op_turnaround if g else False,
+    )
+    growth_axis = AnalysisAxis(
+        key="growth",
+        label="성장 (피터 린치)",
+        score=growth_sc,
+        metrics=[
+            {"label": "매출 YoY", "value": _pct(g.revenue_yoy) if g else "—"},
+            {"label": "영업이익 YoY", "value": _pct(g.op_yoy) if g else "—"},
+            {"label": "흑자전환", "value": "예" if (g and g.op_turnaround) else "아니오"},
+        ],
+    )
+
+    # 기술 축 — 일봉 지표.
+    candles = _ensure_day_candles(db, code)
+    tech = technicals.compute(candles)
+    tech_axis = AnalysisAxis(
+        key="technical",
+        label="기술적 추세 (오닐·미너비니)",
+        score=tech.trend_score,
+        metrics=[
+            {"label": "52주 고점 근접", "value": f"{tech.near_high_pct}%" if tech.near_high_pct else "—"},
+            {"label": "이평 정배열", "value": _yn(tech.ma_aligned)},
+            {"label": "거래량비", "value": f"{tech.vol_ratio}x" if tech.vol_ratio else "—"},
+            {"label": "3개월 수익률", "value": f"{tech.return_3m}%" if tech.return_3m is not None else "—"},
+        ],
+    )
+
+    # 탑다운 축 — 미국 프록시(선행) + 국내 지수. 업종 라벨은 아직 미확보라 시장 기준 근사.
+    topdown_view, topdown_sc = analysis.build_topdown(None, market)
+    topdown_axis = AnalysisAxis(
+        key="topdown",
+        label="탑다운 (리버모어)",
+        score=topdown_sc,
+        metrics=[
+            {"label": topdown_view["us_proxy_name"], "value": _signed(topdown_view["us_proxy_change_ratio"], topdown_view["us_proxy_rising"])},
+        ]
+        + [
+            {"label": k["name"], "value": _signed(k["change_ratio"], k["rising"])}
+            for k in topdown_view["kr_indices"]
+        ],
+    )
+
+    axes = [growth_axis, tech_axis, topdown_axis]
+    overall_sc = analysis.overall([growth_sc, tech.trend_score, topdown_sc])
+
+    # LLM 종합 코멘트 — 키 있을 때만(없으면 None 반환).
+    comment = analysis.llm_comment(
+        settings.ollama_host,
+        settings.ollama_api_key,
+        settings.insight_model,
+        name or code,
+        [a.model_dump() for a in axes],
+    )
+
+    return CompanyAnalysis(
+        stock_code=code,
+        stock_name=name,
+        market=market,
+        overall_score=overall_sc,
+        axes=axes,
+        topdown=TopDownView(**topdown_view),
+        comment=comment,
+    )
+
+
+def _pct(v: float | None) -> str:
+    return f"{v * 100:+.0f}%" if v is not None else "—"
+
+
+def _yn(v: bool | None) -> str:
+    return "예" if v is True else "아니오" if v is False else "—"
+
+
+def _signed(ratio: str, rising: bool | None) -> str:
+    r = (ratio or "").strip()
+    if not r:
+        return "—"
+    if r.startswith(("+", "-")):
+        return f"{r}%"
+    sign = "+" if rising is True else "-" if rising is False else ""
+    return f"{sign}{r}%"
 
 
 # 동일업종 테이블의 한글 행 라벨 → peers 컬럼

@@ -21,11 +21,23 @@ _KR_BASE = "https://m.stock.naver.com/api/index/{symbol}/basic"
 _HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; reporter-bot/1.0)"}
 _US_INDICES = [(".DJI", "다우"), (".IXIC", "나스닥"), (".INX", "S&P500")]
 _KR_INDICES = [("KOSPI", "코스피"), ("KOSDAQ", "코스닥")]
+# 미국 섹터 선행 분석용 프록시. 네이버 index API 로 안정 조회되는 심볼만 쓴다
+# (GICS 세부섹터 지수 .SP500-45 등은 종가 결측이라 제외). 종목 업종을 이 셋 중 하나에 매핑한다.
+_US_SECTOR_PROXIES = [(".SOX", "미국 반도체"), (".IXIC", "미국 기술주"), (".INX", "미국 대형주")]
+
+# 업종 키워드 → 미국 프록시 심볼. 반도체·기술 위주로 선행 신호가 뚜렷한 것만 SOX/IXIC 로,
+# 그 외는 대형주 벤치마크(.INX)로 떨군다. 소문자 부분일치로 매칭한다.
+_PROXY_KEYWORDS: list[tuple[tuple[str, ...], str]] = [
+    (("반도체", "메모리", "디스플레이", "장비", "소재·부품", "전공정"), ".SOX"),
+    (("소프트웨어", "인터넷", "게임", "it", "플랫폼", "미디어", "엔터"), ".IXIC"),
+]
+_DEFAULT_PROXY = ".INX"
 
 # 대시보드 최상단에서 매 로드마다 네이버를 반복 호출하지 않도록 하는 프로세스 인메모리 캐시.
 _CACHE_TTL = 120.0  # 초
 _us_cache: tuple[float, list[IndexQuote]] | None = None
 _kr_cache: tuple[float, list[IndexQuote]] | None = None
+_proxy_cache: tuple[float, list[IndexQuote]] | None = None
 
 
 @dataclass
@@ -95,3 +107,29 @@ def fetch_kr_indices(session: requests.Session | None = None) -> list[IndexQuote
     if quotes:
         _kr_cache = (time.monotonic(), quotes)
     return quotes
+
+
+def fetch_us_sector_proxies(session: requests.Session | None = None) -> list[IndexQuote]:
+    """미국 섹터 선행 프록시(.SOX/.IXIC/.INX) 종가·등락. 미국 세계지수 엔드포인트 사용."""
+    global _proxy_cache
+    if _proxy_cache and time.monotonic() - _proxy_cache[0] < _CACHE_TTL:
+        return _proxy_cache[1]
+    quotes = _fetch_indices(_US_BASE, _US_SECTOR_PROXIES, session or requests.Session())
+    if quotes:
+        _proxy_cache = (time.monotonic(), quotes)
+    return quotes
+
+
+def map_industry_to_proxy(industry: str | None, market: str | None = None) -> str:
+    """업종 라벨(+시장)을 미국 프록시 심볼(.SOX/.IXIC/.INX)로 매핑한다.
+
+    업종 키워드가 없으면 시장으로 폴백(KOSDAQ→기술주 .IXIC, 그 외→대형주 .INX).
+    """
+    if industry:
+        low = industry.lower()
+        for keywords, proxy in _PROXY_KEYWORDS:
+            if any(k in low for k in keywords):
+                return proxy
+    if market == "KOSDAQ":
+        return ".IXIC"
+    return _DEFAULT_PROXY
