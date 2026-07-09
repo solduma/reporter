@@ -83,7 +83,7 @@ def run_afternoon_research(config: Config) -> int:
             for a in articles[:3]
             if a.link
         )
-        message = f"📌 {keyword} 업데이트\n{analysis}\n\n📰 관련 기사\n{source_lines}"
+        message = f"**📌 {keyword} 업데이트**\n{analysis}\n\n📰 관련 기사\n{source_lines}"
         sender.send(message)
         archive.record(
             config,

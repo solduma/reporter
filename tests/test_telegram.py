@@ -2,11 +2,33 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from reporter.telegram import TelegramError, TelegramSender, _split
+from reporter.telegram import TelegramError, TelegramSender, _split, _to_telegram_html
 
 
 def test_short_text_single_chunk():
     assert _split("hello", limit=100) == ["hello"]
+
+
+def test_html_escapes_special_chars():
+    assert _to_telegram_html("a < b & c > d") == "a &lt; b &amp; c &gt; d"
+
+
+def test_html_converts_bold():
+    assert _to_telegram_html("**중요** 및 __강조__") == "<b>중요</b> 및 <b>강조</b>"
+
+
+def test_html_converts_markdown_link():
+    assert _to_telegram_html("[네이버](https://naver.com)") == '<a href="https://naver.com">네이버</a>'
+
+
+def test_html_leaves_plain_url_untouched():
+    # 순수 URL 은 텔레그램이 자동 링크하므로 변환하지 않는다.
+    assert _to_telegram_html("https://tinyurl.com/abc") == "https://tinyurl.com/abc"
+
+
+def test_html_bracket_label_is_escaped_not_broken():
+    # [증권사] 처럼 링크가 아닌 대괄호는 그대로 보존돼야 한다(깨지면 안 됨).
+    assert _to_telegram_html("[미래에셋] 삼성전자") == "[미래에셋] 삼성전자"
 
 
 def test_splits_on_newline_boundary():
@@ -65,15 +87,50 @@ def test_send_short_message_posts_once(monkeypatch):
     payload = session.post.call_args.kwargs["json"]
     assert payload["chat_id"] == "123"
     assert payload["text"] == "짧은 메시지"
+    assert payload["parse_mode"] == "HTML"
 
 
 def test_send_splits_long_message_into_multiple_posts(monkeypatch):
     monkeypatch.setattr("reporter.telegram.time.sleep", lambda s: None)
     sender, session = _sender_with_mock_session(monkeypatch)
 
-    long_text = "\n".join("x" * 4000 for _ in range(3))  # 4096 한도 초과 → 3청크
+    long_text = "\n".join("x" * 3700 for _ in range(3))  # 분할 한도(_SPLIT_LEN) 초과 → 3청크
     assert sender.send(long_text) == 3
     assert session.post.call_count == 3
+
+
+def test_send_falls_back_to_plain_on_parse_error(monkeypatch):
+    # HTML 파싱 실패 시 서식 없이 원문 그대로 재발송해 브리핑 유실을 막는다.
+    monkeypatch.setattr("reporter.telegram.time.sleep", lambda s: None)
+    sender = TelegramSender("token", "123")
+
+    fail = MagicMock()
+    fail.ok = False
+    fail.status_code = 400
+    fail.json.return_value = {"ok": False, "description": "can't parse entities: bad tag"}
+    ok = MagicMock()
+    ok.ok = True
+    ok.json.return_value = {"ok": True, "result": {"message_id": 5}}
+    session = MagicMock()
+    session.post.side_effect = [fail, ok]
+    sender._session = session
+
+    assert sender.send("**굵게** <각주>") == 1
+    assert session.post.call_count == 2
+    # 폴백은 원문 그대로, parse_mode 없이 재발송한다.
+    second = session.post.call_args_list[1]
+    assert second.kwargs["json"]["text"] == "**굵게** <각주>"
+    assert "parse_mode" not in second.kwargs["json"]
+
+
+def test_send_does_not_fall_back_on_non_parse_error(monkeypatch):
+    # 채팅 없음 등 파싱과 무관한 오류는 폴백하지 않고 그대로 실패시킨다.
+    monkeypatch.setattr("reporter.telegram.time.sleep", lambda s: None)
+    sender, session = _sender_with_mock_session(monkeypatch, ok=False, description="chat not found")
+
+    with pytest.raises(TelegramError, match="chat not found"):
+        sender.send("메시지")
+    assert session.post.call_count == 1
 
 
 def test_send_raises_on_ok_false(monkeypatch):

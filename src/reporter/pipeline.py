@@ -48,14 +48,14 @@ _GLOBAL_NEWS_KEYWORDS = ["미국 증시", "나스닥", "연준", "뉴욕증시",
 def _format_message(briefing: Briefing) -> str:
     date = datetime.now().strftime("%Y-%m-%d")
     cats = ", ".join(CATEGORY_NAMES.get(c, c) for c in briefing.categories)
-    header = f"📈 데일리 증권 리포트 브리핑 — {date}\n(리포트 {briefing.report_count}건 · {cats})\n{'─' * 20}\n"
+    header = f"**📈 데일리 증권 리포트 브리핑 — {date}**\n(리포트 {briefing.report_count}건 · {cats})\n{'─' * 20}\n"
     return header + briefing.text
 
 
 def _format_report_message(report: Report) -> str:
     cat = CATEGORY_NAMES.get(report.category, report.category)
     who = f"{report.stock_name} · {report.broker}" if report.stock_name else report.broker
-    lines = [f"📄 [{cat}] {report.title}", f"🏦 {who}", "", report.summary]
+    lines = [f"**📄 [{cat}] {report.title}**", f"🏦 {who}", "", report.summary]
     # 읽기페이지(read_url)는 모바일에서 목록으로 튀므로 PDF 원본을 우선 링크한다.
     link = report.pdf_url or report.read_url
     if link:
@@ -72,7 +72,7 @@ def _format_entity_message(
 ) -> str:
     """종목/산업 단위 종합 + 그 단위 모든 리포트 링크(단축)."""
     header = "🏢 종목 브리핑" if category == "company" else "🏭 산업 브리핑"
-    lines = [f"{header} — {entity}", f"(리포트 {len(reports)}건 종합)", _DIVIDER, summary, "", "🔗 리포트 원문"]
+    lines = [f"**{header} — {entity}**", f"(리포트 {len(reports)}건 종합)", _DIVIDER, summary, "", "🔗 리포트 원문"]
     for r in reports:
         link = _report_link(r)
         if link:
@@ -86,7 +86,7 @@ def _format_digest_message(
     """카테고리 장문 종합 + 인용 상위 5개 소스 링크(단축)."""
     date = datetime.now().strftime("%Y-%m-%d")
     header = "🔔 마감 시황 종합" if closing else _DIGEST_HEADER.get(digest.category, "📊 종합")
-    lines = [f"{header} — {date}", f"(리포트 {digest.report_count}건 참고)", _DIVIDER, digest.text]
+    lines = [f"**{header} — {date}**", f"(리포트 {digest.report_count}건 참고)", _DIVIDER, digest.text]
     if digest.sources:
         lines += ["", "📚 핵심 근거 리포트"]
         for i, r in enumerate(digest.sources, 1):
@@ -127,7 +127,7 @@ def _format_news_digest(
     header: str, summary: str, items: list[news.NewsItem], shortener: UrlShortener
 ) -> str:
     date = datetime.now().strftime("%m-%d %H:%M")
-    lines = [f"{header} — {date}", _DIVIDER]
+    lines = [f"**{header} — {date}**", _DIVIDER]
     if summary:
         lines += [summary, "", "🔗 관련 기사"]
     for i, it in enumerate(items, 1):

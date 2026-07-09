@@ -1,8 +1,15 @@
-"""텔레그램 Bot API 발송 — 4096자 초과 시 개행 경계 기준 분할."""
+"""텔레그램 Bot API 발송 — 4096자 초과 시 개행 경계 기준 분할.
+
+메시지 본문은 마크다운(`**굵게**`·`[텍스트](url)`)으로 조립되며, 발송 직전
+`_to_telegram_html` 로 텔레그램 HTML 로 변환해 parse_mode=HTML 로 보낸다.
+소스를 마크다운으로 유지해 웹(react-markdown)과 아카이브가 동일하게 렌더된다.
+"""
 
 from __future__ import annotations
 
+import html
 import logging
+import re
 import time
 
 import requests
@@ -10,11 +17,36 @@ import requests
 logger = logging.getLogger(__name__)
 
 _MAX_LEN = 4096
+# HTML 이스케이프·태그로 길이가 늘어나므로 분할은 4096보다 낮게 잡아 여유를 둔다.
+_SPLIT_LEN = 3800
 _SEND_INTERVAL = 1.1  # 단일 채팅 초당 1건 제한 회피
+
+# [텍스트](https://url) 형태의 마크다운 링크. 이스케이프 후에도 대괄호·괄호는 보존된다.
+_MD_LINK_RE = re.compile(r"\[([^\]]+)\]\((https?://[^\s)]+)\)")
+# **굵게** 또는 __굵게__. 비탐욕 매칭으로 가장 짧은 쌍만 잡는다.
+_BOLD_RE = re.compile(r"\*\*(.+?)\*\*|__(.+?)__", re.DOTALL)
 
 
 class TelegramError(RuntimeError):
     pass
+
+
+def _to_telegram_html(text: str) -> str:
+    """마크다운 섞인 본문을 텔레그램 HTML 로 변환한다.
+
+    먼저 `< > &` 만 이스케이프한 뒤(텔레그램 HTML 은 이 3개만 요구) 마크다운
+    링크와 굵게를 태그로 바꾼다. 순수 URL 은 텔레그램이 자동 링크하므로 건드리지 않는다.
+    """
+    escaped = html.escape(text, quote=False)
+    escaped = _MD_LINK_RE.sub(lambda m: f'<a href="{m.group(2)}">{m.group(1)}</a>', escaped)
+    escaped = _BOLD_RE.sub(lambda m: f"<b>{m.group(1) or m.group(2)}</b>", escaped)
+    return escaped
+
+
+def _is_parse_error(err: TelegramError) -> bool:
+    """HTML 파싱 실패인지 판별. 이 경우에만 서식 없이 재시도한다."""
+    msg = str(err).lower()
+    return "parse" in msg or "entit" in msg or "tag" in msg
 
 
 def resolve_chat_ids(bot_token: str) -> list[tuple[int, str]]:
@@ -89,17 +121,30 @@ class TelegramSender:
     def _send_one(
         self, text: str, thread_id: int | None = None, disable_notification: bool = False
     ) -> int:
-        """단일 청크 발송. 발송된 message_id 를 반환한다."""
+        """단일 청크 발송. HTML 서식으로 보내되 파싱 실패 시 평문으로 폴백한다.
+
+        발송된 message_id 를 반환한다.
+        """
         payload: dict = {
             "chat_id": self._chat_id,
-            "text": text,
+            "text": _to_telegram_html(text),
+            "parse_mode": "HTML",
             "disable_web_page_preview": True,
         }
         if thread_id is not None:
             payload["message_thread_id"] = thread_id
         if disable_notification:
             payload["disable_notification"] = True
-        result = self._api("sendMessage", payload)
+        try:
+            result = self._api("sendMessage", payload)
+        except TelegramError as e:
+            if not _is_parse_error(e):
+                raise
+            # HTML 파싱 실패 시 브리핑 유실을 막기 위해 서식 없이 원문 그대로 재발송한다.
+            logger.warning("HTML parse failed, resending as plain text: %s", e)
+            payload["text"] = text
+            del payload["parse_mode"]
+            result = self._api("sendMessage", payload)
         return int(result.get("message_id", 0))
 
     def send(
@@ -109,7 +154,7 @@ class TelegramSender:
 
         thread_id 를 주면 포럼 토픽 안으로 발송하고, disable_notification 으로 무음 발송한다.
         """
-        chunks = _split(text)
+        chunks = _split(text, limit=_SPLIT_LEN)
         for i, chunk in enumerate(chunks):
             self._send_one(chunk, thread_id=thread_id, disable_notification=disable_notification)
             if i < len(chunks) - 1:
@@ -120,7 +165,7 @@ class TelegramSender:
         self, text: str, thread_id: int | None = None, disable_notification: bool = False
     ) -> int:
         """단일(분할 없는) 메시지를 발송하고 message_id 를 반환한다. 헤더 등 짧은 메시지용."""
-        return self._send_one(text[:_MAX_LEN], thread_id=thread_id, disable_notification=disable_notification)
+        return self._send_one(text[:_SPLIT_LEN], thread_id=thread_id, disable_notification=disable_notification)
 
     def create_forum_topic(self, name: str) -> int:
         """포럼 토픽을 생성하고 message_thread_id 를 반환한다. 포럼 슈퍼그룹에서만 동작."""
