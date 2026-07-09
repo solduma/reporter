@@ -18,6 +18,7 @@ import type {
   ScreenerSort,
   SectorRow,
   SentimentPoint,
+  StockSearchHit,
   Timeframe,
   TimelineItem,
   TradePoint,
@@ -44,6 +45,12 @@ export function fetchMarketBrief(): Promise<MarketBrief> {
 
 export function fetchMarketOverview(): Promise<MarketOverview> {
   return getJson<MarketOverview>("/api/market/overview");
+}
+
+export function searchStocks(q: string, limit = 10): Promise<StockSearchHit[]> {
+  return getJson<StockSearchHit[]>(
+    `/api/companies/search?q=${encodeURIComponent(q)}&limit=${limit}`,
+  );
 }
 
 export function fetchReports(category: ReportCategory): Promise<Report[]> {

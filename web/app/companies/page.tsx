@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+
+import StockSearch from "@/components/StockSearch";
 
 import styles from "./page.module.css";
 
@@ -16,40 +16,16 @@ const QUICK_PICKS = [
 ] as const;
 
 export default function CompaniesPage() {
-  const router = useRouter();
-  const [code, setCode] = useState("");
-
-  const trimmed = code.trim();
-
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (trimmed) {
-      router.push(`/companies/${encodeURIComponent(trimmed)}`);
-    }
-  }
-
   return (
     <div className={styles.page}>
       <header className={styles.head}>
         <h1 className={styles.title}>기업 분석</h1>
-        <p className={styles.subtitle}>종목 코드로 캔들 차트를 조회하세요</p>
+        <p className={styles.subtitle}>종목명 또는 코드로 검색해 분석하세요</p>
       </header>
 
-      <form className={styles.searchForm} onSubmit={handleSubmit}>
-        <input
-          className={styles.input}
-          type="text"
-          inputMode="numeric"
-          placeholder="종목 코드 (예: 005930)"
-          aria-label="종목 코드"
-          value={code}
-          onChange={(event) => setCode(event.target.value)}
-        />
-        <button className={styles.submit} type="submit" disabled={!trimmed}>
-          조회
-        </button>
-      </form>
+      <StockSearch />
 
+      <div className={styles.quickHead}>자주 찾는 종목</div>
       <div className={styles.grid}>
         {QUICK_PICKS.map((company) => (
           <Link key={company.code} href={`/companies/${company.code}`} className={styles.card}>

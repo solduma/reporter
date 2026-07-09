@@ -25,41 +25,11 @@
   font-size: 0.9rem;
 }
 
-.searchForm {
-  display: flex;
-  gap: 10px;
-  max-width: 420px;
-}
-
-.input {
-  flex: 1;
-  min-width: 0;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 10px 14px;
-  font-size: 0.95rem;
-  color: var(--text);
-  background: var(--surface);
-}
-
-.input:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
-.submit {
-  border: 1px solid var(--accent);
-  background: var(--accent);
-  color: #fff;
-  border-radius: 10px;
-  padding: 10px 20px;
-  font-size: 0.95rem;
+.quickHead {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 0.9rem;
   font-weight: 600;
-}
-
-.submit:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 .grid {

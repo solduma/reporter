@@ -37,6 +37,13 @@ export interface MarketOverview {
   trade_spark: TradeSpark[];
 }
 
+export interface StockSearchHit {
+  stock_code: string;
+  stock_name: string;
+  market: string; // KOSPI | KOSDAQ
+  market_cap: number | null; // 원
+}
+
 export interface Report {
   id: number;
   category: ReportCategory;
