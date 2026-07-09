@@ -8,12 +8,11 @@ from __future__ import annotations
 
 import logging
 
-from reporter import us_market
+from app.services import sector_flow
+from reporter import sector_etf, us_market
 from reporter.ollama_client import OllamaClient
 
 logger = logging.getLogger(__name__)
-
-_PROXY_LABEL = {".SOX": "미국 반도체", ".IXIC": "미국 기술주", ".INX": "미국 대형주"}
 
 
 def growth_score(revenue_yoy: float | None, op_yoy: float | None, op_turnaround: bool) -> float | None:
@@ -39,29 +38,6 @@ def growth_score(revenue_yoy: float | None, op_yoy: float | None, op_turnaround:
     return round(min(base + turn, 1.0) * 100, 1)
 
 
-def topdown_score(us_rising: bool | None, kr_rising: bool | None) -> float | None:
-    """탑다운 점수(0~100). 미국 프록시(선행 가정, 가중 큼) + 국내 지수 방향.
-
-    각 방향 상승=1.0/보합·불명=0.5/하락=0.0. 둘 다 불명이면 None.
-    """
-    def dir_val(rising: bool | None) -> float | None:
-        if rising is True:
-            return 1.0
-        if rising is False:
-            return 0.0
-        return None
-
-    us, kr = dir_val(us_rising), dir_val(kr_rising)
-    parts: list[tuple[float, float]] = []
-    if us is not None:
-        parts.append((us, 0.6))  # 미국 선행 가정 → 가중 큼
-    if kr is not None:
-        parts.append((kr, 0.4))
-    if not parts:
-        return None
-    return round(sum(v * w for v, w in parts) / sum(w for _, w in parts) * 100, 1)
-
-
 def overall(scores: list[float | None]) -> float | None:
     """계산된 축들의 단순 평균. 전부 None 이면 None."""
     vals = [s for s in scores if s is not None]
@@ -75,24 +51,57 @@ def _index_dir(quotes, name: str) -> bool | None:
     return None
 
 
-def build_topdown(industry: str | None, market: str | None, session=None) -> tuple[dict, float | None]:
-    """미국 프록시 + 국내 지수를 조회해 탑다운 뷰 dict 와 점수를 만든다."""
-    proxy_sym = us_market.map_industry_to_proxy(industry, market)
-    proxies = us_market.fetch_us_sector_proxies(session)
-    kr = us_market.fetch_kr_indices(session)
+def topdown_flow_score(
+    us_flow: float | None, kr_flow: float | None, kr_index_rising: bool | None
+) -> float | None:
+    """수급 섹터 flow 기반 탑다운 점수(0~100).
 
-    proxy_q = next((q for q in proxies if q.name == _PROXY_LABEL.get(proxy_sym)), None)
+    미국 동일섹터 flow(선행, 가중 큼) + 국내 동일섹터 flow + 국내 지수 방향(보조).
+    섹터 flow 를 못 구하면 지수 방향만으로 폴백(계산 가능한 것만 가중 평균).
+    """
+    parts: list[tuple[float, float]] = []
+    if us_flow is not None:
+        parts.append((us_flow / 100, 0.45))  # 미국 섹터 선행
+    if kr_flow is not None:
+        parts.append((kr_flow / 100, 0.40))  # 국내 섹터 수급
+    if kr_index_rising is not None:
+        parts.append((1.0 if kr_index_rising else 0.0, 0.15))  # 지수 방향 보조
+    if not parts:
+        return None
+    return round(sum(v * w for v, w in parts) / sum(w for _, w in parts) * 100, 1)
+
+
+def build_topdown(
+    theme_names: list[str], market: str | None, session=None
+) -> tuple[dict, float | None]:
+    """종목 테마 → 국내/미국 섹터 flow(수급) + 국내 지수로 탑다운 뷰·점수를 만든다.
+
+    theme_names 로 대표 국내 섹터를 고르고, 그 섹터의 국내 ETF flow 와 대응 미국
+    ETF flow(선행)를 조합한다. 섹터 매칭 실패 시 지수 방향만으로 폴백한다.
+    """
+    kr_sector = sector_etf.themes_to_kr_sector(theme_names)
+    us_sector = sector_etf.kr_sector_to_us(kr_sector)
+
+    kr_flows = {f.sector: f for f in sector_flow.compute_flows("KR", session)}
+    us_flows = {f.sector: f for f in sector_flow.compute_flows("US", session)}
+    kr_f = kr_flows.get(kr_sector) if kr_sector else None
+    us_f = us_flows.get(us_sector) if us_sector else None
+
+    kr_idx = us_market.fetch_kr_indices(session)
     kr_ref = "코스닥" if market == "KOSDAQ" else "코스피"
-    score = topdown_score(
-        proxy_q.rising if proxy_q else None,
-        _index_dir(kr, kr_ref),
+    score = topdown_flow_score(
+        us_f.flow_score if us_f else None,
+        kr_f.flow_score if kr_f else None,
+        _index_dir(kr_idx, kr_ref),
     )
     view = {
-        "us_proxy_name": _PROXY_LABEL.get(proxy_sym, proxy_sym),
-        "us_proxy_rising": proxy_q.rising if proxy_q else None,
-        "us_proxy_change_ratio": proxy_q.change_ratio if proxy_q else "",
+        "kr_sector": kr_sector,
+        "kr_sector_flow": kr_f.flow_score if kr_f else None,
+        "us_sector": us_sector,
+        "us_sector_flow": us_f.flow_score if us_f else None,
+        "us_sector_return_3m": us_f.return_3m if us_f else None,
         "kr_indices": [
-            {"name": q.name, "change_ratio": q.change_ratio, "rising": q.rising} for q in kr
+            {"name": q.name, "change_ratio": q.change_ratio, "rising": q.rising} for q in kr_idx
         ],
     }
     return view, score

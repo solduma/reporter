@@ -146,11 +146,13 @@ class AnalysisAxis(BaseModel):
 
 
 class TopDownView(BaseModel):
-    """지수 → 섹터 → 종목 흐름. 미국 프록시(선행) + 국내 지수 병행."""
+    """지수 → 섹터 → 종목 흐름. 국내/미국 동일섹터 수급 flow(미국 선행) + 국내 지수."""
 
-    us_proxy_name: str  # 예: 미국 반도체(.SOX)
-    us_proxy_rising: bool | None
-    us_proxy_change_ratio: str
+    kr_sector: str | None  # 종목의 대표 국내 섹터
+    kr_sector_flow: float | None  # 그 섹터의 국내 ETF 자금유입 강도(0~100)
+    us_sector: str | None  # 대응 미국 섹터
+    us_sector_flow: float | None  # 미국 섹터 ETF flow(선행)
+    us_sector_return_3m: float | None
     kr_indices: list[dict]  # [{name, change_ratio, rising}]
 
 

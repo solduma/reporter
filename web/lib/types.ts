@@ -57,9 +57,11 @@ export interface AnalysisAxis {
 }
 
 export interface TopDownView {
-  us_proxy_name: string;
-  us_proxy_rising: boolean | null;
-  us_proxy_change_ratio: string;
+  kr_sector: string | null;
+  kr_sector_flow: number | null;
+  us_sector: string | null;
+  us_sector_flow: number | null;
+  us_sector_return_3m: number | null;
   kr_indices: { name: string; change_ratio: string; rising: boolean | null }[];
 }
 
