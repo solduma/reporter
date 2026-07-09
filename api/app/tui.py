@@ -17,12 +17,57 @@ from typing import ClassVar
 from textual import work
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
-from textual.widgets import Button, DataTable, Footer, Header, Log, Static
+from textual.screen import ModalScreen
+from textual.widgets import Button, DataTable, Footer, Header, Input, Log, Static
 
 from app.config import get_settings
 from app.db.session import SessionLocal, init_db
 from app.services import admin_status, broadcast_ingest, growth_ingest, ingest, universe_ingest
+from app.services.schedule_control import ScheduleControl
 from app.services.server_control import ServerControl
+
+
+class TimeEditScreen(ModalScreen[str | None]):
+    """HH:MM 발송 시각 입력 모달. 저장 시 'HH:MM' 문자열을, 취소 시 None 을 반환한다."""
+
+    CSS = """
+    TimeEditScreen { align: center middle; }
+    #dialog { width: 44; height: auto; border: round $accent; background: $surface; padding: 1 2; }
+    #dialog Static { margin-bottom: 1; }
+    #dialog Input { margin-bottom: 1; }
+    #edit_buttons { height: auto; align: center middle; }
+    #edit_buttons Button { margin: 0 1; }
+    """
+    BINDINGS: ClassVar = [("escape", "cancel", "취소")]
+
+    def __init__(self, suffix: str, desc: str, current: str) -> None:
+        super().__init__()
+        self._suffix = suffix
+        self._desc = desc
+        self._current = current
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="dialog"):
+            yield Static(f"[b]{self._suffix}[/b] ({self._desc})\n발송 시각 (HH:MM, 월~금)")
+            yield Input(value=self._current, placeholder="HH:MM", id="time_input")
+            with Horizontal(id="edit_buttons"):
+                yield Button("저장", id="save", variant="primary")
+                yield Button("취소", id="cancel")
+
+    def on_mount(self) -> None:
+        self.query_one("#time_input", Input).focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "save":
+            self.dismiss(self.query_one("#time_input", Input).value.strip())
+        else:
+            self.dismiss(None)
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        self.dismiss(event.value.strip())
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
 
 
 class _LogHandler(logging.Handler):
@@ -51,6 +96,10 @@ class AdminTUI(App):
     #servers { height: auto; padding: 0 1; align: left middle; }
     #servers Button { margin: 0 1; min-width: 10; }
     #server_status { width: 1fr; height: auto; content-align: left middle; }
+    #schedule_bar { height: auto; align: left middle; padding: 0 1; }
+    #schedule_bar Button { margin: 0 1; }
+    #schedule_hint { width: 1fr; content-align: left middle; }
+    #schedule { height: auto; max-height: 12; border: round $primary; margin: 0 1; }
     #log { height: 10; border: round $secondary; }
     #preview_bar { height: auto; align: left middle; padding: 0 1; }
     #preview_bar Button { margin: 0 1; min-width: 8; }
@@ -63,6 +112,8 @@ class AdminTUI(App):
         ("s", "cycle_sort", "정렬 변경"),
         ("n", "next_page", "다음"),
         ("p", "prev_page", "이전"),
+        ("t", "toggle_job", "발송 on/off"),
+        ("e", "edit_job", "시각 편집"),
         ("q", "quit", "종료"),
     ]
 
@@ -75,6 +126,8 @@ class AdminTUI(App):
         self._page = 0  # 0-based
         self._total = 0
         self._servers = ServerControl()
+        self._schedule = ScheduleControl()
+        self._jobs_cache: list = []  # 스케줄 테이블 행 ↔ 잡 매핑용
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -89,6 +142,11 @@ class AdminTUI(App):
                 yield Static(id="server_status")
                 yield Button("API 재기동", id="api_restart", variant="warning")
                 yield Button("WEB 재기동", id="web_restart", variant="warning")
+            with Horizontal(id="schedule_bar"):
+                yield Static(id="schedule_hint")
+                yield Button("발송 on/off", id="job_toggle")
+                yield Button("시각 편집", id="job_edit", variant="primary")
+            yield DataTable(id="schedule")
             yield Log(id="log", highlight=True)
             with Horizontal(id="preview_bar"):
                 yield Button("◀ 이전", id="prev")
@@ -113,6 +171,14 @@ class AdminTUI(App):
 
         table = self.query_one("#preview", DataTable)
         table.add_columns("종목", "시총(억)", "매출YoY", "모멘텀")
+
+        sched = self.query_one("#schedule", DataTable)
+        sched.add_columns("발송 잡", "시각", "상태")
+        sched.cursor_type = "row"
+        self.query_one("#schedule_hint", Static).update(
+            "[b]발송 스케줄[/b] (launchd · 월~금)  행 선택 후  t=on/off  e=시각편집"
+        )
+
         self.action_refresh()
         # 서버가 스스로 죽거나(bind 실패·크래시) 하면 상태 패널이 stale 하지 않도록 주기 갱신.
         self.set_interval(3.0, self._refresh_server_status)
@@ -156,7 +222,25 @@ class AdminTUI(App):
         ]
         self.query_one("#status", Static).update("\n".join(lines))
         self._refresh_server_status()
+        self._load_schedule()
         self._load_preview()
+
+    def _load_schedule(self) -> None:
+        """발송 스케줄 잡 목록을 테이블에 채운다(선택 행 유지)."""
+        table = self.query_one("#schedule", DataTable)
+        prev_row = table.cursor_row if table.row_count else 0
+        self._jobs_cache = self._schedule.jobs()
+        table.clear()
+        for job in self._jobs_cache:
+            if not job.enabled:
+                state = "[dim]⏸ 꺼짐[/dim]"
+            elif job.loaded:
+                state = "[green]● 켜짐[/green]"
+            else:
+                state = "[yellow]○ 미로드[/yellow]"
+            table.add_row(f"{job.suffix}  [dim]{job.desc}[/dim]", job.time_label, state)
+        if self._jobs_cache:
+            table.move_cursor(row=min(prev_row, len(self._jobs_cache) - 1))
 
     def _load_preview(self) -> None:
         """스몰캡 성장주 미리보기 — 선택 정렬·현재 페이지."""
@@ -192,6 +276,43 @@ class AdminTUI(App):
         self.query_one("#sort", Button).label = f"정렬: {sort}"
         self.query_one("#prev", Button).disabled = self._page <= 0
         self.query_one("#next", Button).disabled = (self._page + 1) >= total_pages
+
+    # --- 발송 스케줄 ---
+    def _selected_job(self):
+        """스케줄 테이블에서 현재 선택된 잡. 없으면 None 을 반환하며 안내를 남긴다."""
+        table = self.query_one("#schedule", DataTable)
+        row = table.cursor_row
+        if not self._jobs_cache or row is None or row >= len(self._jobs_cache):
+            self._log_line("⚠ 스케줄 표에서 잡을 먼저 선택하세요.")
+            return None
+        return self._jobs_cache[row]
+
+    def action_toggle_job(self) -> None:
+        job = self._selected_job()
+        if job is None:
+            return
+        self._log_line(self._schedule.toggle(job.suffix, job.enabled))
+        self._load_schedule()
+
+    def action_edit_job(self) -> None:
+        job = self._selected_job()
+        if job is None:
+            return
+
+        def _apply(value: str | None) -> None:
+            if not value:
+                return
+            self._log_line(self._apply_time_edit(job.suffix, value))
+            self._load_schedule()
+
+        self.push_screen(TimeEditScreen(job.suffix, job.desc, job.time_label), _apply)
+
+    def _apply_time_edit(self, suffix: str, value: str) -> str:
+        """'HH:MM' 문자열을 파싱해 시각을 적용한다. 형식 오류는 안내 문자열로 돌려준다."""
+        parts = value.split(":")
+        if len(parts) != 2 or not all(p.isdigit() for p in parts):
+            return f"시각 형식이 올바르지 않습니다: '{value}' (HH:MM 로 입력)"
+        return self._schedule.set_time(suffix, int(parts[0]), int(parts[1]))
 
     # --- 정렬·페이지 ---
     def action_cycle_sort(self) -> None:
@@ -245,6 +366,10 @@ class AdminTUI(App):
             self.action_prev_page()
         elif bid in ("api_restart", "web_restart"):
             self._handle_server_button(bid)
+        elif bid == "job_toggle":
+            self.action_toggle_job()
+        elif bid == "job_edit":
+            self.action_edit_job()
         elif bid in self._JOB_BUTTONS:
             if self._job_running:  # 실행 중엔 이중 크롤/GLM 방지
                 self._log_line("⚠ 다른 작업이 실행 중입니다. 완료 후 다시 시도하세요.")
