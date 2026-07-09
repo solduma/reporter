@@ -21,7 +21,7 @@ export default function NavBar() {
       <nav className={styles.nav}>
         <Link href="/" className={styles.brand}>
           <span className={styles.brandMark}>☕</span>
-          <span>돈냥이 리서치</span>
+          <span>Report Pulse</span>
         </Link>
         <ul className={styles.links}>
           {LINKS.map((link) => {
