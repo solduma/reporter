@@ -88,6 +88,17 @@ uv run reporter --batch 1 | --all     # (레거시) 종합 브리핑
 > 링크는 TinyURL 로 단축해 발송한다(캐시: `logs/url_cache.json`). 장중/미장 뉴스는
 > 상위 기사 본문을 headless Chrome 으로 크롤해 GLM 이 서술형으로 종합한다(시스템 Chrome 필요).
 
+### 포럼 토픽 (선택)
+
+`TELEGRAM_USE_TOPICS=1` 이고 `TELEGRAM_CHAT_ID` 가 **포럼 모드 ON 슈퍼그룹**이면, 종목/산업
+리포트(`--per-entity`)와 장중 뉴스(`--news`)를 일자별 토픽에 누적해 개별 메시지가 묻히지
+않게 한다. 개별 메시지는 무음, 토픽 생성·갱신 시 헤더(마지막 업데이트 시각·건수)로 알림.
+
+준비: ① 텔레그램에서 그룹 생성 → 설정에서 **Topics 켜기**(포럼 모드) → 슈퍼그룹으로 승격,
+② 봇을 관리자로 추가하고 **manage_topics(토픽 관리)** 권한 부여, ③ `--chat-id` 로 그룹 id
+확인 후 `TELEGRAM_CHAT_ID` 에 설정. (채널은 토픽을 지원하지 않는다.) 포럼이 아니거나 권한이
+없으면 자동으로 일반 발송으로 폴백한다. 토픽 상태는 `logs/forum_topics.json` 에 보존된다.
+
 ## 자동 실행 (launchd — macOS 권장)
 
 `launchd/install.sh` 를 **한 번** 실행하면 `~/Library/LaunchAgents/` 에 plist 가 설치되어

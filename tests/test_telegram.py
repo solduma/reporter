@@ -82,3 +82,81 @@ def test_send_raises_on_ok_false(monkeypatch):
 
     with pytest.raises(TelegramError, match="chat not found"):
         sender.send("메시지")
+
+
+def _sender_with_result(monkeypatch, result: dict) -> tuple:
+    sender = TelegramSender("token", "123")
+    resp = MagicMock()
+    resp.raise_for_status = MagicMock()
+    resp.json.return_value = {"ok": True, "result": result}
+    session = MagicMock()
+    session.post.return_value = resp
+    sender._session = session
+    return sender, session
+
+
+def test_send_into_topic_passes_thread_and_silent(monkeypatch):
+    monkeypatch.setattr("reporter.telegram.time.sleep", lambda s: None)
+    sender, session = _sender_with_result(monkeypatch, {"message_id": 42})
+
+    sender.send("본문", thread_id=101, disable_notification=True)
+    payload = session.post.call_args.kwargs["json"]
+    assert payload["message_thread_id"] == 101
+    assert payload["disable_notification"] is True
+
+
+def test_send_without_topic_omits_thread(monkeypatch):
+    monkeypatch.setattr("reporter.telegram.time.sleep", lambda s: None)
+    sender, session = _sender_with_result(monkeypatch, {"message_id": 1})
+
+    sender.send("본문")
+    payload = session.post.call_args.kwargs["json"]
+    assert "message_thread_id" not in payload
+    assert "disable_notification" not in payload
+
+
+def test_create_forum_topic_returns_thread_id(monkeypatch):
+    sender, session = _sender_with_result(monkeypatch, {"message_thread_id": 555})
+    assert sender.create_forum_topic("📈 종목 리포트 07.09") == 555
+    assert session.post.call_args.kwargs["json"]["chat_id"] == "123"
+    assert "createForumTopic" in session.post.call_args.args[0]
+
+
+def test_send_message_returns_message_id(monkeypatch):
+    sender, _ = _sender_with_result(monkeypatch, {"message_id": 777})
+    assert sender.send_message("헤더", thread_id=101) == 777
+
+
+def test_delete_message_swallows_errors(monkeypatch):
+    # 이미 없는 메시지 삭제는 조용히 무시(best-effort)해야 한다
+    sender, _ = _sender_with_mock_session(monkeypatch, ok=False, description="message to delete not found")
+    sender.delete_message(999)  # 예외 없이 통과
+
+
+def test_http_error_surfaces_as_telegram_error(monkeypatch):
+    # 텔레그램은 '포럼 아님/권한 없음'을 HTTP 4xx 로 알린다. raise_for_status 로 새면
+    # 폴백(except TelegramError)을 우회하므로, _api 가 TelegramError 로 변환해야 한다.
+    sender = TelegramSender("token", "123")
+    resp = MagicMock()
+    resp.ok = False
+    resp.status_code = 400
+    resp.json.return_value = {"ok": False, "description": "the chat is not a forum"}
+    session = MagicMock()
+    session.post.return_value = resp
+    sender._session = session
+
+    with pytest.raises(TelegramError, match="not a forum"):
+        sender.create_forum_topic("📈 종목 리포트 07.09")
+
+
+def test_request_exception_surfaces_as_telegram_error(monkeypatch):
+    # 전송 계층 예외(타임아웃 등)도 TelegramError 로 통일돼 폴백에 잡혀야 한다.
+    import requests
+
+    sender = TelegramSender("token", "123")
+    session = MagicMock()
+    session.post.side_effect = requests.RequestException("timeout")
+    sender._session = session
+
+    with pytest.raises(TelegramError):
+        sender.send_message("헤더", thread_id=1)

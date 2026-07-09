@@ -8,13 +8,14 @@ from datetime import datetime
 from . import analyzer, archive, article, news, us_market
 from .config import Config
 from .crawler import crawl_categories
+from .forum import ForumPublisher
 from .grouping import group_by_entity
 from .models import CATEGORY_NAMES, Briefing, DigestResult, Report
 from .ollama_client import OllamaClient
 from .pdf import enrich_with_text
 from .selector import select_top
 from .shortener import UrlShortener
-from .telegram import TelegramSender
+from .telegram import TelegramError, TelegramSender
 
 # 뉴스 종합 시 본문까지 크롤할 상위 기사 수(headless 라 무거워 소수만).
 # 매시 실행(--news)이라 런타임을 bound 하려 3건으로 제한. 나머지는 제목만 참고.
@@ -221,16 +222,34 @@ def run_per_entity_briefing(config: Config, categories: list[str], target_date: 
     sender = TelegramSender(config.telegram_bot_token, config.telegram_chat_id)
     shortener = _shortener(config, requests.Session())
     groups = group_by_entity(summarized)
+
+    # 토픽 발송 시 category(company/industry)별로 메시지를 모아 각 일자별 토픽에 누적한다.
+    by_kind: dict[str, list[str]] = {}
     sent = 0
     for entity, group in groups.items():
         group.sort(key=lambda r: r.views, reverse=True)
         category = group[0].category
         summary = analyzer.synthesize_entity(client, config.insight_model, group)
         message = _format_entity_message(entity, category, summary, group, shortener)
-        sender.send(message)
         header = "🏢 종목 브리핑" if category == "company" else "🏭 산업 브리핑"
+        if config.use_topics:
+            by_kind.setdefault(category, []).append(message)
+        else:
+            sender.send(message)
         archive.record_entity(config, entity, category, f"{header} — {entity}", message, group)
         sent += 1
+
+    if config.use_topics:
+        publisher = ForumPublisher(config, sender)
+        for kind, entries in by_kind.items():
+            try:
+                publisher.publish(kind, entries)
+            except TelegramError as e:
+                # 포럼 아님/권한 없음 → plain 발송으로 폴백(유실 방지)
+                logger.warning("토픽 발송 실패(%s) — plain 폴백: %s", kind, e)
+                for body in entries:
+                    sender.send(body)
+
     logger.info("per-entity briefing sent %d messages", sent)
     return sent
 
@@ -281,7 +300,18 @@ def run_market_news(config: Config) -> int:
     shortener = _shortener(config, session)
     top = items[:5]
     message = _format_news_digest("📰 장중 시장 뉴스", summary, top, shortener)
-    sent = TelegramSender(config.telegram_bot_token, config.telegram_chat_id).send(message)
+
+    sender = TelegramSender(config.telegram_bot_token, config.telegram_chat_id)
+    if config.use_topics:
+        # 장중 뉴스는 매시 발송 → 하나의 일자별 토픽에 누적(다른 메시지에 묻히지 않게).
+        try:
+            sent = ForumPublisher(config, sender).publish("market_news", [message])
+        except TelegramError as e:
+            logger.warning("장중뉴스 토픽 발송 실패 — plain 폴백: %s", e)
+            sent = sender.send(message)
+    else:
+        sent = sender.send(message)
+
     archive.record(
         config,
         "market_news",

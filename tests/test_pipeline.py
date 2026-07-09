@@ -1,9 +1,11 @@
 import json
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 
 import reporter.pipeline as pipeline
+from reporter import news
 from reporter.config import Config
 from reporter.models import Briefing, DigestResult, Report
 
@@ -352,3 +354,86 @@ def test_per_entity_archives_per_group_with_tags(stub_entity, tmp_path):
     assert all(e["kind"] == "per_entity" for e in entries)
     all_codes = {c for e in entries for c in e["stock_codes"]}
     assert all_codes == {"005930", "000660"}
+
+
+def _topics_config(tmp_path: Path) -> Config:
+    return Config(
+        ollama_host="https://ollama.com", ollama_api_key="key", summary_model="s",
+        insight_model="i", telegram_bot_token="token", telegram_chat_id="123",
+        use_topics=True, root=tmp_path,
+    )
+
+
+class _RecordingPublisher:
+    """ForumPublisher 흉내 — publish 호출을 (kind, entries) 로 기록."""
+
+    instances: ClassVar[list] = []
+
+    def __init__(self, config, sender):
+        self.calls: list[tuple[str, list[str]]] = []
+        _RecordingPublisher.instances.append(self)
+
+    def publish(self, kind, entries, day=None):
+        self.calls.append((kind, list(entries)))
+        return len(entries)
+
+
+def test_per_entity_routes_to_topics_by_category(stub_entity, monkeypatch, tmp_path):
+    _RecordingPublisher.instances = []
+    monkeypatch.setattr(pipeline, "ForumPublisher", _RecordingPublisher)
+    reports = [
+        _linked_report("삼성 리포트", 100, "요약", "http://a", stock="삼성전자"),
+        _linked_report("하이닉스 리포트", 50, "요약", "http://b", stock="SK하이닉스"),
+    ]
+    sent = stub_entity(crawled=reports)
+    config = _topics_config(tmp_path)
+
+    count = pipeline.run_per_entity_briefing(config, ["company"])
+
+    assert count == 2
+    # 토픽 모드: 개별 sender.send 는 쓰지 않고 publisher.publish 로 라우팅
+    assert sent == []
+    pub = _RecordingPublisher.instances[-1]
+    assert len(pub.calls) == 1  # company 한 종류
+    kind, entries = pub.calls[0]
+    assert kind == "company" and len(entries) == 2
+
+
+def test_per_entity_falls_back_to_plain_on_topic_error(stub_entity, monkeypatch, tmp_path):
+    from reporter.telegram import TelegramError
+
+    class _BoomPublisher:
+        def __init__(self, config, sender):
+            pass
+
+        def publish(self, kind, entries, day=None):
+            raise TelegramError("not a forum")
+
+    monkeypatch.setattr(pipeline, "ForumPublisher", _BoomPublisher)
+    reports = [_linked_report("삼성 리포트", 100, "요약", "http://a", stock="삼성전자")]
+    sent = stub_entity(crawled=reports)
+    config = _topics_config(tmp_path)
+
+    count = pipeline.run_per_entity_briefing(config, ["company"])
+    assert count == 1
+    assert len(sent) == 1  # 포럼 실패 → plain 발송 폴백
+
+
+def test_market_news_routes_to_topic(monkeypatch, tmp_path):
+    _RecordingPublisher.instances = []
+    monkeypatch.setattr(pipeline, "ForumPublisher", _RecordingPublisher)
+
+    item = news.NewsItem(title="코스피 상승", source="연합", link="http://n")
+    monkeypatch.setattr(pipeline, "_collect_market_news", lambda kw, limit, session: [item])
+    monkeypatch.setattr(pipeline, "OllamaClient", lambda host, key: object())
+    monkeypatch.setattr(pipeline, "_synthesize_news", lambda c, m, items: "요약")
+    monkeypatch.setattr(pipeline, "UrlShortener", lambda *a, **k: _NoopShortener())
+    sent = []
+    monkeypatch.setattr(pipeline, "TelegramSender", lambda t, c: _RecordingSender(sent))
+
+    config = _topics_config(tmp_path)
+    pipeline.run_market_news(config)
+
+    pub = _RecordingPublisher.instances[-1]
+    assert len(pub.calls) == 1 and pub.calls[0][0] == "market_news"
+    assert sent == []  # 토픽으로만 발송
