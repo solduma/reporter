@@ -155,3 +155,42 @@ def synthesize_insight(client: OllamaClient, model: str, reports: list[Report]) 
         report_count=len(reports),
         categories=sorted({r.category for r in reports}),
     )
+
+
+_FORECAST_SYSTEM = (
+    "너는 전날 국내 증시 마감과 간밤 미국 증시 마감을 함께 읽고 '오늘 국내 장'을 전망하는 "
+    "투자 전략가다. 과거 리뷰를 요약하는 게 아니라, 그 흐름이 오늘 장에 어떻게 이어질지 "
+    "예상한다. 미국 마감이 국내에 선행한다는 점을 활용하되, 근거 없는 단정은 피하고 "
+    "리스크도 솔직히 짚는다. 모르면 아는 척하지 않는다."
+)
+
+_FORECAST_TEMPLATE = """아래는 전날 국내 마감시황과 간밤 미국 마감시황을 포함한 증권사 리포트 {count}건의 요약이다.
+
+{summaries}
+
+위 흐름(전날 국내 마감 + 간밤 미국 마감)을 종합해 '오늘 국내 장'을 예상하는 브리핑을 아래 형식으로 작성해라.
+형식과 이모지를 그대로 지키고, 각 섹션 사이는 빈 줄로 띄운다. 종목명·수치 등 핵심어만 굵게(**...**) 강조(남발 금지).
+
+🔮 오늘의 핵심 (3줄)
+→ 전날·간밤 흐름이 오늘 장에 미칠 핵심 포인트
+
+📊 주목 테마
+→ 오늘 주목할 섹터/테마 2~3개, 예상 근거 포함
+
+💎 주목 종목 (최대 5개)
+→ 흐름·수급상 오늘 주목할 종목
+
+⚠️ 리스크 요인
+→ 오늘 장에서 경계할 리스크"""
+
+
+def synthesize_forecast(client: OllamaClient, model: str, reports: list[Report]) -> Briefing:
+    """전날 국내마감 + 간밤 미장마감을 종합해 '오늘 예상' 브리핑을 만든다."""
+    lines = [f"- {r.label}\n  {r.summary}" for r in reports]
+    prompt = _FORECAST_TEMPLATE.format(count=len(reports), summaries="\n".join(lines))
+    text = client.chat(model, _FORECAST_SYSTEM, prompt, temperature=0.5)
+    return Briefing(
+        text=text,
+        report_count=len(reports),
+        categories=sorted({r.category for r in reports}),
+    )

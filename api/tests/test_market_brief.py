@@ -1,6 +1,6 @@
-"""build_market_brief 단위 테스트 — 국내 마감시황 제외 + market_date=실행일 (issue #43).
+"""build_market_brief 단위 테스트 — 전날 국내마감 + 미장마감 종합 예상 + market_date=실행일.
 
-크롤·PDF·GLM·DB 를 모두 스텁으로 대체해 필터·날짜 로직만 검증(실 자원 미사용).
+크롤·PDF·GLM·DB 를 모두 스텁으로 대체해 근거 포함·날짜 로직만 검증(실 자원 미사용).
 """
 
 from __future__ import annotations
@@ -50,7 +50,7 @@ def _stub(monkeypatch):
         class _Briefing:
             text = "종합"
 
-        monkeypatch.setattr(ingest.analyzer, "synthesize_insight", lambda c, m, reps: _Briefing())
+        monkeypatch.setattr(ingest.analyzer, "synthesize_forecast", lambda c, m, reps: _Briefing())
 
     return _apply
 
@@ -59,23 +59,24 @@ def _settings() -> Settings:
     return Settings(ollama_api_key="k")
 
 
-def test_excludes_domestic_closing_from_morning_brief(_stub, monkeypatch):
+def test_includes_domestic_and_us_closing_for_forecast(_stub, monkeypatch):
     captured = {}
     _stub([
         _cr("Daily Morning Brief(2026.07.09)"),
         _cr("국내주식 마감 시황 (26.07.08)"),
         _cr("유안타 AI 미국 주식시장 마감 시황"),
     ])
-    # summarize 가 받는(=필터 후) 리포트 포착
+    # summarize 가 받는(=근거) 리포트 포착
     monkeypatch.setattr(ingest.analyzer, "summarize_reports", lambda c, m, reps: captured.setdefault("reps", reps) or reps)
 
     db = _FakeSession()
     ingest.build_market_brief(db, _settings())
 
     titles = [r.title for r in captured["reps"]]
-    assert "국내주식 마감 시황 (26.07.08)" not in titles  # 전일 국내 마감 제외
+    # 오늘 예상 목적: 전날 국내 마감 + 간밤 미국 마감 + 오전 시황 모두 근거로 포함.
+    assert "국내주식 마감 시황 (26.07.08)" in titles
+    assert "유안타 AI 미국 주식시장 마감 시황" in titles
     assert "Daily Morning Brief(2026.07.09)" in titles
-    assert "유안타 AI 미국 주식시장 마감 시황" in titles  # 미국 마감은 유지
 
 
 def test_market_date_is_run_date_not_list_top(_stub, monkeypatch):
@@ -90,10 +91,18 @@ def test_market_date_is_run_date_not_list_top(_stub, monkeypatch):
     assert db.added[0].market_date == date(2026, 7, 9)
 
 
-def test_returns_none_when_only_domestic_closing(_stub):
+def test_uses_domestic_closing_when_only_source(_stub):
+    # 국내 마감시황만 있어도 오늘 예상 근거로 쓴다(더 이상 제외하지 않음).
     _stub([_cr("국내주식 마감 시황 (26.07.08)")])
     db = _FakeSession()
-    assert ingest.build_market_brief(db, _settings()) is None  # 오전 대상 0건
+    assert ingest.build_market_brief(db, _settings()) == "종합"
+    assert len(db.added) == 1
+
+
+def test_returns_none_when_no_reports(_stub):
+    _stub([])
+    db = _FakeSession()
+    assert ingest.build_market_brief(db, _settings()) is None
     assert db.added == []
 
 
