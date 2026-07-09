@@ -69,7 +69,7 @@ class ForumPublisher:
 
     def _header_text(self, kind: str, day: str, count: int, updated: str) -> str:
         label = TOPIC_LABEL.get(kind, kind)
-        return f"{label} — {day}\n(총 {count}건 · 마지막 업데이트 {updated})"
+        return f"**{label} — {day}**\n(총 {count}건 · 마지막 업데이트 {updated})"
 
     def publish(self, kind: str, entries: list[str], day: str | None = None) -> int:
         """kind 토픽에 여러 메시지를 무음으로 누적하고 헤더를 갱신(알림)한다.
