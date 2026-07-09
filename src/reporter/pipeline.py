@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
-from . import analyzer, archive, article, news, us_market
+from . import analyzer, archive, article, market, news, us_market
 from .config import Config
 from .crawler import crawl_categories
 from .forum import ForumPublisher
@@ -262,6 +262,16 @@ def run_category_digest(
     if not reports:
         logger.info("no reports for %s", category)
         return None
+
+    # 시황은 오전/마감을 분리한다: 오전 종합은 국내 마감시황(전일 리뷰)을 제외하고,
+    # 17시 마감(closing)은 국내 마감시황만 모은다. (미국 마감시황은 오전에 유지.)
+    if category == "market_info":
+        morning, domestic_closing = market.split_by_closing(reports)
+        reports = domestic_closing if closing else morning
+        if not reports:
+            logger.info("no %s reports after closing filter", "closing" if closing else "morning")
+            return None
+
     enriched = enrich_with_text(reports)
     if not enriched:
         return None

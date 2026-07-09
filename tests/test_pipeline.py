@@ -307,7 +307,7 @@ def test_digest_archives_with_kind_and_sources(stub_digest, tmp_path):
 
 
 def test_closing_digest_archives_as_closing_kind(stub_digest, tmp_path):
-    src = Report(category="market_info", title="마감시황", broker="A", date="26.07.09", views=1)
+    src = Report(category="market_info", title="국내주식 마감 시황 (26.07.08)", broker="A", date="26.07.09", views=1)
     digest = DigestResult(text="마감 본문", category="market_info", report_count=1, sources=[src])
     stub_digest(crawled=[src], digest=digest)
     config = _config(tmp_path)
@@ -316,6 +316,57 @@ def test_closing_digest_archives_as_closing_kind(stub_digest, tmp_path):
 
     entries = _spool_entries(config)
     assert entries[0]["kind"] == "closing"
+
+
+def _market_reports() -> list[Report]:
+    return [
+        Report(category="market_info", title="Daily Morning Brief(2026.07.09)", broker="A", date="26.07.09", views=5),
+        Report(category="market_info", title="국내주식 마감 시황 (26.07.08)", broker="B", date="26.07.09", views=9),
+        Report(category="market_info", title="유안타 AI 미국 주식시장 마감 시황", broker="C", date="26.07.09", views=3),
+    ]
+
+
+def _capture_digest(monkeypatch):
+    """digest 경로에서 enrich_with_text 가 받은(=필터 후) 리포트를 포착한다."""
+    seen: dict = {}
+
+    def _crawl(cats, target_date=None):
+        return _market_reports()
+
+    def _enrich(reports):
+        seen["reports"] = list(reports)
+        return list(reports)
+
+    monkeypatch.setattr(pipeline, "crawl_categories", _crawl)
+    monkeypatch.setattr(pipeline, "enrich_with_text", _enrich)
+    monkeypatch.setattr(pipeline, "OllamaClient", lambda host, key: object())
+    monkeypatch.setattr(pipeline.analyzer, "summarize_reports", lambda c, m, reports: reports)
+    monkeypatch.setattr(
+        pipeline.analyzer, "synthesize_digest",
+        lambda c, m, reports: DigestResult(text="t", category="market_info", report_count=len(reports), sources=[]),
+    )
+    monkeypatch.setattr(pipeline, "UrlShortener", lambda *a, **k: _NoopShortener())
+    monkeypatch.setattr(pipeline, "TelegramSender", lambda t, c: _RecordingSender([]))
+    return seen
+
+
+def test_morning_market_digest_excludes_domestic_closing(monkeypatch, tmp_path):
+    seen = _capture_digest(monkeypatch)
+    pipeline.run_category_digest(_config(tmp_path), "market_info", closing=False)
+
+    titles = [r.title for r in seen["reports"]]
+    # 국내 마감시황 제외, 오늘 전망 + 미국 마감은 유지
+    assert "국내주식 마감 시황 (26.07.08)" not in titles
+    assert "Daily Morning Brief(2026.07.09)" in titles
+    assert "유안타 AI 미국 주식시장 마감 시황" in titles
+
+
+def test_closing_market_digest_keeps_only_domestic_closing(monkeypatch, tmp_path):
+    seen = _capture_digest(monkeypatch)
+    pipeline.run_category_digest(_config(tmp_path), "market_info", closing=True)
+
+    titles = [r.title for r in seen["reports"]]
+    assert titles == ["국내주식 마감 시황 (26.07.08)"]
 
 
 @pytest.fixture
