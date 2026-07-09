@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 
 import MarketBriefCard from "@/components/MarketBriefCard";
 import MarketOverviewCard from "@/components/MarketOverviewCard";
-import ReportColumn from "@/components/ReportColumn";
+import ReportTabs from "@/components/ReportTabs";
 import { fetchMarketBrief, fetchReports } from "@/lib/api";
 import type { MarketBrief, Report } from "@/lib/types";
 
@@ -62,10 +62,7 @@ export default function TodaysBrewPage() {
         <p className={styles.error}>API 연결 실패: {error}</p>
       ) : null}
 
-      <div className={styles.columns}>
-        <ReportColumn title="산업분석" icon="🏭" reports={industry} loading={loading} />
-        <ReportColumn title="종목분석" icon="📈" reports={company} loading={loading} />
-      </div>
+      <ReportTabs industry={industry} company={company} loading={loading} />
     </div>
   );
 }
