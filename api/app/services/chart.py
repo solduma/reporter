@@ -17,6 +17,7 @@ import requests
 logger = logging.getLogger(__name__)
 
 _BASE = "https://api.stock.naver.com/chart/domestic/item"
+_FOREIGN_BASE = "https://api.stock.naver.com/chart/foreign/item"
 _HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; reporter-bot/1.0)"}
 _INTRADAY_BUCKET_MIN = 30
 
@@ -43,15 +44,7 @@ def _get(url: str, params: dict, session: requests.Session) -> list[dict]:
     return data if isinstance(data, list) else []
 
 
-def fetch_periodic(
-    stock_code: str, timeframe: str, start: datetime, end: datetime, session: requests.Session
-) -> list[Candle]:
-    """일(day)/주(week)/월(month)봉을 조회한다."""
-    rows = _get(
-        f"{_BASE}/{stock_code}/{timeframe}",
-        {"startDateTime": start.strftime("%Y%m%d%H%M"), "endDateTime": end.strftime("%Y%m%d%H%M")},
-        session,
-    )
+def _parse_periodic(rows: list[dict]) -> list[Candle]:
     candles: list[Candle] = []
     for r in rows:
         try:
@@ -63,12 +56,39 @@ def fetch_periodic(
                     low=float(r["lowPrice"]),
                     close=float(r["closePrice"]),
                     volume=int(r.get("accumulatedTradingVolume", 0)),
-                    foreign_ratio=r.get("foreignRetentionRate"),
+                    foreign_ratio=r.get("foreignRetentionRate"),  # 미국(foreign)은 없음 → None
                 )
             )
         except (KeyError, ValueError, TypeError):
             continue  # 형식 이탈 행은 건너뛴다
     return candles
+
+
+def fetch_periodic(
+    stock_code: str, timeframe: str, start: datetime, end: datetime, session: requests.Session
+) -> list[Candle]:
+    """국내 종목/ETF 일(day)/주(week)/월(month)봉을 조회한다."""
+    rows = _get(
+        f"{_BASE}/{stock_code}/{timeframe}",
+        {"startDateTime": start.strftime("%Y%m%d%H%M"), "endDateTime": end.strftime("%Y%m%d%H%M")},
+        session,
+    )
+    return _parse_periodic(rows)
+
+
+def fetch_periodic_foreign(
+    symbol: str, timeframe: str, start: datetime, end: datetime, session: requests.Session
+) -> list[Candle]:
+    """미국 ETF/종목 봉을 조회한다(chart/foreign/item). 응답 스키마는 domestic 과 동일.
+
+    symbol 은 네이버 RIC 접미사 포함 심볼(예: XLK, SMH.O, XLRE.K). 외국인비율은 없다.
+    """
+    rows = _get(
+        f"{_FOREIGN_BASE}/{symbol}/{timeframe}",
+        {"startDateTime": start.strftime("%Y%m%d%H%M"), "endDateTime": end.strftime("%Y%m%d%H%M")},
+        session,
+    )
+    return _parse_periodic(rows)
 
 
 def _resample_30min(minute_rows: list[dict]) -> list[Candle]:

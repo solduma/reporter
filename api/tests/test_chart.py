@@ -100,3 +100,37 @@ def test_fetch_periodic_handles_non_list_response():
         __import__("datetime").datetime(2026, 1, 1), _session_returning({"error": "x"})
     )
     assert candles == []
+
+
+def test_fetch_periodic_foreign_parses_us_etf():
+    # 미국 foreign 응답은 domestic 과 스키마 동일하되 외국인비율 필드가 없다 → None.
+    from datetime import datetime
+
+    payload = [
+        {
+            "localDate": "20260708",
+            "openPrice": 177.48,
+            "highPrice": 181.63,
+            "lowPrice": 177.15,
+            "closePrice": 181.4,
+            "accumulatedTradingVolume": 10528340,
+        }
+    ]
+    candles = chart.fetch_periodic_foreign(
+        "XLK", "day", datetime(2026, 7, 1), datetime(2026, 7, 8), _session_returning(payload)
+    )
+    assert len(candles) == 1
+    c = candles[0]
+    assert c.close == 181.4 and c.volume == 10528340
+    assert c.foreign_ratio is None  # 미국은 외국인 수급 없음
+
+
+def test_fetch_periodic_foreign_uses_foreign_endpoint():
+    from datetime import datetime
+
+    session = _session_returning([])
+    chart.fetch_periodic_foreign(
+        "SMH.O", "day", datetime(2026, 7, 1), datetime(2026, 7, 8), session
+    )
+    called_url = session.get.call_args.args[0]
+    assert "chart/foreign/item/SMH.O/day" in called_url

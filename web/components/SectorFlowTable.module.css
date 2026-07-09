@@ -1,0 +1,126 @@
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.tabs {
+  display: flex;
+  gap: 8px;
+}
+
+.tab {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  padding: 6px 16px;
+  border-radius: 999px;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.tabActive {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.status,
+.error {
+  padding: 12px 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.error {
+  color: var(--sell);
+}
+
+.scroll {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+.table th,
+.table td {
+  padding: 8px 10px;
+  text-align: right;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.table thead th {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.8rem;
+}
+
+.rankCol {
+  width: 44px;
+  text-align: center !important;
+}
+
+.sectorCol {
+  text-align: left !important;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.rank,
+.rankTop {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.rank {
+  background: var(--hold-bg);
+  color: var(--hold);
+}
+
+.rankTop {
+  background: var(--accent);
+  color: #fff;
+}
+
+.score {
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.hot {
+  color: var(--buy);
+}
+
+.warm {
+  color: var(--hold);
+}
+
+.cool {
+  color: var(--sell);
+}
+
+.flat {
+  color: var(--muted);
+}
+
+/* 등락: 한국 관행 — 상승 빨강 / 하락 파랑 */
+.up {
+  color: var(--sell);
+  font-variant-numeric: tabular-nums;
+}
+
+.down {
+  color: var(--buy);
+  font-variant-numeric: tabular-nums;
+}

@@ -304,3 +304,30 @@ class Broadcast(Base):
     industries: Mapped[list] = mapped_column(JSONB, default=list)  # 언급 산업(산업 흐름 조인)
     dedup_key: Mapped[str] = mapped_column(String(128))  # "{kind}|{ref_date}|{seq}" 재실행 멱등
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class SectorTheme(Base):
+    """judal.co.kr 테마(섹터). 수급 섹터 로테이션의 섹터 정의."""
+
+    __tablename__ = "sector_theme"
+    __table_args__ = (UniqueConstraint("judal_idx", name="uq_sector_theme_idx"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    judal_idx: Mapped[int] = mapped_column(Integer, index=True)  # judal themeIdx
+    name: Mapped[str] = mapped_column(String(64))
+    stock_count: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class SectorThemeStock(Base):
+    """테마↔종목 매핑. 한 종목이 여러 테마에 속할 수 있다."""
+
+    __tablename__ = "sector_theme_stock"
+    __table_args__ = (UniqueConstraint("judal_idx", "stock_code", name="uq_theme_stock"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    judal_idx: Mapped[int] = mapped_column(Integer, index=True)
+    stock_code: Mapped[str] = mapped_column(String(6), index=True)
+    stock_name: Mapped[str] = mapped_column(String(128), default="")

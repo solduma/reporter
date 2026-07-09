@@ -98,6 +98,19 @@ export interface SectorRow {
   rotation_score: number; // 0..100
 }
 
+export type FlowMarket = "KR" | "US";
+
+export interface SectorFlowRow {
+  sector: string;
+  market: FlowMarket;
+  symbol: string;
+  flow_score: number | null; // 0..100 자금유입 강도
+  return_3m: number | null;
+  near_high_pct: number | null;
+  vol_ratio: number | null;
+  foreign_delta: number | null; // 외국인비율 변화(pp), 국내만
+}
+
 export interface ReportRef {
   id: number;
   title: string;
