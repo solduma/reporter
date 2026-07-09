@@ -76,6 +76,25 @@ def fetch_periodic(
     return _parse_periodic(rows)
 
 
+def fetch_periodic_with_fallback(
+    settings, stock_code: str, timeframe: str, start: datetime, end: datetime,
+    session: requests.Session,
+) -> list[Candle]:
+    """네이버 우선, 비면 KIS 로 폴백해 국내 일/주/월봉을 조회한다.
+
+    KIS 는 kis 모듈을 지연 import(순환 방지). settings 는 app.config.Settings.
+    """
+    candles = fetch_periodic(stock_code, timeframe, start, end, session)
+    if candles:
+        return candles
+    from app.services import kis
+
+    fallback = kis.fetch_periodic(settings, stock_code, timeframe, start, end, session)
+    if fallback:
+        logger.info("chart fallback to KIS for %s/%s (%d bars)", stock_code, timeframe, len(fallback))
+    return fallback
+
+
 def fetch_periodic_foreign(
     symbol: str, timeframe: str, start: datetime, end: datetime, session: requests.Session
 ) -> list[Candle]:
