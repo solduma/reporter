@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 _US_BASE = "https://api.stock.naver.com/index/{symbol}/basic"
 _KR_BASE = "https://m.stock.naver.com/api/index/{symbol}/basic"
 _FX_BASE = "https://api.stock.naver.com/marketindex/exchange/{symbol}"
+_STOCK_BASE = "https://api.stock.naver.com/stock/{symbol}/basic"
 _HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; reporter-bot/1.0)"}
 _US_INDICES = [(".DJI", "다우"), (".IXIC", "나스닥"), (".INX", "S&P500")]
 _KR_INDICES = [("KOSPI", "코스피"), ("KOSDAQ", "코스닥")]
@@ -162,6 +163,29 @@ def fetch_us_sector_proxies(session: requests.Session | None = None) -> list[Ind
     quotes = _fetch_indices(_US_BASE, _US_SECTOR_PROXIES, session or requests.Session())
     if quotes:
         _proxy_cache = (time.monotonic(), quotes)
+    return quotes
+
+
+def fetch_us_stock_quotes(
+    symbols: list[tuple[str, str]], session: requests.Session | None = None
+) -> list[IndexQuote]:
+    """미국 개별종목 (심볼, 표시명) 목록의 시세를 조회한다. 실패한 종목은 빠진다.
+
+    표시명(한글)을 name 으로 쓰고 지수와 같은 IndexQuote 로 반환한다(캐시 없음 — 목록 가변).
+    """
+    session = session or requests.Session()
+    quotes: list[IndexQuote] = []
+    for symbol, label in symbols:
+        try:
+            resp = session.get(_STOCK_BASE.format(symbol=symbol), headers=_HEADERS, timeout=15)
+            resp.raise_for_status()
+            data = resp.json()
+        except (requests.RequestException, ValueError) as e:
+            logger.warning("us stock fetch failed %s: %s", symbol, e)
+            continue
+        quote = _parse_quote(label, data)
+        if quote:
+            quotes.append(quote)
     return quotes
 
 

@@ -97,6 +97,16 @@ class StockSearchHit(BaseModel):
     market_cap: int | None  # 원
 
 
+class SectorStock(BaseModel):
+    """섹터 소속 종목 + 시세. 국내는 code 로 종목분석 이동 가능, 미국은 code 없음."""
+
+    name: str
+    code: str | None  # 국내 6자리 코드(미국은 None)
+    close: str | None  # 표시용 종가 문자열
+    change_ratio: str | None  # 등락률 %
+    rising: bool | None  # 상승/하락/판단불가
+
+
 class FinancialPeriodOut(BaseModel):
     period: str
     is_estimate: bool

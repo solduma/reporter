@@ -119,6 +119,14 @@ export interface SectorFlowDetail {
   us: SectorFlowRow | null; // 대응 미국 섹터 ETF flow(선행)
 }
 
+export interface SectorStock {
+  name: string;
+  code: string | null; // 국내 6자리 코드(미국은 null)
+  close: string | null;
+  change_ratio: string | null;
+  rising: boolean | null;
+}
+
 export interface ReportRef {
   id: number;
   title: string;

@@ -11,10 +11,19 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.db.models import Report, ReportAnalysis, Sentiment, TradeStat
+from app.db.models import (
+    Report,
+    ReportAnalysis,
+    SectorTheme,
+    SectorThemeStock,
+    Sentiment,
+    TradeStat,
+    UniverseSnapshot,
+)
 from app.db.session import get_session
-from app.schemas import IndustrySummary, ReportRef, SentimentPoint, TradePoint
+from app.schemas import IndustrySummary, ReportRef, SectorStock, SentimentPoint, TradePoint
 from app.services import customs
+from reporter import sector_etf, us_market
 
 router = APIRouter(prefix="/api/industries", tags=["industries"])
 
@@ -80,6 +89,85 @@ def industry_sentiment(
             )
         )
     return points
+
+
+_MAX_KR_STOCKS = 30
+
+
+def _kr_sector_stocks(db: Session, industry: str) -> list[SectorStock]:
+    """산업명을 judal 테마명에 매칭해 소속 종목 + 최신 시세(UniverseSnapshot)를 반환한다."""
+    # 산업명을 포함하는 judal 테마들(예: '반도체' → '반도체', '반도체 소재' …)의 종목 합집합.
+    theme_idxs = db.scalars(
+        select(SectorTheme.judal_idx).where(SectorTheme.name.ilike(f"%{industry}%"))
+    ).all()
+    if not theme_idxs:
+        return []
+    codes = db.scalars(
+        select(SectorThemeStock.stock_code)
+        .where(SectorThemeStock.judal_idx.in_(theme_idxs))
+        .distinct()
+    ).all()
+    if not codes:
+        return []
+
+    as_of = db.scalar(select(func.max(UniverseSnapshot.snapshot_date)))
+    rows = db.execute(
+        select(
+            UniverseSnapshot.stock_code,
+            UniverseSnapshot.stock_name,
+            UniverseSnapshot.close_price,
+            UniverseSnapshot.change_pct,
+            UniverseSnapshot.market_cap,
+        ).where(
+            UniverseSnapshot.snapshot_date == as_of,
+            UniverseSnapshot.stock_code.in_(codes),
+        )
+    ).all()
+    # 시총 큰 순으로 상위 N개.
+    rows = sorted(rows, key=lambda r: r[4] or 0, reverse=True)[:_MAX_KR_STOCKS]
+    out: list[SectorStock] = []
+    for code, name, close, change, _cap in rows:
+        rising = None if change is None or change == 0 else change > 0
+        out.append(
+            SectorStock(
+                name=name,
+                code=code,
+                close=f"{close:,}" if close is not None else None,
+                change_ratio=f"{change:+.2f}" if change is not None else None,
+                rising=rising,
+            )
+        )
+    return out
+
+
+def _us_sector_stocks(industry: str) -> list[SectorStock]:
+    """산업명 → 국내 섹터 → 대응 미국 섹터의 대표종목 + 네이버 시세."""
+    kr_sector = sector_etf.themes_to_kr_sector([industry])
+    us_sector = sector_etf.kr_sector_to_us(kr_sector)
+    symbols = sector_etf.us_sector_stocks(us_sector)
+    if not symbols:
+        return []
+    quotes = us_market.fetch_us_stock_quotes(symbols)
+    return [
+        SectorStock(
+            name=q.name,
+            code=None,
+            close=q.close,
+            change_ratio=q.change_ratio,
+            rising=q.rising,
+        )
+        for q in quotes
+    ]
+
+
+@router.get("/{name}/stocks", response_model=list[SectorStock])
+def sector_stocks(
+    name: str,
+    market: str = Query(default="KR", pattern="^(KR|US)$"),
+    db: Session = Depends(get_session),
+) -> list[SectorStock]:
+    """섹터(산업) 소속 종목 명단. 국내=judal 테마 매칭+시세, 미국=대표종목 정적매핑+시세."""
+    return _kr_sector_stocks(db, name) if market == "KR" else _us_sector_stocks(name)
 
 
 # 별도 라우터: 무역통계는 /api/trade (산업 흐름 페이지 하단).

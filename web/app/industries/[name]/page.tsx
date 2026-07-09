@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import BroadcastRail from "@/components/BroadcastRail";
 import ReportRefDrawer from "@/components/ReportRefDrawer";
 import SectorFlowDetailCard from "@/components/SectorFlowDetailCard";
+import SectorStockList from "@/components/SectorStockList";
 import SentimentChart from "@/components/SentimentChart";
 import { fetchIndustrySentiment } from "@/lib/api";
 import type { SentimentPoint } from "@/lib/types";
@@ -97,6 +98,8 @@ export default function SectorDetailPage({ params }: { params: { name: string } 
       </div>
 
       <SectorFlowDetailCard industry={sector} />
+
+      <SectorStockList industry={sector} />
 
       <BroadcastRail
         query={{ industry: sector }}

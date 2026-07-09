@@ -108,3 +108,38 @@ def themes_to_kr_sector(theme_names: list[str]) -> str | None:
 def kr_sector_to_us(kr_sector: str | None) -> str | None:
     """국내 섹터명 → 미국 섹터 ETF 섹터명. 없으면 None."""
     return _KR_SECTOR_TO_US.get(kr_sector) if kr_sector else None
+
+
+# 미국 섹터 ETF 구성종목 API 가 없어, 섹터별 대표종목을 정적 매핑한다.
+# (네이버 심볼, 표시명) — Nasdaq 은 '.O', NYSE 는 접미사 없음(실측). 시세는 조회 시 붙인다.
+US_SECTOR_STOCKS: dict[str, list[tuple[str, str]]] = {
+    "반도체": [("NVDA.O", "엔비디아"), ("AVGO.O", "브로드컴"), ("TSM", "TSMC"),
+             ("AMD.O", "AMD"), ("QCOM.O", "퀄컴"), ("TXN.O", "텍사스인스트루먼트")],
+    "기술": [("AAPL.O", "애플"), ("MSFT.O", "마이크로소프트"), ("NVDA.O", "엔비디아"),
+           ("ORCL.N", "오라클"), ("CRM.N", "세일즈포스"), ("ADBE.O", "어도비")],
+    "커뮤니케이션": [("GOOGL.O", "알파벳"), ("META.O", "메타"), ("NFLX.O", "넷플릭스"),
+              ("DIS", "디즈니"), ("T", "AT&T"), ("VZ", "버라이즌")],
+    "임의소비재": [("AMZN.O", "아마존"), ("TSLA.O", "테슬라"), ("HD", "홈디포"),
+             ("MCD", "맥도날드"), ("NKE", "나이키"), ("SBUX.O", "스타벅스")],
+    "필수소비재": [("WMT", "월마트"), ("PG", "P&G"), ("KO", "코카콜라"),
+             ("PEP.O", "펩시코"), ("COST.O", "코스트코")],
+    "에너지": [("XOM", "엑슨모빌"), ("CVX", "셰브론"), ("COP", "코노코필립스"),
+            ("SLB", "슐럼버거")],
+    "금융": [("JPM", "JP모간"), ("BAC", "뱅크오브아메리카"), ("WFC", "웰스파고"),
+           ("V", "비자"), ("MA", "마스터카드"), ("GS", "골드만삭스")],
+    "헬스케어": [("LLY", "일라이릴리"), ("JNJ", "존슨앤존슨"), ("UNH", "유나이티드헬스"),
+            ("MRK", "머크"), ("ABBV", "애브비"), ("PFE", "화이자")],
+    "산업재": [("CAT", "캐터필러"), ("GE", "GE에어로스페이스"), ("BA", "보잉"),
+            ("HON.O", "허니웰"), ("UPS", "UPS"), ("RTX", "RTX")],
+    "소재": [("LIN.O", "린데"), ("SHW", "셔윈윌리엄스"), ("FCX", "프리포트맥모란"),
+           ("NEM", "뉴몬트"), ("APD", "에어프로덕츠")],
+    "리츠": [("PLD", "프로로지스"), ("AMT", "아메리칸타워"), ("EQIX.O", "에퀴닉스"),
+           ("WELL", "웰타워"), ("SPG", "사이먼프로퍼티")],
+    "유틸리티": [("NEE", "넥스트에라"), ("SO", "서던컴퍼니"), ("DUK", "듀크에너지"),
+            ("CEG.O", "컨스텔레이션"), ("AEP.O", "아메리칸일렉트릭파워")],
+}
+
+
+def us_sector_stocks(us_sector: str | None) -> list[tuple[str, str]]:
+    """미국 섹터명 → 대표종목 (심볼, 표시명) 목록. 없으면 빈 리스트."""
+    return US_SECTOR_STOCKS.get(us_sector, []) if us_sector else []
