@@ -23,9 +23,17 @@ function formatDate(value: string | null): string {
   });
 }
 
+function splitParagraphs(summary: string): string[] {
+  return summary
+    .split(/\n\s*\n/)
+    .map((paragraph) => paragraph.trim())
+    .filter((paragraph) => paragraph.length > 0);
+}
+
 export default function MarketBriefCard({ brief }: Props) {
   const summary = brief?.summary?.trim() ?? "";
   const dateLabel = formatDate(brief?.market_date ?? null);
+  const paragraphs = splitParagraphs(summary);
 
   return (
     <section className={styles.card}>
@@ -33,8 +41,14 @@ export default function MarketBriefCard({ brief }: Props) {
         <h1 className={styles.title}>오늘의 시황</h1>
         {dateLabel ? <span className={styles.date}>{dateLabel}</span> : null}
       </div>
-      {summary ? (
-        <Markdown content={summary} className={styles.summary} />
+      {paragraphs.length > 0 ? (
+        <div className={styles.grid}>
+          {paragraphs.map((paragraph, index) => (
+            <div key={index} className={styles.paragraphCard}>
+              <Markdown content={paragraph} className={styles.summary} />
+            </div>
+          ))}
+        </div>
       ) : (
         <p className={styles.empty}>오늘의 시황 데이터가 아직 없습니다</p>
       )}
