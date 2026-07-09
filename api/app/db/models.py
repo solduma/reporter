@@ -18,6 +18,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -262,4 +263,44 @@ class DailyMarketInfo(Base):
     summary: Mapped[str] = mapped_column(Text, default="")
     model: Mapped[str] = mapped_column(String(64), default="")
     source_count: Mapped[int] = mapped_column(BigInteger, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class BroadcastKind(enum.StrEnum):
+    """텔레그램 발송 콘텐츠 유형. digest_* 는 카테고리 장문 종합, 나머지는 뉴스/리서치."""
+
+    DIGEST_MARKET = "digest_market"
+    DIGEST_INVEST = "digest_invest"
+    DIGEST_ECON = "digest_econ"
+    DIGEST_BOND = "digest_bond"
+    CLOSING = "closing"
+    MARKET_NEWS = "market_news"
+    PREMARKET = "premarket"
+    AFTERNOON = "afternoon"
+    MORNING = "morning"
+    PER_ENTITY = "per_entity"
+
+
+class Broadcast(Base):
+    """텔레그램으로 발송된 메시지 아카이브.
+
+    CLI 파이프라인이 발송 직후 스풀(logs/broadcasts.jsonl)에 남기고, API 가 이를 읽어
+    멱등 적재한다(Postgres 단일 writer 는 API). source_refs/stock_codes/industries 로
+    기존 리포트·공시·수출 이력과 조인해 산업별·종목별 흐름 타임라인에 합류시킨다.
+    """
+
+    __tablename__ = "broadcast"
+    __table_args__ = (UniqueConstraint("dedup_key", name="uq_broadcast_dedup"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    kind: Mapped[BroadcastKind] = mapped_column(Enum(BroadcastKind), index=True)
+    ref_date: Mapped[date] = mapped_column(Date, index=True)  # 콘텐츠 대상 영업일
+    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)  # 발송 시각
+    title: Mapped[str] = mapped_column(Text, default="")  # 메시지 헤더 (예: "📈 시황 종합")
+    body: Mapped[str] = mapped_column(Text, default="")  # 발송 원문(분할 전 전체)
+    # {reports:[{broker,title,url}], news:[{title,url,source}], keywords:[...]}
+    source_refs: Mapped[dict] = mapped_column(JSONB, default=dict)
+    stock_codes: Mapped[list] = mapped_column(JSONB, default=list)  # 언급 종목코드(종목 흐름 조인)
+    industries: Mapped[list] = mapped_column(JSONB, default=list)  # 언급 산업(산업 흐름 조인)
+    dedup_key: Mapped[str] = mapped_column(String(128))  # "{kind}|{ref_date}|{seq}" 재실행 멱등
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

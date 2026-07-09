@@ -21,7 +21,7 @@ from textual.widgets import Button, DataTable, Footer, Header, Log, Static
 
 from app.config import get_settings
 from app.db.session import SessionLocal, init_db
-from app.services import admin_status, growth_ingest, ingest, universe_ingest
+from app.services import admin_status, broadcast_ingest, growth_ingest, ingest, universe_ingest
 from app.services.server_control import ServerControl
 
 
@@ -217,7 +217,8 @@ class AdminTUI(App):
         def _ingest(db) -> str:
             n = ingest.ingest_reports(db, settings)
             ingest.build_market_brief(db, settings)
-            return f"신규 {n}건"
+            bc = broadcast_ingest.ingest_broadcasts(db, settings)
+            return f"신규 리포트 {n}건 · 브로드캐스트 {bc}건"
 
         return {
             "ingest": ("리포트 수집", _ingest),

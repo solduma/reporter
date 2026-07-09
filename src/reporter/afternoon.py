@@ -7,7 +7,7 @@ import re
 
 import requests
 
-from . import news
+from . import archive, news
 from .config import Config
 from .ollama_client import OllamaClient
 from .telegram import TelegramSender
@@ -81,6 +81,16 @@ def run_afternoon_research(config: Config) -> int:
         )
         message = f"📌 {keyword} 업데이트\n{analysis}\n\n📰 관련 기사\n{source_lines}"
         sender.send(message)
+        archive.record(
+            config,
+            "afternoon",
+            title=f"📌 {keyword} 업데이트",
+            body=message,
+            source_refs={
+                "keywords": [keyword],
+                "news": [{"title": a.title, "url": a.link, "source": a.source} for a in articles[:3]],
+            },
+        )
         sent += 1
 
     logger.info("afternoon research sent %d updates", sent)

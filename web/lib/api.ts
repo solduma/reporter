@@ -1,4 +1,7 @@
 import type {
+  BroadcastDetail,
+  BroadcastKind,
+  BroadcastRef,
   CandlePoint,
   CompanyGrowth,
   CompanySummary,
@@ -170,4 +173,36 @@ export function fetchTimeline(
   return getJson<TimelineItem[]>(
     `/api/companies/${encodeURIComponent(code)}/timeline${suffix}`,
   );
+}
+
+export interface BroadcastQuery {
+  industry?: string;
+  stock?: string;
+  kind?: BroadcastKind;
+  from?: string;
+  to?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export function fetchBroadcasts(query: BroadcastQuery = {}): Promise<BroadcastRef[]> {
+  const params = new URLSearchParams();
+  const set = (key: string, value: string | number | undefined) => {
+    if (value !== undefined && value !== "") {
+      params.set(key, String(value));
+    }
+  };
+  set("industry", query.industry);
+  set("stock", query.stock);
+  set("kind", query.kind);
+  set("from", query.from);
+  set("to", query.to);
+  set("limit", query.limit);
+  set("offset", query.offset);
+  const q = params.toString();
+  return getJson<BroadcastRef[]>(`/api/broadcasts${q ? `?${q}` : ""}`);
+}
+
+export function fetchBroadcast(id: number): Promise<BroadcastDetail> {
+  return getJson<BroadcastDetail>(`/api/broadcasts/${id}`);
 }

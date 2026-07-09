@@ -1,10 +1,18 @@
+import json
 from pathlib import Path
 
 import pytest
 
 import reporter.pipeline as pipeline
 from reporter.config import Config
-from reporter.models import Briefing, Report
+from reporter.models import Briefing, DigestResult, Report
+
+
+def _spool_entries(config: Config) -> list[dict]:
+    path = config.logs_dir / "broadcasts.jsonl"
+    if not path.exists():
+        return []
+    return [json.loads(ln) for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()]
 
 
 def _config(tmp_path: Path) -> Config:
@@ -103,6 +111,12 @@ def test_happy_path_sends_and_logs(stub_pipeline, tmp_path):
     assert sent == [result]
     logged = (config.logs_dir / "today_briefing.txt").read_text(encoding="utf-8")
     assert logged == result
+
+    # 발송과 동시에 브로드캐스트 스풀에도 아카이브된다
+    entries = _spool_entries(config)
+    assert len(entries) == 1
+    assert entries[0]["kind"] == "morning"
+    assert "핵심 인사이트" in entries[0]["body"]
 
 
 def test_message_contains_header_metadata(stub_pipeline, tmp_path):
@@ -247,3 +261,94 @@ def test_per_report_message_prefers_pdf_url_over_read_url():
     msg = pipeline._format_report_message(r)
     assert "http://naver/report.pdf" in msg
     assert "http://naver/read" not in msg
+
+
+@pytest.fixture
+def stub_digest(monkeypatch):
+    """카테고리 종합(digest) 경로의 크롤·요약·종합·발송을 스텁으로 대체한다."""
+
+    def _apply(*, crawled, digest: DigestResult):
+        monkeypatch.setattr(pipeline, "crawl_categories", lambda cats, target_date=None: crawled)
+        monkeypatch.setattr(pipeline, "enrich_with_text", lambda reports: crawled)
+        monkeypatch.setattr(pipeline, "OllamaClient", lambda host, key: object())
+        monkeypatch.setattr(pipeline.analyzer, "summarize_reports", lambda c, m, reports: crawled)
+        monkeypatch.setattr(pipeline.analyzer, "synthesize_digest", lambda c, m, reports: digest)
+        monkeypatch.setattr(pipeline, "UrlShortener", lambda *a, **k: _NoopShortener())
+        sent = []
+        monkeypatch.setattr(pipeline, "TelegramSender", lambda t, c: _RecordingSender(sent))
+        return sent
+
+    return _apply
+
+
+class _NoopShortener:
+    def shorten(self, url: str) -> str:
+        return url
+
+
+def test_digest_archives_with_kind_and_sources(stub_digest, tmp_path):
+    src = Report(category="invest", title="투자전략", broker="KB", date="26.07.09", views=9,
+                 stock_code="005930", read_url="http://x")
+    digest = DigestResult(text="투자 종합 본문", category="invest", report_count=1, sources=[src])
+    sent = stub_digest(crawled=[src], digest=digest)
+    config = _config(tmp_path)
+
+    result = pipeline.run_category_digest(config, "invest")
+
+    assert result is not None
+    assert sent == [result]
+    entries = _spool_entries(config)
+    assert len(entries) == 1
+    assert entries[0]["kind"] == "digest_invest"
+    assert entries[0]["stock_codes"] == ["005930"]
+    assert len(entries[0]["source_refs"]["reports"]) == 1
+
+
+def test_closing_digest_archives_as_closing_kind(stub_digest, tmp_path):
+    src = Report(category="market_info", title="마감시황", broker="A", date="26.07.09", views=1)
+    digest = DigestResult(text="마감 본문", category="market_info", report_count=1, sources=[src])
+    stub_digest(crawled=[src], digest=digest)
+    config = _config(tmp_path)
+
+    pipeline.run_category_digest(config, "market_info", closing=True)
+
+    entries = _spool_entries(config)
+    assert entries[0]["kind"] == "closing"
+
+
+@pytest.fixture
+def stub_entity(monkeypatch):
+    """종목/산업 단위 종합(per-entity) 경로를 스텁으로 대체한다."""
+
+    def _apply(*, crawled):
+        monkeypatch.setattr(pipeline, "crawl_categories", lambda cats, target_date=None: crawled)
+        monkeypatch.setattr(pipeline, "enrich_with_text", lambda reports: crawled)
+        monkeypatch.setattr(pipeline, "OllamaClient", lambda host, key: object())
+        monkeypatch.setattr(pipeline.analyzer, "summarize_reports", lambda c, m, reports: crawled)
+        monkeypatch.setattr(pipeline.analyzer, "synthesize_entity", lambda c, m, group: "종합요약")
+        monkeypatch.setattr(pipeline, "UrlShortener", lambda *a, **k: _NoopShortener())
+        sent = []
+        monkeypatch.setattr(pipeline, "TelegramSender", lambda t, c: _RecordingSender(sent))
+        return sent
+
+    return _apply
+
+
+def test_per_entity_archives_per_group_with_tags(stub_entity, tmp_path):
+    reports = [
+        _linked_report("삼성 리포트", 100, "요약", "http://a", stock="삼성전자"),
+        _linked_report("하이닉스 리포트", 50, "요약", "http://b", stock="SK하이닉스"),
+    ]
+    reports[0].stock_code = "005930"
+    reports[1].stock_code = "000660"
+    stub_entity(crawled=reports)
+    config = _config(tmp_path)
+
+    count = pipeline.run_per_entity_briefing(config, ["company"])
+
+    assert count == 2
+    entries = _spool_entries(config)
+    assert len(entries) == 2
+    assert all(e["kind"] == "per_entity" for e in entries)
+    all_codes = {c for e in entries for c in e["stock_codes"]}
+    assert all_codes == {"005930", "000660"}

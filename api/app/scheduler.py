@@ -15,7 +15,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 from app.config import Settings, get_settings
 from app.db.session import SessionLocal, init_db
-from app.services import ingest, intraday, universe_ingest
+from app.services import broadcast_ingest, ingest, intraday, universe_ingest
 
 logger = logging.getLogger(__name__)
 
@@ -39,10 +39,13 @@ def run_ingest_cycle(settings: Settings | None = None) -> dict:
         market = ingest.build_market_brief(session, settings)
         # 30분봉 누적: 네이버 분봉 보존이 짧아 매 거래일 30분마다 쌓아 2주 윈도우를 완성한다.
         intraday_codes = intraday.accumulate_intraday(session)
+        # CLI 텔레그램 발송이 남긴 브로드캐스트 스풀을 DB 로 흡수(멱등).
+        broadcasts = broadcast_ingest.ingest_broadcasts(session, settings)
         result = {
             "reports_ingested": reports,
             "market_brief": bool(market),
             "intraday_codes": intraday_codes,
+            "broadcasts_ingested": broadcasts,
         }
         logger.info("ingest cycle done: %s", result)
         return result

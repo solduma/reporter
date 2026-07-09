@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     dart_api_key: str = ""
     customs_api_key: str = ""
 
+    # CLI 텔레그램 발송이 남기는 브로드캐스트 스풀 경로(비우면 repo logs/broadcasts.jsonl)
+    broadcast_spool: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:

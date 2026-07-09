@@ -56,11 +56,21 @@ def test_run_ingest_cycle_calls_ingest_market_and_intraday(monkeypatch):
     monkeypatch.setattr(
         scheduler.intraday, "accumulate_intraday", lambda db: calls.setdefault("intraday", 2) or 2
     )
+    monkeypatch.setattr(
+        scheduler.broadcast_ingest,
+        "ingest_broadcasts",
+        lambda db, s: calls.setdefault("broadcasts", 1) or 1,
+    )
 
     result = scheduler.run_ingest_cycle(_settings())
 
-    assert result == {"reports_ingested": 3, "market_brief": True, "intraday_codes": 2}
-    assert calls == {"reports": 3, "market": "brief", "intraday": 2}
+    assert result == {
+        "reports_ingested": 3,
+        "market_brief": True,
+        "intraday_codes": 2,
+        "broadcasts_ingested": 1,
+    }
+    assert calls == {"reports": 3, "market": "brief", "intraday": 2, "broadcasts": 1}
 
 
 def test_run_ingest_cycle_closes_session(monkeypatch):
@@ -69,6 +79,7 @@ def test_run_ingest_cycle_closes_session(monkeypatch):
     monkeypatch.setattr(scheduler.ingest, "ingest_reports", lambda db, s: 0)
     monkeypatch.setattr(scheduler.ingest, "build_market_brief", lambda db, s: None)
     monkeypatch.setattr(scheduler.intraday, "accumulate_intraday", lambda db: 0)
+    monkeypatch.setattr(scheduler.broadcast_ingest, "ingest_broadcasts", lambda db, s: 0)
 
     scheduler.run_ingest_cycle(_settings())
 

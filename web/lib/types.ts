@@ -180,15 +180,57 @@ export interface ScreenerResult {
   items: ScreenerRow[];
 }
 
-export type TimelineItemType = "report" | "disclosure";
+export type TimelineItemType = "report" | "disclosure" | "broadcast";
 
 export interface TimelineItem {
   type: TimelineItemType;
   date: string;
   title: string;
-  source: string; // 증권사(리포트) 또는 제출인(공시)
+  source: string; // 증권사(리포트) 또는 제출인(공시) 또는 "텔레그램 브리핑"
   sentiment: Sentiment;
   rationale: string;
   link: string | null; // 리포트 read_url 또는 DART 뷰어 URL
   report_id: number | null; // 리포트면 PDF 조회용 id, 공시면 null
+  broadcast_id?: number | null; // 브로드캐스트면 상세 조회용 id
+  kind?: string | null; // 브로드캐스트 종류(digest_market 등)
+}
+
+// 텔레그램으로 발송된 콘텐츠 종류
+export type BroadcastKind =
+  | "digest_market"
+  | "digest_invest"
+  | "digest_econ"
+  | "digest_bond"
+  | "closing"
+  | "market_news"
+  | "premarket"
+  | "afternoon"
+  | "morning"
+  | "per_entity";
+
+export interface BroadcastRef {
+  id: number;
+  kind: BroadcastKind;
+  ref_date: string;
+  sent_at: string;
+  title: string;
+  snippet: string;
+  stock_codes: string[];
+  industries: string[];
+}
+
+export interface BroadcastDetail {
+  id: number;
+  kind: BroadcastKind;
+  ref_date: string;
+  sent_at: string;
+  title: string;
+  body: string;
+  source_refs: {
+    reports?: { broker: string; title: string; url: string }[];
+    news?: { title: string; url: string; source: string }[];
+    keywords?: string[];
+  };
+  stock_codes: string[];
+  industries: string[];
 }
