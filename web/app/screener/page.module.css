@@ -140,6 +140,24 @@
   text-align: right;
 }
 
+.sortable {
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.12s ease;
+}
+
+.sortable:hover {
+  color: var(--accent);
+}
+
+.sortActive {
+  color: var(--accent);
+}
+
+.sortArrow {
+  font-size: 0.7rem;
+}
+
 .nameCol {
   text-align: left !important;
   position: sticky;

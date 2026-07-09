@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { fetchSectorFlow } from "@/lib/api";
@@ -106,6 +107,7 @@ export default function SectorFlowTable() {
                 <th>고점근접</th>
                 <th>거래량</th>
                 {market === "KR" ? <th>외국인Δ</th> : null}
+                <th className={styles.linkCol} aria-label="스몰캡 스크리너" />
               </tr>
             </thead>
             <tbody>
@@ -114,7 +116,14 @@ export default function SectorFlowTable() {
                   <td className={styles.rankCol}>
                     <span className={i < 3 ? styles.rankTop : styles.rank}>{i + 1}</span>
                   </td>
-                  <th className={styles.sectorCol}>{r.sector}</th>
+                  <th className={styles.sectorCol}>
+                    <Link
+                      href={`/industries/${encodeURIComponent(r.sector)}`}
+                      className={styles.sectorLink}
+                    >
+                      {r.sector}
+                    </Link>
+                  </th>
                   <td>
                     <span className={`${styles.score} ${scoreClass(r.flow_score)}`}>
                       {r.flow_score === null ? "—" : Math.round(r.flow_score)}
@@ -130,6 +139,14 @@ export default function SectorFlowTable() {
                       {delta(r.foreign_delta)}
                     </td>
                   ) : null}
+                  <td className={styles.linkCol}>
+                    <Link
+                      href={`/screener?sector=${encodeURIComponent(r.sector)}`}
+                      className={styles.smallcapLink}
+                    >
+                      이 섹터 스몰캡 →
+                    </Link>
+                  </td>
                 </tr>
               ))}
             </tbody>

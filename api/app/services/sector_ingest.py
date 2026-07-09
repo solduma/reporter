@@ -23,20 +23,24 @@ logger = logging.getLogger(__name__)
 def sector_stock_codes(db: Session, sector: str) -> list[str]:
     """섹터명(ETF 섹터명 또는 산업명)에 속하는 judal 테마 종목코드 목록.
 
-    산업명을 대표 섹터로 접고('반도체 소재'→'반도체 소부장'), 같은 섹터로 분류되는
-    judal 테마의 종목만 모은다('반도체'와 '반도체 소부장'을 섞지 않는다).
+    산업명을 대표 섹터로 접고(예: 'IT'→IT, '게임'→IT), 같은 섹터로 분류되는 judal
+    테마의 종목을 모은다('반도체'와 '반도체 소부장'을 섞지 않는다). 대표 섹터로 접히면
+    전체 테마를 분류해 매칭하고(테마명이 산업명과 안 겹쳐도 잡힘), 아니면 이름 부분일치.
     """
     target = sector_etf.themes_to_kr_sector([sector])
-    # 합성 섹터('반도체 소부장')는 judal 테마명에 없으니 접두어('반도체')로 후보를 넓힌다.
-    search = sector.split()[0] if target else sector
-    candidates = db.execute(
-        select(SectorTheme.judal_idx, SectorTheme.name).where(SectorTheme.name.ilike(f"%{search}%"))
-    ).all()
-    theme_idxs = (
-        [idx for idx, name in candidates if sector_etf.themes_to_kr_sector([name]) == target]
-        if target
-        else [idx for idx, _ in candidates]
-    )
+    all_themes = db.execute(select(SectorTheme.judal_idx, SectorTheme.name)).all()
+    # 1순위: 테마명 부분일치(산업명에 정확 — '게임'은 게임 테마만). 단 대표섹터가 있으면
+    # 그 섹터로 분류되는 것만 남겨 반도체/소부장 분리를 유지한다.
+    name_hits = [(idx, name) for idx, name in all_themes if sector in name]
+    if target:
+        theme_idxs = [idx for idx, name in name_hits if sector_etf.themes_to_kr_sector([name]) == target]
+        if not theme_idxs:
+            # 이름이 안 겹치는 합성/영문 섹터명('반도체 소부장','IT')은 대표 섹터 분류 전체로.
+            theme_idxs = [
+                idx for idx, name in all_themes if sector_etf.themes_to_kr_sector([name]) == target
+            ]
+    else:
+        theme_idxs = [idx for idx, _ in name_hits]
     if not theme_idxs:
         return []
     return list(

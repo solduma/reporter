@@ -101,6 +101,7 @@ export default function IndustriesPage() {
   const [sectors, setSectors] = useState<SectorRow[]>([]);
   const [sectorsLoading, setSectorsLoading] = useState(true);
   const [sectorsError, setSectorsError] = useState<string | null>(null);
+  const [rotationTab, setRotationTab] = useState<"supply" | "research">("supply");
 
   // 현재 날짜 기준 최근 12개월. 마운트 시 한 번만 고정한다.
   const range = useMemo(() => tradeRange(new Date()), []);
@@ -317,7 +318,12 @@ export default function IndustriesPage() {
                   <span className={index < 3 ? styles.rankTop : styles.rank}>{index + 1}</span>
                 </td>
                 <th className={styles.sectorCol}>
-                  <span className={styles.sectorName}>{row.sector}</span>
+                  <Link
+                    href={`/industries/${encodeURIComponent(row.sector)}`}
+                    className={styles.sectorName}
+                  >
+                    {row.sector}
+                  </Link>
                 </th>
                 <td>{row.report_count}</td>
                 <td className={sentimentClass(row.avg_sentiment)}>
@@ -339,7 +345,10 @@ export default function IndustriesPage() {
                   </div>
                 </td>
                 <td className={styles.linkCol}>
-                  <Link href="/screener" className={styles.smallcapLink}>
+                  <Link
+                    href={`/screener?sector=${encodeURIComponent(row.sector)}`}
+                    className={styles.smallcapLink}
+                  >
                     이 섹터 스몰캡 →
                   </Link>
                 </td>
@@ -362,23 +371,56 @@ export default function IndustriesPage() {
       </header>
 
       <section className={styles.sectorSection}>
-        <div className={styles.sectorHead}>
-          <h2 className={styles.title}>수급 섹터 로테이션</h2>
-          <p className={styles.subtitle}>
-            섹터 ETF의 자금유입 강도(0-100) 높은 순 — 주가 추세·거래량·신고가·외국인 수급 기반
-          </p>
+        <div className={styles.rotationTabs} role="tablist" aria-label="섹터 로테이션 기준">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={rotationTab === "supply"}
+            className={
+              rotationTab === "supply"
+                ? `${styles.rotationTab} ${styles.rotationTabActive}`
+                : styles.rotationTab
+            }
+            onClick={() => setRotationTab("supply")}
+          >
+            수급
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={rotationTab === "research"}
+            className={
+              rotationTab === "research"
+                ? `${styles.rotationTab} ${styles.rotationTabActive}`
+                : styles.rotationTab
+            }
+            onClick={() => setRotationTab("research")}
+          >
+            리서치
+          </button>
         </div>
-        <SectorFlowTable />
-      </section>
 
-      <section className={styles.sectorSection}>
-        <div className={styles.sectorHead}>
-          <h2 className={styles.title}>리서치 섹터 로테이션</h2>
-          <p className={styles.subtitle}>
-            로테이션 스코어(0-100) 높은 순 — 증권사 리포트 흐름과 투자의견으로 본 섹터 온도
-          </p>
-        </div>
-        {sectorArea}
+        {rotationTab === "supply" ? (
+          <>
+            <div className={styles.sectorHead}>
+              <h2 className={styles.title}>수급 섹터 로테이션</h2>
+              <p className={styles.subtitle}>
+                섹터 ETF의 자금유입 강도(0-100) 높은 순 — 주가 추세·거래량·신고가·외국인 수급 기반
+              </p>
+            </div>
+            <SectorFlowTable />
+          </>
+        ) : (
+          <>
+            <div className={styles.sectorHead}>
+              <h2 className={styles.title}>리서치 섹터 로테이션</h2>
+              <p className={styles.subtitle}>
+                로테이션 스코어(0-100) 높은 순 — 증권사 리포트 흐름과 투자의견으로 본 섹터 온도
+              </p>
+            </div>
+            {sectorArea}
+          </>
+        )}
       </section>
 
       {error ? <p className={styles.error}>API 연결 실패: {error}</p> : null}

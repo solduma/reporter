@@ -1,9 +1,9 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
 
-import { fetchScreener } from "@/lib/api";
+import { fetchScreener, fetchScreenerSectors } from "@/lib/api";
 import type { ScreenerMarket, ScreenerOpGrowth, ScreenerResult, ScreenerSort } from "@/lib/types";
 
 import styles from "./page.module.css";
@@ -107,6 +107,31 @@ const SORT_PRESETS: Preset<ScreenerSort>[] = [
   { label: "리포트순", value: "coverage" },
 ];
 
+// 테이블 컬럼 헤더 → 백엔드 sort 키. 매핑 없는 컬럼(종목명·현재가·영업이익)은 정렬 비활성.
+interface Column {
+  label: string;
+  sort?: ScreenerSort;
+}
+
+const COLUMNS: Column[] = [
+  { label: "종목명" },
+  { label: "성장스코어", sort: "score" },
+  { label: "매출YoY", sort: "rev_yoy" },
+  { label: "영업이익" },
+  { label: "모멘텀", sort: "momentum" },
+  { label: "시가총액", sort: "market_cap" },
+  { label: "현재가" },
+  { label: "등락률", sort: "change" },
+  { label: "거래대금", sort: "trading_value" },
+  { label: "리포트", sort: "coverage" },
+  { label: "의견" },
+];
+
+// 백엔드 단방향 정렬: 시총만 오름차순, 나머지는 내림차순. 방향 표시(▲/▼)에 사용.
+function sortArrow(sort: ScreenerSort): string {
+  return sort === "market_cap" ? "▲" : "▼";
+}
+
 function formatEok(won: number | null): string {
   if (won === null) {
     return "—";
@@ -175,8 +200,14 @@ function scoreFillClass(score: number): string {
   return styles.scoreFillLow;
 }
 
-export default function ScreenerPage() {
+function ScreenerContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // 산업 흐름 페이지에서 ?sector=<섹터명>으로 넘어오면 초기 섹터 필터로 적용.
+  // URLSearchParams.get()은 퍼센트 인코딩을 자동 디코딩한다.
+  const [sector, setSector] = useState<string>(() => searchParams.get("sector") ?? "");
+  const [sectors, setSectors] = useState<string[]>([]);
 
   // 시장: 성장주 발굴이 목표이므로 KOSDAQ을 기본값으로 둔다("전체"는 ""로 표현).
   const [market, setMarket] = useState<ScreenerMarket | "">("KOSDAQ");
@@ -196,6 +227,22 @@ export default function ScreenerPage() {
 
   useEffect(() => {
     let active = true;
+    fetchScreenerSectors()
+      .then((list) => {
+        if (active) {
+          setSectors(list);
+        }
+      })
+      .catch(() => {
+        // 섹터 목록 로드 실패는 무시 — 스크리너 본체는 계속 동작.
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
     async function load() {
       setLoading(true);
       setError(null);
@@ -211,6 +258,7 @@ export default function ScreenerPage() {
           momMin,
           momMax,
           market,
+          sector: sector || undefined,
           coverage: coverageParam,
           recentBuy,
           sort,
@@ -235,7 +283,7 @@ export default function ScreenerPage() {
     return () => {
       active = false;
     };
-  }, [market, mktcapMax, mktcapMin, liqMin, revYoyMin, opGrowth, mom, coverage, sort, offset]);
+  }, [market, sector, mktcapMax, mktcapMin, liqMin, revYoyMin, opGrowth, mom, coverage, sort, offset]);
 
   // 필터 변경 시 첫 페이지로 되돌린다.
   function resetPaging() {
@@ -328,6 +376,15 @@ export default function ScreenerPage() {
         </div>
 
         <div className={styles.filterGroup}>
+          <span className={styles.filterLabel}>섹터</span>
+          {renderChips(
+            [{ label: "전체", value: "" }, ...sectors.map((s) => ({ label: s, value: s }))],
+            sector,
+            setSector,
+          )}
+        </div>
+
+        <div className={styles.filterGroup}>
           <span className={styles.filterLabel}>정렬</span>
           {renderChips(SORT_PRESETS, sort, setSort)}
         </div>
@@ -352,19 +409,41 @@ export default function ScreenerPage() {
             <table className={styles.table}>
               <thead>
                 <tr>
-                  <th className={styles.nameCol} scope="col">
-                    종목명
-                  </th>
-                  <th scope="col">성장스코어</th>
-                  <th scope="col">매출YoY</th>
-                  <th scope="col">영업이익</th>
-                  <th scope="col">모멘텀</th>
-                  <th scope="col">시가총액</th>
-                  <th scope="col">현재가</th>
-                  <th scope="col">등락률</th>
-                  <th scope="col">거래대금</th>
-                  <th scope="col">리포트</th>
-                  <th scope="col">의견</th>
+                  {COLUMNS.map((col, index) => {
+                    const sortable = col.sort !== undefined;
+                    const activeSort = sortable && col.sort === sort;
+                    const classes = [];
+                    if (index === 0) {
+                      classes.push(styles.nameCol);
+                    }
+                    if (sortable) {
+                      classes.push(styles.sortable);
+                    }
+                    if (activeSort) {
+                      classes.push(styles.sortActive);
+                    }
+                    return (
+                      <th
+                        key={col.label}
+                        scope="col"
+                        className={classes.join(" ")}
+                        aria-sort={activeSort ? "descending" : undefined}
+                        onClick={
+                          sortable
+                            ? () => {
+                                setSort(col.sort as ScreenerSort);
+                                resetPaging();
+                              }
+                            : undefined
+                        }
+                      >
+                        {col.label}
+                        {activeSort ? (
+                          <span className={styles.sortArrow}> {sortArrow(col.sort as ScreenerSort)}</span>
+                        ) : null}
+                      </th>
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody>
@@ -467,5 +546,13 @@ export default function ScreenerPage() {
         </>
       )}
     </div>
+  );
+}
+
+export default function ScreenerPage() {
+  return (
+    <Suspense fallback={<p className={styles.status}>불러오는 중…</p>}>
+      <ScreenerContent />
+    </Suspense>
   );
 }
