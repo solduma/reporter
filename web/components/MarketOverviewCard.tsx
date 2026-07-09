@@ -18,9 +18,6 @@ const HS_NAMES: Record<string, string> = {
   "8708": "자동차부품",
 };
 
-// 나스닥은 성장주 프록시, 코스피는 국내 대표지수라 타일을 강조한다.
-const EMPHASIS_INDICES = new Set(["나스닥", "코스피"]);
-
 function formatDate(value: string | null): string {
   if (!value) {
     return "";
@@ -96,9 +93,19 @@ function sentimentClass(value: number): string {
   return "";
 }
 
+// 등락에 따른 타일 배경(한국 관행: 상승 빨강 계열 / 하락 파랑 계열).
+function tileToneClass(rising: boolean | null): string {
+  if (rising === true) {
+    return styles.tileUp;
+  }
+  if (rising === false) {
+    return styles.tileDown;
+  }
+  return "";
+}
+
 function IndexTile({ index }: { index: UsIndex }) {
-  const emphasized = EMPHASIS_INDICES.has(index.name);
-  const tileClass = emphasized ? `${styles.tile} ${styles.tileEmphasis}` : styles.tile;
+  const tileClass = `${styles.tile} ${tileToneClass(index.rising)}`.trim();
   return (
     <div className={tileClass}>
       <span className={styles.tileName}>{index.name}</span>
@@ -192,7 +199,11 @@ export default function MarketOverviewCard() {
             {hotSectors.length > 0 ? (
               <div className={styles.chips}>
                 {hotSectors.map((sector) => (
-                  <Link key={sector.sector} href="/industries" className={styles.chip}>
+                  <Link
+                    key={sector.sector}
+                    href={`/industries/${encodeURIComponent(sector.sector)}`}
+                    className={styles.chip}
+                  >
                     <span className={styles.chipName}>{sector.sector}</span>
                     <span className={`${styles.chipSentiment} ${sentimentClass(sector.avg_sentiment)}`}>
                       {formatSentiment(sector.avg_sentiment)}

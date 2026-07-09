@@ -74,20 +74,21 @@
   gap: 6px;
 }
 
-/* 나스닥 = 성장주 프록시 → 강조 */
-.tileEmphasis {
-  background: var(--accent-soft);
-  border-color: var(--accent);
+/* 등락 배경(한국 관행: 상승 빨강 / 하락 파랑 계열). 글자색(.up #c02b2b/.down #1d4ed8)과 톤 일치. */
+.tileUp {
+  background: #fbe9e9;
+  border-color: #f3cccc;
+}
+
+.tileDown {
+  background: #e8eefc;
+  border-color: #cdd9f5;
 }
 
 .tileName {
   font-size: 0.82rem;
   font-weight: 700;
   color: var(--muted);
-}
-
-.tileEmphasis .tileName {
-  color: var(--accent);
 }
 
 .tileClose {
