@@ -20,6 +20,7 @@ import type {
   ScreenerSort,
   SectorFlowDetail,
   SectorFlowRow,
+  SectorStock,
   SectorRow,
   SentimentPoint,
   StockSearchHit,
@@ -83,6 +84,13 @@ export function fetchSectorFlow(market: FlowMarket): Promise<SectorFlowRow[]> {
 export function fetchSectorFlowDetail(industry: string): Promise<SectorFlowDetail> {
   return getJson<SectorFlowDetail>(
     `/api/sectors/flow/detail?industry=${encodeURIComponent(industry)}`,
+  );
+}
+
+// 섹터 소속 종목 명단 + 시세. market=KR(judal 매칭) | US(대표종목 정적매핑).
+export function fetchSectorStocks(industry: string, market: FlowMarket): Promise<SectorStock[]> {
+  return getJson<SectorStock[]>(
+    `/api/industries/${encodeURIComponent(industry)}/stocks?market=${market}`,
   );
 }
 
