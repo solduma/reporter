@@ -93,6 +93,12 @@ services:
       OLLAMA_API_KEY: ${OLLAMA_API_KEY:-}
       SUMMARY_MODEL: ${SUMMARY_MODEL:-glm-5.2:cloud}
       INSIGHT_MODEL: ${INSIGHT_MODEL:-glm-5.2:cloud}
+      # 호스트 CLI(launchd)가 발송 기록을 쓰는 스풀을 워커가 읽어 broadcast 테이블로 흡수한다.
+      # 아래 볼륨 마운트 경로와 일치. WORKDIR/parents 가정에 흔들리지 않게 명시.
+      BROADCAST_SPOOL: /app/logs/broadcasts.jsonl
+    volumes:
+      # 호스트 repo logs ↔ 컨테이너 /app/logs 공유(브로드캐스트 스풀 공유용).
+      - ../logs:/app/logs
     depends_on:
       reporter-postgres:
         condition: service_healthy
