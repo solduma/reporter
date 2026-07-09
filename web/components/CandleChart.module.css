@@ -1,3 +1,51 @@
+.wrap {
+  width: 100%;
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.maLegend {
+  display: flex;
+  gap: 12px;
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+
+.maItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.maDot {
+  width: 10px;
+  height: 3px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+.logBtn {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  padding: 3px 12px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.logBtnActive {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
 .chart {
   width: 100%;
   height: 420px;
