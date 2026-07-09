@@ -162,7 +162,7 @@ export default function MarketOverviewCard() {
       ) : (
         <>
           <div className={styles.section}>
-            <span className={styles.sectionLabel}>국내 지수</span>
+            <span className={styles.sectionLabel}>국내 지수·환율</span>
             {krIndices.length > 0 ? (
               <div className={styles.indices}>
                 {krIndices.map((index) => (

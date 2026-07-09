@@ -13,10 +13,12 @@ def _reset_cache():
     us_market._us_cache = None
     us_market._kr_cache = None
     us_market._proxy_cache = None
+    us_market._fx_cache = None
     yield
     us_market._us_cache = None
     us_market._kr_cache = None
     us_market._proxy_cache = None
+    us_market._fx_cache = None
 
 
 def _session(payloads: dict) -> MagicMock:
@@ -124,3 +126,27 @@ def test_fetch_us_sector_proxies():
                 ".INX": {"closePrice": "7,000", "compareToPreviousPrice": {"code": "5"}}}
     quotes = us_market.fetch_us_sector_proxies(_session(payloads))
     assert [q.name for q in quotes] == ["미국 반도체", "미국 기술주", "미국 대형주"]
+
+
+def test_fetch_exchange_rates_parses_nested_exchange_info():
+    # 환율 응답은 exchangeInfo 로 중첩되고 fluctuationsType.code 로 방향을 준다.
+    from unittest.mock import MagicMock
+
+    resp = MagicMock()
+    resp.raise_for_status = MagicMock()
+    resp.json.return_value = {
+        "exchangeInfo": {
+            "closePrice": "1,512.60",
+            "fluctuations": "5.60",
+            "fluctuationsRatio": "0.37",
+            "fluctuationsType": {"code": "2", "text": "상승"},
+        }
+    }
+    session = MagicMock()
+    session.get.return_value = resp
+
+    quotes = us_market.fetch_exchange_rates(session)
+    assert len(quotes) == 1
+    q = quotes[0]
+    assert q.name == "원/달러" and q.close == "1,512.60"
+    assert q.change_ratio == "0.37" and q.rising is True

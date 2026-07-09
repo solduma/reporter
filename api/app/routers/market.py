@@ -128,7 +128,10 @@ def market_overview(db: Session = Depends(get_session)) -> MarketOverview:
         ]
 
     indices = _index_dicts(us_market.fetch_us_indices())
-    kr_indices = _index_dicts(us_market.fetch_kr_indices())
+    # 국내 지수(코스피·코스닥) 옆에 원/달러 환율을 함께 노출한다.
+    kr_indices = _index_dicts(us_market.fetch_kr_indices()) + _index_dicts(
+        us_market.fetch_exchange_rates()
+    )
 
     hot = [
         {"sector": s.sector, "report_count": s.report_count, "avg_sentiment": s.avg_sentiment}

@@ -18,9 +18,13 @@ logger = logging.getLogger(__name__)
 
 _US_BASE = "https://api.stock.naver.com/index/{symbol}/basic"
 _KR_BASE = "https://m.stock.naver.com/api/index/{symbol}/basic"
+_FX_BASE = "https://api.stock.naver.com/marketindex/exchange/{symbol}"
 _HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; reporter-bot/1.0)"}
 _US_INDICES = [(".DJI", "다우"), (".IXIC", "나스닥"), (".INX", "S&P500")]
 _KR_INDICES = [("KOSPI", "코스피"), ("KOSDAQ", "코스닥")]
+# 환율: 네이버 marketindex/exchange. 응답이 exchangeInfo 로 중첩되고 필드명이 지수와 달라 별도 파싱.
+# 코스피·코스닥과 한 줄에 두려 원/달러만 노출한다.
+_FX_RATES = [("FX_USDKRW", "원/달러")]
 # 미국 섹터 선행 분석용 프록시. 네이버 index API 로 안정 조회되는 심볼만 쓴다
 # (GICS 세부섹터 지수 .SP500-45 등은 종가 결측이라 제외). 종목 업종을 이 셋 중 하나에 매핑한다.
 _US_SECTOR_PROXIES = [(".SOX", "미국 반도체"), (".IXIC", "미국 기술주"), (".INX", "미국 대형주")]
@@ -38,6 +42,7 @@ _CACHE_TTL = 120.0  # 초
 _us_cache: tuple[float, list[IndexQuote]] | None = None
 _kr_cache: tuple[float, list[IndexQuote]] | None = None
 _proxy_cache: tuple[float, list[IndexQuote]] | None = None
+_fx_cache: tuple[float, list[IndexQuote]] | None = None
 
 
 @dataclass
@@ -106,6 +111,46 @@ def fetch_kr_indices(session: requests.Session | None = None) -> list[IndexQuote
     quotes = _fetch_indices(_KR_BASE, _KR_INDICES, session or requests.Session())
     if quotes:
         _kr_cache = (time.monotonic(), quotes)
+    return quotes
+
+
+def _parse_fx(name: str, data: dict) -> IndexQuote | None:
+    """환율 응답(exchangeInfo 중첩) → IndexQuote. 필드명이 지수와 달라 별도 파싱."""
+    info = data.get("exchangeInfo") or {}
+    close = info.get("closePrice")
+    if not close:
+        return None
+    cmp_code = (info.get("fluctuationsType") or {}).get("code")
+    rising = True if cmp_code == "2" else False if cmp_code == "5" else None
+    return IndexQuote(
+        name=name,
+        close=str(close),
+        change=str(info.get("fluctuations", "")),
+        change_ratio=str(info.get("fluctuationsRatio", "")),
+        rising=rising,
+    )
+
+
+def fetch_exchange_rates(session: requests.Session | None = None) -> list[IndexQuote]:
+    """원/달러 등 환율을 조회한다. 지수와 같은 IndexQuote 로 반환해 대시보드에서 공용."""
+    global _fx_cache
+    if _fx_cache and time.monotonic() - _fx_cache[0] < _CACHE_TTL:
+        return _fx_cache[1]
+    session = session or requests.Session()
+    quotes: list[IndexQuote] = []
+    for symbol, name in _FX_RATES:
+        try:
+            resp = session.get(_FX_BASE.format(symbol=symbol), headers=_HEADERS, timeout=15)
+            resp.raise_for_status()
+            data = resp.json()
+        except (requests.RequestException, ValueError) as e:
+            logger.warning("fx fetch failed %s: %s", symbol, e)
+            continue
+        quote = _parse_fx(name, data)
+        if quote:
+            quotes.append(quote)
+    if quotes:
+        _fx_cache = (time.monotonic(), quotes)
     return quotes
 
 
