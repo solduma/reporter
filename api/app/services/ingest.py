@@ -18,7 +18,7 @@ from app.config import Settings
 from app.db.models import DailyMarketInfo, Report, ReportAnalysis, Sentiment
 from app.services import sentiment as sentiment_svc
 from app.storage import minio_store
-from reporter import analyzer
+from reporter import analyzer, market
 from reporter.crawler import crawl_categories
 from reporter.models import Report as CrawledReport
 from reporter.ollama_client import OllamaClient
@@ -151,23 +151,39 @@ def backfill_industry_names(db: Session, target_date: str | None = None) -> int:
     return updated
 
 
-def build_market_brief(db: Session, settings: Settings, target_date: str | None = None) -> str | None:
+# 국내 장 마감(15:30) + 마감시황 리포트 발행 시차를 감안한 '장 마감 후' 판정 기준 시각.
+_MARKET_CLOSE_HOUR = 16
+
+
+def build_market_brief(
+    db: Session, settings: Settings, target_date: str | None = None, after_close: bool | None = None
+) -> str | None:
     """당일 시황(market_info) 리포트를 크롤·종합해 daily_market_info 에 저장한다.
 
-    전날 국내 마감시황 + 간밤 미국 마감시황을 함께 근거로 삼아 '오늘'을 예상하는
-    브리핑(핵심·주목 테마·주목 종목·리스크)을 만든다. market_date 는 수집 실행일(또는
-    지정일)로 고정 — 리스트 최상단 발행일이 전일이어도 오늘로 저장한다.
+    장중(마감 전)에는 전날 국내마감+간밤 미국마감으로 '오늘'을 예상하고, 장 마감 후에는
+    오늘 국내 마감시황으로 '오늘 리뷰 + 내일 전망'을 만든다. market_date 는 수집 실행일(또는
+    지정일)로 고정한다. after_close 미지정 시 현재 시각(16시 기준)으로 판정한다.
     """
-    # 전날 국내 마감(장 리뷰) + 간밤 미국 마감/오전 시황을 모두 근거로 쓴다(오늘 예상 목적).
+    if after_close is None:
+        after_close = datetime.now().hour >= _MARKET_CLOSE_HOUR
+
     crawled = crawl_categories(["market_info"], target_date=target_date)
     if not crawled:
         logger.info("no market_info reports")
         return None
 
+    # 장 마감 후에는 오늘 국내 마감시황(장 리뷰)만, 장중에는 전날 국내마감+간밤 미장마감 전체.
+    if after_close:
+        _morning, sources = market.split_by_closing(crawled)
+        if not sources:  # 마감시황 리포트가 아직이면 전체로 폴백
+            sources = crawled
+    else:
+        sources = crawled
+
     client = OllamaClient(settings.ollama_host, settings.ollama_api_key)
     session = requests.Session()
     texts: list[str] = []
-    for cr in crawled:
+    for cr in sources:
         if not cr.pdf_url:
             continue
         pdf_bytes = _download_pdf(cr.pdf_url, session)
@@ -182,7 +198,8 @@ def build_market_brief(db: Session, settings: Settings, target_date: str | None 
     summarized = analyzer.summarize_reports(client, settings.summary_model, texts)
     if not summarized:
         return None
-    briefing = analyzer.synthesize_forecast(client, settings.insight_model, summarized)
+    synth = analyzer.synthesize_closing_review if after_close else analyzer.synthesize_forecast
+    briefing = synth(client, settings.insight_model, summarized)
 
     # market_date = 수집 실행일(지정일 우선). 리스트 최상단 발행일에 의존하지 않는다.
     market_date = _to_date(target_date) if target_date else datetime.now().date()

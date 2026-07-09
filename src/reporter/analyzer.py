@@ -194,3 +194,41 @@ def synthesize_forecast(client: OllamaClient, model: str, reports: list[Report])
         report_count=len(reports),
         categories=sorted({r.category for r in reports}),
     )
+
+
+_REVIEW_SYSTEM = (
+    "너는 오늘 마감한 국내 증시를 리뷰하고 '내일 국내 장'을 전망하는 투자 전략가다. "
+    "오늘 무슨 일이 왜 일어났는지 정리하고, 그 흐름과 오늘 밤 미국 장 관전 포인트를 "
+    "엮어 내일을 전망한다. 근거 없는 단정은 피하고 리스크도 솔직히 짚는다. 모르면 아는 척하지 않는다."
+)
+
+_REVIEW_TEMPLATE = """아래는 오늘 국내 증시 마감시황과 관련 증권사 리포트 {count}건의 요약이다.
+
+{summaries}
+
+위 내용을 바탕으로 '오늘 마감 리뷰 + 내일 전망' 브리핑을 아래 형식으로 작성해라.
+형식과 이모지를 그대로 지키고, 각 섹션 사이는 빈 줄로 띄운다. 종목명·수치 등 핵심어만 굵게(**...**) 강조(남발 금지).
+
+📉 오늘 마감 요약 (3줄)
+→ 오늘 국내 장이 어떻게 움직였고 왜 그랬는지
+
+🌙 오늘 밤 관전 포인트
+→ 내일에 영향 줄 미국 장·이벤트 관점 2~3개
+
+🔮 내일 전망
+→ 오늘 흐름과 밤사이 변수로 본 내일 국내 장 시나리오
+
+⚠️ 리스크 요인
+→ 내일 장에서 경계할 리스크"""
+
+
+def synthesize_closing_review(client: OllamaClient, model: str, reports: list[Report]) -> Briefing:
+    """오늘 국내 마감 리뷰 + 내일 전망 브리핑을 만든다(장 마감 후용)."""
+    lines = [f"- {r.label}\n  {r.summary}" for r in reports]
+    prompt = _REVIEW_TEMPLATE.format(count=len(reports), summaries="\n".join(lines))
+    text = client.chat(model, _REVIEW_SYSTEM, prompt, temperature=0.5)
+    return Briefing(
+        text=text,
+        report_count=len(reports),
+        categories=sorted({r.category for r in reports}),
+    )
