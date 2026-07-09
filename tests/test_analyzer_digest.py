@@ -85,3 +85,22 @@ def test_forecast_prompt_includes_summaries_and_forecast_framing():
     assert "요약1" in captured["user"] and "요약2" in captured["user"]
     # 시스템 프롬프트가 '오늘 전망/예상' 관점인지.
     assert "전망" in captured["system"] or "예상" in captured["system"]
+
+
+def test_closing_review_returns_briefing():
+    b = analyzer.synthesize_closing_review(_FakeClient("📉 오늘 마감\n리뷰 본문"), "m", _reports(2))
+    assert "리뷰 본문" in b.text
+    assert b.report_count == 2
+
+
+def test_closing_review_framing_is_review_plus_tomorrow():
+    captured = {}
+
+    class _Capture:
+        def chat(self, model, system, user, temperature=0.3):
+            captured["system"] = system
+            return "브리핑"
+
+    analyzer.synthesize_closing_review(_Capture(), "m", _reports(2))
+    # 마감 리뷰 + 내일 전망 관점인지.
+    assert "마감" in captured["system"] and "내일" in captured["system"]
