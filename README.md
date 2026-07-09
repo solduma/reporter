@@ -36,6 +36,10 @@ cp .env.example .env
 # .env 에 아래 값 채우기
 ```
 
+> 루트에 `Makefile` 이 있어 자주 쓰는 작업을 단축 실행할 수 있다: `make help` 로 목록 확인.
+> 예) `make tui`(Admin TUI), `make api`/`make web`/`make worker`, `make test`, `make lint`,
+> `make fmt`(포매팅), `make hooks`(pre-commit 훅 활성화). api·web 디렉터리로 들어가지 않아도 된다.
+
 ### 환경변수 (`.env`)
 
 ```
