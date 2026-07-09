@@ -44,8 +44,8 @@ from app.services import analysis, chart, dart_ingest, intraday, quote, technica
 
 router = APIRouter(prefix="/api/companies", tags=["companies"])
 
-# tf 별 조회 범위(요구사항): 30m=2주, day=1년(3개월도 프론트에서 슬라이스), month=3년
-_RANGE_DAYS = {"day": 400, "month": 365 * 3 + 30}
+# tf 별 조회 범위(요구사항): 30m=2주, day=2년, week=10년, month=3년(구 탭 호환).
+_RANGE_DAYS = {"day": 365 * 2 + 10, "week": 365 * 10 + 30, "month": 365 * 3 + 30}
 
 
 def _search_rank(query: str, code: str, name: str) -> int:
@@ -142,7 +142,7 @@ def _upsert_periodic(db: Session, code: str, tf: Timeframe, candles: list[chart.
 @router.get("/{code}/candles", response_model=list[CandlePoint])
 def company_candles(
     code: str,
-    tf: str = Query(default="day", pattern="^(30m|day|month)$"),
+    tf: str = Query(default="day", pattern="^(30m|day|week|month)$"),
     db: Session = Depends(get_session),
 ) -> list[CandlePoint]:
     session = requests.Session()

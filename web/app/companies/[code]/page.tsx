@@ -30,22 +30,16 @@ const FinancialsChart = dynamic(() => import("@/components/FinancialsChart"), {
   loading: () => <div className={styles.sectionStatus}>차트 불러오는 중…</div>,
 });
 
-// 최근 3개월 ≈ 63 거래일. 일봉 전체를 잘라 재사용한다.
-const THREE_MONTH_SESSIONS = 63;
-
-type ViewId = "30m" | "3m" | "1y" | "3y";
-
 interface ViewDef {
-  id: ViewId;
+  id: Timeframe;
   label: string;
-  timeframe: Timeframe;
 }
 
+// 분(2주 30분봉) / 일(2년) / 주(10년). id 가 곧 timeframe.
 const VIEWS: ViewDef[] = [
-  { id: "30m", label: "2주 30분봉", timeframe: "30m" },
-  { id: "3m", label: "3개월", timeframe: "day" },
-  { id: "1y", label: "1년", timeframe: "day" },
-  { id: "3y", label: "3년 월봉", timeframe: "month" },
+  { id: "30m", label: "분" },
+  { id: "day", label: "일" },
+  { id: "week", label: "주" },
 ];
 
 // 각 섹션이 독립적으로 로딩/실패하도록 상태를 분리해 관리한다.
@@ -55,7 +49,7 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
   const { code } = params;
 
   const [summary, setSummary] = useState<CompanySummary | null>(null);
-  const [view, setView] = useState<ViewId>("3m");
+  const [timeframe, setTimeframe] = useState<Timeframe>("day");
   const [candlesByTf, setCandlesByTf] = useState<Partial<Record<Timeframe, CandlePoint[]>>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -65,8 +59,6 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
     data: [],
   });
   const [peers, setPeers] = useState<SectionState<Peer[]>>({ status: "loading", data: [] });
-
-  const timeframe = VIEWS.find((v) => v.id === view)?.timeframe ?? "day";
 
   useEffect(() => {
     let active = true;
@@ -170,15 +162,8 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
     };
   }, [code]);
 
-  const chartData = useMemo(() => {
-    const raw = candlesByTf[timeframe] ?? [];
-    if (view === "3m") {
-      return raw.slice(-THREE_MONTH_SESSIONS);
-    }
-    return raw;
-  }, [candlesByTf, timeframe, view]);
-
   const chartArea = useMemo(() => {
+    const chartData = candlesByTf[timeframe] ?? [];
     if (loading && !candlesByTf[timeframe]) {
       return <div className={styles.chartStatus}>불러오는 중…</div>;
     }
@@ -186,7 +171,7 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
       return <div className={styles.chartStatus}>차트 데이터가 없습니다</div>;
     }
     return <CandleChart data={chartData} timeframe={timeframe} />;
-  }, [loading, candlesByTf, timeframe, chartData]);
+  }, [loading, candlesByTf, timeframe]);
 
   const financialsArea = useMemo(() => {
     if (financials.status === "loading") {
@@ -249,7 +234,7 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
       <section className={styles.chartCard}>
         <div className={styles.tabs} role="tablist" aria-label="기간 선택">
           {VIEWS.map((v) => {
-            const active = v.id === view;
+            const active = v.id === timeframe;
             return (
               <button
                 key={v.id}
@@ -257,7 +242,7 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
                 role="tab"
                 aria-selected={active}
                 className={active ? `${styles.tab} ${styles.active}` : styles.tab}
-                onClick={() => setView(v.id)}
+                onClick={() => setTimeframe(v.id)}
               >
                 {v.label}
               </button>

@@ -143,7 +143,7 @@ export interface SentimentPoint {
   reports: ReportRef[];
 }
 
-export type Timeframe = "30m" | "day" | "month";
+export type Timeframe = "30m" | "day" | "week" | "month";
 
 export interface CompanySummary {
   stock_code: string;
