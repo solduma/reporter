@@ -20,22 +20,71 @@ const KIND_FILTERS: { label: string; value: BroadcastKind | null }[] = [
   })),
 ];
 
-function formatDateTime(value: string): string {
+interface DateGroup {
+  key: string; // YYYY-MM-DD, 그룹핑·React key용
+  label: string; // "2026년 7월 9일 (수)"
+  items: BroadcastRef[];
+}
+
+// 로컬 날짜 기준 그룹핑 키. sent_at의 날짜 부분만 취한다.
+function dateKey(value: string): string {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {
     return value;
   }
-  return parsed.toLocaleString("ko-KR", {
+  const y = parsed.getFullYear();
+  const m = String(parsed.getMonth() + 1).padStart(2, "0");
+  const d = String(parsed.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function formatDateHeader(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+  return parsed.toLocaleDateString("ko-KR", {
+    year: "numeric",
     month: "long",
     day: "numeric",
     weekday: "short",
+  });
+}
+
+function formatTime(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+  return parsed.toLocaleTimeString("ko-KR", {
     hour: "2-digit",
     minute: "2-digit",
+    hour12: false,
   });
+}
+
+// API가 sent_at desc로 주므로 순서를 유지한 채 연속 항목을 날짜별로 묶는다.
+// 결과: 최신 날짜 그룹이 위로, 그룹 내 항목은 발송 시각 내림차순.
+function groupByDate(items: BroadcastRef[]): DateGroup[] {
+  const groups: DateGroup[] = [];
+  for (const item of items) {
+    const key = dateKey(item.sent_at);
+    const last = groups[groups.length - 1];
+    if (last && last.key === key) {
+      last.items.push(item);
+    } else {
+      groups.push({ key, label: formatDateHeader(item.sent_at), items: [item] });
+    }
+  }
+  return groups;
 }
 
 export default function ArchivePage() {
   const [kind, setKind] = useState<BroadcastKind | null>(null);
+  const [fromInput, setFromInput] = useState("");
+  const [toInput, setToInput] = useState("");
+  const [from, setFrom] = useState<string | null>(null);
+  const [to, setTo] = useState<string | null>(null);
   const [items, setItems] = useState<BroadcastRef[]>([]);
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(false);
@@ -52,6 +101,8 @@ export default function ArchivePage() {
         // hasMore 판정을 위해 PAGE_SIZE+1 건 요청.
         const res = await fetchBroadcasts({
           kind: kind ?? undefined,
+          from: from ?? undefined,
+          to: to ?? undefined,
           limit: PAGE_SIZE + 1,
           offset: page * PAGE_SIZE,
         });
@@ -71,12 +122,28 @@ export default function ArchivePage() {
     return () => {
       active = false;
     };
-  }, [kind, page]);
+  }, [kind, from, to, page]);
 
   const selectKind = (value: BroadcastKind | null) => {
     setKind(value);
     setPage(0);
   };
+
+  const applyDateRange = () => {
+    setFrom(fromInput || null);
+    setTo(toInput || null);
+    setPage(0);
+  };
+
+  const resetDateRange = () => {
+    setFromInput("");
+    setToInput("");
+    setFrom(null);
+    setTo(null);
+    setPage(0);
+  };
+
+  const groups = groupByDate(items);
 
   return (
     <div className={styles.page}>
@@ -105,6 +172,41 @@ export default function ArchivePage() {
         })}
       </div>
 
+      <div className={styles.dateFilter}>
+        <label className={styles.dateField}>
+          <span className={styles.dateLabel}>시작일</span>
+          <input
+            type="date"
+            className={styles.dateInput}
+            value={fromInput}
+            max={toInput || undefined}
+            onChange={(e) => setFromInput(e.target.value)}
+          />
+        </label>
+        <span className={styles.dateSep}>~</span>
+        <label className={styles.dateField}>
+          <span className={styles.dateLabel}>종료일</span>
+          <input
+            type="date"
+            className={styles.dateInput}
+            value={toInput}
+            min={fromInput || undefined}
+            onChange={(e) => setToInput(e.target.value)}
+          />
+        </label>
+        <button type="button" className={styles.dateApply} onClick={applyDateRange}>
+          적용
+        </button>
+        <button
+          type="button"
+          className={styles.dateReset}
+          onClick={resetDateRange}
+          disabled={from === null && to === null && fromInput === "" && toInput === ""}
+        >
+          초기화
+        </button>
+      </div>
+
       {status === "loading" ? <p className={styles.status}>불러오는 중…</p> : null}
       {status === "error" ? <p className={styles.error}>API 연결 실패: {message}</p> : null}
       {status === "ready" && items.length === 0 ? (
@@ -115,33 +217,44 @@ export default function ArchivePage() {
 
       {status === "ready" && items.length > 0 ? (
         <>
-          <ul className={styles.list}>
-            {items.map((b) => (
-              <li key={b.id}>
-                <button type="button" className={styles.card} onClick={() => setOpenId(b.id)}>
-                  <div className={styles.cardHead}>
-                    <span className={styles.kind}>{broadcastKindLabel(b.kind)}</span>
-                    <span className={styles.date}>{formatDateTime(b.sent_at)}</span>
-                  </div>
-                  {b.snippet ? <p className={styles.snippet}>{b.snippet}</p> : null}
-                  {b.industries.length > 0 || b.stock_codes.length > 0 ? (
-                    <div className={styles.tags}>
-                      {b.industries.map((ind) => (
-                        <span key={`i-${ind}`} className={styles.tagIndustry}>
-                          {ind}
-                        </span>
-                      ))}
-                      {b.stock_codes.map((code) => (
-                        <span key={`s-${code}`} className={styles.tagStock}>
-                          {code}
-                        </span>
-                      ))}
-                    </div>
-                  ) : null}
-                </button>
-              </li>
+          <div className={styles.timeline}>
+            {groups.map((group) => (
+              <section key={group.key} className={styles.group}>
+                <h2 className={styles.groupHead}>{group.label}</h2>
+                <ul className={styles.list}>
+                  {group.items.map((b) => (
+                    <li key={b.id}>
+                      <button
+                        type="button"
+                        className={styles.card}
+                        onClick={() => setOpenId(b.id)}
+                      >
+                        <div className={styles.cardHead}>
+                          <span className={styles.kind}>{broadcastKindLabel(b.kind)}</span>
+                          <span className={styles.date}>{formatTime(b.sent_at)}</span>
+                        </div>
+                        {b.snippet ? <p className={styles.snippet}>{b.snippet}</p> : null}
+                        {b.industries.length > 0 || b.stock_codes.length > 0 ? (
+                          <div className={styles.tags}>
+                            {b.industries.map((ind) => (
+                              <span key={`i-${ind}`} className={styles.tagIndustry}>
+                                {ind}
+                              </span>
+                            ))}
+                            {b.stock_codes.map((code) => (
+                              <span key={`s-${code}`} className={styles.tagStock}>
+                                {code}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
             ))}
-          </ul>
+          </div>
 
           <div className={styles.pager}>
             <button
