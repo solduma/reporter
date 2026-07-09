@@ -113,6 +113,12 @@ export interface SectorFlowRow {
   foreign_delta: number | null; // 외국인비율 변화(pp), 국내만
 }
 
+export interface SectorFlowDetail {
+  industry: string;
+  kr: SectorFlowRow | null; // 매칭된 국내 섹터 ETF flow
+  us: SectorFlowRow | null; // 대응 미국 섹터 ETF flow(선행)
+}
+
 export interface ReportRef {
   id: number;
   title: string;

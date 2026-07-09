@@ -17,9 +17,9 @@ from app.db.models import (
     TradeStat,
 )
 from app.db.session import get_session
-from app.schemas import MarketOverview, SectorFlowRow, SectorRow
+from app.schemas import MarketOverview, SectorFlowDetail, SectorFlowRow, SectorRow
 from app.services import sector_flow
-from reporter import us_market
+from reporter import sector_etf, us_market
 
 router = APIRouter(prefix="/api", tags=["market"])
 
@@ -86,10 +86,14 @@ def sector_flow_rotation(
 
     flow_score 높은 순. 리포트 기반 /api/sectors 와 별개(실제 자금 흐름 관점).
     """
+    return _flow_rows(market)
+
+
+def _flow_rows(market: str) -> list[SectorFlowRow]:
+    """시장의 섹터 flow 목록을 SectorFlowRow 로 변환(프로세스 캐시)."""
     cached = _flow_cache.get(market)
     if cached and time.monotonic() - cached[0] < _FLOW_TTL:
         return cached[1]
-
     rows = [
         SectorFlowRow(
             sector=f.sector,
@@ -106,6 +110,20 @@ def sector_flow_rotation(
     if rows:
         _flow_cache[market] = (time.monotonic(), rows)
     return rows
+
+
+@router.get("/sectors/flow/detail", response_model=SectorFlowDetail)
+def sector_flow_detail(industry: str = Query(...)) -> SectorFlowDetail:
+    """산업명 → 국내 섹터 ETF flow + 대응 미국 섹터 ETF flow(선행). 섹터 상세 페이지용."""
+    kr_sector = sector_etf.themes_to_kr_sector([industry])
+    us_sector = sector_etf.kr_sector_to_us(kr_sector)
+    kr_by_sector = {r.sector: r for r in _flow_rows("KR")}
+    us_by_sector = {r.sector: r for r in _flow_rows("US")}
+    return SectorFlowDetail(
+        industry=industry,
+        kr=kr_by_sector.get(kr_sector) if kr_sector else None,
+        us=us_by_sector.get(us_sector) if us_sector else None,
+    )
 
 
 @router.get("/market/overview", response_model=MarketOverview)
