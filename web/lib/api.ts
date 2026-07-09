@@ -3,6 +3,7 @@ import type {
   BroadcastKind,
   BroadcastRef,
   CandlePoint,
+  ChartTimeframe,
   CompanyAnalysis,
   CompanyGrowth,
   CompanySummary,
@@ -18,9 +19,11 @@ import type {
   ScreenerOpGrowth,
   ScreenerResult,
   ScreenerSort,
+  SectorChartMeta,
   SectorFlowDetail,
   SectorFlowRow,
   SectorStock,
+  SectorStockSort,
   SectorRow,
   SentimentPoint,
   StockSearchHit,
@@ -88,9 +91,41 @@ export function fetchSectorFlowDetail(industry: string): Promise<SectorFlowDetai
 }
 
 // 섹터 소속 종목 명단 + 시세. market=KR(judal 매칭) | US(대표종목 정적매핑).
-export function fetchSectorStocks(industry: string, market: FlowMarket): Promise<SectorStock[]> {
+export function fetchSectorStocks(
+  industry: string,
+  market: FlowMarket,
+  opts?: { sort?: SectorStockSort; limit?: number; offset?: number },
+): Promise<SectorStock[]> {
+  const params = new URLSearchParams({ market });
+  if (opts?.sort) {
+    params.set("sort", opts.sort);
+  }
+  if (opts?.limit !== undefined) {
+    params.set("limit", String(opts.limit));
+  }
+  if (opts?.offset !== undefined) {
+    params.set("offset", String(opts.offset));
+  }
   return getJson<SectorStock[]>(
-    `/api/industries/${encodeURIComponent(industry)}/stocks?market=${market}`,
+    `/api/industries/${encodeURIComponent(industry)}/stocks?${params.toString()}`,
+  );
+}
+
+// 섹터 상세 차트 구성(지수 4 + 국내/미국 섹터 ETF 심볼). 봉은 fetchChart 로 별도 조회.
+export function fetchSectorChartMeta(industry: string): Promise<SectorChartMeta> {
+  return getJson<SectorChartMeta>(
+    `/api/sectors/${encodeURIComponent(industry)}/charts`,
+  );
+}
+
+// 범용 봉 차트 — 지수·섹터 ETF·종목 공용. market=KR|US, tf=day|week|month.
+export function fetchChart(
+  symbol: string,
+  market: FlowMarket,
+  tf: ChartTimeframe,
+): Promise<CandlePoint[]> {
+  return getJson<CandlePoint[]>(
+    `/api/chart?symbol=${encodeURIComponent(symbol)}&market=${market}&tf=${tf}`,
   );
 }
 

@@ -89,11 +89,10 @@ def industry_sentiment(
     return points
 
 
-_MAX_KR_STOCKS = 30
-
-
-def _kr_sector_stocks(db: Session, industry: str) -> list[SectorStock]:
-    """산업명 → 섹터 소속 종목 + 최신 시세(UniverseSnapshot)를 반환한다."""
+def _kr_sector_stocks(
+    db: Session, industry: str, sort: str, limit: int, offset: int
+) -> list[SectorStock]:
+    """산업명 → 섹터 소속 종목 + 최신 시세. sort=cap|value 정렬 후 [offset:offset+limit]."""
     codes = sector_ingest.sector_stock_codes(db, industry)
     if not codes:
         return []
@@ -106,20 +105,23 @@ def _kr_sector_stocks(db: Session, industry: str) -> list[SectorStock]:
             UniverseSnapshot.close_price,
             UniverseSnapshot.change_pct,
             UniverseSnapshot.market_cap,
+            UniverseSnapshot.trading_value,
         ).where(
             UniverseSnapshot.snapshot_date == as_of,
             UniverseSnapshot.stock_code.in_(codes),
         )
     ).all()
-    # 시총 큰 순으로 상위 N개.
-    rows = sorted(rows, key=lambda r: r[4] or 0, reverse=True)[:_MAX_KR_STOCKS]
+    key_idx = 5 if sort == "value" else 4  # value=거래대금, cap=시총
+    rows = sorted(rows, key=lambda r: r[key_idx] or 0, reverse=True)[offset : offset + limit]
     out: list[SectorStock] = []
-    for code, name, close, change, _cap in rows:
+    for code, name, close, change, _cap, _val in rows:
         rising = None if change is None or change == 0 else change > 0
         out.append(
             SectorStock(
                 name=name,
                 code=code,
+                symbol=code,  # 국내는 코드가 곧 차트 심볼
+                market="KR",
                 close=f"{close:,}" if close is not None else None,
                 change_ratio=f"{change:+.2f}" if change is not None else None,
                 rising=rising,
@@ -128,23 +130,25 @@ def _kr_sector_stocks(db: Session, industry: str) -> list[SectorStock]:
     return out
 
 
-def _us_sector_stocks(industry: str) -> list[SectorStock]:
-    """산업명 → 국내 섹터 → 대응 미국 섹터의 대표종목 + 네이버 시세."""
+def _us_sector_stocks(industry: str, limit: int, offset: int) -> list[SectorStock]:
+    """산업명 → 대응 미국 섹터 대표종목 + 네이버 시세. 정적 목록이라 [offset:offset+limit] 슬라이스."""
     kr_sector = sector_etf.themes_to_kr_sector([industry])
     us_sector = sector_etf.kr_sector_to_us(kr_sector)
-    symbols = sector_etf.us_sector_stocks(us_sector)
+    symbols = sector_etf.us_sector_stocks(us_sector)[offset : offset + limit]
     if not symbols:
         return []
     quotes = us_market.fetch_us_stock_quotes(symbols)
     return [
         SectorStock(
             name=q.name,
-            code=None,
+            code=None,  # 미국은 종목분석 페이지 없음
+            symbol=symbol,  # 차트 조회용 네이버 심볼
+            market="US",
             close=q.close,
             change_ratio=q.change_ratio,
             rising=q.rising,
         )
-        for q in quotes
+        for symbol, q in quotes
     ]
 
 
@@ -152,10 +156,15 @@ def _us_sector_stocks(industry: str) -> list[SectorStock]:
 def sector_stocks(
     name: str,
     market: str = Query(default="KR", pattern="^(KR|US)$"),
+    sort: str = Query(default="cap", pattern="^(cap|value)$"),
+    limit: int = Query(default=30, ge=1, le=50),
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_session),
 ) -> list[SectorStock]:
-    """섹터(산업) 소속 종목 명단. 국내=judal 테마 매칭+시세, 미국=대표종목 정적매핑+시세."""
-    return _kr_sector_stocks(db, name) if market == "KR" else _us_sector_stocks(name)
+    """섹터 소속 종목 명단. 국내=judal 매칭+시세(cap|value 정렬), 미국=대표종목 정적매핑+시세."""
+    if market == "KR":
+        return _kr_sector_stocks(db, name, sort, limit, offset)
+    return _us_sector_stocks(name, limit, offset)
 
 
 # 별도 라우터: 무역통계는 /api/trade (산업 흐름 페이지 하단).

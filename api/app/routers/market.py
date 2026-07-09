@@ -3,25 +3,41 @@
 from __future__ import annotations
 
 import time
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
+import requests
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import case, func, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.db.models import (
     DailyMarketInfo,
+    PriceCandle,
     Report,
     ReportAnalysis,
     Sentiment,
+    Timeframe,
     TradeStat,
 )
 from app.db.session import get_session
-from app.schemas import MarketOverview, SectorFlowDetail, SectorFlowRow, SectorRow
-from app.services import sector_flow
+from app.schemas import (
+    CandlePoint,
+    ChartRef,
+    MarketOverview,
+    SectorChartMeta,
+    SectorFlowDetail,
+    SectorFlowRow,
+    SectorRow,
+)
+from app.services import chart, sector_flow
 from reporter import sector_etf, us_market
 
 router = APIRouter(prefix="/api", tags=["market"])
+
+# tf 별 조회 범위: 일=2년, 주=10년, 월=3년(종목 상세와 통일).
+_CHART_RANGE_DAYS = {"day": 365 * 2 + 10, "week": 365 * 10 + 30, "month": 365 * 3 + 30}
 
 # 섹터 ETF 로테이션은 시장당 12~15회 차트 조회라 무거워 프로세스 캐시(TTL)로 반복 부하를 막는다.
 _FLOW_TTL = 300.0  # 초
@@ -126,6 +142,30 @@ def sector_flow_detail(industry: str = Query(...)) -> SectorFlowDetail:
     )
 
 
+@router.get("/sectors/{industry}/charts", response_model=SectorChartMeta)
+def sector_chart_meta(industry: str) -> SectorChartMeta:
+    """섹터 상세 차트 구성 — 지수 쌍 + 국내/미국 섹터 추종 ETF 심볼(프론트가 /api/chart 로 조회)."""
+    kr_sector = sector_etf.themes_to_kr_sector([industry])
+    us_sector = sector_etf.kr_sector_to_us(kr_sector)
+    kr_etf = sector_etf.kr_sector_etf(kr_sector) if kr_sector else None
+    us_etf = sector_etf.us_sector_etf(us_sector)
+    # 지수는 한·미 각각 그려야 하므로 쌍을 개별 ChartRef 로 펼친다.
+    index_refs: list[ChartRef] = []
+    for kr_name, kr_sym, us_name, us_sym in sector_etf.INDEX_PAIRS:
+        index_refs.append(ChartRef(label=kr_name, symbol=kr_sym, market="KR"))
+        index_refs.append(ChartRef(label=us_name, symbol=us_sym, market="US"))
+    return SectorChartMeta(
+        industry=industry,
+        indices=index_refs,
+        kr_etf=ChartRef(label=f"{kr_etf.sector}(국내)", symbol=kr_etf.symbol, market="KR")
+        if kr_etf
+        else None,
+        us_etf=ChartRef(label=f"{us_etf.sector}(미국)", symbol=us_etf.symbol, market="US")
+        if us_etf
+        else None,
+    )
+
+
 @router.get("/market/overview", response_model=MarketOverview)
 def market_overview(db: Session = Depends(get_session)) -> MarketOverview:
     """시황 대시보드 통합 — 미국지수 + 국내시황 요약 + 핫섹터 + 무역 스파크."""
@@ -178,3 +218,60 @@ def market_overview(db: Session = Depends(get_session)) -> MarketOverview:
         hot_sectors=hot,
         trade_spark=trade_spark,
     )
+
+
+def _kr_chart(db: Session, code: str, tf: str) -> list[CandlePoint]:
+    """국내 종목/ETF 봉 — 네이버(→KIS 폴백) 조회분을 저장(증분)하고 정렬해 반환."""
+    session = requests.Session()
+    end = datetime.now()
+    start = end - timedelta(days=_CHART_RANGE_DAYS[tf])
+    fresh = chart.fetch_periodic_with_fallback(get_settings(), code, tf, start, end, session)
+    if fresh:
+        frame = Timeframe(tf)
+        for c in fresh:
+            stmt = insert(PriceCandle).values(
+                stock_code=code, timeframe=frame, bar_date=c.ts.date(),
+                open=c.open, high=c.high, low=c.low, close=c.close, volume=c.volume,
+                foreign_ratio=c.foreign_ratio,
+            )
+            stmt = stmt.on_conflict_do_update(
+                constraint="uq_candle",
+                set_={"open": stmt.excluded.open, "high": stmt.excluded.high,
+                      "low": stmt.excluded.low, "close": stmt.excluded.close,
+                      "volume": stmt.excluded.volume, "foreign_ratio": stmt.excluded.foreign_ratio},
+            )
+            db.execute(stmt)
+        db.commit()
+        rows = db.scalars(
+            select(PriceCandle)
+            .where(PriceCandle.stock_code == code, PriceCandle.timeframe == Timeframe(tf))
+            .order_by(PriceCandle.bar_date)
+        ).all()
+        return [
+            CandlePoint(t=r.bar_date.isoformat(), o=r.open, h=r.high, low=r.low, c=r.close, v=r.volume)
+            for r in rows
+        ]
+    return []
+
+
+def _us_chart(symbol: str, tf: str) -> list[CandlePoint]:
+    """미국 ETF/종목 봉 — foreign 실시간 조회(저장 안 함, 심볼이 6자리 초과라 PriceCandle 부적합)."""
+    session = requests.Session()
+    end = datetime.now()
+    start = end - timedelta(days=_CHART_RANGE_DAYS[tf])
+    fresh = chart.fetch_periodic_foreign(symbol, tf, start, end, session)
+    return [
+        CandlePoint(t=c.ts.date().isoformat(), o=c.open, h=c.high, low=c.low, c=c.close, v=c.volume)
+        for c in fresh
+    ]
+
+
+@router.get("/chart", response_model=list[CandlePoint])
+def chart_candles(
+    symbol: str = Query(..., description="국내 6자리 코드 또는 미국 네이버 심볼"),
+    market: str = Query(default="KR", pattern="^(KR|US)$"),
+    tf: str = Query(default="day", pattern="^(day|week|month)$"),
+    db: Session = Depends(get_session),
+) -> list[CandlePoint]:
+    """범용 봉 차트 — 섹터 ETF·지수·종목 공용. 국내=저장+폴백, 미국=실시간 foreign."""
+    return _kr_chart(db, symbol, tf) if market == "KR" else _us_chart(symbol, tf)

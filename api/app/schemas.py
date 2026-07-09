@@ -98,10 +98,12 @@ class StockSearchHit(BaseModel):
 
 
 class SectorStock(BaseModel):
-    """섹터 소속 종목 + 시세. 국내는 code 로 종목분석 이동 가능, 미국은 code 없음."""
+    """섹터 소속 종목 + 시세. code=국내 6자리(종목분석 이동), symbol/market=차트 조회용."""
 
     name: str
-    code: str | None  # 국내 6자리 코드(미국은 None)
+    code: str | None  # 국내 6자리 코드(미국은 None — 종목분석 페이지 없음)
+    symbol: str | None  # 차트 조회 심볼(국내=코드, 미국=네이버 심볼)
+    market: str  # KR | US
     close: str | None  # 표시용 종가 문자열
     change_ratio: str | None  # 등락률 %
     rising: bool | None  # 상승/하락/판단불가
@@ -172,6 +174,23 @@ class SectorFlowDetail(BaseModel):
     industry: str  # 요청한 산업명
     kr: SectorFlowRow | None  # 매칭된 국내 섹터 ETF flow (매칭 실패 시 None)
     us: SectorFlowRow | None  # 대응 미국 섹터 ETF flow
+
+
+class ChartRef(BaseModel):
+    """차트 조회 대상 하나(심볼+시장+표시명). 프론트가 /api/chart 로 봉을 받아 그린다."""
+
+    label: str
+    symbol: str
+    market: str  # KR | US
+
+
+class SectorChartMeta(BaseModel):
+    """섹터 상세 차트 구성 — 지수 쌍 + 국내/미국 섹터 추종 ETF. 종목 Top10 은 /stocks 사용."""
+
+    industry: str
+    indices: list[ChartRef]  # 지수(코스피/QQQ, 코스닥/IWM)
+    kr_etf: ChartRef | None  # 국내 섹터 추종 ETF
+    us_etf: ChartRef | None  # 미국 섹터 추종 ETF
 
 
 class CompanyAnalysis(BaseModel):
