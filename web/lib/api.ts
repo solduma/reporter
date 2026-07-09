@@ -3,6 +3,7 @@ import type {
   BroadcastKind,
   BroadcastRef,
   CandlePoint,
+  CompanyAnalysis,
   CompanyGrowth,
   CompanySummary,
   FinancialPeriod,
@@ -139,6 +140,10 @@ export function fetchCompanySummary(code: string): Promise<CompanySummary> {
 
 export function fetchCompanyGrowth(code: string): Promise<CompanyGrowth> {
   return getJson<CompanyGrowth>(`/api/companies/${encodeURIComponent(code)}/growth`);
+}
+
+export function fetchCompanyAnalysis(code: string): Promise<CompanyAnalysis> {
+  return getJson<CompanyAnalysis>(`/api/companies/${encodeURIComponent(code)}/analysis`);
 }
 
 export function fetchCandles(code: string, tf: Timeframe): Promise<CandlePoint[]> {

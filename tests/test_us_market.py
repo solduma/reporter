@@ -12,9 +12,11 @@ def _reset_cache():
     # 프로세스 인메모리 캐시가 테스트 간 누수되지 않게 초기화
     us_market._us_cache = None
     us_market._kr_cache = None
+    us_market._proxy_cache = None
     yield
     us_market._us_cache = None
     us_market._kr_cache = None
+    us_market._proxy_cache = None
 
 
 def _session(payloads: dict) -> MagicMock:
@@ -99,3 +101,26 @@ def test_kr_and_us_caches_are_independent():
     kr = us_market.fetch_kr_indices(kr_session)
     assert [q.name for q in kr] == ["코스피", "코스닥"]
     assert kr_session.get.call_count == 2
+
+
+def test_map_industry_to_proxy_keywords():
+    assert us_market.map_industry_to_proxy("반도체와반도체장비") == ".SOX"
+    assert us_market.map_industry_to_proxy("디스플레이") == ".SOX"
+    assert us_market.map_industry_to_proxy("소프트웨어") == ".IXIC"
+    assert us_market.map_industry_to_proxy("게임엔터테인먼트") == ".IXIC"
+    assert us_market.map_industry_to_proxy("은행") == ".INX"  # 미매칭 → 대형주
+
+
+def test_map_industry_to_proxy_market_fallback():
+    # 업종 라벨 없으면 시장으로 폴백: KOSDAQ→기술주, 그 외→대형주.
+    assert us_market.map_industry_to_proxy(None, market="KOSDAQ") == ".IXIC"
+    assert us_market.map_industry_to_proxy(None, market="KOSPI") == ".INX"
+    assert us_market.map_industry_to_proxy(None) == ".INX"
+
+
+def test_fetch_us_sector_proxies():
+    payloads = {".SOX": {"closePrice": "5,000", "compareToPreviousPrice": {"code": "2"}},
+                ".IXIC": {"closePrice": "25,000", "compareToPreviousPrice": {"code": "2"}},
+                ".INX": {"closePrice": "7,000", "compareToPreviousPrice": {"code": "5"}}}
+    quotes = us_market.fetch_us_sector_proxies(_session(payloads))
+    assert [q.name for q in quotes] == ["미국 반도체", "미국 기술주", "미국 대형주"]

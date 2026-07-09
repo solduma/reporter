@@ -44,6 +44,35 @@ export interface StockSearchHit {
   market_cap: number | null; // 원
 }
 
+export interface AnalysisMetric {
+  label: string;
+  value: string;
+}
+
+export interface AnalysisAxis {
+  key: string; // growth | technical | topdown
+  label: string;
+  score: number | null; // 0~100
+  metrics: AnalysisMetric[];
+}
+
+export interface TopDownView {
+  us_proxy_name: string;
+  us_proxy_rising: boolean | null;
+  us_proxy_change_ratio: string;
+  kr_indices: { name: string; change_ratio: string; rising: boolean | null }[];
+}
+
+export interface CompanyAnalysis {
+  stock_code: string;
+  stock_name: string | null;
+  market: string | null;
+  overall_score: number | null;
+  axes: AnalysisAxis[];
+  topdown: TopDownView | null;
+  comment: string | null;
+}
+
 export interface Report {
   id: number;
   category: ReportCategory;

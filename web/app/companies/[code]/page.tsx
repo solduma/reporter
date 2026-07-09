@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 
+import AnalysisPanel from "@/components/AnalysisPanel";
 import CompanyTimeline from "@/components/CompanyTimeline";
 import GrowthMetrics from "@/components/GrowthMetrics";
 import PeersTable from "@/components/PeersTable";
@@ -223,6 +224,14 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
       </header>
 
       {error ? <p className={styles.error}>API 연결 실패: {error}</p> : null}
+
+      <section className={styles.chartCard}>
+        <div className={styles.growthHead}>
+          <h2 className={styles.sectionTitle}>테크노펀더멘탈 분석</h2>
+          <span className={styles.growthTag}>성장·기술·탑다운</span>
+        </div>
+        <AnalysisPanel code={code} />
+      </section>
 
       <section className={styles.chartCard}>
         <div className={styles.growthHead}>
