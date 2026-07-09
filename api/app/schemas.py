@@ -174,6 +174,23 @@ class SectorFlowDetail(BaseModel):
     us: SectorFlowRow | None  # 대응 미국 섹터 ETF flow
 
 
+class ChartRef(BaseModel):
+    """차트 조회 대상 하나(심볼+시장+표시명). 프론트가 /api/chart 로 봉을 받아 그린다."""
+
+    label: str
+    symbol: str
+    market: str  # KR | US
+
+
+class SectorChartMeta(BaseModel):
+    """섹터 상세 차트 구성 — 지수 쌍 + 국내/미국 섹터 추종 ETF. 종목 Top10 은 /stocks 사용."""
+
+    industry: str
+    indices: list[ChartRef]  # 지수(코스피/QQQ, 코스닥/IWM)
+    kr_etf: ChartRef | None  # 국내 섹터 추종 ETF
+    us_etf: ChartRef | None  # 미국 섹터 추종 ETF
+
+
 class CompanyAnalysis(BaseModel):
     stock_code: str
     stock_name: str | None

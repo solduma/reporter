@@ -35,6 +35,7 @@ KR_SECTOR_ETFS: list[SectorEtf] = [
     SectorEtf("266390", "경기소비재", "KR"),
     SectorEtf("266410", "필수소비재", "KR"),
     SectorEtf("228810", "미디어컨텐츠", "KR"),
+    SectorEtf("445290", "로봇", "KR"),  # KODEX 로봇액티브
 ]
 
 # 미국 SPDR 11 GICS 섹터 + 반도체(SMH). 네이버 foreign 차트 심볼(접미사 실측).
@@ -52,6 +53,10 @@ US_SECTOR_ETFS: list[SectorEtf] = [
     SectorEtf("XLU", "유틸리티", "US"),
     SectorEtf("SMH.O", "반도체", "US"),  # Nasdaq 상장 → .O 필요
     SectorEtf("XSD", "반도체 소부장", "US"),  # SPDR 동일가중 — 장비·소재 비중 큼
+    SectorEtf("LIT", "2차전지", "US"),  # Global X 리튬·배터리 (2차전지 미국 대응)
+    SectorEtf("XBI", "바이오", "US"),  # SPDR 바이오테크
+    SectorEtf("BOTZ.O", "로봇", "US"),  # Global X 로봇·AI
+    SectorEtf("ALB", "리튬", "US"),  # 앨버말 — 리튬 대표주(리튬 ETF 부재)
 ]
 
 # judal 테마명 키워드 → 국내 섹터 ETF 섹터명. 종목이 속한 테마를 대표 섹터로 접는다.
@@ -79,8 +84,9 @@ _KR_SECTOR_TO_US: dict[str, str] = {
     "반도체": "반도체",
     "반도체 소부장": "반도체 소부장",
     "IT": "기술",
-    "2차전지": "기술",  # 성장 테크로 나스닥·기술 흐름과 동행
-    "바이오": "헬스케어",
+    "2차전지": "2차전지",  # LIT(리튬·배터리)로 직접 대응
+    "바이오": "바이오",  # XBI(바이오테크)로 직접 대응
+    "로봇": "로봇",  # BOTZ(로봇·AI)로 직접 대응
     "자동차": "임의소비재",
     "에너지화학": "에너지",
     "은행": "금융",
@@ -148,9 +154,32 @@ US_SECTOR_STOCKS: dict[str, list[tuple[str, str]]] = {
            ("WELL", "웰타워"), ("SPG", "사이먼프로퍼티")],
     "유틸리티": [("NEE", "넥스트에라"), ("SO", "서던컴퍼니"), ("DUK", "듀크에너지"),
             ("CEG.O", "컨스텔레이션"), ("AEP.O", "아메리칸일렉트릭파워")],
+    "로봇": [("ISRG.O", "인튜이티브서지컬"), ("ROK", "로크웰오토메이션"),
+           ("TER.O", "테라다인"), ("NVDA.O", "엔비디아")],
+    "바이오": [("VRTX.O", "버텍스"), ("REGN.O", "리제네론"), ("GILD.O", "길리어드"),
+            ("AMGN.O", "암젠"), ("MRNA.O", "모더나")],
+    "리튬": [("ALB", "앨버말"), ("SQM", "SQM"), ("LAC", "리튬아메리카스")],
+    "2차전지": [("ALB", "앨버말"), ("SQM", "SQM"), ("LAC", "리튬아메리카스"), ("TSLA.O", "테슬라")],
 }
 
 
 def us_sector_stocks(us_sector: str | None) -> list[tuple[str, str]]:
     """미국 섹터명 → 대표종목 (심볼, 표시명) 목록. 없으면 빈 리스트."""
     return US_SECTOR_STOCKS.get(us_sector, []) if us_sector else []
+
+
+# 지수 > 섹터 > 종목 흐름: 국내 지수 ↔ 미국 지수 추종 ETF(차트용). (한국명, 한국심볼, 미국명, 미국심볼)
+INDEX_PAIRS: list[tuple[str, str, str, str]] = [
+    ("코스피", "KOSPI", "나스닥100(QQQ)", "QQQ.O"),
+    ("코스닥", "KOSDAQ", "러셀2000(IWM)", "IWM"),
+]
+
+
+def kr_sector_etf(sector: str) -> SectorEtf | None:
+    """국내 섹터명 → 국내 섹터 ETF. 없으면 None."""
+    return next((e for e in KR_SECTOR_ETFS if e.sector == sector), None)
+
+
+def us_sector_etf(us_sector: str | None) -> SectorEtf | None:
+    """미국 섹터명 → 미국 섹터 ETF. 없으면 None."""
+    return next((e for e in US_SECTOR_ETFS if e.sector == us_sector), None) if us_sector else None
