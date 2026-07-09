@@ -90,6 +90,13 @@ class CompanySummary(BaseModel):
     stock_name: str | None
 
 
+class StockSearchHit(BaseModel):
+    stock_code: str
+    stock_name: str
+    market: str  # KOSPI | KOSDAQ
+    market_cap: int | None  # 원
+
+
 class FinancialPeriodOut(BaseModel):
     period: str
     is_estimate: bool

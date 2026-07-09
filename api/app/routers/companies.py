@@ -6,7 +6,7 @@ from datetime import date, datetime, timedelta
 
 import requests
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -32,6 +32,7 @@ from app.schemas import (
     CompanySummary,
     FinancialPeriodOut,
     PeerOut,
+    StockSearchHit,
     TimelineItem,
 )
 from app.services import chart, dart_ingest, intraday, quote
@@ -40,6 +41,58 @@ router = APIRouter(prefix="/api/companies", tags=["companies"])
 
 # tf 별 조회 범위(요구사항): 30m=2주, day=1년(3개월도 프론트에서 슬라이스), month=3년
 _RANGE_DAYS = {"day": 400, "month": 365 * 3 + 30}
+
+
+def _search_rank(query: str, code: str, name: str) -> int:
+    """검색 랭크(작을수록 상위): 코드 완전일치 0 > 코드 prefix 1 > 이름 prefix 2 > 부분일치 3."""
+    if code == query:
+        return 0
+    if code.startswith(query):
+        return 1
+    if name.startswith(query):
+        return 2
+    return 3
+
+
+@router.get("/search", response_model=list[StockSearchHit])
+def search_stocks(
+    q: str = Query(..., min_length=1, max_length=40, description="종목 코드 또는 종목명"),
+    limit: int = Query(default=10, ge=1, le=30),
+    db: Session = Depends(get_session),
+) -> list[StockSearchHit]:
+    """종목 코드·이름 퍼지 검색. 최신 유니버스 스냅샷의 보통주에서 찾는다.
+
+    랭크: 코드 완전일치 > 코드 prefix > 이름 prefix > 이름 부분일치. 동순위는 시총 큰 순.
+    """
+    q = q.strip()
+    if not q:
+        return []
+    as_of = db.scalar(select(func.max(UniverseSnapshot.snapshot_date)))
+    if as_of is None:
+        return []
+
+    U = UniverseSnapshot
+    like = f"%{q}%"
+    prefix = f"{q}%"
+    # DB 는 후보만 넓게(코드 prefix OR 이름 부분일치) 뽑고, 랭킹은 파이썬에서 한다.
+    # (Postgres 정규식/case 정렬을 SQL 에 섞지 않아 테스트·유지보수가 쉽다.)
+    rows = db.execute(
+        select(U.stock_code, U.stock_name, U.market, U.market_cap)
+        .where(
+            U.snapshot_date == as_of,
+            U.stock_type == "stock",
+            ~U.stock_name.op("~")(r"우[A-C]?$"),  # 우선주 제외(스크리너 관례)
+            or_(U.stock_code.ilike(prefix), U.stock_name.ilike(like)),
+        )
+        .limit(200)  # 랭킹 전 후보 상한(대중적 접두어도 흡수)
+    ).all()
+
+    # 랭크 오름차순 → 동순위는 시총 내림차순(대형주 먼저).
+    ranked = sorted(rows, key=lambda r: (_search_rank(q, r[0], r[1]), -(r[3] or 0)))
+    return [
+        StockSearchHit(stock_code=c, stock_name=n, market=m, market_cap=cap)
+        for c, n, m, cap in ranked[:limit]
+    ]
 
 
 @router.get("/{code}/summary", response_model=CompanySummary)
