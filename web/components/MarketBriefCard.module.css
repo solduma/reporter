@@ -27,9 +27,6 @@
 }
 
 .summary {
-  margin: 0;
-  /* 시황 요약은 이모지 섹션 헤더가 포함된 여러 줄 텍스트 → 줄바꿈 보존 */
-  white-space: pre-wrap;
   font-size: 0.98rem;
   color: #2b2f36;
 }

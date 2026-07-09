@@ -7,6 +7,7 @@ import { broadcastKindLabel } from "@/lib/broadcast";
 import type { BroadcastDetail } from "@/lib/types";
 
 import styles from "./BroadcastModal.module.css";
+import Markdown from "./Markdown";
 
 interface Props {
   broadcastId: number;
@@ -81,7 +82,7 @@ export default function BroadcastModal({ broadcastId, onClose }: Props) {
 
         {detail ? (
           <>
-            <pre className={styles.body}>{detail.body}</pre>
+            <Markdown content={detail.body} className={styles.body} />
 
             {reports.length > 0 ? (
               <section className={styles.sources}>

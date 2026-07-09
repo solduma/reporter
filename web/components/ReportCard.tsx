@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import type { Report } from "@/lib/types";
 
+import Markdown from "./Markdown";
 import PdfViewer from "./PdfViewer";
 import styles from "./ReportCard.module.css";
 import SentimentBadge from "./SentimentBadge";
@@ -34,7 +35,7 @@ export default function ReportCard({ report }: { report: Report }) {
         <span>{formatDate(report.published_date)}</span>
       </div>
 
-      {report.summary ? <p className={styles.summary}>{report.summary}</p> : null}
+      {report.summary ? <Markdown content={report.summary} className={styles.summary} /> : null}
 
       {report.rationale ? <p className={styles.rationale}>{report.rationale}</p> : null}
 

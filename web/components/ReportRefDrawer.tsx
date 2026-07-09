@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import type { ReportRef, SentimentPoint } from "@/lib/types";
 
+import Markdown from "./Markdown";
 import PdfViewer from "./PdfViewer";
 import styles from "./ReportRefDrawer.module.css";
 import SentimentBadge from "./SentimentBadge";
@@ -60,7 +61,7 @@ export default function ReportRefDrawer({ point, onClose }: Props) {
                 <SentimentBadge sentiment={report.sentiment} />
               </div>
               <h3 className={styles.title}>{report.title}</h3>
-              {report.summary ? <p className={styles.summary}>{report.summary}</p> : null}
+              {report.summary ? <Markdown content={report.summary} className={styles.summary} /> : null}
               {report.has_pdf ? (
                 <div className={styles.actions}>
                   <button
