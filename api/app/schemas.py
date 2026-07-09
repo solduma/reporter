@@ -98,10 +98,12 @@ class StockSearchHit(BaseModel):
 
 
 class SectorStock(BaseModel):
-    """섹터 소속 종목 + 시세. 국내는 code 로 종목분석 이동 가능, 미국은 code 없음."""
+    """섹터 소속 종목 + 시세. code=국내 6자리(종목분석 이동), symbol/market=차트 조회용."""
 
     name: str
-    code: str | None  # 국내 6자리 코드(미국은 None)
+    code: str | None  # 국내 6자리 코드(미국은 None — 종목분석 페이지 없음)
+    symbol: str | None  # 차트 조회 심볼(국내=코드, 미국=네이버 심볼)
+    market: str  # KR | US
     close: str | None  # 표시용 종가 문자열
     change_ratio: str | None  # 등락률 %
     rising: bool | None  # 상승/하락/판단불가

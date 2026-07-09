@@ -121,10 +121,32 @@ export interface SectorFlowDetail {
 
 export interface SectorStock {
   name: string;
-  code: string | null; // 국내 6자리 코드(미국은 null)
+  code: string | null; // 국내 6자리 코드(미국은 null — 종목분석 페이지 없음)
+  symbol: string | null; // 차트 조회용 심볼(국내=코드, 미국=네이버 심볼)
+  market: string; // KR | US
   close: string | null;
   change_ratio: string | null;
   rising: boolean | null;
+}
+
+export type SectorStockSort = "cap" | "value"; // 시총 | 거래대금
+
+// /api/chart 는 30분봉을 지원하지 않는다(일/주/월만).
+export type ChartTimeframe = "day" | "week" | "month";
+
+// 차트 조회 대상 하나(심볼+시장+표시명). 프론트가 /api/chart 로 봉을 받아 그린다.
+export interface ChartRef {
+  label: string;
+  symbol: string;
+  market: FlowMarket;
+}
+
+// 섹터 상세 차트 구성 — 지수 쌍 + 국내/미국 섹터 추종 ETF.
+export interface SectorChartMeta {
+  industry: string;
+  indices: ChartRef[]; // [코스피, QQQ, 코스닥, IWM]
+  kr_etf: ChartRef | null;
+  us_etf: ChartRef | null;
 }
 
 export interface ReportRef {

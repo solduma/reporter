@@ -1,0 +1,57 @@
+.card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 12px 14px 8px;
+  min-width: 0;
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.title,
+.titleLink {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.titleLink:hover {
+  color: var(--accent);
+}
+
+.meta {
+  font-size: 0.82rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+/* 한국 관행: 상승 빨강 / 하락 파랑 */
+.up {
+  color: #c02b2b;
+}
+
+.down {
+  color: #1d4ed8;
+}
+
+.flat {
+  color: var(--muted);
+}

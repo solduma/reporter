@@ -120,6 +120,8 @@ def _kr_sector_stocks(
             SectorStock(
                 name=name,
                 code=code,
+                symbol=code,  # 국내는 코드가 곧 차트 심볼
+                market="KR",
                 close=f"{close:,}" if close is not None else None,
                 change_ratio=f"{change:+.2f}" if change is not None else None,
                 rising=rising,
@@ -139,12 +141,14 @@ def _us_sector_stocks(industry: str, limit: int, offset: int) -> list[SectorStoc
     return [
         SectorStock(
             name=q.name,
-            code=None,
+            code=None,  # 미국은 종목분석 페이지 없음
+            symbol=symbol,  # 차트 조회용 네이버 심볼
+            market="US",
             close=q.close,
             change_ratio=q.change_ratio,
             rising=q.rising,
         )
-        for q in quotes
+        for symbol, q in quotes
     ]
 
 

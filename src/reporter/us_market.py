@@ -168,13 +168,13 @@ def fetch_us_sector_proxies(session: requests.Session | None = None) -> list[Ind
 
 def fetch_us_stock_quotes(
     symbols: list[tuple[str, str]], session: requests.Session | None = None
-) -> list[IndexQuote]:
-    """미국 개별종목 (심볼, 표시명) 목록의 시세를 조회한다. 실패한 종목은 빠진다.
+) -> list[tuple[str, IndexQuote]]:
+    """미국 개별종목 (심볼, 표시명) 목록의 시세를 (심볼, IndexQuote) 로 반환. 실패 종목은 빠진다.
 
-    표시명(한글)을 name 으로 쓰고 지수와 같은 IndexQuote 로 반환한다(캐시 없음 — 목록 가변).
+    표시명(한글)을 name 으로 쓴다. 심볼을 함께 돌려줘 호출측이 차트 조회에 재사용한다.
     """
     session = session or requests.Session()
-    quotes: list[IndexQuote] = []
+    quotes: list[tuple[str, IndexQuote]] = []
     for symbol, label in symbols:
         try:
             resp = session.get(_STOCK_BASE.format(symbol=symbol), headers=_HEADERS, timeout=15)
@@ -185,7 +185,7 @@ def fetch_us_stock_quotes(
             continue
         quote = _parse_quote(label, data)
         if quote:
-            quotes.append(quote)
+            quotes.append((symbol, quote))
     return quotes
 
 

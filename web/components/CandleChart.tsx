@@ -36,6 +36,7 @@ const MA_DEFS: { period: number; color: string }[] = [
 interface Props {
   data: CandlePoint[];
   timeframe: Timeframe;
+  height?: number; // 그리드용 소형 차트를 위해 컨테이너 높이를 조절(기본 420)
 }
 
 // 30분봉의 t는 타임존 없는 벽시계 시각이라, UTC로 간주해 표기 시각이 그대로 보이도록 한다.
@@ -62,7 +63,7 @@ function movingAverage(data: CandlePoint[], tf: Timeframe, period: number): Line
   return out;
 }
 
-export default function CandleChart({ data, timeframe }: Props) {
+export default function CandleChart({ data, timeframe, height = 420 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [logScale, setLogScale] = useState(false);
 
@@ -172,7 +173,7 @@ export default function CandleChart({ data, timeframe }: Props) {
           로그
         </button>
       </div>
-      <div ref={containerRef} className={styles.chart} />
+      <div ref={containerRef} className={styles.chart} style={{ height }} />
     </div>
   );
 }
