@@ -66,7 +66,7 @@ async def test_tui_mounts_and_shows_status():
         ids = {b.id for b in app.query(Button)}
         assert {
             "ingest", "universe", "growth", "refresh", "prev", "next", "sort",
-            "api_restart", "web_restart",
+            "api_restart", "web_restart", "web_build",
         } <= ids
 
 
@@ -168,6 +168,9 @@ async def test_server_buttons_and_status(monkeypatch):
             restarts.append(key)
             return f"{key} 재기동 요청됨"
 
+        def build_web(self):
+            return "WEB 빌드 완료"
+
         def status(self):
             return [
                 ServerStatus("api", "API", 8010, loaded=True, running=True, pid=111),
@@ -181,9 +184,9 @@ async def test_server_buttons_and_status(monkeypatch):
         await pilot.pause(0.3)
         from textual.widgets import Button, Static
 
-        # 재기동 버튼 2종 존재
+        # 재기동 2종 + 빌드 버튼 존재
         ids = {b.id for b in app.query(Button)}
-        assert {"api_restart", "web_restart"} <= ids
+        assert {"api_restart", "web_restart", "web_build"} <= ids
 
         info = app.query_one("#server_status", Static)
         assert "실행중" in str(info.render())  # 로드+실행 중
@@ -191,3 +194,34 @@ async def test_server_buttons_and_status(monkeypatch):
         await pilot.click("#api_restart")
         await pilot.pause(0.2)
         assert restarts == ["api"]  # 재기동을 launchctl 위임으로 호출
+
+
+async def test_web_build_button_runs_build(monkeypatch):
+    # WEB 빌드 버튼이 ServerControl.build_web 을 워커 스레드로 호출하는지 검증.
+    from app.services.server_control import ServerStatus
+
+    builds = []
+
+    class _FakeControl:
+        def restart(self, key):
+            return "ok"
+
+        def build_web(self):
+            builds.append(True)
+            return "WEB 빌드 완료"
+
+        def status(self):
+            return [ServerStatus("web", "WEB", 3000, loaded=True, running=True, pid=1)]
+
+    monkeypatch.setattr(tui, "ServerControl", _FakeControl)
+
+    app = tui.AdminTUI()
+    async with app.run_test() as pilot:
+        await pilot.pause(0.3)
+        await pilot.click("#web_build")
+        # 워커 스레드 빌드 완료 대기
+        for _ in range(20):
+            await pilot.pause(0.1)
+            if builds:
+                break
+        assert builds == [True]
