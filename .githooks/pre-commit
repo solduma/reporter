@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# pre-commit — 스테이지된 경로에 따라 린트만 수행(포매팅 미강제, `make fmt` 수동).
+# 활성화: make hooks  (git config core.hooksPath .githooks)
+set -euo pipefail
+
+root="$(git rev-parse --show-toplevel)"
+staged="$(git diff --cached --name-only --diff-filter=ACMR)"
+
+changed() { grep -qE "$1" <<<"$staged"; }
+
+# Python: api/ 또는 src/reporter(CLI) 변경 시 ruff check
+if changed '^(api|src)/'; then
+	echo "▶ ruff check (python)"
+	if changed '^src/'; then
+		( cd "$root" && uv run ruff check src tests )
+	fi
+	if changed '^api/'; then
+		( cd "$root/api" && uv run ruff check app tests )
+		# import-linter(lint-imports)는 설정돼 있을 때만 수행(미설치 시 건너뜀)
+		if ( cd "$root/api" && uv run python -c "import importlinter" >/dev/null 2>&1 ) \
+			&& [ -f "$root/api/.importlinter" -o -f "$root/.importlinter" ]; then
+			echo "▶ lint-imports (api)"
+			( cd "$root/api" && uv run lint-imports )
+		fi
+	fi
+fi
+
+# web/ 변경 시 eslint + tsc
+if changed '^web/'; then
+	echo "▶ eslint + tsc (web)"
+	( cd "$root/web" && pnpm lint && pnpm exec tsc --noEmit )
+fi
+
+echo "✔ pre-commit 통과"
