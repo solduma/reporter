@@ -87,10 +87,8 @@ class AdminTUI(App):
                 yield Button("새로고침", id="refresh")
             with Horizontal(id="servers"):
                 yield Static(id="server_status")
-                yield Button("API 시작", id="api_start", variant="success")
-                yield Button("API 종료", id="api_stop", variant="error")
-                yield Button("WEB 시작", id="web_start", variant="success")
-                yield Button("WEB 종료", id="web_stop", variant="error")
+                yield Button("API 재기동", id="api_restart", variant="warning")
+                yield Button("WEB 재기동", id="web_restart", variant="warning")
             yield Log(id="log", highlight=True)
             with Horizontal(id="preview_bar"):
                 yield Button("◀ 이전", id="prev")
@@ -120,8 +118,7 @@ class AdminTUI(App):
         self.set_interval(3.0, self._refresh_server_status)
 
     def on_unmount(self) -> None:
-        # TUI 종료 시 자신이 띄운 서버를 정리한다.
-        self._servers.stop_all()
+        # 서버는 launchd 가 관리하므로 TUI 종료 시 건드리지 않는다(상시 유지).
         # 핸들러 누수 방지(다음 실행/테스트에 파괴된 위젯을 참조하지 않도록).
         if self._log_handler:
             for name in ("app", "reporter"):
@@ -129,15 +126,17 @@ class AdminTUI(App):
             self._log_handler = None
 
     def _refresh_server_status(self) -> None:
+        # launchd 서비스 상태. URL 은 콜론 때문에 마크업 태그로 오해되지 않도록 평문으로 둔다.
         lines = []
         for s in self._servers.status():
-            # URL 은 콜론 때문에 마크업 태그로 오해되지 않도록 평문으로 둔다.
-            if s.running:
+            if not s.loaded:
+                mark = f"[red]✗ 미등록[/red]  {s.url} (./launchd/install.sh 필요)"
+            elif s.running:
                 mark = f"[green]●[/green] 실행중(pid {s.pid})  {s.url}"
             else:
-                mark = f"[dim]○ 중지  {s.url}[/dim]"
+                mark = f"[yellow]○ 대기(재시작 중)  {s.url}[/yellow]"
             lines.append(f"{s.label}  {mark}")
-        self.query_one("#server_status", Static).update("서버\n" + "\n".join(lines))
+        self.query_one("#server_status", Static).update("서버 (launchd 관리)\n" + "\n".join(lines))
 
     # --- 상태 ---
     def action_refresh(self) -> None:
@@ -244,7 +243,7 @@ class AdminTUI(App):
             self.action_next_page()
         elif bid == "prev":
             self.action_prev_page()
-        elif bid in ("api_start", "api_stop", "web_start", "web_stop"):
+        elif bid in ("api_restart", "web_restart"):
             self._handle_server_button(bid)
         elif bid in self._JOB_BUTTONS:
             if self._job_running:  # 실행 중엔 이중 크롤/GLM 방지
@@ -253,9 +252,8 @@ class AdminTUI(App):
             self._run_job(bid)
 
     def _handle_server_button(self, bid: str) -> None:
-        key, op = bid.split("_")  # api_start → ("api","start")
-        msg = self._servers.start(key) if op == "start" else self._servers.stop(key)
-        self._log_line(msg)
+        key = bid.split("_")[0]  # api_restart → "api"
+        self._log_line(self._servers.restart(key))
         self._refresh_server_status()
 
     def _log_line(self, msg: str) -> None:
