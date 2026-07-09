@@ -10,9 +10,11 @@ from reporter import us_market
 @pytest.fixture(autouse=True)
 def _reset_cache():
     # 프로세스 인메모리 캐시가 테스트 간 누수되지 않게 초기화
-    us_market._cache = None
+    us_market._us_cache = None
+    us_market._kr_cache = None
     yield
-    us_market._cache = None
+    us_market._us_cache = None
+    us_market._kr_cache = None
 
 
 def _session(payloads: dict) -> MagicMock:
@@ -69,3 +71,31 @@ def test_cache_avoids_refetch():
     assert [q.close for q in first] == [q.close for q in second]
     assert s2.get.call_count == 0  # 캐시 히트 → 네트워크 없음
     assert calls_after_first == 3
+
+
+def test_parses_kr_indices():
+    payloads = {
+        "KOSPI": {"closePrice": "7,291.91", "compareToPreviousClosePrice": "45.12",
+                  "fluctuationsRatio": "0.62", "compareToPreviousPrice": {"code": "2"}},
+        "KOSDAQ": {"closePrice": "794.00", "compareToPreviousClosePrice": "-9.00",
+                   "fluctuationsRatio": "-1.15", "compareToPreviousPrice": {"code": "5"}},
+    }
+    quotes = us_market.fetch_kr_indices(_session(payloads))
+    assert [q.name for q in quotes] == ["코스피", "코스닥"]
+    kospi, kosdaq = quotes
+    assert kospi.close == "7,291.91" and kospi.rising is True
+    assert kosdaq.rising is False
+
+
+def test_kr_and_us_caches_are_independent():
+    us_payloads = {".DJI": {"closePrice": "1", "compareToPreviousPrice": {"code": "2"}},
+                   ".IXIC": {"closePrice": "2", "compareToPreviousPrice": {"code": "2"}},
+                   ".INX": {"closePrice": "3", "compareToPreviousPrice": {"code": "2"}}}
+    kr_payloads = {"KOSPI": {"closePrice": "10", "compareToPreviousPrice": {"code": "2"}},
+                   "KOSDAQ": {"closePrice": "20", "compareToPreviousPrice": {"code": "5"}}}
+    us_market.fetch_us_indices(_session(us_payloads))
+    # 미국 캐시가 채워져도 국내는 별도 캐시라 새로 조회한다.
+    kr_session = _session(kr_payloads)
+    kr = us_market.fetch_kr_indices(kr_session)
+    assert [q.name for q in kr] == ["코스피", "코스닥"]
+    assert kr_session.get.call_count == 2
