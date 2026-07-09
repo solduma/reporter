@@ -26,14 +26,21 @@ def test_growth_score_turnaround_only():
     assert s is not None and s > 0
 
 
-def test_topdown_score_us_leads_weighting():
-    # 미국 상승·국내 하락 → 미국 가중(0.6)이 커서 중립 이상.
-    s = analysis.topdown_score(us_rising=True, kr_rising=False)
-    assert s == 60.0
-    # 둘 다 상승 → 100.
-    assert analysis.topdown_score(True, True) == 100.0
-    # 둘 다 불명 → None.
-    assert analysis.topdown_score(None, None) is None
+def test_topdown_flow_score_us_leads_weighting():
+    # 미국 섹터 flow(가중 0.45)가 국내(0.40)보다 커서 미국 강세가 더 반영.
+    high_us = analysis.topdown_flow_score(us_flow=100.0, kr_flow=0.0, kr_index_rising=None)
+    high_kr = analysis.topdown_flow_score(us_flow=0.0, kr_flow=100.0, kr_index_rising=None)
+    assert high_us > high_kr
+    # 모두 최대 → 100.
+    assert analysis.topdown_flow_score(100.0, 100.0, True) == 100.0
+    # 전부 불명 → None.
+    assert analysis.topdown_flow_score(None, None, None) is None
+
+
+def test_topdown_flow_score_index_fallback():
+    # 섹터 flow 를 못 구해도 지수 방향만으로 폴백 산출.
+    assert analysis.topdown_flow_score(None, None, True) == 100.0
+    assert analysis.topdown_flow_score(None, None, False) == 0.0
 
 
 def test_overall_averages_present_scores():

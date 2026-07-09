@@ -21,6 +21,8 @@ from app.db.models import (
     PriceCandleIntraday,
     Report,
     ReportAnalysis,
+    SectorTheme,
+    SectorThemeStock,
     Sentiment,
     Timeframe,
     UniverseSnapshot,
@@ -250,14 +252,30 @@ def company_analysis(code: str, db: Session = Depends(get_session)) -> CompanyAn
         ],
     )
 
-    # 탑다운 축 — 미국 프록시(선행) + 국내 지수. 업종 라벨은 아직 미확보라 시장 기준 근사.
-    topdown_view, topdown_sc = analysis.build_topdown(None, market)
+    # 탑다운 축 — 종목이 속한 섹터의 국내/미국 수급 flow(미국 선행) + 국내 지수.
+    theme_names = list(
+        db.scalars(
+            select(SectorTheme.name)
+            .join(SectorThemeStock, SectorThemeStock.judal_idx == SectorTheme.judal_idx)
+            .where(SectorThemeStock.stock_code == code)
+        ).all()
+    )
+    topdown_view, topdown_sc = analysis.build_topdown(theme_names, market)
+    kr_sec = topdown_view["kr_sector"]
+    us_sec = topdown_view["us_sector"]
     topdown_axis = AnalysisAxis(
         key="topdown",
         label="탑다운 (리버모어)",
         score=topdown_sc,
         metrics=[
-            {"label": topdown_view["us_proxy_name"], "value": _signed(topdown_view["us_proxy_change_ratio"], topdown_view["us_proxy_rising"])},
+            {
+                "label": f"국내 {kr_sec} 수급" if kr_sec else "국내 섹터",
+                "value": _flow_label(topdown_view["kr_sector_flow"]),
+            },
+            {
+                "label": f"미국 {us_sec} 수급(선행)" if us_sec else "미국 섹터(선행)",
+                "value": _flow_label(topdown_view["us_sector_flow"]),
+            },
         ]
         + [
             {"label": k["name"], "value": _signed(k["change_ratio"], k["rising"])}
@@ -304,6 +322,14 @@ def _signed(ratio: str, rising: bool | None) -> str:
         return f"{r}%"
     sign = "+" if rising is True else "-" if rising is False else ""
     return f"{sign}{r}%"
+
+
+def _flow_label(score: float | None) -> str:
+    """자금유입 강도(0~100)를 '강함/보통/약함' 라벨 + 점수로."""
+    if score is None:
+        return "—"
+    tag = "강함" if score >= 60 else "보통" if score >= 40 else "약함"
+    return f"{tag} {score:.0f}"
 
 
 # 동일업종 테이블의 한글 행 라벨 → peers 컬럼

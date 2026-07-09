@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import time
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 
-import requests
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
@@ -19,8 +18,8 @@ from app.db.models import (
 )
 from app.db.session import get_session
 from app.schemas import MarketOverview, SectorFlowRow, SectorRow
-from app.services import chart, sector_flow, technicals
-from reporter import sector_etf, us_market
+from app.services import sector_flow
+from reporter import us_market
 
 router = APIRouter(prefix="/api", tags=["market"])
 
@@ -91,39 +90,19 @@ def sector_flow_rotation(
     if cached and time.monotonic() - cached[0] < _FLOW_TTL:
         return cached[1]
 
-    etfs = sector_etf.KR_SECTOR_ETFS if market == "KR" else sector_etf.US_SECTOR_ETFS
-    session = requests.Session()
-    end = datetime.now()
-    start = end - timedelta(days=400)
-
-    rows: list[SectorFlowRow] = []
-    for etf in etfs:
-        if market == "KR":
-            candles = chart.fetch_periodic(etf.symbol, "day", start, end, session)
-        else:
-            candles = chart.fetch_periodic_foreign(etf.symbol, "day", start, end, session)
-        if not candles:
-            continue
-        tech = technicals.compute(candles)
-        fd = (
-            sector_flow.foreign_delta([c.foreign_ratio for c in candles])
-            if market == "KR"
-            else None
+    rows = [
+        SectorFlowRow(
+            sector=f.sector,
+            market=f.market,
+            symbol=f.symbol,
+            flow_score=f.flow_score,
+            return_3m=f.return_3m,
+            near_high_pct=f.near_high_pct,
+            vol_ratio=f.vol_ratio,
+            foreign_delta=f.foreign_delta,
         )
-        rows.append(
-            SectorFlowRow(
-                sector=etf.sector,
-                market=market,
-                symbol=etf.symbol,
-                flow_score=sector_flow.flow_score(tech, fd),
-                return_3m=tech.return_3m,
-                near_high_pct=tech.near_high_pct,
-                vol_ratio=tech.vol_ratio,
-                foreign_delta=fd,
-            )
-        )
-
-    rows.sort(key=lambda r: (r.flow_score is not None, r.flow_score or 0), reverse=True)
+        for f in sector_flow.compute_flows(market)
+    ]
     if rows:
         _flow_cache[market] = (time.monotonic(), rows)
     return rows

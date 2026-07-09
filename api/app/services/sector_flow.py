@@ -2,14 +2,19 @@
 
 각 섹터 ETF 의 기술 지표(technicals)를 자금 흐름 관점으로 재조합한다:
 모멘텀(추세) + 거래량 급증(관심) + 신고가 근접(주도력) + (국내)외국인 순증.
-순수 계산 로직(I/O 없음) — 데이터 조립은 라우터에서 한다.
+스코어 계산은 순수 함수, 데이터 조립(compute_flows)은 섹터 ETF 차트를 조회한다.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 
+import requests
+
+from app.services import chart, technicals
 from app.services.technicals import Technicals
+from reporter import sector_etf
 
 
 @dataclass
@@ -54,3 +59,36 @@ def foreign_delta(foreign_ratios: list[float | None], lookback: int = 20) -> flo
     # lookback 이전 중 가장 가까운 유효값.
     prior = next((r for i, r in reversed(vals) if i <= last_i - lookback), vals[0][1])
     return round(last - prior, 2)
+
+
+def compute_flows(market: str, session: requests.Session | None = None) -> list[SectorFlow]:
+    """시장(KR|US)의 모든 섹터 ETF flow 를 계산해 flow_score 내림차순으로 반환한다."""
+    session = session or requests.Session()
+    etfs = sector_etf.KR_SECTOR_ETFS if market == "KR" else sector_etf.US_SECTOR_ETFS
+    end = datetime.now()
+    start = end - timedelta(days=400)
+
+    flows: list[SectorFlow] = []
+    for etf in etfs:
+        if market == "KR":
+            candles = chart.fetch_periodic(etf.symbol, "day", start, end, session)
+        else:
+            candles = chart.fetch_periodic_foreign(etf.symbol, "day", start, end, session)
+        if not candles:
+            continue
+        tech = technicals.compute(candles)
+        fd = foreign_delta([c.foreign_ratio for c in candles]) if market == "KR" else None
+        flows.append(
+            SectorFlow(
+                sector=etf.sector,
+                market=market,
+                symbol=etf.symbol,
+                flow_score=flow_score(tech, fd),
+                return_3m=tech.return_3m,
+                near_high_pct=tech.near_high_pct,
+                vol_ratio=tech.vol_ratio,
+                foreign_delta=fd,
+            )
+        )
+    flows.sort(key=lambda f: (f.flow_score is not None, f.flow_score or 0), reverse=True)
+    return flows
