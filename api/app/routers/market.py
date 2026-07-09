@@ -79,20 +79,24 @@ def market_overview(db: Session = Depends(get_session)) -> MarketOverview:
         select(DailyMarketInfo).order_by(DailyMarketInfo.market_date.desc()).limit(1)
     ).first()
 
-    indices = [
-        {
-            "name": q.name,
-            "close": q.close,
-            "change": q.change,
-            "change_ratio": q.change_ratio,
-            "rising": q.rising,
-        }
-        for q in us_market.fetch_us_indices()
-    ]
+    def _index_dicts(quotes) -> list[dict]:
+        return [
+            {
+                "name": q.name,
+                "close": q.close,
+                "change": q.change,
+                "change_ratio": q.change_ratio,
+                "rising": q.rising,
+            }
+            for q in quotes
+        ]
+
+    indices = _index_dicts(us_market.fetch_us_indices())
+    kr_indices = _index_dicts(us_market.fetch_kr_indices())
 
     hot = [
         {"sector": s.sector, "report_count": s.report_count, "avg_sentiment": s.avg_sentiment}
-        for s in sectors(db)[:3]
+        for s in sectors(db)[:8]
     ]
 
     # 무역 스파크: HS 품목별 최신 수출액(있으면).
@@ -112,6 +116,7 @@ def market_overview(db: Session = Depends(get_session)) -> MarketOverview:
     return MarketOverview(
         market_date=brief.market_date if brief else None,
         us_indices=indices,
+        kr_indices=kr_indices,
         brief_summary=brief.summary if brief else "",
         hot_sectors=hot,
         trade_spark=trade_spark,

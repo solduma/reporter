@@ -139,6 +139,7 @@ class SectorRow(BaseModel):
 class MarketOverview(BaseModel):
     market_date: date | None
     us_indices: list[dict]  # {name, close, change, change_ratio, rising}
+    kr_indices: list[dict]  # {name, close, change, change_ratio, rising}
     brief_summary: str
     hot_sectors: list[dict]  # {sector, report_count, avg_sentiment}
     trade_spark: list[dict]  # {hs, period, export_usd}

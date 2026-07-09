@@ -18,8 +18,8 @@ const HS_NAMES: Record<string, string> = {
   "8708": "자동차부품",
 };
 
-// 나스닥은 성장주 프록시라 타일을 강조한다.
-const EMPHASIS_INDEX = "나스닥";
+// 나스닥은 성장주 프록시, 코스피는 국내 대표지수라 타일을 강조한다.
+const EMPHASIS_INDICES = new Set(["나스닥", "코스피"]);
 
 function formatDate(value: string | null): string {
   if (!value) {
@@ -97,7 +97,7 @@ function sentimentClass(value: number): string {
 }
 
 function IndexTile({ index }: { index: UsIndex }) {
-  const emphasized = index.name === EMPHASIS_INDEX;
+  const emphasized = EMPHASIS_INDICES.has(index.name);
   const tileClass = emphasized ? `${styles.tile} ${styles.tileEmphasis}` : styles.tile;
   return (
     <div className={tileClass}>
@@ -143,6 +143,7 @@ export default function MarketOverviewCard() {
   }, []);
 
   const dateLabel = formatDate(overview?.market_date ?? null);
+  const krIndices = overview?.kr_indices ?? [];
   const indices = overview?.us_indices ?? [];
   const hotSectors = overview?.hot_sectors ?? [];
   const tradeSpark = overview?.trade_spark ?? [];
@@ -160,6 +161,19 @@ export default function MarketOverviewCard() {
         <p className={styles.error}>시황 대시보드 연결 실패: {error}</p>
       ) : (
         <>
+          <div className={styles.section}>
+            <span className={styles.sectionLabel}>국내 지수</span>
+            {krIndices.length > 0 ? (
+              <div className={styles.indices}>
+                {krIndices.map((index) => (
+                  <IndexTile key={index.name} index={index} />
+                ))}
+              </div>
+            ) : (
+              <p className={styles.empty}>지수 데이터가 없습니다</p>
+            )}
+          </div>
+
           <div className={styles.section}>
             <span className={styles.sectionLabel}>미국 3대 지수</span>
             {indices.length > 0 ? (

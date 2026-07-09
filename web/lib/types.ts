@@ -31,6 +31,7 @@ export interface TradeSpark {
 export interface MarketOverview {
   market_date: string | null;
   us_indices: UsIndex[];
+  kr_indices: UsIndex[];
   brief_summary: string;
   hot_sectors: HotSector[];
   trade_spark: TradeSpark[];
