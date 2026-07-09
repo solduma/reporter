@@ -38,7 +38,7 @@
   }
 }
 
-.paragraphCard {
+.sectionCard {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -46,8 +46,50 @@
   padding: 16px 18px;
 }
 
-.summary {
-  font-size: 0.98rem;
+/* 이모지 + 섹션 제목 — 강조 헤더(하단 구분선) */
+.sectionHeader {
+  margin: 0 0 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  font-size: 1.02rem;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+
+.items {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* "→" 항목을 불릿(•) 리스트로. 불릿은 accent 색 마커로. */
+.item {
+  position: relative;
+  padding-left: 16px;
+}
+
+.item::before {
+  content: "•";
+  position: absolute;
+  left: 2px;
+  top: 0;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.itemText {
+  font-size: 0.95rem;
+  line-height: 1.6;
+  color: #2b2f36;
+}
+
+/* 폴백(구조 안 맞는 블록)용 자유 문단 */
+.body {
+  font-size: 0.95rem;
   color: #2b2f36;
 }
 
