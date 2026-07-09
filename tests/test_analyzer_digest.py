@@ -62,3 +62,26 @@ def test_entity_single_report_returns_its_summary():
 def test_entity_multiple_calls_glm():
     reports = _reports(2)
     assert analyzer.synthesize_entity(_FakeClient("합본 종합"), "m", reports) == "합본 종합"
+
+
+def test_forecast_returns_briefing():
+    reports = _reports(3)
+    b = analyzer.synthesize_forecast(_FakeClient("🔮 오늘의 핵심\n예상 본문"), "m", reports)
+    assert "예상 본문" in b.text
+    assert b.report_count == 3
+    assert b.categories == ["market_info"]
+
+
+def test_forecast_prompt_includes_summaries_and_forecast_framing():
+    captured = {}
+
+    class _Capture:
+        def chat(self, model, system, user, temperature=0.3):
+            captured["system"] = system
+            captured["user"] = user
+            return "브리핑"
+
+    analyzer.synthesize_forecast(_Capture(), "m", _reports(2))
+    assert "요약1" in captured["user"] and "요약2" in captured["user"]
+    # 시스템 프롬프트가 '오늘 전망/예상' 관점인지.
+    assert "전망" in captured["system"] or "예상" in captured["system"]
