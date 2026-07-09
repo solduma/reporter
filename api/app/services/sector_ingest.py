@@ -10,13 +10,42 @@ import logging
 import time
 
 import requests
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.db.models import SectorTheme, SectorThemeStock
-from reporter import judal
+from reporter import judal, sector_etf
 
 logger = logging.getLogger(__name__)
+
+
+def sector_stock_codes(db: Session, sector: str) -> list[str]:
+    """섹터명(ETF 섹터명 또는 산업명)에 속하는 judal 테마 종목코드 목록.
+
+    산업명을 대표 섹터로 접고('반도체 소재'→'반도체 소부장'), 같은 섹터로 분류되는
+    judal 테마의 종목만 모은다('반도체'와 '반도체 소부장'을 섞지 않는다).
+    """
+    target = sector_etf.themes_to_kr_sector([sector])
+    # 합성 섹터('반도체 소부장')는 judal 테마명에 없으니 접두어('반도체')로 후보를 넓힌다.
+    search = sector.split()[0] if target else sector
+    candidates = db.execute(
+        select(SectorTheme.judal_idx, SectorTheme.name).where(SectorTheme.name.ilike(f"%{search}%"))
+    ).all()
+    theme_idxs = (
+        [idx for idx, name in candidates if sector_etf.themes_to_kr_sector([name]) == target]
+        if target
+        else [idx for idx, _ in candidates]
+    )
+    if not theme_idxs:
+        return []
+    return list(
+        db.scalars(
+            select(SectorThemeStock.stock_code)
+            .where(SectorThemeStock.judal_idx.in_(theme_idxs))
+            .distinct()
+        ).all()
+    )
 
 _REQUEST_INTERVAL = 0.3  # judal 부하 완화(테마당 요청 사이 간격)
 
