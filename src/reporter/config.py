@@ -34,6 +34,7 @@ class Config:
     insight_model: str
     telegram_bot_token: str
     telegram_chat_id: str
+    use_topics: bool = False  # 포럼 슈퍼그룹이면 일자별 토픽으로 리포트/뉴스 누적
     root: Path = field(default=_ROOT)
 
     @property
@@ -56,4 +57,5 @@ def load_config() -> Config:
         insight_model=os.getenv("OLLAMA_INSIGHT_MODEL", "glm-5.2:cloud"),
         telegram_bot_token=os.getenv("TELEGRAM_BOT_TOKEN", ""),
         telegram_chat_id=os.getenv("TELEGRAM_CHAT_ID", ""),
+        use_topics=os.getenv("TELEGRAM_USE_TOPICS", "").lower() in ("1", "true", "yes"),
     )
