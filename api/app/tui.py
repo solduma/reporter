@@ -50,7 +50,7 @@ class AdminTUI(App):
     #actions Button { margin: 0 1; }
     #servers { height: auto; padding: 0 1; align: left middle; }
     #servers Button { margin: 0 1; min-width: 10; }
-    #server_status { width: 1fr; content-align: left middle; }
+    #server_status { width: 1fr; height: auto; content-align: left middle; }
     #log { height: 10; border: round $secondary; }
     #preview_bar { height: auto; align: left middle; padding: 0 1; }
     #preview_bar Button { margin: 0 1; min-width: 8; }
@@ -129,11 +129,15 @@ class AdminTUI(App):
             self._log_handler = None
 
     def _refresh_server_status(self) -> None:
-        parts = []
+        lines = []
         for s in self._servers.status():
-            mark = f"[green]●[/green] 실행중(pid {s.pid})" if s.running else "[dim]○ 중지[/dim]"
-            parts.append(f"{s.label} :{s.port} {mark}")
-        self.query_one("#server_status", Static).update("서버:  " + "   ".join(parts))
+            # URL 은 콜론 때문에 마크업 태그로 오해되지 않도록 평문으로 둔다.
+            if s.running:
+                mark = f"[green]●[/green] 실행중(pid {s.pid})  {s.url}"
+            else:
+                mark = f"[dim]○ 중지  {s.url}[/dim]"
+            lines.append(f"{s.label}  {mark}")
+        self.query_one("#server_status", Static).update("서버\n" + "\n".join(lines))
 
     # --- 상태 ---
     def action_refresh(self) -> None:
