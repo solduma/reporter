@@ -107,6 +107,15 @@ def themes_to_kr_sector(theme_names: list[str]) -> str | None:
     매핑 우선순위(_THEME_TO_KR_SECTOR 순서)가 앞선 섹터를 먼저 채택한다.
     어느 테마도 매칭 안 되면 None.
     """
+    # 멱등 가드: 입력이 이미 확정 섹터명(ETF 섹터)이면 그대로 돌려준다. 키워드 부분일치가
+    # 확정명을 재폴딩해 엉뚱한 섹터로 가는 것을 막는다(예: '필수소비재'의 '수소'→에너지화학,
+    # '로봇'→기계장비, '경기소비재'→None). 종목 상세가 topdown.kr_sector(이미 폴딩된 값)를
+    # 섹터 차트에 다시 넘기는 경로에서 특히 중요.
+    _CANONICAL = {e.sector for e in KR_SECTOR_ETFS}
+    for t in theme_names:
+        if t in _CANONICAL:
+            return t
+
     lowered = [t.lower() for t in theme_names]
     # 반도체 소부장: '반도체'가 있으면서 소재·부품·장비·공정 맥락일 때만(다른 섹터 소재/장비 제외).
     _SOBUJANG = ("소재", "부품", "장비", "전공정", "후공정", "소부장")

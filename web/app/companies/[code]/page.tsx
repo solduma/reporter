@@ -14,6 +14,7 @@ import { fetchCandles, fetchCompanyAnalysis, fetchCompanySummary, fetchFinancial
 import type {
   CandlePoint,
   ChartTimeframe,
+  CompanyAnalysis,
   CompanySummary,
   FinancialPeriod,
   Peer,
@@ -58,8 +59,13 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // 탑다운 비교 차트(지수·섹터·종목)용 섹터명. 분석 API 의 topdown.kr_sector 에서 얻는다.
-  const [krSector, setKrSector] = useState<string | null>(null);
+  // 분석 결과는 페이지가 한 번만 조회해 AnalysisPanel 과 탑다운 비교 차트가 공유한다
+  // (/analysis 는 매 호출 LLM 코멘트를 생성하므로 중복 조회를 피한다).
+  const [analysis, setAnalysis] = useState<SectionState<CompanyAnalysis | null>>({
+    status: "loading",
+    data: null,
+  });
+  const krSector = analysis.data?.topdown?.kr_sector ?? null;
   // 비교 차트 3종을 함께 조정하는 공용 기간(일/주/월).
   const [compareTf, setCompareTf] = useState<ChartTimeframe>("day");
 
@@ -93,15 +99,20 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
   useEffect(() => {
     let active = true;
     async function load() {
+      setAnalysis({ status: "loading", data: null });
       try {
         const res = await fetchCompanyAnalysis(code);
         if (active) {
-          setKrSector(res.topdown?.kr_sector ?? null);
+          setAnalysis({ status: "ready", data: res });
         }
-      } catch {
+      } catch (e) {
         // 분석 실패 시 비교 차트(지수·섹터)만 생략한다 — 종목 차트는 별도로 뜬다.
         if (active) {
-          setKrSector(null);
+          setAnalysis({
+            status: "error",
+            data: null,
+            message: e instanceof Error ? e.message : "분석을 불러오지 못했습니다",
+          });
         }
       }
     }
@@ -245,7 +256,12 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
           <h2 className={styles.sectionTitle}>테크노펀더멘탈 분석</h2>
           <span className={styles.growthTag}>성장·기술·탑다운</span>
         </div>
-        <AnalysisPanel code={code} />
+        <AnalysisPanel
+          code={code}
+          analysis={analysis.data}
+          status={analysis.status}
+          message={analysis.message}
+        />
       </section>
 
       <section className={styles.chartCard}>
