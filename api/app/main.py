@@ -22,10 +22,10 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="reporter web API", lifespan=lifespan)
 
-# 개발 중 Next.js(localhost:3000) 에서 호출 허용
+# 개발 중 Next.js(localhost:43000) 에서 호출 허용
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=["http://localhost:43000", "http://127.0.0.1:43000"],
     allow_methods=["*"],
     allow_headers=["*"],
 )

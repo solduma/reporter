@@ -109,7 +109,7 @@ uv run reporter --batch 1 | --all     # (레거시) 종합 브리핑
 **재부팅·재로그인 후에도 자동 유지**된다(매번 다시 등록할 필요 없음).
 
 등록 항목: ① CLI 텔레그램 예약 잡(premarket/digest/news/… — StartCalendarInterval),
-② **웹서비스 상시 서버** `com.reporter.server.api`(:8010)·`com.reporter.server.web`(:3000)
+② **웹서비스 상시 서버** `com.reporter.server.api`(:8010)·`com.reporter.server.web`(:43000)
 — RunAtLoad+KeepAlive 로 부팅 시 자동 실행·죽으면 재시작. (web 서버는 `cd web && pnpm build`
 산출물이 있어야 등록된다.) 상태 확인·재기동은 Admin TUI 에서, 또는 `launchctl kickstart -k`.
 

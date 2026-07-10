@@ -18,8 +18,8 @@ api: ## API 서버 실행 (:8010, reload)
 worker: ## 수집 스케줄러(워커) 실행
 	cd api && uv run reporter-worker
 
-web: ## 웹 개발 서버 실행 (:3000)
-	cd web && pnpm dev
+web: ## 웹 개발 서버 실행 (:43000)
+	cd web && pnpm dev -p 43000
 
 install: ## 의존성 설치 (cli/api uv + web pnpm)
 	uv sync
