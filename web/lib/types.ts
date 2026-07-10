@@ -75,6 +75,7 @@ export interface CompanyAnalysis {
   axes: AnalysisAxis[];
   topdown: TopDownView | null;
   comment: string | null;
+  comment_pending?: boolean; // true면 코멘트 백그라운드 생성 중 — 재조회로 채움
 }
 
 export interface Report {

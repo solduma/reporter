@@ -274,6 +274,27 @@ class DailyMarketInfo(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class AnalysisComment(Base):
+    """종목 분석 LLM 종합 코멘트 캐시.
+
+    코멘트 생성은 Ollama 호출로 ~17초 걸려 매 요청 동기 생성하면 화면이 느리다. 축 점수·지표
+    입력의 해시(inputs_hash)로 캐시해, 입력이 같으면 저장분을 즉시 주고, 없거나 바뀌면
+    백그라운드로 재생성한다. stock_code 당 1행(최신 입력 기준)만 유지한다.
+    """
+
+    __tablename__ = "analysis_comment"
+    __table_args__ = (UniqueConstraint("stock_code", name="uq_analysis_comment_code"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    stock_code: Mapped[str] = mapped_column(String(6), index=True)
+    inputs_hash: Mapped[str] = mapped_column(String(16))  # 축 점수·지표 입력 해시(캐시 유효성)
+    comment: Mapped[str] = mapped_column(Text, default="")
+    model: Mapped[str] = mapped_column(String(64), default="")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class FallbackEvent(Base):
     """폴백(1차 소스/방법 실패 → 2차 대안 전환) 발생 이력.
 

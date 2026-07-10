@@ -38,7 +38,14 @@ from app.schemas import (
     TimelineItem,
     TopDownView,
 )
-from app.services import analysis, candle_service, dart_ingest, quote, technicals
+from app.services import (
+    analysis,
+    analysis_comment,
+    candle_service,
+    dart_ingest,
+    quote,
+    technicals,
+)
 
 router = APIRouter(prefix="/api/companies", tags=["companies"])
 
@@ -231,14 +238,17 @@ def company_analysis(
     axes = [growth_axis, tech_axis, topdown_axis]
     overall_sc = analysis.overall([growth_sc, tech.trend_score, topdown_sc])
 
-    # LLM 종합 코멘트 — 키 있을 때만(없으면 None 반환).
-    comment = analysis.llm_comment(
-        settings.ollama_host,
-        settings.ollama_api_key,
-        settings.insight_model,
-        name or code,
-        [a.model_dump() for a in axes],
-    )
+    # LLM 종합 코멘트 — 캐시 우선. 미스면 백그라운드 생성(응답은 pending 으로 즉시 반환,
+    # 프론트가 재조회로 채운다). 동기 생성(~17초) 제거로 화면이 스코어와 함께 즉시 뜬다.
+    axes_dump = [a.model_dump() for a in axes]
+    comment = None
+    comment_pending = False
+    if settings.ollama_api_key:
+        h = analysis_comment.inputs_hash(axes_dump)
+        comment = analysis_comment.get_cached(db, code, h)
+        if comment is None:
+            comment_pending = True
+            bg.add_task(analysis_comment.generate_and_store, code, name or code, axes_dump, h)
 
     return CompanyAnalysis(
         stock_code=code,
@@ -248,6 +258,7 @@ def company_analysis(
         axes=axes,
         topdown=TopDownView(**topdown_view),
         comment=comment,
+        comment_pending=comment_pending,
     )
 
 
