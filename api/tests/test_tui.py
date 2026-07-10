@@ -47,6 +47,11 @@ def _stub_services(monkeypatch):
         lambda db: {"latest_report_date": "2026-07-08", "latest_universe_date": "2026-07-08", "universe_today_rows": "4295"},
     )
     monkeypatch.setattr(tui.admin_status, "screener_preview", _fake_preview)
+    monkeypatch.setattr(
+        tui.admin_status, "db_status",
+        lambda db: [admin_status.TableStatus(name="리포트", rows=49, latest="2026-07-08")],
+    )
+    monkeypatch.setattr(tui.admin_status, "backfill_progress", lambda db: (2, 2767))
 
 
 async def test_tui_mounts_and_shows_status():
