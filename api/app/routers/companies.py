@@ -404,6 +404,9 @@ def company_timeline(
         except Exception as e:  # 공시 동기화 실패가 리포트 타임라인까지 막지 않도록
             import logging
 
+            # 동기화가 세션을 미완결 상태로 남겼을 수 있어 롤백한다. 안 하면 이후 쿼리가
+            # PendingRollbackError 로 터져 타임라인 전체가 500 이 된다.
+            db.rollback()
             logging.getLogger(__name__).warning("disclosure sync failed %s: %s", code, e)
 
     items: list[TimelineItem] = []
