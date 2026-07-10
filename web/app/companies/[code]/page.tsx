@@ -63,6 +63,20 @@ function compareTf(tf: Timeframe): ChartTimeframe {
   return tf === "30m" ? "day" : tf;
 }
 
+// 재무 기간('2026.03') → 분기말 'YYYY-MM-DD'. 밸류 밴드 슬라이더 날짜축용
+// (MultipleBandChart 의 periodToDate 와 동일 규칙).
+const QUARTER_END: Record<string, string> = {
+  "03": "-03-31",
+  "06": "-06-30",
+  "09": "-09-30",
+  "12": "-12-31",
+};
+function periodToIso(period: string): string | null {
+  const m = period.match(/(\d{4})\.(\d{2})/);
+  const tail = m ? QUARTER_END[m[2]] : undefined;
+  return m && tail ? `${m[1]}${tail}` : null;
+}
+
 // 각 섹션이 독립적으로 로딩/실패하도록 상태를 분리해 관리한다.
 type SectionState<T> = { status: "loading" | "ready" | "error"; data: T; message?: string };
 
@@ -77,6 +91,8 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
   const [error, setError] = useState<string | null>(null);
   // date-range: 시작·종료일(ISO). null 이면 데이터 로드 후 최근 3개월로 초기화.
   const [dateRange, setDateRange] = useState<{ from: string; to: string } | null>(null);
+  // 밸류에이션 밴드 전용 기간(탑다운 슬라이더와 독립). null 이면 재무 로드 후 전체 구간으로 초기화.
+  const [valuationRange, setValuationRange] = useState<{ from: string; to: string } | null>(null);
 
   const [analysis, setAnalysis] = useState<SectionState<CompanyAnalysis | null>>({
     status: "loading",
@@ -254,6 +270,31 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
     [dateRange],
   );
 
+  // 밸류에이션 밴드 슬라이더의 날짜축 — 재무 분기말 'YYYY-MM-DD' 오름차순(중복 제거).
+  const valuationAxis = useMemo(() => {
+    const isos = financials.data
+      .map((f) => periodToIso(f.period))
+      .filter((v): v is string => v !== null);
+    return Array.from(new Set(isos)).sort();
+  }, [financials.data]);
+
+  // 재무 로드되면 밸류 밴드 기간을 전체 구간으로 초기화(한 번만).
+  useEffect(() => {
+    if (valuationAxis.length > 0) {
+      setValuationRange(
+        (prev) => prev ?? { from: valuationAxis[0], to: valuationAxis[valuationAxis.length - 1] },
+      );
+    }
+  }, [valuationAxis]);
+
+  const valuationChartRange: ChartRange | null = useMemo(
+    () =>
+      valuationRange
+        ? { from: dateToTs(valuationRange.from), to: dateToTs(valuationRange.to) }
+        : null,
+    [valuationRange],
+  );
+
   const displayName = summary?.stock_name ?? "이름 미상";
 
   // 조회한 종목을 '자주 찾는 종목'(localStorage)에 자동 추가. 이름이 확인된 뒤에만 등록해
@@ -402,11 +443,23 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
         </div>
       </section>
 
-      {/* PER · PBR · PSR 분위수 밴드 */}
+      {/* PER · PBR · PSR 분위수 밴드 (자체 date-range 슬라이더로 3개 차트 동시 조작) */}
       <section className={styles.chartCard}>
         <h2 className={styles.sectionTitle}>밸류에이션 밴드 (PER · PBR · PSR)</h2>
         {financials.status === "ready" && financials.data.length > 0 ? (
-          <MultipleBandChart data={financials.data} range={chartRange} />
+          <>
+            {valuationRange && valuationAxis.length > 1 ? (
+              <div className={styles.controlBar}>
+                <DateRangeSlider
+                  dates={valuationAxis}
+                  from={valuationRange.from}
+                  to={valuationRange.to}
+                  onChange={(from, to) => setValuationRange({ from, to })}
+                />
+              </div>
+            ) : null}
+            <MultipleBandChart data={financials.data} range={valuationChartRange} />
+          </>
         ) : (
           <div className={styles.sectionStatus}>재무 데이터가 없습니다</div>
         )}
