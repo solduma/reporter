@@ -21,6 +21,24 @@ _LABEL_PREFIX = "com.reporter.server"
 _WEB_DIR = Path(__file__).resolve().parents[3] / "web"
 
 
+def web_login_enabled() -> bool | None:
+    """웹 로그인 게이트 활성 여부. web/.env.local 의 LOGIN_PASSWORD 가 비어있지 않으면 켜짐.
+
+    비밀번호 값 자체는 절대 반환하지 않는다(설정 여부만). 파일이 없으면 None(판별 불가).
+    """
+    env_local = _WEB_DIR / ".env.local"
+    if not env_local.is_file():
+        return None
+    for raw in env_local.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        if key.strip() == "LOGIN_PASSWORD":
+            return bool(value.strip())
+    return False  # 키가 없으면 게이트 열림(미들웨어가 PASSWORD 미설정 시 통과)
+
+
 @dataclass
 class ServerSpec:
     key: str
