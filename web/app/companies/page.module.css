@@ -32,10 +32,20 @@
   font-weight: 600;
 }
 
+.empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 12px;
+}
+
+.cardWrap {
+  position: relative;
 }
 
 .card {
@@ -53,6 +63,37 @@
 .card:hover {
   border-color: var(--accent);
   transform: translateY(-1px);
+}
+
+/* 카드 우측 상단 제거 버튼. 카드(Link) 위에 겹쳐 두되 클릭이 링크로 전파되지 않게 별도 요소로 둔다. */
+.remove {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  font-size: 0.8rem;
+  line-height: 1;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease;
+}
+
+.cardWrap:hover .remove,
+.remove:focus-visible {
+  opacity: 1;
+}
+
+.remove:hover {
+  background: var(--border);
 }
 
 .name {
