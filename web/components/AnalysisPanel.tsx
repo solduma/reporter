@@ -130,6 +130,11 @@ export default function AnalysisPanel({ code, analysis, status, message }: Props
           <span className={styles.commentTag}>AI 종합</span>
           <p className={styles.commentBody}>{a.comment}</p>
         </div>
+      ) : a.comment_pending ? (
+        <div className={styles.comment}>
+          <span className={styles.commentTag}>AI 종합</span>
+          <p className={styles.commentBody}>AI 종합 코멘트 생성 중…</p>
+        </div>
       ) : (
         <p className={styles.note}>
           미국 섹터 선행(리버모어)은 안정 조회되는 반도체·기술·대형주 프록시 기준입니다.

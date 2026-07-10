@@ -202,7 +202,8 @@ class CompanyAnalysis(BaseModel):
     overall_score: float | None  # 3축 종합 0~100
     axes: list[AnalysisAxis]
     topdown: TopDownView | None
-    comment: str | None  # LLM 종합 코멘트(키 없으면 None)
+    comment: str | None  # LLM 종합 코멘트(캐시 히트 시 값, 키 없으면 None)
+    comment_pending: bool = False  # True 면 백그라운드 생성 중 — 프론트가 재조회로 채운다
 
 
 class SectorRow(BaseModel):

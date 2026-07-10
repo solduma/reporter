@@ -98,12 +98,18 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
 
   useEffect(() => {
     let active = true;
+    let pollTimer: ReturnType<typeof setTimeout> | undefined;
     async function load() {
       setAnalysis({ status: "loading", data: null });
       try {
         const res = await fetchCompanyAnalysis(code);
-        if (active) {
-          setAnalysis({ status: "ready", data: res });
+        if (!active) {
+          return;
+        }
+        setAnalysis({ status: "ready", data: res });
+        // 코멘트가 백그라운드 생성 중이면(캐시 미스) 완성될 때까지 폴링해 채운다.
+        if (res.comment_pending) {
+          pollTimer = setTimeout(() => void load(), 3000);
         }
       } catch (e) {
         // 분석 실패 시 비교 차트(지수·섹터)만 생략한다 — 종목 차트는 별도로 뜬다.
@@ -118,6 +124,9 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
     }
     void load();
     return () => {
+      if (pollTimer) {
+        clearTimeout(pollTimer);
+      }
       active = false;
     };
   }, [code]);

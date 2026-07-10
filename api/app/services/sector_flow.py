@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -15,6 +17,13 @@ import requests
 from app.services import chart, technicals
 from app.services.technicals import Technicals
 from reporter import sector_etf
+
+# compute_flows 는 섹터 ETF ~17종(KR/US 각각)의 일봉을 외부 조회해 ~1초 걸린다. 섹터 ETF 는
+# PriceCandle 에 저장돼 있지 않고, flow 스코어는 일봉 기반이라 분 단위로 안 바뀐다. /analysis·
+# /api/sectors/flow 가 매 요청 재조회하지 않도록 시장별로 프로세스 인메모리 TTL 캐시를 둔다.
+_FLOW_TTL_S = 300.0  # 5분
+_flow_cache: dict[str, tuple[float, list]] = {}
+_flow_lock = threading.Lock()
 
 
 @dataclass
@@ -62,7 +71,26 @@ def foreign_delta(foreign_ratios: list[float | None], lookback: int = 20) -> flo
 
 
 def compute_flows(market: str, session: requests.Session | None = None) -> list[SectorFlow]:
-    """시장(KR|US)의 모든 섹터 ETF flow 를 계산해 flow_score 내림차순으로 반환한다."""
+    """시장(KR|US)의 모든 섹터 ETF flow 를 계산해 flow_score 내림차순으로 반환한다.
+
+    5분 TTL 프로세스 캐시. 외부 조회(~1초)를 반복하지 않는다.
+    """
+    now = time.monotonic()
+    with _flow_lock:
+        cached = _flow_cache.get(market)
+        if cached and now - cached[0] < _FLOW_TTL_S:
+            return cached[1]
+
+    flows = _compute_flows_uncached(market, session)
+    if flows:  # 전량 실패(빈 결과)는 캐시하지 않고 다음 호출에서 재시도
+        with _flow_lock:
+            _flow_cache[market] = (time.monotonic(), flows)
+    return flows
+
+
+def _compute_flows_uncached(
+    market: str, session: requests.Session | None = None
+) -> list[SectorFlow]:
     session = session or requests.Session()
     etfs = sector_etf.KR_SECTOR_ETFS if market == "KR" else sector_etf.US_SECTOR_ETFS
     end = datetime.now()
