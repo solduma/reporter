@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 import time
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 
-import requests
 from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
@@ -27,13 +27,14 @@ from app.schemas import (
     SectorFlowRow,
     SectorRow,
 )
-from app.services import candle_service, chart, sector_flow
-from reporter import sector_etf, us_market
+from app.services import candle_service, market_quote, sector_flow
+from reporter import sector_etf
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["market"])
 
-# tf 별 조회 범위: 일=2년, 주=10년, 월=3년(종목 상세와 통일).
-_CHART_RANGE_DAYS = {"day": 365 * 2 + 10, "week": 365 * 10 + 30, "month": 365 * 3 + 30}
+# tf 별 조회 범위: 일·주·월 모두 10년(종목 상세와 통일). 저장은 DB, 조회는 date-range 로 제한.
+_CHART_RANGE_DAYS = {"day": 365 * 10 + 30, "week": 365 * 10 + 30, "month": 365 * 10 + 30}
 
 # 섹터 ETF 로테이션은 시장당 12~15회 차트 조회라 무거워 프로세스 캐시(TTL)로 반복 부하를 막는다.
 _FLOW_TTL = 300.0  # 초
@@ -163,8 +164,13 @@ def sector_chart_meta(industry: str) -> SectorChartMeta:
 
 
 @router.get("/market/overview", response_model=MarketOverview)
-def market_overview(db: Session = Depends(get_session)) -> MarketOverview:
-    """시황 대시보드 통합 — 미국지수 + 국내시황 요약 + 핫섹터 + 무역 스파크."""
+def market_overview(
+    bg: BackgroundTasks, db: Session = Depends(get_session)
+) -> MarketOverview:
+    """시황 대시보드 통합 — 미국지수 + 국내시황 요약 + 핫섹터 + 무역 스파크.
+
+    지수·환율은 DB 스냅샷(market_quote) 우선. 없으면 최초 1회 동기 스냅샷, 오래됐으면 백그라운드.
+    """
     brief = db.scalars(
         select(DailyMarketInfo).order_by(DailyMarketInfo.market_date.desc()).limit(1)
     ).first()
@@ -181,10 +187,14 @@ def market_overview(db: Session = Depends(get_session)) -> MarketOverview:
             for q in quotes
         ]
 
-    indices = _index_dicts(us_market.fetch_us_indices())
-    # 국내 지수(코스피·코스닥) 옆에 원/달러 환율을 함께 노출한다.
-    kr_indices = _index_dicts(us_market.fetch_kr_indices()) + _index_dicts(
-        us_market.fetch_exchange_rates()
+    # DB 우선 시세. 비어 있으면 최초 1회 동기 스냅샷, 신선하지 않으면 백그라운드 갱신.
+    if not market_quote.latest_quotes(db, "us"):
+        market_quote.snapshot_quotes(db)
+    elif market_quote.is_stale(db):
+        bg.add_task(_snapshot_quotes_bg)
+    indices = _index_dicts(market_quote.latest_quotes(db, "us"))
+    kr_indices = _index_dicts(market_quote.latest_quotes(db, "kr")) + _index_dicts(
+        market_quote.latest_quotes(db, "fx")
     )
 
     hot = [
@@ -227,15 +237,14 @@ def _kr_chart(db: Session, code: str, tf: str, bg: BackgroundTasks) -> list[Cand
     ]
 
 
-def _us_chart(symbol: str, tf: str) -> list[CandlePoint]:
-    """미국 ETF/종목 봉 — foreign 실시간 조회(저장 안 함, 심볼이 6자리 초과라 PriceCandle 부적합)."""
-    session = requests.Session()
-    end = datetime.now()
-    start = end - timedelta(days=_CHART_RANGE_DAYS[tf])
-    fresh = chart.fetch_periodic_foreign(symbol, tf, start, end, session)
+def _us_chart(db: Session, symbol: str, tf: str, bg: BackgroundTasks) -> list[CandlePoint]:
+    """미국 ETF/지수 봉 — DB 우선. 미국 심볼도 PriceCandle 에 저장(stock_code 16자로 확장)."""
+    rows = candle_service.ensure_periodic(db, symbol, tf, market="US")
+    if candle_service.is_stale(db, symbol, tf):
+        bg.add_task(candle_service.refresh_periodic, symbol, tf, "US")
     return [
-        CandlePoint(t=c.ts.date().isoformat(), o=c.open, h=c.high, low=c.low, c=c.close, v=c.volume)
-        for c in fresh
+        CandlePoint(t=r.bar_date.isoformat(), o=r.open, h=r.high, low=r.low, c=r.close, v=r.volume)
+        for r in rows
     ]
 
 
@@ -247,23 +256,31 @@ def chart_candles(
     tf: str = Query(default="day", pattern="^(day|week|month)$"),
     db: Session = Depends(get_session),
 ) -> list[CandlePoint]:
-    """범용 봉 차트 — 섹터 ETF·지수·종목 공용. 국내=DB우선+백그라운드증분, 미국=실시간 foreign."""
-    return _kr_chart(db, symbol, tf, bg) if market == "KR" else _us_chart(symbol, tf)
+    """범용 봉 차트 — 섹터 ETF·지수·종목 공용. 국내·미국 모두 DB 우선 + 백그라운드 증분."""
+    return _kr_chart(db, symbol, tf, bg) if market == "KR" else _us_chart(db, symbol, tf, bg)
 
 
 # 로그인 진입 시 미리 데워 둘 지수 심볼(일봉). 대시보드·비교 차트에서 가장 먼저 쓰인다.
 _WARM_INDICES = ("KOSPI", "KOSDAQ")
 
 
-def _warm() -> None:
-    """지수 시세 캐시(120s TTL) 워밍 + 지수 일봉 증분 갱신. 실패는 흡수(백그라운드)."""
+def _snapshot_quotes_bg() -> None:
+    """백그라운드 지수·환율 스냅샷 적재 — 자체 세션. 실패 흡수."""
+    from app.db.session import SessionLocal
+
+    db = SessionLocal()
     try:
-        # 대시보드 지수·환율 타일용 인메모리 캐시를 미리 채운다(첫 조회의 네이버 왕복 제거).
-        us_market.fetch_us_indices()
-        us_market.fetch_kr_indices()
-        us_market.fetch_exchange_rates()
-    except Exception:
-        pass
+        market_quote.snapshot_quotes(db)
+    except Exception as e:
+        db.rollback()
+        logger.warning("market quote snapshot failed: %s", e)
+    finally:
+        db.close()
+
+
+def _warm() -> None:
+    """지수·환율 시세를 DB 스냅샷으로 적재 + 지수 일봉 증분 갱신. 실패는 흡수(백그라운드)."""
+    _snapshot_quotes_bg()  # 대시보드 타일용 시세를 DB 에 미리 채운다(첫 조회 지연 제거)
     for sym in _WARM_INDICES:
         candle_service.refresh_periodic(sym, "day")
 

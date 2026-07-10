@@ -8,10 +8,19 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.models import (
+    Broadcast,
+    DailyMarketInfo,
     Disclosure,
+    Financial,
     GrowthMetric,
+    MarketQuote,
+    Peer,
+    PriceCandle,
+    PriceCandleIntraday,
     Report,
     ReportAnalysis,
+    SyncState,
+    TradeStat,
     UniverseSnapshot,
 )
 
@@ -43,6 +52,61 @@ def freshness(db: Session) -> dict[str, str]:
         "latest_universe_date": str(latest_uni) if latest_uni else "—",
         "universe_today_rows": str(uni_rows),
     }
+
+
+@dataclass
+class TableStatus:
+    name: str
+    rows: int
+    latest: str  # 최신 업데이트 시각(문자열, 없으면 '—')
+
+
+# (표시명, 모델, 최신시각 컬럼). 컬럼이 None 이면 행수만.
+_DB_TABLES = [
+    ("일봉/주월봉", PriceCandle, PriceCandle.bar_date),
+    ("30분봉", PriceCandleIntraday, PriceCandleIntraday.bar_ts),
+    ("재무", Financial, Financial.updated_at),
+    ("동일업종", Peer, Peer.updated_at),
+    ("공시", Disclosure, Disclosure.created_at),
+    ("리포트", Report, Report.published_date),
+    ("유니버스", UniverseSnapshot, UniverseSnapshot.snapshot_date),
+    ("성장지표", GrowthMetric, GrowthMetric.updated_at),
+    ("시황요약", DailyMarketInfo, DailyMarketInfo.updated_at),
+    ("지수·환율", MarketQuote, MarketQuote.ts),
+    ("무역통계", TradeStat, TradeStat.updated_at),
+    ("브로드캐스트", Broadcast, Broadcast.created_at),
+]
+
+
+def db_status(db: Session) -> list[TableStatus]:
+    """주요 테이블별 행수 + 최신 업데이트 시각(적재 현황 패널용)."""
+    out: list[TableStatus] = []
+    for name, model, ts_col in _DB_TABLES:
+        rows = db.scalar(select(func.count()).select_from(model)) or 0
+        latest = db.scalar(select(func.max(ts_col)))
+        # 날짜/시각을 분까지만 간결히.
+        latest_str = "—"
+        if latest is not None:
+            latest_str = str(latest)[:16]
+        out.append(TableStatus(name=name, rows=rows, latest=latest_str))
+    return out
+
+
+def backfill_progress(db: Session) -> tuple[int, int]:
+    """10년 백필 (완료 종목 수, 유니버스 총 종목 수)."""
+    done = db.scalar(
+        select(func.count()).select_from(SyncState).where(SyncState.domain == "backfill_10y")
+    ) or 0
+    latest_uni = db.scalar(select(func.max(UniverseSnapshot.snapshot_date)))
+    total = 0
+    if latest_uni:
+        total = db.scalar(
+            select(func.count()).select_from(UniverseSnapshot).where(
+                UniverseSnapshot.snapshot_date == latest_uni,
+                UniverseSnapshot.stock_type == "stock",
+            )
+        ) or 0
+    return done, total
 
 
 @dataclass

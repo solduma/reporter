@@ -109,6 +109,8 @@ class AdminTUI(App):
     #schedule { height: auto; max-height: 12; border: round $primary; margin: 0 1; }
     #fallback_title { height: auto; padding: 0 1; }
     #fallback { height: auto; max-height: 10; border: round $warning; margin: 0 1; }
+    #db_title { height: auto; padding: 0 1; }
+    #db_status { height: auto; max-height: 14; border: round $success; margin: 0 1; }
     #log { height: 10; border: round $secondary; }
     #preview_bar { height: auto; align: left middle; padding: 0 1; }
     #preview_bar Button { margin: 0 1; min-width: 8; }
@@ -157,6 +159,8 @@ class AdminTUI(App):
                 yield Button("발송 on/off", id="job_toggle")
                 yield Button("시각 편집", id="job_edit", variant="primary")
             yield DataTable(id="schedule")
+            yield Static(id="db_title")
+            yield DataTable(id="db_status")
             yield Static(id="fallback_title")
             yield DataTable(id="fallback")
             yield Log(id="log", highlight=True)
@@ -193,6 +197,9 @@ class AdminTUI(App):
 
         fb = self.query_one("#fallback", DataTable)
         fb.add_columns("시각", "종류", "사유", "대상")
+
+        dbt = self.query_one("#db_status", DataTable)
+        dbt.add_columns("테이블", "행수", "최신 업데이트")
 
         self.action_refresh()
         # 서버가 스스로 죽거나(bind 실패·크래시) 하면 상태 패널이 stale 하지 않도록 주기 갱신.
@@ -249,6 +256,7 @@ class AdminTUI(App):
         self.query_one("#status", Static).update("\n".join(lines))
         self._refresh_server_status()
         self._load_schedule()
+        self._load_db_status()
         self._load_fallbacks()
         self._load_preview()
 
@@ -268,6 +276,24 @@ class AdminTUI(App):
             table.add_row(f"{job.suffix}  [dim]{job.desc}[/dim]", job.time_label, state)
         if self._jobs_cache:
             table.move_cursor(row=min(prev_row, len(self._jobs_cache) - 1))
+
+    def _load_db_status(self) -> None:
+        """DB 적재 현황 — 테이블별 행수·최신 업데이트 + 10년 백필 진행도."""
+        db = SessionLocal()
+        try:
+            statuses = admin_status.db_status(db)
+            done, total = admin_status.backfill_progress(db)
+        finally:
+            db.close()
+
+        pct = f"{done / total * 100:.0f}%" if total else "—"
+        self.query_one("#db_title", Static).update(
+            f"[b]DB 적재 현황[/b]  10년 일봉 백필: {done:,}/{total:,} ({pct})"
+        )
+        table = self.query_one("#db_status", DataTable)
+        table.clear()
+        for s in statuses:
+            table.add_row(s.name, f"{s.rows:,}", s.latest)
 
     def _load_fallbacks(self) -> None:
         """폴백 발생 이력 — 최근 이벤트 + 24h key 별 집계를 표시한다."""

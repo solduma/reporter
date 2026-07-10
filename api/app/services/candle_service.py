@@ -27,7 +27,7 @@ from app.services import chart, intraday
 logger = logging.getLogger(__name__)
 
 # tf 별 최초(DB 비었을 때) 조회 범위. 일=2년·주=10년·월=3년(라우터와 통일).
-RANGE_DAYS = {"day": 365 * 2 + 10, "week": 365 * 10 + 30, "month": 365 * 3 + 30}
+RANGE_DAYS = {"day": 365 * 10 + 30, "week": 365 * 10 + 30, "month": 365 * 10 + 30}
 
 # 같은 (code, tf) 증분 갱신이 동시에 여러 번 돌지 않도록 하는 인프로세스 가드
 # (한 페이지가 차트 6~7개를 동시에 열어 같은 심볼을 중복 트리거하는 것을 막는다).
@@ -131,10 +131,11 @@ def batch_upsert_periodic(
     return len(rows)
 
 
-def ensure_periodic(db: Session, code: str, tf: str) -> list[PriceCandle]:
+def ensure_periodic(db: Session, code: str, tf: str, market: str = "KR") -> list[PriceCandle]:
     """DB 우선. 비어 있으면 그때만 동기 조회(최초 1회), 아니면 저장분을 즉시 반환한다.
 
     호출측이 BackgroundTask 로 refresh_periodic 을 걸어 증분 최신화를 별도로 수행한다.
+    국내/미국 공용(market 로 소스 분기).
     """
     rows = read_periodic(db, code, tf)
     if rows:
@@ -142,7 +143,7 @@ def ensure_periodic(db: Session, code: str, tf: str) -> list[PriceCandle]:
     # DB 가 비었으면(처음 보는 심볼) 최초 1회 동기 조회로 화면을 채운다. 단 데이터가 아예 없는
     # 심볼(상폐·오타)은 매 요청 ~1.7s 동기 조회를 반복하지 않도록 쿨다운으로 막는다.
     if _cooldown_ok(f"{code}|{tf}"):
-        _fetch_and_store(db, code, tf, since=None)
+        _fetch_and_store(db, code, tf, since=None, market=market)
         rows = read_periodic(db, code, tf)
     return rows
 
@@ -153,22 +154,25 @@ def is_stale(db: Session, code: str, tf: str) -> bool:
     return latest is None or latest < datetime.now().date()
 
 
-def _fetch_and_store(db: Session, code: str, tf: str, since) -> int:
-    """네이버(→KIS 폴백)로 [since→now] 구간(since 없으면 전체 범위)을 조회·배치 upsert."""
+def _fetch_and_store(db: Session, code: str, tf: str, since, market: str = "KR") -> int:
+    """[since→now] 구간(since 없으면 tf 기본 범위)을 조회·배치 upsert. 국내=네이버(→KIS 폴백),
+    미국=네이버 foreign. 미국 심볼도 같은 PriceCandle 에 저장(stock_code 로 구분, 충돌 없음)."""
     session = requests.Session()
     end = datetime.now()
-    # since 가 있으면 마지막 봉 하루 전부터(경계 봉 갱신 포함), 없으면 tf 기본 범위 전체.
     start = (
         datetime(since.year, since.month, since.day) - timedelta(days=1)
         if since
         else end - timedelta(days=RANGE_DAYS[tf])
     )
-    fresh = chart.fetch_periodic_with_fallback(get_settings(), code, tf, start, end, session)
+    if market == "US":
+        fresh = chart.fetch_periodic_foreign(code, tf, start, end, session)
+    else:
+        fresh = chart.fetch_periodic_with_fallback(get_settings(), code, tf, start, end, session)
     return batch_upsert_periodic(db, code, Timeframe(tf), fresh)
 
 
-def refresh_periodic(code: str, tf: str) -> None:
-    """백그라운드 증분 갱신 — 자체 세션. 마지막 bar 이후만 조회·적재한다.
+def refresh_periodic(code: str, tf: str, market: str = "KR") -> None:
+    """백그라운드 증분 갱신 — 자체 세션. 마지막 bar 이후만 조회·적재한다(국내/미국 공용).
 
     같은 (code, tf) 가 이미 갱신 중이거나 쿨다운 내면 건너뛴다(중복·헛된 외부 호출 방지).
     예외는 흡수한다(백그라운드라 요청 흐름에 영향 없음).
@@ -184,8 +188,8 @@ def refresh_periodic(code: str, tf: str) -> None:
         db = SessionLocal()
         try:
             latest = _latest_bar_date(db, code, Timeframe(tf))
-            n = _fetch_and_store(db, code, tf, since=latest)
-            logger.info("candle refresh %s: +%d bars (since=%s)", key, n, latest)
+            n = _fetch_and_store(db, code, tf, since=latest, market=market)
+            logger.info("candle refresh %s (%s): +%d bars (since=%s)", key, market, n, latest)
         finally:
             db.close()
     except Exception as e:  # 백그라운드 갱신 실패가 조회를 깨지 않도록
