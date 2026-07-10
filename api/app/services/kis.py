@@ -14,13 +14,19 @@ from datetime import datetime
 import requests
 
 from app.config import Settings
-from app.services.chart import Candle
+from app.services.chart import Candle, resample_candles_30min
 
 logger = logging.getLogger(__name__)
 
 _BASE = "https://openapi.koreainvestment.com:9443"
 _CHART_PATH = "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice"
 _TR_ID = "FHKST03010100"
+# 일자별 분봉: 한 요청이 끝 시각(FID_INPUT_HOUR_1)부터 과거로 최대 120분(1분봉)을 준다.
+_MIN_CHART_PATH = "/uapi/domestic-stock/v1/quotations/inquire-time-dailychartprice"
+_MIN_TR_ID = "FHKST03010230"
+# 정규장 09:00~15:30 을 끝 시각 기준으로 훑는 페이징 커서(각 120분 커버, 겹쳐도 dedup).
+_MIN_HOURS = ["153000", "133000", "113000", "093000"]
+_MIN_REQUEST_INTERVAL = 0.06  # 분봉 요청 간 간격(초). 초당 ~16건 이하로 rate limit 회피
 # tf → KIS FID_PERIOD_DIV_CODE
 _PERIOD = {"day": "D", "week": "W", "month": "M"}
 
@@ -132,3 +138,79 @@ def fetch_periodic(
         logger.warning("KIS chart rt_cd=%s msg=%s", data.get("rt_cd"), data.get("msg1"))
         return []
     return _parse_output2(data.get("output2") or [])
+
+
+def _headers(settings: Settings, token: str, tr_id: str) -> dict:
+    return {
+        "authorization": f"Bearer {token}",
+        "appkey": settings.kis_app_key,
+        "appsecret": settings.kis_app_secret,
+        "tr_id": tr_id,
+        "custtype": "P",
+    }
+
+
+def _minute_bars_for_day(
+    settings: Settings, token: str, stock_code: str, day: str, session: requests.Session
+) -> list[Candle]:
+    """특정 거래일(day=YYYYMMDD)의 1분봉을 끝시각 커서로 페이징해 모은다(dedup)."""
+    by_ts: dict[datetime, Candle] = {}
+    for hour in _MIN_HOURS:
+        time.sleep(_MIN_REQUEST_INTERVAL)  # KIS 시세 rate limit(초당 ~20건) 완화
+        try:
+            resp = session.get(
+                f"{_BASE}{_MIN_CHART_PATH}",
+                params={
+                    "FID_COND_MRKT_DIV_CODE": "J",
+                    "FID_INPUT_ISCD": stock_code,
+                    "FID_INPUT_DATE_1": day,
+                    "FID_INPUT_HOUR_1": hour,
+                    "FID_PW_DATA_INCU_YN": "N",
+                    "FID_FAKE_TICK_INCU_YN": "N",
+                },
+                headers=_headers(settings, token, _MIN_TR_ID),
+                timeout=15,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        except (requests.RequestException, ValueError) as e:
+            logger.warning("KIS minute fetch failed %s %s@%s: %s", stock_code, day, hour, e)
+            continue
+        if data.get("rt_cd") != "0":
+            continue
+        for r in data.get("output2") or []:
+            try:
+                d, t = r["stck_bsop_date"], r["stck_cntg_hour"]
+                vol = int(r.get("cntg_vol", 0))
+                if d != day or vol == 0:
+                    continue
+                ts = datetime.strptime(d + t, "%Y%m%d%H%M%S")
+                by_ts[ts] = Candle(
+                    ts=ts,
+                    open=float(r["stck_oprc"]),
+                    high=float(r["stck_hgpr"]),
+                    low=float(r["stck_lwpr"]),
+                    close=float(r["stck_prpr"]),
+                    volume=vol,
+                )
+            except (KeyError, ValueError, TypeError):
+                continue
+    return [by_ts[k] for k in sorted(by_ts)]
+
+
+def fetch_intraday_30min(
+    settings: Settings, stock_code: str, days: list[str], session: requests.Session | None = None
+) -> list[Candle]:
+    """KIS 로 여러 거래일(days=[YYYYMMDD,...])의 30분봉을 조회한다(네이버 분봉 백필용).
+
+    거래일마다 1분봉을 페이징 수집 후 30분으로 리샘플해 이어붙인다. 실패 시 빈 리스트.
+    """
+    session = session or requests.Session()
+    token = _access_token(settings, session)
+    if not token:
+        return []
+    out: list[Candle] = []
+    for day in days:
+        minutes = _minute_bars_for_day(settings, token, stock_code, day, session)
+        out.extend(resample_candles_30min(minutes))
+    return out

@@ -111,37 +111,48 @@ def fetch_periodic_foreign(
 
 
 def _resample_30min(minute_rows: list[dict]) -> list[Candle]:
-    """1분봉을 30분봉으로 리샘플한다(OHLC 집계, 거래량 합산)."""
-    buckets: dict[datetime, list[dict]] = {}
+    """네이버 1분봉(dict)을 30분봉으로 리샘플한다(OHLC 집계, 거래량 합산)."""
+    minutes: list[Candle] = []
     for r in minute_rows:
         try:
-            ts = datetime.strptime(r["localDateTime"], "%Y%m%d%H%M%S")
-        except (KeyError, ValueError):
-            continue
-        floored = ts.replace(minute=(ts.minute // _INTRADAY_BUCKET_MIN) * _INTRADAY_BUCKET_MIN, second=0)
-        buckets.setdefault(floored, []).append(r)
-
-    candles: list[Candle] = []
-    for bucket_ts in sorted(buckets):
-        # 소스 정렬에 의존하지 않도록 버킷 내부를 시각순으로 정렬(open/close 정확성).
-        rows = sorted(buckets[bucket_ts], key=lambda r: r.get("localDateTime", ""))
-        try:
-            highs = [float(r["highPrice"]) for r in rows]
-            lows = [float(r["lowPrice"]) for r in rows]
-            candles.append(
+            minutes.append(
                 Candle(
-                    ts=bucket_ts,
-                    open=float(rows[0]["openPrice"]),
-                    high=max(highs),
-                    low=min(lows),
-                    close=float(rows[-1]["currentPrice"]),  # 분봉 종가는 currentPrice
-                    # accumulatedTradingVolume 은 분봉 엔드포인트에선 per-bar 이므로 합산이 맞다.
-                    volume=sum(int(r.get("accumulatedTradingVolume", 0)) for r in rows),
+                    ts=datetime.strptime(r["localDateTime"], "%Y%m%d%H%M%S"),
+                    open=float(r["openPrice"]),
+                    high=float(r["highPrice"]),
+                    low=float(r["lowPrice"]),
+                    close=float(r["currentPrice"]),  # 분봉 종가는 currentPrice
+                    volume=int(r.get("accumulatedTradingVolume", 0)),
                 )
             )
         except (KeyError, ValueError, TypeError):
             continue
-    return candles
+    return resample_candles_30min(minutes)
+
+
+def resample_candles_30min(minutes: list[Candle]) -> list[Candle]:
+    """1분봉 Candle 리스트를 30분봉으로 리샘플한다(OHLC 집계·거래량 합산). 소스 무관 공용."""
+    buckets: dict[datetime, list[Candle]] = {}
+    for c in minutes:
+        floored = c.ts.replace(
+            minute=(c.ts.minute // _INTRADAY_BUCKET_MIN) * _INTRADAY_BUCKET_MIN, second=0
+        )
+        buckets.setdefault(floored, []).append(c)
+
+    out: list[Candle] = []
+    for bucket_ts in sorted(buckets):
+        rows = sorted(buckets[bucket_ts], key=lambda c: c.ts)  # open/close 정확성
+        out.append(
+            Candle(
+                ts=bucket_ts,
+                open=rows[0].open,
+                high=max(c.high for c in rows),
+                low=min(c.low for c in rows),
+                close=rows[-1].close,
+                volume=sum(c.volume for c in rows),
+            )
+        )
+    return out
 
 
 def fetch_intraday_30min(stock_code: str, session: requests.Session) -> list[Candle]:
