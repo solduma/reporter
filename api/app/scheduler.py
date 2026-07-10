@@ -35,6 +35,9 @@ _CANDLE_CRON = CronTrigger(day_of_week="mon-fri", hour=19, minute=30, timezone=_
 # 몰리고 price_candles 를 함께 변경한다. 깊은 새벽으로 빼 저녁 배치와 확실히 분리한다.
 # 주말도 실행해(장 없어도) 중단분 재개·신규 상장 종목을 채운다. 완료되면 즉시 종료(무부하).
 _BACKFILL_CRON = CronTrigger(hour=2, minute=0, timezone=_TZ)
+# 10년 재무·밸류(PER/PBR/PSR) 점진 백필: 매일 03:30. 종목당 40분기 DART 콜이라 무거워
+# 일봉 백필(02:00)과 시차를 둔다. sync_state 로 재개 가능, 완료되면 즉시 종료.
+_FIN_BACKFILL_CRON = CronTrigger(hour=3, minute=30, timezone=_TZ)
 
 
 def run_ingest_cycle(settings: Settings | None = None) -> dict:
@@ -100,6 +103,17 @@ def run_backfill_progressive(settings: Settings | None = None) -> dict:
         session.close()
 
 
+def run_financials_backfill(settings: Settings | None = None) -> dict:
+    """10년 재무·밸류 점진 백필 1회분(미완 종목 per_run 개). 여러 밤에 걸쳐 전체 완성."""
+    from app.services import financials_backfill
+
+    session = SessionLocal()
+    try:
+        return financials_backfill.run_backfill_progressive(session, settings)
+    finally:
+        session.close()
+
+
 def build_scheduler(settings: Settings | None = None) -> BlockingScheduler:
     """잡이 등록된 스케줄러를 반환한다 (start 는 호출자가)."""
     settings = settings or get_settings()
@@ -132,6 +146,14 @@ def build_scheduler(settings: Settings | None = None) -> BlockingScheduler:
         run_backfill_progressive,
         trigger=_BACKFILL_CRON,
         id="backfill_10y",
+        max_instances=1,
+        coalesce=True,
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        run_financials_backfill,
+        trigger=_FIN_BACKFILL_CRON,
+        id="financials_10y",
         max_instances=1,
         coalesce=True,
         replace_existing=True,

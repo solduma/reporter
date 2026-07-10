@@ -132,6 +132,25 @@ def fetch_financials(code: str, session: requests.Session) -> list[FinancialPeri
     return [r for r in records if r.period_type == "quarter"]
 
 
+def fetch_shares_outstanding(code: str, session: requests.Session) -> int | None:
+    """네이버 종목 페이지의 현재 상장주식수(주). PER/PBR/PSR 역산용. 실패 시 None.
+
+    과거 시점 주식수는 제공하지 않아 현재값을 쓴다(과거 증자·자사주 변동은 근사로 미반영).
+    """
+    soup = _fetch_soup(code, session)
+    if soup is None:
+        return None
+    for table in soup.select("table"):
+        text = table.get_text(" ", strip=True)
+        m = re.search(r"상장주식수\s*([\d,]+)", text)
+        if m:
+            try:
+                return int(m.group(1).replace(",", ""))
+            except ValueError:
+                return None
+    return None
+
+
 def fetch_peers(code: str, session: requests.Session) -> list[Peer]:
     """동일업종비교 테이블 — 종목별 지표."""
     soup = _fetch_soup(code, session)
