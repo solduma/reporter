@@ -76,10 +76,16 @@ export function removeQuickPick(code: string): void {
 }
 
 // companies 화면용 훅 — 마운트 시 읽고, 변경 이벤트(같은 탭·다른 탭)에 반응한다.
-export function useQuickPicks(): QuickPick[] {
+// ready 는 localStorage 를 실제로 읽었는지(effect 실행 후) 여부 — 로드 전 '빈 목록' 안내
+// 깜빡임을 막기 위해 '아직 안 읽음'과 '진짜 비었음'을 구분한다.
+export function useQuickPicks(): { picks: QuickPick[]; ready: boolean } {
   const [picks, setPicks] = useState<QuickPick[]>([]);
+  const [ready, setReady] = useState(false);
   useEffect(() => {
-    const sync = () => setPicks(getQuickPicks());
+    const sync = () => {
+      setPicks(getQuickPicks());
+      setReady(true);
+    };
     sync();
     window.addEventListener(CHANGE_EVENT, sync);
     window.addEventListener("storage", sync);
@@ -88,5 +94,5 @@ export function useQuickPicks(): QuickPick[] {
       window.removeEventListener("storage", sync);
     };
   }, []);
-  return picks;
+  return { picks, ready };
 }

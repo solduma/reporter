@@ -8,7 +8,7 @@ import { removeQuickPick, useQuickPicks } from "@/lib/quickPicks";
 import styles from "./page.module.css";
 
 export default function CompaniesPage() {
-  const picks = useQuickPicks();
+  const { picks, ready } = useQuickPicks();
 
   return (
     <div className={styles.page}>
@@ -20,7 +20,7 @@ export default function CompaniesPage() {
       <StockSearch />
 
       <div className={styles.quickHead}>자주 찾는 종목</div>
-      {picks.length === 0 ? (
+      {!ready ? null : picks.length === 0 ? (
         <p className={styles.empty}>조회한 종목이 여기에 쌓입니다. 위에서 검색해 보세요.</p>
       ) : (
         <div className={styles.grid}>
