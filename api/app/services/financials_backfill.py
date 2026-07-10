@@ -68,18 +68,27 @@ def _quarter_end_close(db: Session, code: str, year: int, quarter: int) -> float
     )
 
 
-def _discrete(annual_cumulative: dict[tuple[int, int], float | None], yq: tuple[int, int]) -> float | None:
-    """DART 값을 분기 개별값으로 환산. 1~3Q 는 그대로(당기 3개월), 4Q=연간-(1Q+2Q+3Q)."""
+def _discrete(raw: dict[tuple[int, int], float | None], yq: tuple[int, int]) -> float | None:
+    """DART 값을 분기 개별값으로 환산.
+
+    fnlttSinglAcntAll 의 thstrm_amount 는 실측상 1~3Q(분기·반기보고서)는 '당기 3개월'
+    개별값, 4Q(사업보고서)는 '연간 누적'이다 → Q4 개별 = 연간 - (Q1+Q2+Q3).
+    단 일부 회사는 반기보고서를 누적으로 낼 수 있어, 그 경우 Q4 환산이 음수가 되면(누적
+    신호) 신뢰할 수 없으므로 None 을 반환한다(해당 분기 밸류 미산출).
+    """
     year, q = yq
-    val = annual_cumulative.get(yq)
+    val = raw.get(yq)
     if val is None:
         return None
     if q != 4:
         return val
-    parts = [annual_cumulative.get((year, i)) for i in (1, 2, 3)]
+    parts = [raw.get((year, i)) for i in (1, 2, 3)]
     if any(p is None for p in parts):
         return None
-    return val - sum(parts)
+    discrete = val - sum(parts)
+    # 매출은 음수가 불가능하므로, 음수는 1~3Q 가 누적이었다는 신호 → 폐기. 순이익은 적자로
+    # 음수가 정상이라 여기서 거르지 않는다(호출측이 필드별로 판단).
+    return discrete
 
 
 def _ttm(discrete: dict[tuple[int, int], float | None], yq: tuple[int, int]) -> float | None:
@@ -108,7 +117,6 @@ def backfill_stock(db: Session, settings: Settings, code: str) -> bool:
     if not corp_code:
         return True  # 매핑 없음(비상장 등) → 완료 처리(재시도 불필요)
 
-    session = requests.Session()
     today = datetime.now(UTC).date()
     yqs = _target_year_quarters(today)
 
@@ -118,15 +126,17 @@ def backfill_stock(db: Session, settings: Settings, code: str) -> bool:
     eps_raw: dict[tuple[int, int], float | None] = {}
     equity: dict[tuple[int, int], float | None] = {}
     any_data = False
-    for year, q in yqs:
-        fin = dart.fetch_income_and_equity(settings.dart_api_key, corp_code, year, q, session)
-        if fin is None:
-            continue
-        any_data = True
-        rev_raw[(year, q)] = fin.revenue
-        ni_raw[(year, q)] = fin.net_income
-        eps_raw[(year, q)] = fin.eps
-        equity[(year, q)] = fin.equity
+    with requests.Session() as session:
+        for year, q in yqs:
+            fin = dart.fetch_income_and_equity(settings.dart_api_key, corp_code, year, q, session)
+            if fin is None:
+                continue
+            any_data = True
+            rev_raw[(year, q)] = fin.revenue
+            ni_raw[(year, q)] = fin.net_income
+            eps_raw[(year, q)] = fin.eps
+            equity[(year, q)] = fin.equity
+        shares = quote.fetch_shares_outstanding(code, session)
 
     if not any_data:
         return True  # 재무 공시 없음 → 완료 처리
@@ -135,8 +145,8 @@ def backfill_stock(db: Session, settings: Settings, code: str) -> bool:
     rev_q = {yq: _discrete(rev_raw, yq) for yq in rev_raw}
     ni_q = {yq: _discrete(ni_raw, yq) for yq in ni_raw}
     eps_q = {yq: _discrete(eps_raw, yq) for yq in eps_raw}
-
-    shares = quote.fetch_shares_outstanding(code, session)
+    # 매출 개별값이 음수면 1~3Q 가 누적 보고였다는 신호 → 그 분기 매출·TTM 을 신뢰 불가로 폐기.
+    rev_q = {yq: (v if (v is None or v >= 0) else None) for yq, v in rev_q.items()}
 
     updated = 0
     for year, q in yqs:
@@ -180,11 +190,18 @@ def backfill_stock(db: Session, settings: Settings, code: str) -> bool:
 
 
 def _upsert_financial(db: Session, code: str, period: str, **vals) -> None:
-    """Financial 행 upsert(백필 소유 필드만 갱신: 재무·PER/PBR/PSR). 추정치 아님."""
-    stmt = insert(Financial).values(stock_code=code, period=period, is_estimate=False, **vals)
+    """Financial 행 upsert(백필 소유 필드만 갱신: 재무·PER/PBR/PSR). 추정치 아님.
+
+    None 값은 갱신에서 제외한다 — 주식수 조회 실패(밸류 None) 등으로 기존 유효값(예: 네이버
+    per/pbr, 이전 백필분)을 NULL 로 덮어쓰지 않기 위함.
+    """
+    present = {k: v for k, v in vals.items() if v is not None}
+    if not present:
+        return
+    stmt = insert(Financial).values(stock_code=code, period=period, is_estimate=False, **present)
     stmt = stmt.on_conflict_do_update(
         constraint="uq_financial",
-        set_={k: getattr(stmt.excluded, k) for k in vals},
+        set_={k: getattr(stmt.excluded, k) for k in present},
     )
     db.execute(stmt)
 

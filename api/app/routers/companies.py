@@ -364,21 +364,26 @@ def company_financials(
 
 
 def _sync_financials(db: Session, code: str) -> None:
-    """네이버 재무 스크랩 → financials upsert + sync_state 마킹. 예외는 호출측이 처리."""
+    """네이버 재무 스크랩 → financials upsert + sync_state 마킹. 예외는 호출측이 처리.
+
+    per/pbr/psr(밸류)은 financials_backfill(총액·분할무관 방법론)이 전 분기를 일관되게
+    소유하므로 여기서 덮어쓰지 않는다(방법론 혼재로 밴드 시계열이 튀는 것 방지). 네이버는
+    operating_income/roe/추정치(E) 등 백필이 못 만드는 필드를 채운다.
+    """
     session = requests.Session()
     fetched = quote.fetch_financials(code, session)
     for f in fetched:
         stmt = insert(Financial).values(
             stock_code=code, period=f.period, is_estimate=f.is_estimate,
             revenue=f.revenue, operating_income=f.operating_income, net_income=f.net_income,
-            eps=f.eps, bps=f.bps, per=f.per, pbr=f.pbr, roe=f.roe,
+            eps=f.eps, bps=f.bps, roe=f.roe,
         )
         stmt = stmt.on_conflict_do_update(
             constraint="uq_financial",
             set_={
                 c: getattr(stmt.excluded, c)
                 for c in ("is_estimate", "revenue", "operating_income", "net_income",
-                          "eps", "bps", "per", "pbr", "roe")
+                          "eps", "bps", "roe")
             },
         )
         db.execute(stmt)
