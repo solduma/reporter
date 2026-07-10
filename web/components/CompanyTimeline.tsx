@@ -64,44 +64,48 @@ function TimelineRow({ item }: { item: TimelineItem }) {
   // 브로드캐스트는 종류 라벨(예: 📌 오후 리서치)을 배지에 노출해 성격을 드러낸다.
   const badgeText = isBroadcast && item.kind ? `📣 ${broadcastKindLabel(item.kind)}` : TYPE_LABEL[item.type];
 
+  const pdfButton = isBroadcast
+    ? typeof item.broadcast_id === "number"
+      ? (
+          <button type="button" className={styles.pdfButton} onClick={() => setBroadcastOpen(true)}>
+            브리핑 전문
+          </button>
+        )
+      : null
+    : item.report_id !== null
+      ? (
+          <button type="button" className={styles.pdfButton} onClick={() => setViewerOpen(true)}>
+            전체 리포트
+          </button>
+        )
+      : null;
+  const originalLink = item.link ? (
+    <a className={styles.link} href={item.link} target="_blank" rel="noopener noreferrer">
+      {isReport ? "원문 보기" : "공시 원문"}
+    </a>
+  ) : null;
+
   return (
     <li className={typeClass(item.type)}>
-      <div className={styles.topRow}>
-        <span className={badgeClass(item.type)}>{badgeText}</span>
-        <span className={styles.date}>{formatDate(item.date)}</span>
-        {isBroadcast ? null : <SentimentBadge sentiment={item.sentiment} />}
-      </div>
-
+      {/* 1줄: 제목 */}
       <h3 className={styles.title}>{item.title}</h3>
 
+      {/* 2줄: 타입 배지 · 소스 · 날짜 */}
       <div className={styles.meta}>
+        <span className={badgeClass(item.type)}>{badgeText}</span>
         <span className={styles.source}>{item.source}</span>
+        <span className={styles.date}>{formatDate(item.date)}</span>
       </div>
 
-      {item.rationale ? <p className={styles.rationale}>{item.rationale}</p> : null}
-
-      {isBroadcast ? (
-        typeof item.broadcast_id === "number" ? (
-          <div className={styles.actions}>
-            <button type="button" className={styles.pdfButton} onClick={() => setBroadcastOpen(true)}>
-              브리핑 전문
-            </button>
-          </div>
-        ) : null
-      ) : item.report_id !== null || item.link ? (
-        <div className={styles.actions}>
-          {item.report_id !== null ? (
-            <button type="button" className={styles.pdfButton} onClick={() => setViewerOpen(true)}>
-              전체 리포트
-            </button>
-          ) : null}
-          {item.link ? (
-            <a className={styles.link} href={item.link} target="_blank" rel="noopener noreferrer">
-              {isReport ? "원문 보기" : "공시 원문"}
-            </a>
-          ) : null}
+      {/* 3줄: 영향 분석(근거) — 좌측, 배지·원문 링크 — 우측 끝 */}
+      <div className={styles.footer}>
+        <p className={styles.rationale}>{item.rationale}</p>
+        <div className={styles.footerRight}>
+          {isBroadcast ? null : <SentimentBadge sentiment={item.sentiment} />}
+          {pdfButton}
+          {originalLink}
         </div>
-      ) : null}
+      </div>
 
       {viewerOpen && item.report_id !== null ? (
         <PdfViewer reportId={item.report_id} title={item.title} onClose={() => setViewerOpen(false)} />
