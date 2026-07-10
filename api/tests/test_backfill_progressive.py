@@ -70,7 +70,7 @@ def test_backfill_processes_only_pending_up_to_per_run(monkeypatch):
         return [_fresh(date(2020, 1, 2))]
 
     monkeypatch.setattr(candle_ingest.chart, "fetch_periodic_with_fallback", _fetch)
-    monkeypatch.setattr(candle_ingest, "_upsert", lambda *a: None)
+    monkeypatch.setattr(candle_ingest.candle_service, "batch_upsert_periodic", lambda *a: None)
     marked = []
     monkeypatch.setattr(candle_ingest.sync_state, "mark", lambda db, dom, code: marked.append(code))
 
@@ -87,7 +87,7 @@ def test_backfill_marks_even_without_candles(monkeypatch):
     # 봉이 없는(신규상장 등) 종목도 완료 마킹해 매일 재시도하지 않게 한다.
     db = _FakeDB(universe=["X"], already=set())
     monkeypatch.setattr(candle_ingest.chart, "fetch_periodic_with_fallback", lambda *a, **k: [])
-    monkeypatch.setattr(candle_ingest, "_upsert", lambda *a: None)
+    monkeypatch.setattr(candle_ingest.candle_service, "batch_upsert_periodic", lambda *a: None)
     marked = []
     monkeypatch.setattr(candle_ingest.sync_state, "mark", lambda db, dom, code: marked.append(code))
 
@@ -106,7 +106,7 @@ def test_backfill_one_failure_does_not_block_others(monkeypatch):
         return [_fresh(date(2020, 1, 2))]
 
     monkeypatch.setattr(candle_ingest.chart, "fetch_periodic_with_fallback", _fetch)
-    monkeypatch.setattr(candle_ingest, "_upsert", lambda *a: None)
+    monkeypatch.setattr(candle_ingest.candle_service, "batch_upsert_periodic", lambda *a: None)
     marked = []
     monkeypatch.setattr(candle_ingest.sync_state, "mark", lambda db, dom, code: marked.append(code))
 
@@ -114,6 +114,29 @@ def test_backfill_one_failure_does_not_block_others(monkeypatch):
     # A·C 는 완료 마킹, B 는 실패(다음 실행 재시도 대상 — 마킹 안 됨).
     assert set(marked) == {"A", "C"}
     assert out == {"done": 2, "failed": 1, "remaining": 1}
+
+
+def test_backfill_retries_transient_empty_before_marking(monkeypatch):
+    # 첫 조회가 빈 응답(일시 스로틀)이면 순차 1회 재조회 후 성공분을 저장해야 한다.
+    db = _FakeDB(universe=["A"], already=set())
+    calls = {"A": 0}
+
+    def _fetch(settings, code, tf, start, end, session):
+        calls[code] += 1
+        return [] if calls[code] == 1 else [_fresh(date(2020, 1, 2))]  # 1st empty, 2nd ok
+
+    upserted = []
+    monkeypatch.setattr(candle_ingest.chart, "fetch_periodic_with_fallback", _fetch)
+    monkeypatch.setattr(
+        candle_ingest.candle_service, "batch_upsert_periodic",
+        lambda db, code, tf, c: upserted.append(code),
+    )
+    monkeypatch.setattr(candle_ingest.sync_state, "mark", lambda *a: None)
+
+    out = candle_ingest.run_backfill_progressive(db, _settings(), per_run=10, workers=2)
+    assert calls["A"] == 2  # 재조회 발생
+    assert upserted == ["A"]  # 재조회 성공분 저장(빈 채로 마킹 안 됨)
+    assert out["done"] == 1
 
 
 def test_backfill_uses_10y_range():

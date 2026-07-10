@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
 from app.db.models import PriceCandle, PriceCandleIntraday, SyncState, Timeframe, UniverseSnapshot
-from app.services import chart, intraday, kis, sync_state
+from app.services import candle_service, chart, intraday, kis, sync_state
 from reporter.fallback import log_fallback
 
 logger = logging.getLogger(__name__)
@@ -350,8 +350,8 @@ def run_backfill_progressive(
 ) -> dict:
     """유니버스 종목의 일봉을 10년치로 병렬 백필한다(재개 가능).
 
-    네이버(수정주가 단일 소스) 조회만 스레드풀로 병렬화하고, DB 쓰기·마킹은 호출 스레드의
-    단일 세션에서만 수행한다(Session 은 스레드 비안전, 커넥션 풀 압박 회피). 완료 종목은
+    네이버(수정주가 단일 소스) 조회만 스레드풀로 병렬화하고, 메인 세션에 대한 DB 쓰기·
+    마킹은 호출 스레드에서만 수행한다(Session 은 스레드 비안전). 완료 종목은
     SyncState(backfill_10y)로 마킹해 중단 시 다음 실행에서 이어받는다.
     반환: {done, failed, remaining}.
     """
@@ -368,28 +368,45 @@ def run_backfill_progressive(
     start = end - timedelta(days=_DAY_RANGE_DAYS)  # 10년
 
     def _fetch(code: str) -> tuple[str, list[chart.Candle]]:
-        # 워커별 자체 세션(requests.Session 은 스레드 간 공유하지 않는다).
-        session = requests.Session()
-        return code, chart.fetch_periodic_with_fallback(settings, code, "day", start, end, session)
+        # 조회마다 자체 requests.Session(스레드 간 공유 금지). with 로 커넥션 확실히 닫는다.
+        with requests.Session() as session:
+            return code, chart.fetch_periodic_with_fallback(settings, code, "day", start, end, session)
+
+    def _store(code: str, candles: list[chart.Candle]) -> None:
+        # 봉당 execute(느림) 대신 단일 다중값 INSERT(candle_service)로 배치 upsert(~7배 빠름).
+        # 진짜 병목은 조회가 아니라 종목당 수천 봉 적재이므로 여기 배치화가 핵심.
+        if candles:
+            candle_service.batch_upsert_periodic(db, code, Timeframe.DAY, candles)  # 자체 commit
+        sync_state.mark(db, _BACKFILL_DOMAIN, code)
+        db.commit()  # 멱등이라 upsert 후 크래시로 마킹 누락돼도 다음 실행 재적재는 무해
 
     done = failed = 0
+    # future 는 result 를 소비 후에도 붙들고 dict 도 풀 수명 내내 참조를 유지하므로, 전 종목
+    # future 를 한 번에 제출하면 수천 종목x수천 봉이 동시 상주해 메모리가 폭증한다. 워커의 몇 배
+    # 크기 윈도우로 제출→소비→참조 해제를 반복해 동시 상주 결과를 제한한다.
+    window = workers * 4
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {pool.submit(_fetch, code): code for code in batch}
-        for fut in as_completed(futures):
-            code = futures[fut]
-            try:
-                _, candles = fut.result()
-                if candles:
-                    _upsert(db, code, Timeframe.DAY, candles)
-                sync_state.mark(db, _BACKFILL_DOMAIN, code)  # 봉 없어도(신규상장) 완료 처리
-                db.commit()
-                done += 1
-            except Exception as e:  # 한 종목 실패가 배치를 막지 않도록(다음 실행 재시도)
-                db.rollback()
-                failed += 1
-                logger.warning("10y backfill failed for %s: %s", code, e)
-            if done % 200 == 0 and done:
-                logger.info("10y backfill progress: done=%d failed=%d", done, failed)
+        for i in range(0, len(batch), window):
+            futures = {pool.submit(_fetch, c): c for c in batch[i : i + window]}
+            for fut in as_completed(futures):
+                code = futures[fut]
+                try:
+                    _, candles = fut.result()
+                    if not candles:
+                        # 빈 응답: 일시 스로틀(6-way 병렬로 확률↑)과 진짜 데이터 없음(신규상장)을
+                        # 구분하려 소비 스레드에서 1회 순차 재조회. 그래도 비면 진짜 없음으로 마킹.
+                        _, candles = _fetch(code)
+                        if not candles:
+                            logger.info("10y backfill empty (marking done): %s", code)
+                    _store(code, candles)
+                    done += 1
+                except Exception as e:  # 한 종목 실패가 배치를 막지 않도록(다음 실행 재시도)
+                    db.rollback()
+                    failed += 1
+                    logger.warning("10y backfill failed for %s: %s", code, e)
+                if done % 200 == 0 and done:
+                    logger.info("10y backfill progress: done=%d failed=%d", done, failed)
+            futures.clear()  # 이 윈도우 future/result 참조 해제(다음 윈도우 전 GC 가능)
 
     remaining = len(pending) - done
     logger.info("10y backfill: done=%d failed=%d remaining=%d", done, failed, remaining)
