@@ -199,6 +199,21 @@ class ValuationSyncState(Base):
     )
 
 
+class SyncState(Base):
+    """범용 종목별 동기화 시각. (domain, stock_code) 키로 재무·peers 등 외부 스크랩의 TTL 을
+    관리해, 조회 때마다 네이버를 타지 않고 DB 우선 + 만료 시 백그라운드 갱신하게 한다."""
+
+    __tablename__ = "sync_state"
+    __table_args__ = (UniqueConstraint("domain", "stock_code", name="uq_sync_state"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    domain: Mapped[str] = mapped_column(String(24), index=True)  # 'financials' | 'peers' | ...
+    stock_code: Mapped[str] = mapped_column(String(6), index=True)
+    synced_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class Disclosure(Base):
     """DART 공시 1건 + 주가 긍/부정 센티먼트."""
 

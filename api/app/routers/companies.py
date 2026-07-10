@@ -44,6 +44,7 @@ from app.services import (
     candle_service,
     dart_ingest,
     quote,
+    sync_state,
     technicals,
     valuation_ingest,
 )
@@ -310,45 +311,34 @@ _PEER_FIELDS = {
 }
 
 
+# 재무·peers 스크랩 캐시 TTL — 분기 재무는 하루 1회면 충분(장중 잦은 갱신 불필요).
+_FINANCIALS_TTL = timedelta(hours=12)
+_PEERS_TTL = timedelta(hours=12)
+
+
+def company_financials_rows(db: Session, code: str) -> list[Financial]:
+    """저장된 재무 기간을 정렬해 반환(외부 호출 없음). 다른 서비스에서도 재사용."""
+    return list(
+        db.scalars(
+            select(Financial).where(Financial.stock_code == code).order_by(Financial.period)
+        ).all()
+    )
+
+
 @router.get("/{code}/financials", response_model=list[FinancialPeriodOut])
 def company_financials(
     code: str, bg: BackgroundTasks, db: Session = Depends(get_session)
 ) -> list[FinancialPeriodOut]:
-    session = requests.Session()
-    fetched = quote.fetch_financials(code, session)
-    for f in fetched:
-        stmt = insert(Financial).values(
-            stock_code=code,
-            period=f.period,
-            is_estimate=f.is_estimate,
-            revenue=f.revenue,
-            operating_income=f.operating_income,
-            net_income=f.net_income,
-            eps=f.eps,
-            bps=f.bps,
-            per=f.per,
-            pbr=f.pbr,
-            roe=f.roe,
-        )
-        stmt = stmt.on_conflict_do_update(
-            constraint="uq_financial",
-            set_={
-                c: getattr(stmt.excluded, c)
-                for c in ("is_estimate", "revenue", "operating_income", "net_income",
-                          "eps", "bps", "per", "pbr", "roe")
-            },
-        )
-        db.execute(stmt)
-    if fetched:
-        db.commit()
-
-    # EV/EBITDA·PSR 은 DART 재무제표 크롤(무거움)로 별도 산출 — 백그라운드 채움(24h TTL).
-    # 응답은 저장된 값을 즉시 반환하고, 다음 조회에서 신규 산출분이 반영된다.
+    rows = company_financials_rows(db, code)
+    # DB 우선: 저장분이 없거나(최초) TTL 만료면 백그라운드로 스크랩·산출한다. 응답은 즉시.
+    if not rows:
+        _sync_financials(db, code)  # 최초만 동기 조회로 화면을 채운다
+        rows = company_financials_rows(db, code)
+    elif not sync_state.is_fresh(db, "financials", code, _FINANCIALS_TTL):
+        bg.add_task(_sync_financials_bg, code)
+    # EV/EBITDA·PSR(DART, 24h TTL)은 valuation_ingest 가 자체 게이트 — 항상 백그라운드 예약.
     bg.add_task(_sync_valuation_bg, code)
 
-    rows = db.scalars(
-        select(Financial).where(Financial.stock_code == code).order_by(Financial.period)
-    ).all()
     return [
         FinancialPeriodOut(
             period=r.period,
@@ -368,6 +358,44 @@ def company_financials(
     ]
 
 
+def _sync_financials(db: Session, code: str) -> None:
+    """네이버 재무 스크랩 → financials upsert + sync_state 마킹. 예외는 호출측이 처리."""
+    session = requests.Session()
+    fetched = quote.fetch_financials(code, session)
+    for f in fetched:
+        stmt = insert(Financial).values(
+            stock_code=code, period=f.period, is_estimate=f.is_estimate,
+            revenue=f.revenue, operating_income=f.operating_income, net_income=f.net_income,
+            eps=f.eps, bps=f.bps, per=f.per, pbr=f.pbr, roe=f.roe,
+        )
+        stmt = stmt.on_conflict_do_update(
+            constraint="uq_financial",
+            set_={
+                c: getattr(stmt.excluded, c)
+                for c in ("is_estimate", "revenue", "operating_income", "net_income",
+                          "eps", "bps", "per", "pbr", "roe")
+            },
+        )
+        db.execute(stmt)
+    sync_state.mark(db, "financials", code)
+    db.commit()
+
+
+def _sync_financials_bg(code: str) -> None:
+    from app.db.session import SessionLocal
+
+    db = SessionLocal()
+    try:
+        _sync_financials(db, code)
+    except Exception as e:
+        import logging
+
+        db.rollback()
+        logging.getLogger(__name__).warning("financials sync failed %s: %s", code, e)
+    finally:
+        db.close()
+
+
 def _sync_valuation_bg(code: str) -> None:
     """백그라운드 EV/EBITDA·PSR 산출 — 자체 세션."""
     from app.db.session import SessionLocal
@@ -385,28 +413,18 @@ def _sync_valuation_bg(code: str) -> None:
 
 
 @router.get("/{code}/peers", response_model=list[PeerOut])
-def company_peers(code: str, db: Session = Depends(get_session)) -> list[PeerOut]:
-    session = requests.Session()
-    fetched = quote.fetch_peers(code, session)
-    for p in fetched:
-        vals = {field: p.values.get(label) for field, label in _PEER_FIELDS.items()}
-        stmt = insert(Peer).values(
-            base_stock_code=code,
-            peer_stock_code=p.stock_code,
-            peer_name=p.name,
-            **vals,
+def company_peers(
+    code: str, bg: BackgroundTasks, db: Session = Depends(get_session)
+) -> list[PeerOut]:
+    rows = list(db.scalars(select(Peer).where(Peer.base_stock_code == code).order_by(Peer.id)).all())
+    # DB 우선: 없으면 최초 동기 조회, TTL 만료면 백그라운드 갱신.
+    if not rows:
+        _sync_peers(db, code)
+        rows = list(
+            db.scalars(select(Peer).where(Peer.base_stock_code == code).order_by(Peer.id)).all()
         )
-        stmt = stmt.on_conflict_do_update(
-            constraint="uq_peer",
-            set_={"peer_name": stmt.excluded.peer_name, **{f: getattr(stmt.excluded, f) for f in _PEER_FIELDS}},
-        )
-        db.execute(stmt)
-    if fetched:
-        db.commit()
-
-    rows = db.scalars(
-        select(Peer).where(Peer.base_stock_code == code).order_by(Peer.id)
-    ).all()
+    elif not sync_state.is_fresh(db, "peers", code, _PEERS_TTL):
+        bg.add_task(_sync_peers_bg, code)
     # EV/EBITDA·PSR 은 네이버 동일업종 테이블에 없어, 각 peer 의 최근 Financial(DART 산출)에서 채운다.
     val = _peer_valuations(db, [r.peer_stock_code for r in rows])
     return [
@@ -447,6 +465,39 @@ def _peer_valuations(db: Session, codes: list[str]) -> dict[str, tuple[str | Non
             psr = f"{r.psr:.2f}" if r.psr is not None else None
             out[r.stock_code] = (ev, psr)
     return out
+
+
+def _sync_peers(db: Session, code: str) -> None:
+    """네이버 동일업종 스크랩 → peers upsert + sync_state 마킹."""
+    session = requests.Session()
+    fetched = quote.fetch_peers(code, session)
+    for p in fetched:
+        vals = {field: p.values.get(label) for field, label in _PEER_FIELDS.items()}
+        stmt = insert(Peer).values(
+            base_stock_code=code, peer_stock_code=p.stock_code, peer_name=p.name, **vals
+        )
+        stmt = stmt.on_conflict_do_update(
+            constraint="uq_peer",
+            set_={"peer_name": stmt.excluded.peer_name, **{f: getattr(stmt.excluded, f) for f in _PEER_FIELDS}},
+        )
+        db.execute(stmt)
+    sync_state.mark(db, "peers", code)
+    db.commit()
+
+
+def _sync_peers_bg(code: str) -> None:
+    from app.db.session import SessionLocal
+
+    db = SessionLocal()
+    try:
+        _sync_peers(db, code)
+    except Exception as e:
+        import logging
+
+        db.rollback()
+        logging.getLogger(__name__).warning("peers sync failed %s: %s", code, e)
+    finally:
+        db.close()
 
 
 @router.get("/{code}/timeline", response_model=list[TimelineItem])
