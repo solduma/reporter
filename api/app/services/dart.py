@@ -101,7 +101,11 @@ def _parse_statement(rows: list[dict]) -> FinStatement:
     st = FinStatement()
     borrowings = 0.0
     got_borrowing = False
-    depreciation = 0.0
+    # 유형(감가상각비)·무형(무형자산상각비) 상각을 각각 **최대값**으로 잡는다. 합산하면
+    # 요약 라인 + 항목별 세부 라인(유형자산감가상각비 등)이 겹쳐 이중계상되므로, 카테고리별로
+    # 가장 큰 한 값(=요약 또는 총액)만 취해 이중계상을 막는다.
+    dep_tangible = 0.0
+    dep_intangible = 0.0
     got_dep = False
     for row in rows:
         sj = row.get("sj_div")  # BS/IS/CIS/CF
@@ -112,8 +116,11 @@ def _parse_statement(rows: list[dict]) -> FinStatement:
         # 계정명이 '영업이익' 또는 '영업이익(손실)' 등으로 나와 접두 일치로 잡는다.
         if sj in ("IS", "CIS") and st.operating_income is None and nm.startswith("영업이익"):
             st.operating_income = amt
-        elif sj == "CF" and ("감가상각비" in nm or "무형자산상각비" in nm) and "대손" not in nm:
-            depreciation += abs(amt)  # 조정 항목은 부호가 섞일 수 있어 절대값 가산
+        elif sj == "CF" and "무형자산상각비" in nm and "대손" not in nm:
+            dep_intangible = max(dep_intangible, abs(amt))
+            got_dep = True
+        elif sj == "CF" and "감가상각비" in nm and "무형" not in nm and "대손" not in nm:
+            dep_tangible = max(dep_tangible, abs(amt))
             got_dep = True
         elif sj == "BS" and nm == "현금및현금성자산" and st.cash is None:
             st.cash = amt
@@ -123,7 +130,7 @@ def _parse_statement(rows: list[dict]) -> FinStatement:
             borrowings += amt
             got_borrowing = True
     if got_dep:
-        st.depreciation = depreciation
+        st.depreciation = dep_tangible + dep_intangible
     if got_borrowing:
         st.borrowings = borrowings
     return st
