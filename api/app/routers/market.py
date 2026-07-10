@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from datetime import date, timedelta
 
@@ -26,9 +27,10 @@ from app.schemas import (
     SectorFlowRow,
     SectorRow,
 )
-from app.services import candle_service, sector_flow
-from reporter import sector_etf, us_market
+from app.services import candle_service, market_quote, sector_flow
+from reporter import sector_etf
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["market"])
 
 # tf 별 조회 범위: 일·주·월 모두 10년(종목 상세와 통일). 저장은 DB, 조회는 date-range 로 제한.
@@ -162,8 +164,13 @@ def sector_chart_meta(industry: str) -> SectorChartMeta:
 
 
 @router.get("/market/overview", response_model=MarketOverview)
-def market_overview(db: Session = Depends(get_session)) -> MarketOverview:
-    """시황 대시보드 통합 — 미국지수 + 국내시황 요약 + 핫섹터 + 무역 스파크."""
+def market_overview(
+    bg: BackgroundTasks, db: Session = Depends(get_session)
+) -> MarketOverview:
+    """시황 대시보드 통합 — 미국지수 + 국내시황 요약 + 핫섹터 + 무역 스파크.
+
+    지수·환율은 DB 스냅샷(market_quote) 우선. 없으면 최초 1회 동기 스냅샷, 오래됐으면 백그라운드.
+    """
     brief = db.scalars(
         select(DailyMarketInfo).order_by(DailyMarketInfo.market_date.desc()).limit(1)
     ).first()
@@ -180,10 +187,14 @@ def market_overview(db: Session = Depends(get_session)) -> MarketOverview:
             for q in quotes
         ]
 
-    indices = _index_dicts(us_market.fetch_us_indices())
-    # 국내 지수(코스피·코스닥) 옆에 원/달러 환율을 함께 노출한다.
-    kr_indices = _index_dicts(us_market.fetch_kr_indices()) + _index_dicts(
-        us_market.fetch_exchange_rates()
+    # DB 우선 시세. 비어 있으면 최초 1회 동기 스냅샷, 신선하지 않으면 백그라운드 갱신.
+    if not market_quote.latest_quotes(db, "us"):
+        market_quote.snapshot_quotes(db)
+    elif market_quote.is_stale(db):
+        bg.add_task(_snapshot_quotes_bg)
+    indices = _index_dicts(market_quote.latest_quotes(db, "us"))
+    kr_indices = _index_dicts(market_quote.latest_quotes(db, "kr")) + _index_dicts(
+        market_quote.latest_quotes(db, "fx")
     )
 
     hot = [
@@ -253,15 +264,23 @@ def chart_candles(
 _WARM_INDICES = ("KOSPI", "KOSDAQ")
 
 
-def _warm() -> None:
-    """지수 시세 캐시(120s TTL) 워밍 + 지수 일봉 증분 갱신. 실패는 흡수(백그라운드)."""
+def _snapshot_quotes_bg() -> None:
+    """백그라운드 지수·환율 스냅샷 적재 — 자체 세션. 실패 흡수."""
+    from app.db.session import SessionLocal
+
+    db = SessionLocal()
     try:
-        # 대시보드 지수·환율 타일용 인메모리 캐시를 미리 채운다(첫 조회의 네이버 왕복 제거).
-        us_market.fetch_us_indices()
-        us_market.fetch_kr_indices()
-        us_market.fetch_exchange_rates()
-    except Exception:
-        pass
+        market_quote.snapshot_quotes(db)
+    except Exception as e:
+        db.rollback()
+        logger.warning("market quote snapshot failed: %s", e)
+    finally:
+        db.close()
+
+
+def _warm() -> None:
+    """지수·환율 시세를 DB 스냅샷으로 적재 + 지수 일봉 증분 갱신. 실패는 흡수(백그라운드)."""
+    _snapshot_quotes_bg()  # 대시보드 타일용 시세를 DB 에 미리 채운다(첫 조회 지연 제거)
     for sym in _WARM_INDICES:
         candle_service.refresh_periodic(sym, "day")
 

@@ -200,6 +200,23 @@ class ValuationSyncState(Base):
     )
 
 
+class MarketQuote(Base):
+    """지수·환율 실시간 시세 시계열. 대시보드가 매 요청 네이버를 타지 않고, 스냅샷을 DB 에
+    쌓아 최신값 조회 + 시계열 보존. name(코스피·원/달러·나스닥 등)+ts 로 유니크."""
+
+    __tablename__ = "market_quote"
+    __table_args__ = (UniqueConstraint("name", "ts", name="uq_market_quote"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(32), index=True)
+    kind: Mapped[str] = mapped_column(String(8), default="")  # 'us'|'kr'|'fx'
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    close: Mapped[str] = mapped_column(String(32), default="")  # 표시 문자열 보존
+    change: Mapped[str] = mapped_column(String(32), default="")
+    change_ratio: Mapped[str] = mapped_column(String(32), default="")
+    rising: Mapped[bool | None] = mapped_column()
+
+
 class SyncState(Base):
     """범용 종목별 동기화 시각. (domain, stock_code) 키로 재무·peers 등 외부 스크랩의 TTL 을
     관리해, 조회 때마다 네이버를 타지 않고 DB 우선 + 만료 시 백그라운드 갱신하게 한다."""
