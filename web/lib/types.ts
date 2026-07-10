@@ -5,6 +5,8 @@ export type Sentiment = "BUY" | "SELL" | "HOLD";
 export interface MarketBrief {
   market_date: string | null;
   summary: string;
+  phase?: string; // forecast(개장 전) | intraday(장중) | closing(마감)
+  updated_at?: string | null; // 마지막 갱신 시각(ISO)
 }
 
 // 미국 3대 지수 한 종목. 값은 표시용 문자열, rising: true=상승 · false=하락 · null=미확인

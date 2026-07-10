@@ -263,7 +263,32 @@ class DailyMarketInfo(Base):
     summary: Mapped[str] = mapped_column(Text, default="")
     model: Mapped[str] = mapped_column(String(64), default="")
     source_count: Mapped[int] = mapped_column(BigInteger, default=0)
+    # 시황 생성 국면: forecast(개장 전 예상)/intraday(장중 실시간)/closing(마감 리뷰).
+    # 웹 카드에서 국면 배지로 노출한다.
+    phase: Mapped[str] = mapped_column(String(16), default="")
+    # 같은 영업일 행을 국면 전환마다 덮어쓰므로, 마지막 갱신 시각을 별도로 보존해
+    # "장중 · HH:MM 기준"을 표시한다(created_at 은 최초 생성 시각으로 고정).
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class FallbackEvent(Base):
+    """폴백(1차 소스/방법 실패 → 2차 대안 전환) 발생 이력.
+
+    reporter.fallback.log_fallback 이 계측 지점에서 1행씩 남긴다. TUI 폴백 패널이
+    최근 이력과 key 별 집계를 보여준다. 운영 관측성 전용이라 다른 테이블과 조인하지 않는다.
+    """
+
+    __tablename__ = "fallback_event"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    key: Mapped[str] = mapped_column(String(64), index=True)  # 계층 식별자 예: "chart.naver_to_kis"
+    reason: Mapped[str] = mapped_column(Text, default="")  # 무엇이 실패했는지(사람이 읽는 요약)
+    detail: Mapped[str] = mapped_column(Text, default="")  # 대상 식별자(종목코드·URL 등) 옵션
+    context: Mapped[dict] = mapped_column(JSONB, default=dict)  # 추가 구조화 맥락
 
 
 class BroadcastKind(enum.StrEnum):

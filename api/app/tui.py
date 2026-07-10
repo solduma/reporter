@@ -22,7 +22,14 @@ from textual.widgets import Button, DataTable, Footer, Header, Input, Log, Stati
 
 from app.config import get_settings
 from app.db.session import SessionLocal, init_db
-from app.services import admin_status, broadcast_ingest, growth_ingest, ingest, universe_ingest
+from app.services import (
+    admin_status,
+    broadcast_ingest,
+    fallback_store,
+    growth_ingest,
+    ingest,
+    universe_ingest,
+)
 from app.services.schedule_control import ScheduleControl
 from app.services.server_control import ServerControl, web_login_enabled
 
@@ -100,6 +107,8 @@ class AdminTUI(App):
     #schedule_bar Button { margin: 0 1; }
     #schedule_hint { width: 1fr; content-align: left middle; }
     #schedule { height: auto; max-height: 12; border: round $primary; margin: 0 1; }
+    #fallback_title { height: auto; padding: 0 1; }
+    #fallback { height: auto; max-height: 10; border: round $warning; margin: 0 1; }
     #log { height: 10; border: round $secondary; }
     #preview_bar { height: auto; align: left middle; padding: 0 1; }
     #preview_bar Button { margin: 0 1; min-width: 8; }
@@ -148,6 +157,8 @@ class AdminTUI(App):
                 yield Button("발송 on/off", id="job_toggle")
                 yield Button("시각 편집", id="job_edit", variant="primary")
             yield DataTable(id="schedule")
+            yield Static(id="fallback_title")
+            yield DataTable(id="fallback")
             yield Log(id="log", highlight=True)
             with Horizontal(id="preview_bar"):
                 yield Button("◀ 이전", id="prev")
@@ -179,6 +190,9 @@ class AdminTUI(App):
         self.query_one("#schedule_hint", Static).update(
             "[b]발송 스케줄[/b] (launchd · 월~금)  행 선택 후  t=on/off  e=시각편집"
         )
+
+        fb = self.query_one("#fallback", DataTable)
+        fb.add_columns("시각", "종류", "사유", "대상")
 
         self.action_refresh()
         # 서버가 스스로 죽거나(bind 실패·크래시) 하면 상태 패널이 stale 하지 않도록 주기 갱신.
@@ -235,6 +249,7 @@ class AdminTUI(App):
         self.query_one("#status", Static).update("\n".join(lines))
         self._refresh_server_status()
         self._load_schedule()
+        self._load_fallbacks()
         self._load_preview()
 
     def _load_schedule(self) -> None:
@@ -253,6 +268,28 @@ class AdminTUI(App):
             table.add_row(f"{job.suffix}  [dim]{job.desc}[/dim]", job.time_label, state)
         if self._jobs_cache:
             table.move_cursor(row=min(prev_row, len(self._jobs_cache) - 1))
+
+    def _load_fallbacks(self) -> None:
+        """폴백 발생 이력 — 최근 이벤트 + 24h key 별 집계를 표시한다."""
+        db = SessionLocal()
+        try:
+            recent = fallback_store.recent_fallbacks(db, limit=30)
+            counts = fallback_store.fallback_counts(db, since_hours=24)
+        finally:
+            db.close()
+
+        if counts:
+            summary = "  ".join(f"{c.key}={c.count}" for c in counts)
+            title = f"[b]폴백 이력[/b]  최근 24h: {summary}"
+        else:
+            title = "[b]폴백 이력[/b]  최근 24h 폴백 없음 ✓"
+        self.query_one("#fallback_title", Static).update(title)
+
+        table = self.query_one("#fallback", DataTable)
+        table.clear()
+        for r in recent:
+            ts = r.ts.astimezone().strftime("%m-%d %H:%M") if r.ts else "—"
+            table.add_row(ts, r.key, r.reason[:60], r.detail[:24])
 
     def _load_preview(self) -> None:
         """스몰캡 성장주 미리보기 — 선택 정렬·현재 페이지."""

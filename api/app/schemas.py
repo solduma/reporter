@@ -10,6 +10,8 @@ from pydantic import BaseModel
 class MarketBrief(BaseModel):
     market_date: date | None
     summary: str
+    phase: str = ""  # forecast(개장 전)/intraday(장중)/closing(마감) — 웹 국면 배지용
+    updated_at: datetime | None = None  # 마지막 갱신 시각 — "장중 · HH:MM 기준" 표시
 
 
 class ReportCard(BaseModel):

@@ -1,11 +1,11 @@
-"""build_market_brief 단위 테스트 — 전날 국내마감 + 미장마감 종합 예상 + market_date=실행일.
+"""build_market_brief 단위 테스트 — 3-상태(개장전/장중/마감) 종합 + market_date=실행일.
 
-크롤·PDF·GLM·DB 를 모두 스텁으로 대체해 근거 포함·날짜 로직만 검증(실 자원 미사용).
+크롤·PDF·GLM·DB·뉴스·지수를 모두 스텁으로 대체해 국면 분기·근거·날짜 로직만 검증(실 자원 미사용).
 """
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 
 import pytest
 
@@ -35,21 +35,22 @@ class _FakeSession:
         pass
 
 
+class _Briefing:
+    text = "종합"
+
+
 @pytest.fixture
 def _stub(monkeypatch):
-    """크롤 결과를 주입하고 PDF/GLM 단계를 통과시키는 스텁."""
+    """크롤 결과를 주입하고 PDF/GLM/뉴스 단계를 통과시키는 스텁."""
 
     def _apply(crawled):
         monkeypatch.setattr(ingest, "crawl_categories", lambda cats, target_date=None: crawled)
         monkeypatch.setattr(ingest, "_download_pdf", lambda url, s: b"pdfbytes")
         monkeypatch.setattr(ingest, "extract_text_from_bytes", lambda b, n: "본문")
         monkeypatch.setattr(ingest, "OllamaClient", lambda host, key: object())
-        # summarize_reports 는 받은 리포트를 그대로(요약 채워) 반환하도록
         monkeypatch.setattr(ingest.analyzer, "summarize_reports", lambda c, m, reps: reps)
-
-        class _Briefing:
-            text = "종합"
-
+        # 뉴스는 기본적으로 없음(각 테스트가 필요 시 오버라이드).
+        monkeypatch.setattr(ingest.news, "collect", lambda kw, limit, session=None: [])
         monkeypatch.setattr(ingest.analyzer, "synthesize_forecast", lambda c, m, reps: _Briefing())
         monkeypatch.setattr(
             ingest.analyzer, "synthesize_closing_review", lambda c, m, reps: _Briefing()
@@ -60,6 +61,15 @@ def _stub(monkeypatch):
 
 def _settings() -> Settings:
     return Settings(ollama_api_key="k")
+
+
+def test_market_phase_boundaries():
+    assert ingest._market_phase(datetime(2026, 7, 10, 8, 50)) == "forecast"
+    assert ingest._market_phase(datetime(2026, 7, 10, 9, 0)) == "forecast"  # 09:00 은 아직 개장 전
+    assert ingest._market_phase(datetime(2026, 7, 10, 9, 30)) == "intraday"
+    assert ingest._market_phase(datetime(2026, 7, 10, 13, 0)) == "intraday"
+    assert ingest._market_phase(datetime(2026, 7, 10, 16, 0)) == "closing"
+    assert ingest._market_phase(datetime(2026, 7, 10, 18, 30)) == "closing"
 
 
 def test_forecast_uses_all_reports_before_close(_stub, monkeypatch):
@@ -75,13 +85,13 @@ def test_forecast_uses_all_reports_before_close(_stub, monkeypatch):
     )
 
     db = _FakeSession()
-    # 장중(마감 전): 전날 국내마감 + 간밤 미국마감 + 오전 시황 모두 근거.
-    ingest.build_market_brief(db, _settings(), after_close=False)
+    ingest.build_market_brief(db, _settings(), phase="forecast")
 
     titles = [r.title for r in captured["reps"]]
     assert "국내주식 마감 시황 (26.07.08)" in titles
     assert "유안타 AI 미국 주식시장 마감 시황" in titles
     assert "Daily Morning Brief(2026.07.09)" in titles
+    assert db.added[0].phase == "forecast"
 
 
 def test_after_close_uses_only_domestic_closing_and_review(_stub, monkeypatch):
@@ -95,7 +105,7 @@ def test_after_close_uses_only_domestic_closing_and_review(_stub, monkeypatch):
         ingest.analyzer, "summarize_reports",
         lambda c, m, reps: captured.setdefault("reps", reps) or reps,
     )
-    # 마감 후 리뷰 경로가 쓰였는지 표식.
+
     def _mark_review(c, m, reps):
         captured["used"] = "review"
         return _Stub()
@@ -103,10 +113,10 @@ def test_after_close_uses_only_domestic_closing_and_review(_stub, monkeypatch):
     monkeypatch.setattr(ingest.analyzer, "synthesize_closing_review", _mark_review)
 
     db = _FakeSession()
-    ingest.build_market_brief(db, _settings(), after_close=True)
+    ingest.build_market_brief(db, _settings(), phase="closing")
 
     titles = [r.title for r in captured["reps"]]
-    # 마감 후: 오늘 국내 마감시황만 근거(미장·오전은 제외).
+    # 마감 후: 오늘 국내 마감시황만 근거(미장·오전은 제외). 뉴스는 stub 이 빈 리스트.
     assert titles == ["국내주식 마감 시황 (26.07.09)"]
     assert captured["used"] == "review"
 
@@ -119,27 +129,94 @@ def test_after_close_falls_back_when_no_domestic_closing(_stub):
     # 마감 후인데 국내 마감시황이 아직 없으면 전체로 폴백(빈 화면 방지).
     _stub([_cr("유안타 AI 미국 주식시장 마감 시황")])
     db = _FakeSession()
-    assert ingest.build_market_brief(db, _settings(), after_close=True) == "종합"
+    assert ingest.build_market_brief(db, _settings(), phase="closing") == "종합"
     assert len(db.added) == 1
 
 
+def test_intraday_uses_live_quotes_and_news_not_research(_stub, monkeypatch):
+    # 장중: 리서치 크롤을 아예 안 쓰고 실시간 지수·뉴스만 근거로 종합한다.
+    captured = {}
+
+    def _fail_crawl(cats, target_date=None):
+        captured["crawled"] = True
+        return []
+
+    monkeypatch.setattr(ingest, "crawl_categories", _fail_crawl)
+    monkeypatch.setattr(ingest.us_market, "fetch_kr_indices", lambda s: [_Quote("코스피", "2,650", "0.45")])
+    monkeypatch.setattr(ingest.us_market, "fetch_exchange_rates", lambda s: [_Quote("원/달러", "1,380", "-0.2")])
+    monkeypatch.setattr(ingest.us_market, "fetch_us_indices", lambda s: [])
+    monkeypatch.setattr(ingest.news, "collect", lambda kw, limit, session=None: [_NewsItem("삼성전자 신고가")])
+    monkeypatch.setattr(ingest, "article", _FakeArticle)
+
+    def _capture_intraday(client, model, quote_lines, news_blocks):
+        captured["quotes"] = quote_lines
+        captured["news"] = news_blocks
+        return _Briefing()
+
+    monkeypatch.setattr(ingest.analyzer, "synthesize_intraday", _capture_intraday)
+
+    db = _FakeSession()
+    result = ingest.build_market_brief(db, _settings(), phase="intraday")
+
+    assert result == "종합"
+    assert "crawled" not in captured  # 리서치 크롤 미호출
+    assert any("코스피" in q for q in captured["quotes"])
+    assert any("원/달러" in q for q in captured["quotes"])
+    assert captured["news"]  # 뉴스 블록 존재
+    assert db.added[0].phase == "intraday"
+
+
+def test_intraday_returns_none_when_no_live_data(_stub, monkeypatch):
+    monkeypatch.setattr(ingest.us_market, "fetch_kr_indices", lambda s: [])
+    monkeypatch.setattr(ingest.us_market, "fetch_exchange_rates", lambda s: [])
+    monkeypatch.setattr(ingest.us_market, "fetch_us_indices", lambda s: [])
+    monkeypatch.setattr(ingest.news, "collect", lambda kw, limit, session=None: [])
+    db = _FakeSession()
+    assert ingest.build_market_brief(db, _settings(), phase="intraday") is None
+    assert db.added == []
+
+
+def test_backfill_target_date_uses_closing(_stub):
+    # 과거 백필(target_date 지정)은 장중 실시간이 불가하므로 마감 리뷰 경로.
+    _stub([_cr("국내주식 마감 시황 (26.07.08)")])
+    db = _FakeSession()
+    ingest.build_market_brief(db, _settings(), target_date="26.07.08")
+    assert db.added[0].phase == "closing"
+    assert db.added[0].market_date == date(2026, 7, 8)
+
+
 def test_market_date_is_run_date_not_list_top(_stub, monkeypatch):
-    # 리스트 최상단 발행일이 무엇이든 market_date 는 실행일로 고정
     _stub([_cr("Daily Morning Brief(2026.07.09)")])
     monkeypatch.setattr(ingest, "datetime", _FixedDatetime)
 
     db = _FakeSession()
-    ingest.build_market_brief(db, _settings(), after_close=False)
+    ingest.build_market_brief(db, _settings(), phase="forecast")
 
     assert len(db.added) == 1
-    assert db.added[0].market_date == date(2026, 7, 9)
+    assert db.added[0].market_date == date(2026, 7, 8)
 
 
 def test_returns_none_when_no_reports(_stub):
     _stub([])
     db = _FakeSession()
-    assert ingest.build_market_brief(db, _settings(), after_close=False) is None
+    assert ingest.build_market_brief(db, _settings(), phase="forecast") is None
     assert db.added == []
+
+
+class _Quote:
+    def __init__(self, name, close, ratio):
+        self.name, self.close, self.change_ratio = name, close, ratio
+
+
+class _NewsItem:
+    def __init__(self, title):
+        self.title, self.source, self.link = title, "src", "http://x"
+
+
+class _FakeArticle:
+    @staticmethod
+    def fetch_article_text(url):
+        return "기사 본문"
 
 
 class _FixedDatetime:
@@ -147,4 +224,4 @@ class _FixedDatetime:
     def now():
         import datetime as _dt
 
-        return _dt.datetime(2026, 7, 9, 9, 30)
+        return _dt.datetime(2026, 7, 8, 9, 30)

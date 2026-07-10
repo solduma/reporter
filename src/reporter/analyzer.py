@@ -196,6 +196,47 @@ def synthesize_forecast(client: OllamaClient, model: str, reports: list[Report])
     )
 
 
+_INTRADAY_SYSTEM = (
+    "너는 지금 열려 있는 국내 장을 실시간으로 읽는 투자 전략가다. 과거 리뷰나 예상이 아니라 "
+    "'지금 이 순간 장이 어떻게, 왜 움직이고 있는지'를 전달한다. 제시된 실시간 지수·환율 수치와 "
+    "장중 뉴스를 근거로 삼고, 근거 없는 단정은 피하며 리스크도 솔직히 짚는다. 모르면 아는 척하지 않는다."
+)
+
+_INTRADAY_TEMPLATE = """지금은 국내 장중이다. 아래는 실시간 지수·환율 스냅샷과 장중 시장 뉴스다.
+
+[실시간 지수·환율]
+{quotes}
+
+[장중 뉴스]
+{news}
+
+위 실시간 데이터를 근거로 '지금 장 상황'을 아래 형식으로 작성해라.
+형식과 이모지를 그대로 지키고, 각 섹션 사이는 빈 줄로 띄운다. 지수·수치·종목명 등 핵심어만 굵게(**...**) 강조(남발 금지).
+
+📊 지금 장 상황 (3줄)
+→ 코스피/코스닥 현재 등락과 그 배경 (제시된 지수·환율 수치를 인용)
+
+🔥 움직이는 테마·뉴스
+→ 장중 뉴스가 가리키는 주도 흐름 2~3개
+
+⚠️ 지금 체크포인트
+→ 오후장·환율·외국인 수급 관점에서 지금 경계할 요인"""
+
+
+def synthesize_intraday(
+    client: OllamaClient, model: str, quote_lines: list[str], news_blocks: list[str]
+) -> Briefing:
+    """실시간 지수·환율 스냅샷 + 장중 뉴스로 '지금 장 상황' 브리핑을 만든다(장중용).
+
+    리서치 요약이 아니라 실시간 수치 기반이라 temperature 를 낮춰 정확성을 우선한다.
+    """
+    quotes = "\n".join(quote_lines) if quote_lines else "(지수·환율 조회 실패)"
+    news = "\n\n".join(news_blocks) if news_blocks else "(장중 뉴스 없음)"
+    prompt = _INTRADAY_TEMPLATE.format(quotes=quotes, news=news)
+    text = client.chat(model, _INTRADAY_SYSTEM, prompt, temperature=0.3)
+    return Briefing(text=text, report_count=len(news_blocks), categories=["intraday"])
+
+
 _REVIEW_SYSTEM = (
     "너는 오늘 마감한 국내 증시를 리뷰하고 '내일 국내 장'을 전망하는 투자 전략가다. "
     "오늘 무슨 일이 왜 일어났는지 정리하고, 그 흐름과 오늘 밤 미국 장 관전 포인트를 "

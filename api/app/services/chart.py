@@ -88,10 +88,16 @@ def fetch_periodic_with_fallback(
     if candles:
         return candles
     from app.services import kis
+    from reporter.fallback import log_fallback
 
     fallback = kis.fetch_periodic(settings, stock_code, timeframe, start, end, session)
     if fallback:
-        logger.info("chart fallback to KIS for %s/%s (%d bars)", stock_code, timeframe, len(fallback))
+        log_fallback(
+            "chart.naver_to_kis",
+            reason=f"네이버 봉 조회 결과 없음 → KIS 폴백 ({len(fallback)}봉)",
+            detail=f"{stock_code}/{timeframe}",
+            bars=len(fallback),
+        )
     return fallback
 
 
