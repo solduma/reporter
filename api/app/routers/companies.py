@@ -45,6 +45,7 @@ from app.services import (
     dart_ingest,
     quote,
     technicals,
+    valuation_ingest,
 )
 
 router = APIRouter(prefix="/api/companies", tags=["companies"])
@@ -310,7 +311,9 @@ _PEER_FIELDS = {
 
 
 @router.get("/{code}/financials", response_model=list[FinancialPeriodOut])
-def company_financials(code: str, db: Session = Depends(get_session)) -> list[FinancialPeriodOut]:
+def company_financials(
+    code: str, bg: BackgroundTasks, db: Session = Depends(get_session)
+) -> list[FinancialPeriodOut]:
     session = requests.Session()
     fetched = quote.fetch_financials(code, session)
     for f in fetched:
@@ -339,6 +342,10 @@ def company_financials(code: str, db: Session = Depends(get_session)) -> list[Fi
     if fetched:
         db.commit()
 
+    # EV/EBITDA·PSR 은 DART 재무제표 크롤(무거움)로 별도 산출 — 백그라운드 채움(24h TTL).
+    # 응답은 저장된 값을 즉시 반환하고, 다음 조회에서 신규 산출분이 반영된다.
+    bg.add_task(_sync_valuation_bg, code)
+
     rows = db.scalars(
         select(Financial).where(Financial.stock_code == code).order_by(Financial.period)
     ).all()
@@ -350,12 +357,31 @@ def company_financials(code: str, db: Session = Depends(get_session)) -> list[Fi
             operating_income=r.operating_income,
             net_income=r.net_income,
             eps=r.eps,
+            bps=r.bps,
             per=r.per,
             pbr=r.pbr,
+            psr=r.psr,
             roe=r.roe,
+            ev_ebitda=r.ev_ebitda,
         )
         for r in rows
     ]
+
+
+def _sync_valuation_bg(code: str) -> None:
+    """백그라운드 EV/EBITDA·PSR 산출 — 자체 세션."""
+    from app.db.session import SessionLocal
+
+    db = SessionLocal()
+    try:
+        valuation_ingest.sync_valuation(db, get_settings(), code)
+    except Exception as e:  # 백그라운드 실패가 조회를 깨지 않도록
+        import logging
+
+        db.rollback()
+        logging.getLogger(__name__).warning("valuation sync failed %s: %s", code, e)
+    finally:
+        db.close()
 
 
 @router.get("/{code}/peers", response_model=list[PeerOut])
