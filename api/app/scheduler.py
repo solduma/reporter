@@ -28,6 +28,8 @@ _TZ = "Asia/Seoul"
 _CRON = CronTrigger(day_of_week="mon-fri", hour="9-19", minute="0,30", timezone=_TZ)
 # 야간 배치: 마감 후 18시 유니버스 스냅샷 + 성장지표(재무·모멘텀, ~20분).
 _NIGHTLY_CRON = CronTrigger(day_of_week="mon-fri", hour=18, minute=0, timezone=_TZ)
+# 봉 배치: 유니버스 스냅샷(18시) 이후 19:30 에 전 종목 일/주/30분봉 증분 + 변동 시 재적재.
+_CANDLE_CRON = CronTrigger(day_of_week="mon-fri", hour=19, minute=30, timezone=_TZ)
 
 
 def run_ingest_cycle(settings: Settings | None = None) -> dict:
@@ -71,6 +73,17 @@ def run_nightly_batch(settings: Settings | None = None) -> dict:
         session.close()
 
 
+def run_candle_batch(settings: Settings | None = None) -> dict:
+    """매일 저녁 봉 배치: 유니버스 전 종목 일/주/30분봉 증분 + 주식변동 시 전체 재적재."""
+    from app.services import candle_ingest  # 무거운 의존성 → 지연 임포트
+
+    session = SessionLocal()
+    try:
+        return candle_ingest.run_candle_batch(session, settings)
+    finally:
+        session.close()
+
+
 def build_scheduler(settings: Settings | None = None) -> BlockingScheduler:
     """잡이 등록된 스케줄러를 반환한다 (start 는 호출자가)."""
     settings = settings or get_settings()
@@ -87,6 +100,14 @@ def build_scheduler(settings: Settings | None = None) -> BlockingScheduler:
         run_nightly_batch,
         trigger=_NIGHTLY_CRON,
         id="nightly_batch",
+        max_instances=1,
+        coalesce=True,
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        run_candle_batch,
+        trigger=_CANDLE_CRON,
+        id="candle_batch",
         max_instances=1,
         coalesce=True,
         replace_existing=True,
