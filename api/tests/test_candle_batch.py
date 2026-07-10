@@ -1,0 +1,128 @@
+"""저녁 봉 배치 단위 테스트 — 주식변동(종가 불일치) 감지 + 증분/재적재 분기.
+
+DB·외부 조회를 스텁으로 대체해 판별·분기 로직만 검증한다.
+"""
+
+from __future__ import annotations
+
+from datetime import date, datetime
+
+from app.db.models import Timeframe
+from app.services import candle_ingest
+
+
+class _Stored:
+    """PriceCandle 대역 — bar_date·close 만 쓴다."""
+
+    def __init__(self, d: date, close: float):
+        self.bar_date = d
+        self.close = close
+
+
+def _fresh(d: date, close: float) -> candle_ingest.chart.Candle:
+    return candle_ingest.chart.Candle(
+        ts=datetime(d.year, d.month, d.day), open=close, high=close, low=close, close=close, volume=1
+    )
+
+
+# ── _corporate_action ────────────────────────────────────────────────
+
+def test_corporate_action_true_on_close_mismatch():
+    # 직전 확정 bar(stored[-2]=7/8) 종가가 소급 조정됨(1000→500, 액면분할).
+    stored = [_Stored(date(2026, 7, 8), 1000), _Stored(date(2026, 7, 9), 1010)]
+    fresh = [_fresh(date(2026, 7, 8), 500), _fresh(date(2026, 7, 9), 505)]
+    assert candle_ingest._corporate_action(stored, fresh) is True
+
+
+def test_corporate_action_false_when_close_matches():
+    stored = [_Stored(date(2026, 7, 8), 1000), _Stored(date(2026, 7, 9), 1010)]
+    fresh = [_fresh(date(2026, 7, 8), 1000), _fresh(date(2026, 7, 9), 1010)]
+    assert candle_ingest._corporate_action(stored, fresh) is False
+
+
+def test_corporate_action_tolerates_float_noise():
+    stored = [_Stored(date(2026, 7, 8), 1000.0), _Stored(date(2026, 7, 9), 1010.0)]
+    fresh = [_fresh(date(2026, 7, 8), 1000.005), _fresh(date(2026, 7, 9), 1010.0)]
+    assert candle_ingest._corporate_action(stored, fresh) is False  # eps 이내
+
+
+def test_corporate_action_false_when_insufficient_history():
+    stored = [_Stored(date(2026, 7, 9), 1010)]  # 1개뿐 → 대조 불가
+    fresh = [_fresh(date(2026, 7, 9), 505)]
+    assert candle_ingest._corporate_action(stored, fresh) is False
+
+
+def test_corporate_action_false_when_ref_date_absent_in_fresh():
+    # 새 조회에 직전 확정 bar 날짜가 없으면 판단 보류(증분).
+    stored = [_Stored(date(2026, 7, 8), 1000), _Stored(date(2026, 7, 9), 1010)]
+    fresh = [_fresh(date(2026, 7, 9), 1010)]  # 7/8 없음
+    assert candle_ingest._corporate_action(stored, fresh) is False
+
+
+# ── _refresh_one_periodic 분기 (seed / incremental / reload) ──────────
+
+class _FakeScalars:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def all(self):
+        return self._rows
+
+
+class _FakeDB:
+    def __init__(self, stored_desc):
+        # _last_two_periodic 는 desc limit 2 후 reverse → 여기선 desc 리스트를 준다.
+        self._stored_desc = stored_desc
+        self.deleted = False
+        self.commits = 0
+
+    def scalars(self, stmt):
+        return _FakeScalars(self._stored_desc[:2])
+
+    def execute(self, stmt):
+        # delete 문이면 파기 표시(간이 판별).
+        if stmt.__class__.__name__ == "Delete":
+            self.deleted = True
+
+    def commit(self):
+        self.commits += 1
+
+
+def _settings():
+    from app.config import Settings
+
+    return Settings(ollama_api_key="k")
+
+
+def test_refresh_seed_when_empty(monkeypatch):
+    db = _FakeDB([])
+    monkeypatch.setattr(candle_ingest.chart, "fetch_periodic_with_fallback",
+                        lambda *a, **k: [_fresh(date(2026, 7, 9), 100)])
+    upserts = {"n": 0}
+    monkeypatch.setattr(candle_ingest, "_upsert", lambda *a: upserts.__setitem__("n", upserts["n"] + 1))
+    out = candle_ingest._refresh_one_periodic(db, _settings(), "005930", Timeframe.DAY, None)
+    assert out == "seed"
+    assert upserts["n"] == 1
+
+
+def test_refresh_incremental_when_close_matches(monkeypatch):
+    stored_desc = [_Stored(date(2026, 7, 9), 1010), _Stored(date(2026, 7, 8), 1000)]
+    db = _FakeDB(stored_desc)
+    monkeypatch.setattr(candle_ingest.chart, "fetch_periodic_with_fallback",
+                        lambda *a, **k: [_fresh(date(2026, 7, 8), 1000), _fresh(date(2026, 7, 9), 1010)])
+    monkeypatch.setattr(candle_ingest, "_upsert", lambda *a: None)
+    out = candle_ingest._refresh_one_periodic(db, _settings(), "005930", Timeframe.DAY, None)
+    assert out == "incremental"
+    assert db.deleted is False
+
+
+def test_refresh_reload_when_corporate_action(monkeypatch):
+    stored_desc = [_Stored(date(2026, 7, 9), 1010), _Stored(date(2026, 7, 8), 1000)]
+    db = _FakeDB(stored_desc)
+    # 새 조회: 7/8 종가가 500 으로 소급 조정 → 재적재.
+    monkeypatch.setattr(candle_ingest.chart, "fetch_periodic_with_fallback",
+                        lambda *a, **k: [_fresh(date(2026, 7, 8), 500), _fresh(date(2026, 7, 9), 505)])
+    monkeypatch.setattr(candle_ingest, "_upsert", lambda *a: None)
+    out = candle_ingest._refresh_one_periodic(db, _settings(), "005930", Timeframe.DAY, None)
+    assert out == "reload"
+    assert db.deleted is True  # 전체 파기됨
