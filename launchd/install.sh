@@ -56,7 +56,7 @@ JOBS=(
 # label 접미사 | 서브디렉터리 | 실행커맨드(공백구분) | 사전조건파일(없으면 등록 스킵)
 SERVERS=(
   "server.api|api|uv run uvicorn app.main:app --host 127.0.0.1 --port 8010|"
-  "server.web|web|pnpm start -p 3000|web/.next/BUILD_ID"
+  "server.web|web|pnpm start -p 43000|web/.next/BUILD_ID"
 )
 
 # 이전 버전에서 설치했던 레거시 라벨(uninstall 시 함께 정리).

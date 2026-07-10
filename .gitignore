@@ -12,9 +12,6 @@ __pycache__/
 !.env*.example
 
 # Runtime artifacts
-logs/*.txt
-logs/*.log
-logs/*.json
-logs/*.jsonl
+logs/
 data/
 *.pdf

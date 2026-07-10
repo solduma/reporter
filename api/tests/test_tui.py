@@ -174,7 +174,7 @@ async def test_server_buttons_and_status(monkeypatch):
         def status(self):
             return [
                 ServerStatus("api", "API", 8010, loaded=True, running=True, pid=111),
-                ServerStatus("web", "WEB", 3000, loaded=True, running=True, pid=222),
+                ServerStatus("web", "WEB", 43000, loaded=True, running=True, pid=222),
             ]
 
     monkeypatch.setattr(tui, "ServerControl", _FakeControl)
@@ -211,7 +211,7 @@ async def test_web_build_button_runs_build(monkeypatch):
             return "WEB 빌드 완료"
 
         def status(self):
-            return [ServerStatus("web", "WEB", 3000, loaded=True, running=True, pid=1)]
+            return [ServerStatus("web", "WEB", 43000, loaded=True, running=True, pid=1)]
 
     monkeypatch.setattr(tui, "ServerControl", _FakeControl)
 
