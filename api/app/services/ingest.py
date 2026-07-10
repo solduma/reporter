@@ -18,7 +18,7 @@ from app.config import Settings
 from app.db.models import DailyMarketInfo, Report, ReportAnalysis, Sentiment
 from app.services import sentiment as sentiment_svc
 from app.storage import minio_store
-from reporter import analyzer, fallback, market
+from reporter import analyzer, article, fallback, market, news, us_market
 from reporter.crawler import crawl_categories
 from reporter.models import Report as CrawledReport
 from reporter.ollama_client import OllamaClient
@@ -151,29 +151,73 @@ def backfill_industry_names(db: Session, target_date: str | None = None) -> int:
     return updated
 
 
-# 국내 장 마감(15:30) + 마감시황 리포트 발행 시차를 감안한 '장 마감 후' 판정 기준 시각.
+# 시황 국면 경계(KST). 09:30~ 장중, 16:00~ 마감(15:30 마감 + 마감시황 리포트 발행 시차).
+# 09:00~09:30 은 지수 데이터가 얇아 개장 전(forecast) 유지.
+_MARKET_OPEN = (9, 30)
 _MARKET_CLOSE_HOUR = 16
 
+# 뉴스 종합 시 본문까지 크롤할 상위 기사 수(headless 라 무거워 소수만). pipeline 과 동일 정책.
+_NEWS_ARTICLE_TOP = 3
+_INTRADAY_NEWS_LIMIT = 8
 
-def build_market_brief(
-    db: Session, settings: Settings, target_date: str | None = None, after_close: bool | None = None
-) -> str | None:
-    """당일 시황(market_info) 리포트를 크롤·종합해 daily_market_info 에 저장한다.
 
-    장중(마감 전)에는 전날 국내마감+간밤 미국마감으로 '오늘'을 예상하고, 장 마감 후에는
-    오늘 국내 마감시황으로 '오늘 리뷰 + 내일 전망'을 만든다. market_date 는 수집 실행일(또는
-    지정일)로 고정한다. after_close 미지정 시 현재 시각(16시 기준)으로 판정한다.
+def _market_phase(now: datetime) -> str:
+    """현재 시각으로 시황 국면을 판정한다: forecast(개장 전)/intraday(장중)/closing(마감 후)."""
+    if now.hour >= _MARKET_CLOSE_HOUR:
+        return "closing"
+    if (now.hour, now.minute) >= _MARKET_OPEN:
+        return "intraday"
+    return "forecast"
+
+
+def _quote_line(q) -> str:
+    """IndexQuote → '코스피 2,650.12 (+0.45%)' 형태 한 줄."""
+    ratio = q.change_ratio
+    sign = "" if ratio.startswith(("-", "+")) else "+"
+    return f"{q.name} {q.close} ({sign}{ratio}%)"
+
+
+def _news_blocks(items, session: requests.Session) -> list[str]:
+    """뉴스 아이템 → LLM 입력 블록. 상위 몇 건만 본문 크롤(무거움), 나머지는 제목만."""
+    blocks: list[str] = []
+    for it in items[:_NEWS_ARTICLE_TOP]:
+        body = article.fetch_article_text(it.link)
+        blocks.append(f"[{it.source}] {it.title}\n{body}" if body else f"[{it.source}] {it.title}")
+    for it in items[_NEWS_ARTICLE_TOP:]:
+        blocks.append(f"[{it.source}] {it.title}")
+    return blocks
+
+
+def _build_intraday(settings: Settings, session: requests.Session) -> tuple[str, int] | None:
+    """장중: 리서치 제외. 실시간 지수·환율 + 장중 뉴스로 '지금 장 상황'을 종합한다.
+
+    (요약 텍스트, source_count) 또는 근거를 전혀 못 구하면 None.
     """
-    if after_close is None:
-        after_close = datetime.now().hour >= _MARKET_CLOSE_HOUR
+    quotes = [
+        *us_market.fetch_kr_indices(session),
+        *us_market.fetch_exchange_rates(session),
+        *us_market.fetch_us_indices(session),  # 간밤 미국 마감(참고)
+    ]
+    items = news.collect(news.MARKET_NEWS_KEYWORDS, _INTRADAY_NEWS_LIMIT, session)
+    if not quotes and not items:
+        return None
+    quote_lines = [_quote_line(q) for q in quotes]
+    blocks = _news_blocks(items, session)
+    client = OllamaClient(settings.ollama_host, settings.ollama_api_key)
+    briefing = analyzer.synthesize_intraday(client, settings.insight_model, quote_lines, blocks)
+    return briefing.text, len(quotes) + len(items)
 
+
+def _build_research(
+    settings: Settings, phase: str, target_date: str | None, session: requests.Session
+) -> tuple[str, int] | None:
+    """개장 전/마감: 증권사 리서치 + 장중/글로벌 뉴스로 예상 또는 마감 리뷰를 종합한다."""
     crawled = crawl_categories(["market_info"], target_date=target_date)
     if not crawled:
         logger.info("no market_info reports")
         return None
 
-    # 장 마감 후에는 오늘 국내 마감시황(장 리뷰)만, 장중에는 전날 국내마감+간밤 미장마감 전체.
-    if after_close:
+    if phase == "closing":
         _morning, sources = market.split_by_closing(crawled)
         if not sources:  # 마감시황 리포트가 아직이면 전체로 폴백
             fallback.log_fallback(
@@ -185,9 +229,7 @@ def build_market_brief(
     else:
         sources = crawled
 
-    client = OllamaClient(settings.ollama_host, settings.ollama_api_key)
-    session = requests.Session()
-    texts: list[str] = []
+    texts: list = []
     for cr in sources:
         if not cr.pdf_url:
             continue
@@ -200,27 +242,73 @@ def build_market_brief(
     if not texts:
         return None
 
+    client = OllamaClient(settings.ollama_host, settings.ollama_api_key)
     summarized = analyzer.summarize_reports(client, settings.summary_model, texts)
     if not summarized:
         return None
-    synth = analyzer.synthesize_closing_review if after_close else analyzer.synthesize_forecast
+
+    # 리서치 요약에 장중 뉴스를 근거로 합류(개장 전은 글로벌, 마감은 국내 장중 뉴스).
+    keywords = news.GLOBAL_NEWS_KEYWORDS if phase == "forecast" else news.MARKET_NEWS_KEYWORDS
+    news_items = news.collect(keywords, _INTRADAY_NEWS_LIMIT, session)
+    for block in _news_blocks(news_items, session):
+        summarized.append(_NewsReport(block))
+
+    synth = analyzer.synthesize_closing_review if phase == "closing" else analyzer.synthesize_forecast
     briefing = synth(client, settings.insight_model, summarized)
+    return briefing.text, len(summarized)
+
+
+class _NewsReport:
+    """리서치 요약 리스트에 뉴스 블록을 섞기 위한 최소 어댑터(analyzer 는 .label/.summary 만 읽음)."""
+
+    def __init__(self, block: str) -> None:
+        self.label = "[news] 장중 뉴스"
+        self.summary = block
+        self.category = "news"
+
+
+def build_market_brief(
+    db: Session, settings: Settings, target_date: str | None = None, phase: str | None = None
+) -> str | None:
+    """당일 시황을 국면별로 종합해 daily_market_info 에 저장한다.
+
+    - forecast(개장 전): 전날 국내마감+간밤 미장 리서치 + 글로벌 뉴스로 '오늘 예상'.
+    - intraday(장중): 리서치 제외, 실시간 지수·환율 + 국내 장중 뉴스로 '지금 장 상황'.
+    - closing(마감 후): 오늘 국내 마감시황 리서치 + 국내 뉴스로 '마감 리뷰+내일 전망'.
+
+    phase 미지정 시: 과거 백필(target_date 지정)은 마감 리뷰(장중 실시간 불가), 그 외는
+    현재 시각으로 판정. market_date 는 수집 실행일(또는 지정일)로 고정한다.
+    """
+    if phase is None:
+        phase = "closing" if target_date else _market_phase(datetime.now())
+
+    session = requests.Session()
+    if phase == "intraday":
+        built = _build_intraday(settings, session)
+    else:
+        built = _build_research(settings, phase, target_date, session)
+    if built is None:
+        return None
+    summary_text, source_count = built
 
     # market_date = 수집 실행일(지정일 우선). 리스트 최상단 발행일에 의존하지 않는다.
     market_date = _to_date(target_date) if target_date else datetime.now().date()
     existing = db.scalar(select(DailyMarketInfo).where(DailyMarketInfo.market_date == market_date))
     if existing:
-        existing.summary = briefing.text
-        existing.source_count = len(summarized)
+        existing.summary = summary_text
+        existing.source_count = source_count
         existing.model = settings.insight_model
+        existing.phase = phase
+        existing.updated_at = datetime.now().astimezone()
     else:
         db.add(
             DailyMarketInfo(
                 market_date=market_date,
-                summary=briefing.text,
-                source_count=len(summarized),
+                summary=summary_text,
+                source_count=source_count,
                 model=settings.insight_model,
+                phase=phase,
             )
         )
     db.commit()
-    return briefing.text
+    return summary_text

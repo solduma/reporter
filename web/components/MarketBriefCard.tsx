@@ -13,6 +13,24 @@ interface Section {
   body: string; // 항목 구조가 아닌 자유 문단(폴백용)
 }
 
+// 국면 배지 라벨. 서버가 phase 를 안 주는 옛 데이터는 배지 생략.
+const PHASE_BADGE: Record<string, string> = {
+  forecast: "🔮 개장 전 예상",
+  intraday: "📊 장중 실시간",
+  closing: "📉 마감 리뷰",
+};
+
+function formatUpdatedAt(value: string | null | undefined): string {
+  if (!value) {
+    return "";
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return "";
+  }
+  return parsed.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+}
+
 function formatDate(value: string | null): string {
   if (!value) {
     return "";
@@ -88,11 +106,19 @@ export default function MarketBriefCard({ brief }: Props) {
   const summary = brief?.summary?.trim() ?? "";
   const dateLabel = formatDate(brief?.market_date ?? null);
   const sections = summary ? parseSections(summary) : [];
+  const phaseLabel = brief?.phase ? PHASE_BADGE[brief.phase] : "";
+  const updatedLabel = formatUpdatedAt(brief?.updated_at);
 
   return (
     <section className={styles.card}>
       <div className={styles.head}>
         <h1 className={styles.title}>오늘의 시황</h1>
+        {phaseLabel ? (
+          <span className={styles.phase} data-phase={brief?.phase}>
+            {phaseLabel}
+            {updatedLabel ? ` · ${updatedLabel} 기준` : ""}
+          </span>
+        ) : null}
         {dateLabel ? <span className={styles.date}>{dateLabel}</span> : null}
       </div>
       {sections.length > 0 ? (

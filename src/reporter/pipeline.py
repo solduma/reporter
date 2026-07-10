@@ -39,10 +39,9 @@ _DIGEST_KIND = {
     "economy": "digest_econ",
     "debenture": "digest_bond",
 }
-# 장중 시장 뉴스 검색 키워드
-_MARKET_NEWS_KEYWORDS = ["코스피", "코스닥", "증시", "환율", "금리"]
-# 간밤 미국/글로벌 뉴스 검색 키워드
-_GLOBAL_NEWS_KEYWORDS = ["미국 증시", "나스닥", "연준", "뉴욕증시", "글로벌 경제"]
+# 뉴스 검색 키워드는 reporter.news 로 공용화(api 시황 파이프라인과 공유).
+_MARKET_NEWS_KEYWORDS = news.MARKET_NEWS_KEYWORDS
+_GLOBAL_NEWS_KEYWORDS = news.GLOBAL_NEWS_KEYWORDS
 
 
 def _format_message(briefing: Briefing) -> str:
@@ -97,15 +96,8 @@ def _format_digest_message(
 
 
 def _collect_market_news(keywords: list[str], limit: int, session) -> list[news.NewsItem]:
-    """여러 키워드로 뉴스를 모아 제목 중복을 제거하고 상위 limit 건을 반환한다."""
-    seen: set[str] = set()
-    collected: list[news.NewsItem] = []
-    for kw in keywords:
-        for item in news.search(kw, limit=5, session=session):
-            if item.title and item.title not in seen:
-                seen.add(item.title)
-                collected.append(item)
-    return collected[:limit]
+    """여러 키워드로 뉴스를 모아 제목 중복 제거 후 상위 limit 건. reporter.news.collect 위임."""
+    return news.collect(keywords, limit, session)
 
 
 def _shortener(config: Config, session) -> UrlShortener:

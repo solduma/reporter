@@ -40,7 +40,12 @@ def today_market(
     row = db.scalars(stmt.limit(1)).first()
     if not row:
         return MarketBrief(market_date=None, summary="")
-    return MarketBrief(market_date=row.market_date, summary=row.summary)
+    return MarketBrief(
+        market_date=row.market_date,
+        summary=row.summary,
+        phase=row.phase or "",
+        updated_at=row.updated_at,
+    )
 
 
 @router.get("/today/reports", response_model=list[ReportCard])

@@ -24,6 +24,28 @@
   color: var(--muted);
   font-size: 0.88rem;
   white-space: nowrap;
+  margin-left: auto; /* 날짜는 오른쪽 끝으로(배지가 title 옆에 붙도록) */
+}
+
+/* 국면 배지 — title 바로 옆. 국면별 톤을 data-phase 로 구분. */
+.phase {
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 2px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+  background: var(--surface-2, #eef2f7);
+  color: var(--muted);
+}
+
+.phase[data-phase="intraday"] {
+  background: #e8f0fe;
+  color: #1a56db;
+}
+
+.phase[data-phase="closing"] {
+  background: #fbe9e9;
+  color: #b42318;
 }
 
 .grid {
