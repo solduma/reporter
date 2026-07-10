@@ -52,21 +52,34 @@ function AxisCard({ axis }: { axis: AnalysisAxis }) {
   );
 }
 
-export default function AnalysisPanel({ code }: { code: string }) {
-  const [state, setState] = useState<State>({ status: "loading", data: null });
+interface Props {
+  code: string;
+  // 부모가 이미 /analysis 를 조회했으면 주입해 중복 호출(중복 LLM 코멘트)을 막는다.
+  // 미주입 시 자체 조회(다른 페이지에서 단독 사용 가능).
+  analysis?: CompanyAnalysis | null;
+  status?: "loading" | "ready" | "error";
+  message?: string;
+}
+
+export default function AnalysisPanel({ code, analysis, status, message }: Props) {
+  const [selfState, setSelfState] = useState<State>({ status: "loading", data: null });
+  const controlled = status !== undefined;
 
   useEffect(() => {
+    if (controlled) {
+      return; // 부모가 제어 → 자체 조회 안 함
+    }
     let active = true;
     async function load() {
-      setState({ status: "loading", data: null });
+      setSelfState({ status: "loading", data: null });
       try {
         const res = await fetchCompanyAnalysis(code);
         if (active) {
-          setState({ status: "ready", data: res });
+          setSelfState({ status: "ready", data: res });
         }
       } catch (e) {
         if (active) {
-          setState({
+          setSelfState({
             status: "error",
             data: null,
             message: e instanceof Error ? e.message : "분석을 불러오지 못했습니다",
@@ -78,7 +91,11 @@ export default function AnalysisPanel({ code }: { code: string }) {
     return () => {
       active = false;
     };
-  }, [code]);
+  }, [code, controlled]);
+
+  const state: State = controlled
+    ? { status: status ?? "loading", data: analysis ?? null, message }
+    : selfState;
 
   if (state.status === "loading") {
     return <div className={styles.status}>분석 계산 중…</div>;

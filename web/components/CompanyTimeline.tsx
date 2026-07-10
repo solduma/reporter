@@ -14,6 +14,9 @@ import SentimentBadge from "./SentimentBadge";
 // 타임라인은 다른 섹션과 독립적으로 로딩/실패하도록 상태를 분리한다.
 type State = { status: "loading" | "ready" | "error"; data: TimelineItem[]; message?: string };
 
+// 최근 항목만 노출(백엔드는 최신순 정렬로 90일치 반환). 과거는 스크롤 대신 잘라 간결하게.
+const TIMELINE_LIMIT = 20;
+
 function formatDate(value: string): string {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {
@@ -151,7 +154,7 @@ export default function CompanyTimeline({ code }: { code: string }) {
 
   return (
     <ul className={styles.list}>
-      {state.data.map((item, i) => (
+      {state.data.slice(0, TIMELINE_LIMIT).map((item, i) => (
         <TimelineRow key={`${item.type}-${item.report_id ?? item.broadcast_id ?? item.link ?? item.title}-${item.date}-${i}`} item={item} />
       ))}
     </ul>

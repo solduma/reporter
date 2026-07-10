@@ -10,8 +10,9 @@ import SectorFlowDetailCard from "@/components/SectorFlowDetailCard";
 import SectorStockList from "@/components/SectorStockList";
 import SectorTopStockCharts from "@/components/SectorTopStockCharts";
 import SentimentChart from "@/components/SentimentChart";
+import TimeframeSlider from "@/components/TimeframeSlider";
 import { fetchIndustrySentiment } from "@/lib/api";
-import type { SentimentPoint } from "@/lib/types";
+import type { ChartTimeframe, SentimentPoint } from "@/lib/types";
 
 import styles from "./page.module.css";
 
@@ -21,6 +22,8 @@ export default function SectorDetailPage({ params }: { params: { name: string } 
   const [selectedPoint, setSelectedPoint] = useState<SentimentPoint | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [message, setMessage] = useState<string | null>(null);
+  // 지수·ETF·종목 차트가 공유하는 기간. 슬라이더 하나로 모든 차트를 함께 조정한다.
+  const [timeframe, setTimeframe] = useState<ChartTimeframe>("day");
 
   useEffect(() => {
     let active = true;
@@ -101,9 +104,13 @@ export default function SectorDetailPage({ params }: { params: { name: string } 
 
       <SectorFlowDetailCard industry={sector} />
 
-      <SectorCharts industry={sector} />
+      <div className={styles.chartControls}>
+        <TimeframeSlider value={timeframe} onChange={setTimeframe} label="차트 기간" />
+      </div>
 
-      <SectorTopStockCharts industry={sector} />
+      <SectorCharts industry={sector} timeframe={timeframe} />
+
+      <SectorTopStockCharts industry={sector} timeframe={timeframe} />
 
       <SectorStockList industry={sector} />
 

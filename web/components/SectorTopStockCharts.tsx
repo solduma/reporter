@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
 import SymbolChartCard from "@/components/SymbolChartCard";
 import { fetchSectorStocks } from "@/lib/api";
@@ -8,14 +8,12 @@ import type { ChartTimeframe, FlowMarket, SectorStock, SectorStockSort } from "@
 
 import styles from "./SectorTopStockCharts.module.css";
 
-const PAGE_SIZE = 10;
-const TIMEFRAME: ChartTimeframe = "day"; // 종목 캔들은 일봉 고정(그리드가 조밀함)
+const TOP_N = 4; // 시총/거래대금 상위 4개만 — 화면을 간결하게 유지
 
 type State = {
   status: "loading" | "ready" | "error";
   stocks: SectorStock[];
   message?: string;
-  hasMore: boolean;
 };
 
 function changeClass(rising: boolean | null): string {
@@ -37,46 +35,36 @@ function priceMeta(stock: SectorStock) {
   );
 }
 
-export default function SectorTopStockCharts({ industry }: { industry: string }) {
+// timeframe 은 부모(페이지)의 공용 슬라이더가 제어한다 — 지수·ETF·종목 차트가 함께 조정된다.
+export default function SectorTopStockCharts({
+  industry,
+  timeframe,
+}: {
+  industry: string;
+  timeframe: ChartTimeframe;
+}) {
   const [market, setMarket] = useState<FlowMarket>("KR");
   const [sort, setSort] = useState<SectorStockSort>("cap");
-  const [offset, setOffset] = useState(0);
-  const [state, setState] = useState<State>({ status: "loading", stocks: [], hasMore: false });
-
-  // 시장/정렬이 바뀌면 처음부터 다시 그린다.
-  useEffect(() => {
-    setOffset(0);
-  }, [industry, market, sort]);
+  const [state, setState] = useState<State>({ status: "loading", stocks: [] });
 
   useEffect(() => {
     let active = true;
     async function load() {
-      // offset 0(새 조합)이면 로딩 표시, 더보기(offset>0)면 기존 목록 유지.
-      if (offset === 0) {
-        setState({ status: "loading", stocks: [], hasMore: false });
-      }
+      setState({ status: "loading", stocks: [] });
       try {
-        const page = await fetchSectorStocks(industry, market, {
-          sort,
-          limit: PAGE_SIZE,
-          offset,
-        });
+        // 백엔드가 sort(cap=시총 desc) 순으로 정렬 반환 → 상위 TOP_N 만 요청.
+        const page = await fetchSectorStocks(industry, market, { sort, limit: TOP_N });
         if (!active) {
           return;
         }
-        setState((prev) => ({
-          status: "ready",
-          stocks: offset === 0 ? page : [...prev.stocks, ...page],
-          hasMore: page.length === PAGE_SIZE,
-        }));
+        setState({ status: "ready", stocks: page });
       } catch (e) {
         if (active) {
-          setState((prev) => ({
+          setState({
             status: "error",
-            stocks: prev.stocks,
+            stocks: [],
             message: e instanceof Error ? e.message : "종목 목록을 불러오지 못했습니다",
-            hasMore: false,
-          }));
+          });
         }
       }
     }
@@ -84,11 +72,7 @@ export default function SectorTopStockCharts({ industry }: { industry: string })
     return () => {
       active = false;
     };
-  }, [industry, market, sort, offset]);
-
-  const loadMore = useCallback(() => {
-    setOffset((o) => o + PAGE_SIZE);
-  }, []);
+  }, [industry, market, sort]);
 
   return (
     <section className={styles.card}>
@@ -140,30 +124,22 @@ export default function SectorTopStockCharts({ industry }: { industry: string })
             : "대응하는 미국 섹터 종목이 없습니다."}
         </p>
       ) : (
-        <>
-          <div className={styles.chartGrid}>
-            {state.stocks
-              .filter((s) => s.symbol)
-              .map((s) => (
-                <SymbolChartCard
-                  key={s.symbol}
-                  symbol={s.symbol as string}
-                  market={s.market === "US" ? "US" : "KR"}
-                  timeframe={TIMEFRAME}
-                  label={s.name}
-                  href={s.code ? `/companies/${s.code}` : undefined}
-                  meta={priceMeta(s)}
-                />
-              ))}
-          </div>
-          {state.hasMore ? (
-            <div className={styles.moreRow}>
-              <button type="button" className={styles.moreBtn} onClick={loadMore}>
-                더보기
-              </button>
-            </div>
-          ) : null}
-        </>
+        <div className={styles.chartGrid}>
+          {state.stocks
+            .filter((s) => s.symbol)
+            .slice(0, TOP_N)
+            .map((s) => (
+              <SymbolChartCard
+                key={s.symbol}
+                symbol={s.symbol as string}
+                market={s.market === "US" ? "US" : "KR"}
+                timeframe={timeframe}
+                label={s.name}
+                href={s.code ? `/companies/${s.code}` : undefined}
+                meta={priceMeta(s)}
+              />
+            ))}
+        </div>
       )}
     </section>
   );

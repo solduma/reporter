@@ -14,13 +14,14 @@ type State = {
   message?: string;
 };
 
-const TF_TABS: { id: ChartTimeframe; label: string }[] = [
-  { id: "day", label: "일" },
-  { id: "week", label: "주" },
-];
-
-export default function SectorCharts({ industry }: { industry: string }) {
-  const [tf, setTf] = useState<ChartTimeframe>("day");
+// timeframe 은 부모(페이지)의 공용 슬라이더가 제어한다 — 지수·ETF·종목 차트가 함께 조정된다.
+export default function SectorCharts({
+  industry,
+  timeframe,
+}: {
+  industry: string;
+  timeframe: ChartTimeframe;
+}) {
   const [state, setState] = useState<State>({ status: "loading", meta: null });
 
   useEffect(() => {
@@ -70,20 +71,6 @@ export default function SectorCharts({ industry }: { industry: string }) {
             <h2 className={styles.title}>지수 흐름</h2>
             <p className={styles.subtitle}>국내(코스피·코스닥) · 미국(나스닥100·러셀2000)</p>
           </div>
-          <div className={styles.tabs} role="tablist" aria-label="기간 선택">
-            {TF_TABS.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                role="tab"
-                aria-selected={t.id === tf}
-                className={t.id === tf ? `${styles.tab} ${styles.tabActive}` : styles.tab}
-                onClick={() => setTf(t.id)}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
         </div>
         <div className={styles.grid}>
           {meta.indices.map((ref) => (
@@ -91,7 +78,7 @@ export default function SectorCharts({ industry }: { industry: string }) {
               key={`${ref.market}-${ref.symbol}`}
               symbol={ref.symbol}
               market={ref.market}
-              timeframe={tf}
+              timeframe={timeframe}
               label={ref.label}
             />
           ))}
@@ -112,7 +99,7 @@ export default function SectorCharts({ industry }: { industry: string }) {
                 key={`${ref.market}-${ref.symbol}`}
                 symbol={ref.symbol}
                 market={ref.market}
-                timeframe={tf}
+                timeframe={timeframe}
                 label={ref.label}
               />
             ))}

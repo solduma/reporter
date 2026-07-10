@@ -111,3 +111,10 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* 차트 기간 슬라이더 바 — 지수·ETF·종목 차트 공통 제어. 우측 정렬. */
+.chartControls {
+  display: flex;
+  justify-content: flex-end;
+  padding: 4px 2px;
+}
