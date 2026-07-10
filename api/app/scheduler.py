@@ -99,6 +99,11 @@ def main() -> None:
         level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
     init_db()
+    # 워커도 ingest 중 폴백(차트 네이버→KIS, 마감시황→전체 등)을 일으키므로 DB sink 등록.
+    from app.services import fallback_store
+    from reporter import fallback
+
+    fallback.register_sink(fallback_store.db_sink)
     scheduler = build_scheduler()
     logger.info("scheduler starting (mon-fri 09-19 every 30min, Asia/Seoul)")
     scheduler.start()

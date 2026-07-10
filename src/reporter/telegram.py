@@ -14,6 +14,8 @@ import time
 
 import requests
 
+from .fallback import log_fallback
+
 logger = logging.getLogger(__name__)
 
 _MAX_LEN = 4096
@@ -141,7 +143,10 @@ class TelegramSender:
             if not _is_parse_error(e):
                 raise
             # HTML 파싱 실패 시 브리핑 유실을 막기 위해 서식 없이 원문 그대로 재발송한다.
-            logger.warning("HTML parse failed, resending as plain text: %s", e)
+            log_fallback(
+                "telegram.html_to_plain",
+                reason=f"HTML parse_mode 발송 실패 → 평문 재발송 ({e})",
+            )
             payload["text"] = text
             del payload["parse_mode"]
             result = self._api("sendMessage", payload)

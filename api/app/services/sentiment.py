@@ -11,6 +11,7 @@ import logging
 import re
 from dataclasses import dataclass
 
+from reporter.fallback import log_fallback
 from reporter.ollama_client import OllamaClient, OllamaError
 
 logger = logging.getLogger(__name__)
@@ -76,12 +77,20 @@ def classify(client: OllamaClient, model: str, category: str, title: str, text: 
     try:
         raw = client.chat(model, _SYSTEM, prompt, temperature=0.2)
     except OllamaError as e:
-        logger.warning("sentiment GLM failed for %s: %s", title, e)
+        log_fallback(
+            "sentiment.report.llm_fail_hold",
+            reason=f"센티먼트 LLM 호출 실패 → HOLD ({e})",
+            detail=title,
+        )
         return SentimentResult("HOLD", "", "")
 
     data = _extract_json(raw)
     if not data:
-        logger.warning("sentiment JSON parse failed for %s: %r", title, raw[:200])
+        log_fallback(
+            "sentiment.report.parse_fail_hold",
+            reason="센티먼트 JSON 파싱 실패 → HOLD",
+            detail=title,
+        )
         return SentimentResult("HOLD", raw[:120].strip(), "")
 
     sentiment = str(data.get("sentiment", "")).upper().strip()

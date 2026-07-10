@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
-from . import analyzer, archive, article, market, news, us_market
+from . import analyzer, archive, article, fallback, market, news, us_market
 from .config import Config
 from .crawler import crawl_categories
 from .forum import ForumPublisher
@@ -246,7 +246,11 @@ def run_per_entity_briefing(config: Config, categories: list[str], target_date: 
                 publisher.publish(kind, entries)
             except TelegramError as e:
                 # 포럼 아님/권한 없음 → plain 발송으로 폴백(유실 방지)
-                logger.warning("토픽 발송 실패(%s) — plain 폴백: %s", kind, e)
+                fallback.log_fallback(
+                    "forum.topic_to_plain.entity",
+                    reason=f"포럼 토픽 발송 실패 → plain 폴백 ({e})",
+                    detail=kind,
+                )
                 for body in entries:
                     sender.send(body)
 
@@ -317,7 +321,10 @@ def run_market_news(config: Config) -> int:
         try:
             sent = ForumPublisher(config, sender).publish("market_news", [message])
         except TelegramError as e:
-            logger.warning("장중뉴스 토픽 발송 실패 — plain 폴백: %s", e)
+            fallback.log_fallback(
+                "forum.topic_to_plain.news",
+                reason=f"장중뉴스 토픽 발송 실패 → plain 폴백 ({e})",
+            )
             sent = sender.send(message)
     else:
         sent = sender.send(message)

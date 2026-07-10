@@ -10,6 +10,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.db.session import init_db
 from app.routers import admin, broadcasts, companies, industries, market, screener, today
+from app.services import fallback_store
+from reporter import fallback
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -17,6 +19,9 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    # 폴백 이벤트 DB 영속화 sink 등록(단일 writer=API). reporter.fallback 은 계층상 DB 를 몰라
+    # 여기서 주입한다. 미등록 시엔 로그만 남는다.
+    fallback.register_sink(fallback_store.db_sink)
     yield
 
 

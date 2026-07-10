@@ -18,7 +18,7 @@ from app.config import Settings
 from app.db.models import DailyMarketInfo, Report, ReportAnalysis, Sentiment
 from app.services import sentiment as sentiment_svc
 from app.storage import minio_store
-from reporter import analyzer, market
+from reporter import analyzer, fallback, market
 from reporter.crawler import crawl_categories
 from reporter.models import Report as CrawledReport
 from reporter.ollama_client import OllamaClient
@@ -176,6 +176,11 @@ def build_market_brief(
     if after_close:
         _morning, sources = market.split_by_closing(crawled)
         if not sources:  # 마감시황 리포트가 아직이면 전체로 폴백
+            fallback.log_fallback(
+                "market_brief.closing_to_all",
+                reason="장 마감 후이나 국내 마감시황 리포트 미발행 → 전체 리포트로 폴백",
+                detail=str(target_date or datetime.now().date()),
+            )
             sources = crawled
     else:
         sources = crawled
