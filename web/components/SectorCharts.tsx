@@ -14,14 +14,15 @@ type State = {
   message?: string;
 };
 
-// timeframe 은 부모(페이지)의 공용 슬라이더가 제어한다 — 지수·ETF·종목 차트가 함께 조정된다.
-export default function SectorCharts({
-  industry,
-  timeframe,
-}: {
+interface Props {
   industry: string;
   timeframe: ChartTimeframe;
-}) {
+  market?: string; // 종목 시장(KOSPI|KOSDAQ) — 표시할 국내 지수 선택용
+  dateRange?: { from: string; to: string } | null;
+}
+
+// 지수·섹터를 2열(왼쪽=국장, 오른쪽=미장)로 배치. 지수는 해당 종목 지수 1개 + 나스닥(QQQ)만.
+export default function SectorCharts({ industry, timeframe, market, dateRange = null }: Props) {
   const [state, setState] = useState<State>({ status: "loading", meta: null });
 
   useEffect(() => {
@@ -61,48 +62,56 @@ export default function SectorCharts({
     return null;
   }
 
-  const etfs = [meta.kr_etf, meta.us_etf].filter((r): r is ChartRef => r !== null);
+  // 국내 지수: 종목 시장에 맞춰 코스피/코스닥 중 하나. 미국: 나스닥100(QQQ).
+  const krIndexLabel = market === "KOSDAQ" ? "코스닥" : "코스피";
+  const krIndex =
+    meta.indices.find((r) => r.market === "KR" && r.label === krIndexLabel) ??
+    meta.indices.find((r) => r.market === "KR") ??
+    null;
+  const nasdaq =
+    meta.indices.find((r) => r.market === "US" && r.label.includes("나스닥")) ??
+    meta.indices.find((r) => r.market === "US") ??
+    null;
+
+  const card = (ref: ChartRef, key: string) => (
+    <SymbolChartCard
+      key={key}
+      symbol={ref.symbol}
+      market={ref.market}
+      timeframe={timeframe}
+      label={ref.label}
+      dateRange={dateRange}
+    />
+  );
 
   return (
     <>
       <section className={styles.card}>
         <div className={styles.head}>
           <div>
-            <h2 className={styles.title}>지수 흐름</h2>
-            <p className={styles.subtitle}>국내(코스피·코스닥) · 미국(나스닥100·러셀2000)</p>
+            <h3 className={styles.title}>지수</h3>
+            <p className={styles.subtitle}>왼쪽 국장 · 오른쪽 미장</p>
           </div>
         </div>
+        {/* 2열: 국장(해당 지수) | 미장(나스닥) */}
         <div className={styles.grid}>
-          {meta.indices.map((ref) => (
-            <SymbolChartCard
-              key={`${ref.market}-${ref.symbol}`}
-              symbol={ref.symbol}
-              market={ref.market}
-              timeframe={timeframe}
-              label={ref.label}
-            />
-          ))}
+          {krIndex ? card(krIndex, "kr-idx") : <div className={styles.slot} />}
+          {nasdaq ? card(nasdaq, "us-idx") : <div className={styles.slot} />}
         </div>
       </section>
 
-      {etfs.length > 0 ? (
+      {meta.kr_etf || meta.us_etf ? (
         <section className={styles.card}>
           <div className={styles.head}>
             <div>
-              <h2 className={styles.title}>섹터 추종 ETF</h2>
-              <p className={styles.subtitle}>이 섹터를 추종하는 국내·미국 ETF 흐름</p>
+              <h3 className={styles.title}>섹터 ETF</h3>
+              <p className={styles.subtitle}>왼쪽 국장 · 오른쪽 미장</p>
             </div>
           </div>
+          {/* 2열: 국장 ETF | 미장 ETF */}
           <div className={styles.grid}>
-            {etfs.map((ref) => (
-              <SymbolChartCard
-                key={`${ref.market}-${ref.symbol}`}
-                symbol={ref.symbol}
-                market={ref.market}
-                timeframe={timeframe}
-                label={ref.label}
-              />
-            ))}
+            {meta.kr_etf ? card(meta.kr_etf, "kr-etf") : <div className={styles.slot} />}
+            {meta.us_etf ? card(meta.us_etf, "us-etf") : <div className={styles.slot} />}
           </div>
         </section>
       ) : null}

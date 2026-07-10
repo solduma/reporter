@@ -407,6 +407,8 @@ def company_peers(code: str, db: Session = Depends(get_session)) -> list[PeerOut
     rows = db.scalars(
         select(Peer).where(Peer.base_stock_code == code).order_by(Peer.id)
     ).all()
+    # EV/EBITDA·PSR 은 네이버 동일업종 테이블에 없어, 각 peer 의 최근 Financial(DART 산출)에서 채운다.
+    val = _peer_valuations(db, [r.peer_stock_code for r in rows])
     return [
         PeerOut(
             stock_code=r.peer_stock_code,
@@ -417,9 +419,34 @@ def company_peers(code: str, db: Session = Depends(get_session)) -> list[PeerOut
             per=r.per,
             pbr=r.pbr,
             roe=r.roe,
+            ev_ebitda=val.get(r.peer_stock_code, (None, None))[0],
+            psr=val.get(r.peer_stock_code, (None, None))[1],
         )
         for r in rows
     ]
+
+
+def _peer_valuations(db: Session, codes: list[str]) -> dict[str, tuple[str | None, str | None]]:
+    """peer 종목들의 최근(추정 아닌) 분기 ev_ebitda·psr 을 표시문자열로 반환한다.
+
+    Financial 은 종목당 여러 분기가 있으므로 ev_ebitda/psr 이 채워진 가장 최신 분기를 고른다.
+    """
+    if not codes:
+        return {}
+    rows = db.scalars(
+        select(Financial)
+        .where(Financial.stock_code.in_(codes), Financial.is_estimate.is_(False))
+        .order_by(Financial.period.desc())
+    ).all()
+    out: dict[str, tuple[str | None, str | None]] = {}
+    for r in rows:
+        if r.stock_code in out:
+            continue  # 이미 더 최신 분기를 잡음(period desc)
+        if r.ev_ebitda is not None or r.psr is not None:
+            ev = f"{r.ev_ebitda:.1f}" if r.ev_ebitda is not None else None
+            psr = f"{r.psr:.2f}" if r.psr is not None else None
+            out[r.stock_code] = (ev, psr)
+    return out
 
 
 @router.get("/{code}/timeline", response_model=list[TimelineItem])

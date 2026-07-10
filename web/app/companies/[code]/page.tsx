@@ -4,13 +4,21 @@ import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 
 import AnalysisPanel from "@/components/AnalysisPanel";
+import { MA_DEFS } from "@/components/CandleChart";
+import type { ChartRange } from "@/components/CandleChart";
 import CompanyTimeline from "@/components/CompanyTimeline";
+import DateRangeSlider from "@/components/DateRangeSlider";
 import GrowthMetrics from "@/components/GrowthMetrics";
 import PeersTable from "@/components/PeersTable";
 import SectorCharts from "@/components/SectorCharts";
-import SymbolChartCard from "@/components/SymbolChartCard";
-import TimeframeSlider from "@/components/TimeframeSlider";
-import { fetchCandles, fetchCompanyAnalysis, fetchCompanySummary, fetchFinancials, fetchPeers } from "@/lib/api";
+import {
+  fetchCandles,
+  fetchCompanyAnalysis,
+  fetchCompanySummary,
+  fetchFinancials,
+  fetchPeers,
+} from "@/lib/api";
+import { dateToTs, monthsAgoIso } from "@/lib/chartTime";
 import type {
   CandlePoint,
   ChartTimeframe,
@@ -28,9 +36,11 @@ const CandleChart = dynamic(() => import("@/components/CandleChart"), {
   ssr: false,
   loading: () => <div className={styles.chartStatus}>차트 불러오는 중…</div>,
 });
-
-// Recharts는 브라우저 전용(ResponsiveContainer가 DOM 크기에 의존)이라 SSR을 끈다.
-const FinancialsChart = dynamic(() => import("@/components/FinancialsChart"), {
+const FinancialsLineChart = dynamic(() => import("@/components/FinancialsLineChart"), {
+  ssr: false,
+  loading: () => <div className={styles.sectionStatus}>차트 불러오는 중…</div>,
+});
+const MultipleBandChart = dynamic(() => import("@/components/MultipleBandChart"), {
   ssr: false,
   loading: () => <div className={styles.sectionStatus}>차트 불러오는 중…</div>,
 });
@@ -40,12 +50,17 @@ interface ViewDef {
   label: string;
 }
 
-// 분(2주 30분봉) / 일(2년) / 주(10년). id 가 곧 timeframe.
+// 분(30분봉)/일/주 버튼탭. 지수·섹터(/api/chart)는 30분봉이 없어 '분' 선택 시 일봉으로 폴백한다.
 const VIEWS: ViewDef[] = [
   { id: "30m", label: "분" },
   { id: "day", label: "일" },
   { id: "week", label: "주" },
 ];
+
+// 비교 차트(지수·섹터)용 timeframe: 30m 은 없으므로 day 로 폴백.
+function compareTf(tf: Timeframe): ChartTimeframe {
+  return tf === "30m" ? "day" : tf;
+}
 
 // 각 섹션이 독립적으로 로딩/실패하도록 상태를 분리해 관리한다.
 type SectionState<T> = { status: "loading" | "ready" | "error"; data: T; message?: string };
@@ -54,20 +69,20 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
   const { code } = params;
 
   const [summary, setSummary] = useState<CompanySummary | null>(null);
+  // 비교 차트 전체가 공유하는 봉 종류(분/일/주)와 표시 날짜 범위(date-range).
   const [timeframe, setTimeframe] = useState<Timeframe>("day");
   const [candlesByTf, setCandlesByTf] = useState<Partial<Record<Timeframe, CandlePoint[]>>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // date-range: 시작·종료일(ISO). null 이면 데이터 로드 후 최근 3개월로 초기화.
+  const [dateRange, setDateRange] = useState<{ from: string; to: string } | null>(null);
 
-  // 분석 결과는 페이지가 한 번만 조회해 AnalysisPanel 과 탑다운 비교 차트가 공유한다
-  // (/analysis 는 매 호출 LLM 코멘트를 생성하므로 중복 조회를 피한다).
   const [analysis, setAnalysis] = useState<SectionState<CompanyAnalysis | null>>({
     status: "loading",
     data: null,
   });
   const krSector = analysis.data?.topdown?.kr_sector ?? null;
-  // 비교 차트 3종을 함께 조정하는 공용 기간(일/주/월).
-  const [compareTf, setCompareTf] = useState<ChartTimeframe>("day");
+  const market = analysis.data?.market ?? null;
 
   const [financials, setFinancials] = useState<SectionState<FinancialPeriod[]>>({
     status: "loading",
@@ -84,7 +99,6 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
           setSummary(res);
         }
       } catch {
-        // 요약 실패는 헤더에만 영향 — 차트 흐름을 막지 않도록 코드만 표시한다.
         if (active) {
           setSummary(null);
         }
@@ -99,10 +113,7 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
   useEffect(() => {
     let active = true;
     let pollTimer: ReturnType<typeof setTimeout> | undefined;
-    // 코멘트 백그라운드 생성이 계속 실패해도 무한 폴링/재생성하지 않도록 상한을 둔다.
     const MAX_POLLS = 10;
-    // poll=false 인 최초 로드만 로딩 상태로 리셋. 폴링 재조회는 기존 데이터를 유지해
-    // 3초마다 패널 전체가 깜빡이지 않게 한다(코멘트만 채워짐).
     async function load(poll = false, attempt = 0) {
       if (!poll) {
         setAnalysis({ status: "loading", data: null });
@@ -113,12 +124,10 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
           return;
         }
         setAnalysis({ status: "ready", data: res });
-        // 코멘트가 백그라운드 생성 중이면(캐시 미스) 완성될 때까지 폴링해 채운다(상한까지만).
         if (res.comment_pending && attempt < MAX_POLLS) {
           pollTimer = setTimeout(() => void load(true, attempt + 1), 3000);
         }
       } catch (e) {
-        // 폴링 중 실패는 기존 데이터를 유지(패널 유지). 최초 로드 실패만 에러 표시.
         if (active && !poll) {
           setAnalysis({
             status: "error",
@@ -137,8 +146,8 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
     };
   }, [code]);
 
+  // 종목 봉(분/일/주). 이 종목의 일자 축이 date-range 슬라이더·전체 비교차트의 기준이 된다.
   useEffect(() => {
-    // 이미 받은 타임프레임은 재요청하지 않는다(일봉은 3개월·1년이 공유).
     if (candlesByTf[timeframe]) {
       setError(null);
       return;
@@ -218,29 +227,45 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
     };
   }, [code]);
 
-  const chartArea = useMemo(() => {
-    const chartData = candlesByTf[timeframe] ?? [];
-    if (loading && !candlesByTf[timeframe]) {
+  const stockCandles = useMemo(() => candlesByTf[timeframe] ?? [], [candlesByTf, timeframe]);
+
+  // 슬라이더가 다룰 날짜 축(오름차순 'YYYY-MM-DD'). 종목 봉에서 뽑는다.
+  const dateAxis = useMemo(
+    () => stockCandles.map((c) => c.t.slice(0, 10)),
+    [stockCandles],
+  );
+
+  // 종목 봉이 로드되면 date-range 기본값을 최근 3개월로 초기화(범위 밖이면 클램프).
+  useEffect(() => {
+    if (dateAxis.length === 0) {
+      return;
+    }
+    const first = dateAxis[0];
+    const last = dateAxis[dateAxis.length - 1];
+    const threeMoAgo = monthsAgoIso(3, new Date(`${last}T00:00:00Z`));
+    const from = threeMoAgo < first ? first : threeMoAgo;
+    setDateRange((prev) => prev ?? { from, to: last });
+  }, [dateAxis]);
+
+  // 모든 차트가 공유할 표시 구간(lightweight-charts Time).
+  const chartRange: ChartRange | null = useMemo(
+    () => (dateRange ? { from: dateToTs(dateRange.from), to: dateToTs(dateRange.to) } : null),
+    [dateRange],
+  );
+
+  const displayName = summary?.stock_name ?? "이름 미상";
+
+  const stockChart = useMemo(() => {
+    if (loading && stockCandles.length === 0) {
       return <div className={styles.chartStatus}>불러오는 중…</div>;
     }
-    if (chartData.length === 0) {
+    if (stockCandles.length === 0) {
       return <div className={styles.chartStatus}>차트 데이터가 없습니다</div>;
     }
-    return <CandleChart data={chartData} timeframe={timeframe} />;
-  }, [loading, candlesByTf, timeframe]);
-
-  const financialsArea = useMemo(() => {
-    if (financials.status === "loading") {
-      return <div className={styles.sectionStatus}>불러오는 중…</div>;
-    }
-    if (financials.status === "error") {
-      return <p className={styles.error}>API 연결 실패: {financials.message}</p>;
-    }
-    if (financials.data.length === 0) {
-      return <div className={styles.sectionStatus}>재무 데이터가 없습니다</div>;
-    }
-    return <FinancialsChart data={financials.data} />;
-  }, [financials]);
+    return (
+      <CandleChart data={stockCandles} timeframe={timeframe} range={chartRange} showControls={false} />
+    );
+  }, [loading, stockCandles, timeframe, chartRange]);
 
   const peersArea = useMemo(() => {
     if (peers.status === "loading") {
@@ -254,8 +279,6 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
     }
     return <PeersTable peers={peers.data} baseCode={code} />;
   }, [peers, code]);
-
-  const displayName = summary?.stock_name ?? "이름 미상";
 
   return (
     <div className={styles.page}>
@@ -292,55 +315,92 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
         <CompanyTimeline code={code} />
       </section>
 
-      <section className={styles.chartCard}>
-        <div className={styles.tabs} role="tablist" aria-label="기간 선택">
-          {VIEWS.map((v) => {
-            const active = v.id === timeframe;
-            return (
-              <button
-                key={v.id}
-                type="button"
-                role="tab"
-                aria-selected={active}
-                className={active ? `${styles.tab} ${styles.active}` : styles.tab}
-                onClick={() => setTimeframe(v.id)}
-              >
-                {v.label}
-              </button>
-            );
-          })}
-        </div>
-        {chartArea}
-      </section>
-
+      {/* 탑다운 비교 차트: 지수 → 섹터 → 종목 → 재무. 공용 컨트롤바(분/일/주·기간·MA). */}
       <section className={styles.chartCard}>
         <div className={styles.growthHead}>
           <div>
             <h2 className={styles.sectionTitle}>탑다운 비교 차트</h2>
-            <p className={styles.compareSub}>지수 · 섹터 · 종목을 같은 기간으로 함께 본다</p>
+            <p className={styles.compareSub}>지수 · 섹터 · 종목 · 재무를 같은 기간으로 함께 본다</p>
           </div>
-          <TimeframeSlider value={compareTf} onChange={setCompareTf} label="기간" />
         </div>
-        <div className={styles.compareStock}>
-          <SymbolChartCard
-            symbol={summary?.stock_code ?? code}
-            market="KR"
-            timeframe={compareTf}
-            label={`${displayName} (종목)`}
-          />
+
+        <div className={styles.controlBar}>
+          <div className={styles.tabs} role="tablist" aria-label="봉 종류">
+            {VIEWS.map((v) => {
+              const on = v.id === timeframe;
+              return (
+                <button
+                  key={v.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={on}
+                  className={on ? `${styles.tab} ${styles.active}` : styles.tab}
+                  onClick={() => setTimeframe(v.id)}
+                >
+                  {v.label}
+                </button>
+              );
+            })}
+          </div>
+          {dateRange && dateAxis.length > 1 ? (
+            <DateRangeSlider
+              dates={dateAxis}
+              from={dateRange.from}
+              to={dateRange.to}
+              onChange={(from, to) => setDateRange({ from, to })}
+            />
+          ) : null}
+          <div className={styles.maLegend} aria-label="이동평균선">
+            {MA_DEFS.map((m) => (
+              <span key={m.period} className={styles.maItem}>
+                <span className={styles.maDot} style={{ background: m.color }} />
+                MA{m.period}
+              </span>
+            ))}
+          </div>
         </div>
+
+        {/* 지수 → 섹터 (2열 국장|미장) */}
         {krSector ? (
-          <SectorCharts industry={krSector} timeframe={compareTf} />
+          <SectorCharts
+            industry={krSector}
+            timeframe={compareTf(timeframe)}
+            market={market ?? undefined}
+            dateRange={dateRange}
+          />
         ) : (
           <p className={styles.sectionStatus}>
             이 종목의 섹터를 특정할 수 없어 지수·섹터 차트를 생략합니다.
           </p>
         )}
+
+        {/* 종목 */}
+        <div className={styles.compareStock}>
+          <h3 className={styles.subHead}>{displayName} (종목)</h3>
+          {stockChart}
+        </div>
+
+        {/* 재무 라인(종목 차트 아래, 같은 시간축·기간) */}
+        <div className={styles.compareStock}>
+          <h3 className={styles.subHead}>재무 지표</h3>
+          {financials.status === "ready" && financials.data.length > 0 ? (
+            <FinancialsLineChart data={financials.data} range={chartRange} />
+          ) : financials.status === "loading" ? (
+            <div className={styles.sectionStatus}>불러오는 중…</div>
+          ) : (
+            <div className={styles.sectionStatus}>재무 데이터가 없습니다</div>
+          )}
+        </div>
       </section>
 
+      {/* PER · PBR · PSR 분위수 밴드 */}
       <section className={styles.chartCard}>
-        <h2 className={styles.sectionTitle}>재무제표</h2>
-        {financialsArea}
+        <h2 className={styles.sectionTitle}>밸류에이션 밴드 (PER · PBR · PSR)</h2>
+        {financials.status === "ready" && financials.data.length > 0 ? (
+          <MultipleBandChart data={financials.data} range={chartRange} />
+        ) : (
+          <div className={styles.sectionStatus}>재무 데이터가 없습니다</div>
+        )}
       </section>
 
       <section className={styles.chartCard}>

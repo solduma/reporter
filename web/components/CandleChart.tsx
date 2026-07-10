@@ -27,17 +27,26 @@ const COLOR_UP = "#c02b2b";
 const COLOR_DOWN = "#2b6cc0";
 const COLOR_GRID = "#e4e7eb";
 const COLOR_TEXT = "#1a1d21";
-// 이동평균선(10·20·120)
-const MA_DEFS: { period: number; color: string }[] = [
+// 이동평균선(10·20·120). 레전드를 차트 밖(컨트롤 바)에서도 렌더할 수 있게 export.
+export const MA_DEFS: { period: number; color: string }[] = [
   { period: 10, color: "#e8a33d" },
   { period: 20, color: "#2ca089" },
   { period: 120, color: "#8b5cf6" },
 ];
 
+// 차트에 표시할 시간 범위(초 단위 UTC timestamp 또는 날짜 문자열). 지정 시 fitContent 대신
+// setVisibleRange 로 이 구간만 보여준다. date-range 슬라이더가 제어한다.
+export interface ChartRange {
+  from: Time;
+  to: Time;
+}
+
 interface Props {
   data: CandlePoint[];
   timeframe: Timeframe;
   height?: number; // 그리드용 소형 차트를 위해 컨테이너 높이를 조절(기본 420)
+  range?: ChartRange | null; // 표시 구간(없으면 전체 fitContent)
+  showControls?: boolean; // MA 레전드·로그 토글 표시(기본 true). 컨트롤을 밖으로 뺄 땐 false.
 }
 
 // 30분봉의 t는 타임존 없는 벽시계 시각이라, UTC로 간주해 표기 시각이 그대로 보이도록 한다.
@@ -90,7 +99,13 @@ function dividerTimes(data: CandlePoint[], tf: Timeframe): Time[] {
   return times;
 }
 
-export default function CandleChart({ data, timeframe, height = 420 }: Props) {
+export default function CandleChart({
+  data,
+  timeframe,
+  height = 420,
+  range = null,
+  showControls = true,
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [logScale, setLogScale] = useState(false);
 
@@ -179,33 +194,44 @@ export default function CandleChart({ data, timeframe, height = 420 }: Props) {
       candleSeries.attachPrimitive(new TimeDividers(chart, dividers));
     }
 
-    chart.timeScale().fitContent();
+    // range 가 있으면 그 구간만, 없으면 전체를 맞춘다.
+    if (range) {
+      try {
+        chart.timeScale().setVisibleRange({ from: range.from, to: range.to });
+      } catch {
+        chart.timeScale().fitContent(); // 범위가 데이터 밖이면 전체로 폴백
+      }
+    } else {
+      chart.timeScale().fitContent();
+    }
 
     return () => {
       chart.remove();
     };
-  }, [data, timeframe, logScale]);
+  }, [data, timeframe, logScale, range]);
 
   return (
     <div className={styles.wrap}>
-      <div className={styles.controls}>
-        <div className={styles.maLegend}>
-          {MA_DEFS.map((m) => (
-            <span key={m.period} className={styles.maItem}>
-              <span className={styles.maDot} style={{ background: m.color }} />
-              MA{m.period}
-            </span>
-          ))}
+      {showControls ? (
+        <div className={styles.controls}>
+          <div className={styles.maLegend}>
+            {MA_DEFS.map((m) => (
+              <span key={m.period} className={styles.maItem}>
+                <span className={styles.maDot} style={{ background: m.color }} />
+                MA{m.period}
+              </span>
+            ))}
+          </div>
+          <button
+            type="button"
+            className={logScale ? `${styles.logBtn} ${styles.logBtnActive}` : styles.logBtn}
+            onClick={() => setLogScale((v) => !v)}
+            aria-pressed={logScale}
+          >
+            로그
+          </button>
         </div>
-        <button
-          type="button"
-          className={logScale ? `${styles.logBtn} ${styles.logBtnActive}` : styles.logBtn}
-          onClick={() => setLogScale((v) => !v)}
-          aria-pressed={logScale}
-        >
-          로그
-        </button>
-      </div>
+      ) : null}
       <div ref={containerRef} className={styles.chart} style={{ height }} />
     </div>
   );

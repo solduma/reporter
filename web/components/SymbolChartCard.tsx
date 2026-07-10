@@ -5,7 +5,9 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 
+import type { ChartRange } from "@/components/CandleChart";
 import { fetchChart } from "@/lib/api";
+import { dateToTs } from "@/lib/chartTime";
 import type { CandlePoint, ChartTimeframe, FlowMarket } from "@/lib/types";
 
 import styles from "./SymbolChartCard.module.css";
@@ -24,6 +26,7 @@ interface Props {
   href?: string; // 클릭 시 이동할 경로(국내 종목 → /companies/{code})
   meta?: ReactNode; // 헤더 우측 시세/등락 뱃지 등
   height?: number;
+  dateRange?: { from: string; to: string } | null; // 표시 구간(ISO 날짜). 없으면 전체.
 }
 
 type State = {
@@ -42,6 +45,7 @@ export default function SymbolChartCard({
   href,
   meta,
   height = CHART_HEIGHT,
+  dateRange = null,
 }: Props) {
   const [state, setState] = useState<State>({ status: "loading", data: [] });
 
@@ -94,7 +98,18 @@ export default function SymbolChartCard({
       </div>
     );
   } else {
-    body = <CandleChart data={state.data} timeframe={timeframe} height={height} />;
+    const range: ChartRange | null = dateRange
+      ? { from: dateToTs(dateRange.from), to: dateToTs(dateRange.to) }
+      : null;
+    body = (
+      <CandleChart
+        data={state.data}
+        timeframe={timeframe}
+        height={height}
+        range={range}
+        showControls={false}
+      />
+    );
   }
 
   return (

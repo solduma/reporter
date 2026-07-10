@@ -1,0 +1,74 @@
+.wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 280px;
+}
+
+.label {
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* dual-thumb: 두 range input 을 track 위에 겹쳐 놓는다. */
+.track {
+  position: relative;
+  flex: 1;
+  height: 20px;
+  display: flex;
+  align-items: center;
+}
+
+.track::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--border);
+  border-radius: 2px;
+}
+
+.fill {
+  position: absolute;
+  height: 3px;
+  background: var(--accent);
+  border-radius: 2px;
+}
+
+/* 두 input 을 투명 트랙으로 겹치고, thumb 만 보이게 한다. pointer-events 는 thumb 에만. */
+.range {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  margin: 0;
+  background: none;
+  pointer-events: none;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 20px;
+}
+
+.range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid var(--accent);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.range::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid var(--accent);
+  cursor: pointer;
+  pointer-events: auto;
+}

@@ -70,3 +70,8 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* 2열 배치에서 한쪽(국장 또는 미장)이 없을 때 빈 자리 유지용. */
+.slot {
+  min-height: 40px;
+}
