@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import io
 import logging
+import re
 import zipfile
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -21,6 +22,7 @@ logger = logging.getLogger(__name__)
 _CORPCODE_URL = "https://opendart.fss.or.kr/api/corpCode.xml"
 _LIST_URL = "https://opendart.fss.or.kr/api/list.json"
 _FNLTT_URL = "https://opendart.fss.or.kr/api/fnlttSinglAcntAll.json"
+_DOCUMENT_URL = "https://opendart.fss.or.kr/api/document.xml"
 _DART_VIEWER = "https://dart.fss.or.kr/dsaf001/main.do?rcpNo={rcept_no}"
 
 # 분기 → DART 보고서 코드. 1Q=11013·반기=11012·3Q=11014·사업보고서(연간)=11011.
@@ -236,3 +238,35 @@ def fetch_disclosures(
         page += 1
 
     return disclosures
+
+
+# 공시 본문 XML 의 태그를 제거해 순수 텍스트로. 표·서식은 버리고 판단에 쓸 서술만 남긴다.
+def _strip_document_xml(raw: bytes) -> str:
+    text = raw.decode("utf-8", errors="ignore")
+    text = re.sub(r"<[^>]+>", " ", text)  # 태그 제거
+    text = re.sub(r"&[a-zA-Z]+;", " ", text)  # 잔여 엔티티
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def fetch_document_text(
+    api_key: str, rcept_no: str, session: requests.Session, max_chars: int = 6000
+) -> str:
+    """공시 원문(document.xml, zip 내 XML)을 받아 태그를 벗겨 앞 max_chars 만 반환한다.
+
+    첨부가 여러 XML 이면 이어붙인다. 실패·빈 응답이면 빈 문자열(호출측은 제목-only 로 폴백).
+    """
+    try:
+        resp = session.get(
+            _DOCUMENT_URL, params={"crtfc_key": api_key, "rcept_no": rcept_no}, timeout=30
+        )
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        logger.warning("dart document fetch failed %s: %s", rcept_no, e)
+        return ""
+    try:
+        with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
+            parts = [_strip_document_xml(zf.read(n)) for n in zf.namelist()]
+    except (zipfile.BadZipFile, KeyError) as e:
+        logger.warning("dart document parse failed %s: %s", rcept_no, e)
+        return ""
+    return " ".join(p for p in parts if p)[:max_chars]

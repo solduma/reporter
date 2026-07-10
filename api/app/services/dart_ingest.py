@@ -85,7 +85,11 @@ def sync_disclosures(
     for d in fetched:
         if d.rcept_no in existing:
             continue  # 멱등: 이미 저장됨
-        sent = sentiment_svc.classify_disclosure(client, settings.insight_model, d.report_nm)
+        # 원문 발췌(앞 6000자)까지 읽어 판단. 조회 실패 시 제목-only 로 폴백.
+        body = dart.fetch_document_text(settings.dart_api_key, d.rcept_no, session)
+        sent = sentiment_svc.classify_disclosure(
+            client, settings.insight_model, d.report_nm, body
+        )
         # 동시 요청 경쟁에도 안전하도록 on_conflict_do_nothing 로 삽입한다.
         stmt = (
             insert(Disclosure)
