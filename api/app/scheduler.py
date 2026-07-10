@@ -30,9 +30,11 @@ _CRON = CronTrigger(day_of_week="mon-fri", hour="9-19", minute="0,30", timezone=
 _NIGHTLY_CRON = CronTrigger(day_of_week="mon-fri", hour=18, minute=0, timezone=_TZ)
 # 봉 배치: 유니버스 스냅샷(18시) 이후 19:30 에 전 종목 일/주/30분봉 증분 + 변동 시 재적재.
 _CANDLE_CRON = CronTrigger(day_of_week="mon-fri", hour=19, minute=30, timezone=_TZ)
-# 10년 일봉 점진 백필: 매일 20:30, 미완 종목 per_run 개씩(재개 가능). 무거워 저녁 배치와 시차.
+# 10년 일봉 점진 백필: 매일 02:00, 미완 종목 per_run 개씩(재개 가능).
+# 봉 배치(19:30~)는 전 종목 순회라 한 시간을 훌쩍 넘길 수 있어, 겹치면 네이버 동시 호출이
+# 두 배가 되고 price_candles 를 함께 변경한다. 깊은 새벽으로 빼 저녁 배치와 확실히 분리한다.
 # 주말도 실행해 전체 완성을 앞당긴다(새 봉은 없지만 미완 종목 백필은 요일 무관).
-_BACKFILL_CRON = CronTrigger(hour=20, minute=30, timezone=_TZ)
+_BACKFILL_CRON = CronTrigger(hour=2, minute=0, timezone=_TZ)
 
 
 def run_ingest_cycle(settings: Settings | None = None) -> dict:

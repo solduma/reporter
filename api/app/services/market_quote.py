@@ -56,19 +56,48 @@ def snapshot_quotes(db: Session) -> int:
     return saved
 
 
+_KINDS = ("us", "kr", "fx")
+
+
 def is_stale(db: Session) -> bool:
-    """마지막 스냅샷이 TTL 보다 오래됐으면 True."""
-    last = db.scalar(select(func.max(MarketQuote.ts)))
-    return last is None or datetime.now(UTC) - last >= _SNAPSHOT_TTL
+    """어느 한 kind 라도 스냅샷이 없거나 TTL 보다 오래됐으면 True.
+
+    전역 max(ts) 로 판단하면 한 kind(예: kr) 조회가 실패해도 다른 kind 가 방금 갱신돼
+    신선한 것으로 오판한다. kind 별 최신 시각을 각각 검사해 부분 실패를 가린다.
+    """
+    latest_by_kind = dict(
+        db.execute(
+            select(MarketQuote.kind, func.max(MarketQuote.ts)).group_by(MarketQuote.kind)
+        ).all()
+    )
+    now = datetime.now(UTC)
+    for kind in _KINDS:
+        ts = latest_by_kind.get(kind)
+        if ts is None or now - ts >= _SNAPSHOT_TTL:
+            return True
+    return False
 
 
 def latest_quotes(db: Session, kind: str) -> list[MarketQuote]:
-    """해당 kind(us|kr|fx)의 최신 스냅샷 시각의 시세들. 없으면 빈 리스트."""
-    last = db.scalar(select(func.max(MarketQuote.ts)).where(MarketQuote.kind == kind))
-    if last is None:
-        return []
+    """해당 kind(us|kr|fx)의 시세들 — 각 name 의 최신 버킷값. 없으면 빈 리스트.
+
+    전역 최신 시각 한 점만 쓰면 그 스냅샷에서 빠진(조회 실패한) name 은 통째로 사라진다.
+    name 별 최신 ts 를 잡아 마지막 성공값이라도 노출한다.
+    """
+    latest_ts = (
+        select(MarketQuote.name, func.max(MarketQuote.ts).label("ts"))
+        .where(MarketQuote.kind == kind)
+        .group_by(MarketQuote.name)
+        .subquery()
+    )
     return list(
         db.scalars(
-            select(MarketQuote).where(MarketQuote.kind == kind, MarketQuote.ts == last)
+            select(MarketQuote)
+            .join(
+                latest_ts,
+                (MarketQuote.name == latest_ts.c.name) & (MarketQuote.ts == latest_ts.c.ts),
+            )
+            .where(MarketQuote.kind == kind)
+            .order_by(MarketQuote.id)  # 최초 적재 순서(=조회 순서) 유지로 표시 순서 안정화
         ).all()
     )

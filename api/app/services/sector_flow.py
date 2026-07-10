@@ -97,13 +97,16 @@ def _compute_flows_uncached(
     from app.db.session import SessionLocal
     from app.services import candle_service
 
+    # ETF 전체를 세션 하나로 순회한다(ETF 당 세션 생성=커넥션 처닝 방지).
     flows: list[SectorFlow] = []
-    for etf in etfs:
-        db = SessionLocal()
-        try:
-            candles = candle_service.ensure_periodic(db, etf.symbol, "day", market=market)
-        finally:
-            db.close()
+    db = SessionLocal()
+    try:
+        candle_lists = [
+            candle_service.ensure_periodic(db, etf.symbol, "day", market=market) for etf in etfs
+        ]
+    finally:
+        db.close()
+    for etf, candles in zip(etfs, candle_lists, strict=True):
         if not candles:
             continue
         tech = technicals.compute(candles)
