@@ -103,3 +103,31 @@ def test_restart_reports_kickstart_failure(fake_launchctl):
     responses["kickstart"] = _Result(1, stderr="Could not find service")
     msg = ServerControl().restart("api")
     assert "재기동 실패" in msg
+
+
+def _patch_web_dir(monkeypatch, tmp_path):
+    monkeypatch.setattr(server_control, "_WEB_DIR", tmp_path)
+    return tmp_path / ".env.local"
+
+
+def test_web_login_enabled_none_when_no_env(monkeypatch, tmp_path):
+    _patch_web_dir(monkeypatch, tmp_path)  # 파일 없음
+    assert server_control.web_login_enabled() is None
+
+
+def test_web_login_enabled_true_when_password_set(monkeypatch, tmp_path):
+    env = _patch_web_dir(monkeypatch, tmp_path)
+    env.write_text("NEXT_PUBLIC_API_BASE=http://x\nLOGIN_PASSWORD=secret\n", encoding="utf-8")
+    assert server_control.web_login_enabled() is True
+
+
+def test_web_login_disabled_when_password_blank(monkeypatch, tmp_path):
+    env = _patch_web_dir(monkeypatch, tmp_path)
+    env.write_text("LOGIN_PASSWORD=\n", encoding="utf-8")
+    assert server_control.web_login_enabled() is False
+
+
+def test_web_login_disabled_when_key_absent(monkeypatch, tmp_path):
+    env = _patch_web_dir(monkeypatch, tmp_path)
+    env.write_text("NEXT_PUBLIC_API_BASE=http://x\n", encoding="utf-8")
+    assert server_control.web_login_enabled() is False

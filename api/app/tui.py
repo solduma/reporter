@@ -24,7 +24,7 @@ from app.config import get_settings
 from app.db.session import SessionLocal, init_db
 from app.services import admin_status, broadcast_ingest, growth_ingest, ingest, universe_ingest
 from app.services.schedule_control import ScheduleControl
-from app.services.server_control import ServerControl
+from app.services.server_control import ServerControl, web_login_enabled
 
 
 class TimeEditScreen(ModalScreen[str | None]):
@@ -203,7 +203,18 @@ class AdminTUI(App):
             else:
                 mark = f"[yellow]○ 대기(재시작 중)  {s.url}[/yellow]"
             lines.append(f"{s.label}  {mark}")
+        lines.append(self._login_gate_line())
         self.query_one("#server_status", Static).update("서버 (launchd 관리)\n" + "\n".join(lines))
+
+    @staticmethod
+    def _login_gate_line() -> str:
+        """웹 로그인 게이트 상태 한 줄(비밀번호 값은 노출하지 않음)."""
+        enabled = web_login_enabled()
+        if enabled is None:
+            return "웹 로그인  [dim]? web/.env.local 없음[/dim]"
+        if enabled:
+            return "웹 로그인  [green]● 켜짐[/green] (LOGIN_PASSWORD 설정됨)"
+        return "웹 로그인  [yellow]○ 꺼짐[/yellow] (LOGIN_PASSWORD 미설정 — 게이트 열림)"
 
     # --- 상태 ---
     def action_refresh(self) -> None:
