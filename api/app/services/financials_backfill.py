@@ -207,7 +207,9 @@ def _upsert_financial(db: Session, code: str, period: str, **vals) -> None:
 
 
 # ── 야간 점진 백필 (재개 가능) ─────────────────────────────────────────
-_PER_RUN = 100  # 종목당 40분기 DART 콜이라 무겁다 → 하룻밤 소수만
+# 종목당 최대 40분기 x 2(CFS/OFS 폴백) DART 콜. per_run=300 이면 최악 ~24k 콜이나 실제론
+# 데이터 있는 분기만이라 평균 ~40콜/종목 ≈ 12k(DART 일일 2만 한도 내). 하룻밤 ~9일이면 전체 완성.
+_PER_RUN = 300
 
 
 def _universe_codes(db: Session) -> list[str]:
