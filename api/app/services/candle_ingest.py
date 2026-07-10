@@ -1,7 +1,10 @@
-"""전 종목 봉 적재 배치 — 일봉 2년치 백필 + 매일 저녁 증분/재적재.
+"""전 종목 봉 적재 배치 — 10년 일봉 병렬 백필 + 매일 저녁 증분/재적재.
 
 유니버스 스냅샷의 보통주 전 종목에 대해 네이버(→KIS 폴백) 일봉을 받아 PriceCandle 에
-멱등 upsert 한다. 종목당 ~0.1s 라 ~2800종목이면 수 분. 실패 종목은 건너뛰고 계속한다.
+멱등 upsert 한다. 실패 종목은 건너뛰고 계속한다.
+
+10년 백필(run_backfill_progressive)은 네이버 조회를 스레드풀로 병렬화해 전 종목을
+하룻밤에 채운다. 조회만 병렬이고 DB 쓰기는 호출 스레드 단일 세션에서만 수행한다.
 
 매일 저녁 배치(run_candle_batch)는 증분 수집을 기본으로 하되, 전날 종가가 저장분과
 불일치하면(합병·액면분할 등 소급 조정) 해당 종목의 봉을 전체 파기 후 재적재한다.
@@ -11,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 
 import requests
@@ -321,8 +325,12 @@ def run_candle_batch(db: Session, settings: Settings | None = None) -> dict:
 # ── 10년 일봉 점진 백필 (야간, 재개 가능) ──────────────────────────────
 
 _BACKFILL_DOMAIN = "backfill_10y"  # SyncState 도메인: 10년 백필 완료 종목 마킹
-# 한 번(하룻밤)에 처리할 종목 수. 종목당 10년치는 무거워(네이버 왕복+수천 봉 upsert) 나눠 처리.
-_BACKFILL_PER_RUN = 200
+# 하룻밤에 처리할 종목 수. 네이버 조회를 스레드로 병렬화(_BACKFILL_WORKERS)해 전 종목(~2.8천)을
+# 한 번에 커버한다. 그래도 크래시·중단 대비 sync_state 마킹으로 재개는 유지한다.
+_BACKFILL_PER_RUN = 3000
+# 네이버 무인증 API 동시 조회 수. 정합성 100%(단일 수정주가 소스)이나 과한 동시성은 차단
+# 위험이라 보수적으로. 6워커면 종목당 ~1.7s 조회가 겹쳐 전 종목 ~13분에 완성된다.
+_BACKFILL_WORKERS = 6
 
 
 def _backfilled_codes(db: Session) -> set[str]:
@@ -335,12 +343,16 @@ def _backfilled_codes(db: Session) -> set[str]:
 
 
 def run_backfill_progressive(
-    db: Session, settings: Settings | None = None, per_run: int = _BACKFILL_PER_RUN
+    db: Session,
+    settings: Settings | None = None,
+    per_run: int = _BACKFILL_PER_RUN,
+    workers: int = _BACKFILL_WORKERS,
 ) -> dict:
-    """유니버스 종목의 일봉을 10년치로 점진 백필한다(하룻밤 per_run 개씩, 재개 가능).
+    """유니버스 종목의 일봉을 10년치로 병렬 백필한다(재개 가능).
 
-    이미 완료(SyncState backfill_10y) 종목은 건너뛰고, 미완 종목만 앞에서부터 per_run 개
-    처리 후 완료 마킹. 여러 밤에 걸쳐 전체를 채운다. 종목당 간격을 둬 네이버 연타를 막는다.
+    네이버(수정주가 단일 소스) 조회만 스레드풀로 병렬화하고, DB 쓰기·마킹은 호출 스레드의
+    단일 세션에서만 수행한다(Session 은 스레드 비안전, 커넥션 풀 압박 회피). 완료 종목은
+    SyncState(backfill_10y)로 마킹해 중단 시 다음 실행에서 이어받는다.
     반환: {done, failed, remaining}.
     """
     settings = settings or get_settings()
@@ -352,23 +364,32 @@ def run_backfill_progressive(
     already = _backfilled_codes(db)
     pending = [c for c in codes if c not in already]
     batch = pending[:per_run]
-    session = requests.Session()
     end = datetime.now()
     start = end - timedelta(days=_DAY_RANGE_DAYS)  # 10년
+
+    def _fetch(code: str) -> tuple[str, list[chart.Candle]]:
+        # 워커별 자체 세션(requests.Session 은 스레드 간 공유하지 않는다).
+        session = requests.Session()
+        return code, chart.fetch_periodic_with_fallback(settings, code, "day", start, end, session)
+
     done = failed = 0
-    for code in batch:
-        try:
-            candles = chart.fetch_periodic_with_fallback(settings, code, "day", start, end, session)
-            if candles:
-                _upsert(db, code, Timeframe.DAY, candles)
-            sync_state.mark(db, _BACKFILL_DOMAIN, code)  # 봉이 없어도(신규상장 등) 완료 처리
-            db.commit()
-            done += 1
-        except Exception as e:  # 한 종목 실패가 배치를 막지 않도록(다음 밤 재시도)
-            db.rollback()
-            failed += 1
-            logger.warning("10y backfill failed for %s: %s", code, e)
-        time.sleep(_BATCH_STOCK_INTERVAL_S)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(_fetch, code): code for code in batch}
+        for fut in as_completed(futures):
+            code = futures[fut]
+            try:
+                _, candles = fut.result()
+                if candles:
+                    _upsert(db, code, Timeframe.DAY, candles)
+                sync_state.mark(db, _BACKFILL_DOMAIN, code)  # 봉 없어도(신규상장) 완료 처리
+                db.commit()
+                done += 1
+            except Exception as e:  # 한 종목 실패가 배치를 막지 않도록(다음 실행 재시도)
+                db.rollback()
+                failed += 1
+                logger.warning("10y backfill failed for %s: %s", code, e)
+            if done % 200 == 0 and done:
+                logger.info("10y backfill progress: done=%d failed=%d", done, failed)
 
     remaining = len(pending) - done
     logger.info("10y backfill: done=%d failed=%d remaining=%d", done, failed, remaining)

@@ -41,6 +41,9 @@ class _FakeDB:
     def commit(self):
         self.commits += 1
 
+    def rollback(self):
+        pass
+
 
 def _fresh(d: date):
     return candle_ingest.chart.Candle(
@@ -56,23 +59,27 @@ def _settings():
 
 def test_backfill_processes_only_pending_up_to_per_run(monkeypatch):
     db = _FakeDB(universe=["A", "B", "C", "D"], already={"A"})  # A 이미 완료
-    fetched = {"codes": []}
+    import threading
+
+    fetched: list[str] = []
+    lock = threading.Lock()  # _fetch 는 워커 스레드에서 실행 → 리스트 보호
 
     def _fetch(settings, code, tf, start, end, session):
-        fetched["codes"].append(code)
+        with lock:
+            fetched.append(code)
         return [_fresh(date(2020, 1, 2))]
 
     monkeypatch.setattr(candle_ingest.chart, "fetch_periodic_with_fallback", _fetch)
     monkeypatch.setattr(candle_ingest, "_upsert", lambda *a: None)
     marked = []
     monkeypatch.setattr(candle_ingest.sync_state, "mark", lambda db, dom, code: marked.append(code))
-    monkeypatch.setattr(candle_ingest.time, "sleep", lambda s: None)
 
-    out = candle_ingest.run_backfill_progressive(db, _settings(), per_run=2)
+    out = candle_ingest.run_backfill_progressive(db, _settings(), per_run=2, workers=2)
 
     # A 는 스킵, B·C 만 처리(per_run=2), D 는 다음 밤. pending=3(B,C,D), done=2 → remaining 1.
-    assert fetched["codes"] == ["B", "C"]
-    assert marked == ["B", "C"]
+    # 병렬이라 순서는 비결정 → 집합으로 검증.
+    assert set(fetched) == {"B", "C"}
+    assert set(marked) == {"B", "C"}
     assert out == {"done": 2, "failed": 0, "remaining": 1}
 
 
@@ -83,11 +90,30 @@ def test_backfill_marks_even_without_candles(monkeypatch):
     monkeypatch.setattr(candle_ingest, "_upsert", lambda *a: None)
     marked = []
     monkeypatch.setattr(candle_ingest.sync_state, "mark", lambda db, dom, code: marked.append(code))
-    monkeypatch.setattr(candle_ingest.time, "sleep", lambda s: None)
 
     out = candle_ingest.run_backfill_progressive(db, _settings(), per_run=10)
     assert marked == ["X"]
     assert out["done"] == 1
+
+
+def test_backfill_one_failure_does_not_block_others(monkeypatch):
+    # 한 종목 조회 실패가 배치를 막지 않고 나머지는 완료돼야 한다(병렬).
+    db = _FakeDB(universe=["A", "B", "C"], already=set())
+
+    def _fetch(settings, code, tf, start, end, session):
+        if code == "B":
+            raise RuntimeError("naver down")
+        return [_fresh(date(2020, 1, 2))]
+
+    monkeypatch.setattr(candle_ingest.chart, "fetch_periodic_with_fallback", _fetch)
+    monkeypatch.setattr(candle_ingest, "_upsert", lambda *a: None)
+    marked = []
+    monkeypatch.setattr(candle_ingest.sync_state, "mark", lambda db, dom, code: marked.append(code))
+
+    out = candle_ingest.run_backfill_progressive(db, _settings(), per_run=10, workers=3)
+    # A·C 는 완료 마킹, B 는 실패(다음 실행 재시도 대상 — 마킹 안 됨).
+    assert set(marked) == {"A", "C"}
+    assert out == {"done": 2, "failed": 1, "remaining": 1}
 
 
 def test_backfill_uses_10y_range():
