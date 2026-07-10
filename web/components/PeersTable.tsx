@@ -18,7 +18,9 @@ const COLUMNS: Column[] = [
   { key: "foreign_ratio", label: "외국인비율" },
   { key: "per", label: "PER" },
   { key: "pbr", label: "PBR" },
+  { key: "psr", label: "PSR" },
   { key: "roe", label: "ROE" },
+  { key: "ev_ebitda", label: "EV/EBITDA" },
 ];
 
 export default function PeersTable({ peers, baseCode }: Props) {

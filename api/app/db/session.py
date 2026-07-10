@@ -19,6 +19,13 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False
 _COLUMN_MIGRATIONS = (
     "ALTER TABLE daily_market_info ADD COLUMN IF NOT EXISTS phase VARCHAR(16) DEFAULT ''",
     "ALTER TABLE daily_market_info ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now()",
+    # EV/EBITDA·PSR 원자료 + 산출값(#135).
+    "ALTER TABLE financials ADD COLUMN IF NOT EXISTS ebitda DOUBLE PRECISION",
+    "ALTER TABLE financials ADD COLUMN IF NOT EXISTS net_debt DOUBLE PRECISION",
+    "ALTER TABLE financials ADD COLUMN IF NOT EXISTS ev_ebitda DOUBLE PRECISION",
+    "ALTER TABLE financials ADD COLUMN IF NOT EXISTS psr DOUBLE PRECISION",
+    "ALTER TABLE peers ADD COLUMN IF NOT EXISTS ev_ebitda VARCHAR(32)",
+    "ALTER TABLE peers ADD COLUMN IF NOT EXISTS psr VARCHAR(32)",
 )
 
 

@@ -45,6 +45,7 @@ from app.services import (
     dart_ingest,
     quote,
     technicals,
+    valuation_ingest,
 )
 
 router = APIRouter(prefix="/api/companies", tags=["companies"])
@@ -102,15 +103,30 @@ def search_stocks(
     ]
 
 
-@router.get("/{code}/summary", response_model=CompanySummary)
-def company_summary(code: str, db: Session = Depends(get_session)) -> CompanySummary:
+def _resolve_stock_name(db: Session, code: str) -> str | None:
+    """종목명 조회 — 유니버스 스냅샷(전 종목 보유) 우선, 없으면 리포트 폴백.
+
+    리포트가 없는 종목도 이름이 나오도록 통일한다(summary/analysis/growth 공통).
+    """
     name = db.scalar(
+        select(UniverseSnapshot.stock_name)
+        .where(UniverseSnapshot.stock_code == code, UniverseSnapshot.stock_name.is_not(None))
+        .order_by(UniverseSnapshot.snapshot_date.desc())
+        .limit(1)
+    )
+    if name:
+        return name
+    return db.scalar(
         select(Report.stock_name)
         .where(Report.stock_code == code, Report.stock_name.is_not(None))
         .order_by(Report.published_date.desc())
         .limit(1)
     )
-    return CompanySummary(stock_code=code, stock_name=name)
+
+
+@router.get("/{code}/summary", response_model=CompanySummary)
+def company_summary(code: str, db: Session = Depends(get_session)) -> CompanySummary:
+    return CompanySummary(stock_code=code, stock_name=_resolve_stock_name(db, code))
 
 
 @router.get("/{code}/candles", response_model=list[CandlePoint])
@@ -163,12 +179,7 @@ def company_analysis(
         .order_by(UniverseSnapshot.snapshot_date.desc())
         .limit(1)
     ).first()
-    name = snap.stock_name if snap else db.scalar(
-        select(Report.stock_name)
-        .where(Report.stock_code == code, Report.stock_name.is_not(None))
-        .order_by(Report.published_date.desc())
-        .limit(1)
-    )
+    name = (snap.stock_name if snap else None) or _resolve_stock_name(db, code)
     market = snap.market if snap else None
 
     # 성장 축 — GrowthMetric.
@@ -300,7 +311,9 @@ _PEER_FIELDS = {
 
 
 @router.get("/{code}/financials", response_model=list[FinancialPeriodOut])
-def company_financials(code: str, db: Session = Depends(get_session)) -> list[FinancialPeriodOut]:
+def company_financials(
+    code: str, bg: BackgroundTasks, db: Session = Depends(get_session)
+) -> list[FinancialPeriodOut]:
     session = requests.Session()
     fetched = quote.fetch_financials(code, session)
     for f in fetched:
@@ -329,6 +342,10 @@ def company_financials(code: str, db: Session = Depends(get_session)) -> list[Fi
     if fetched:
         db.commit()
 
+    # EV/EBITDA·PSR 은 DART 재무제표 크롤(무거움)로 별도 산출 — 백그라운드 채움(24h TTL).
+    # 응답은 저장된 값을 즉시 반환하고, 다음 조회에서 신규 산출분이 반영된다.
+    bg.add_task(_sync_valuation_bg, code)
+
     rows = db.scalars(
         select(Financial).where(Financial.stock_code == code).order_by(Financial.period)
     ).all()
@@ -340,12 +357,31 @@ def company_financials(code: str, db: Session = Depends(get_session)) -> list[Fi
             operating_income=r.operating_income,
             net_income=r.net_income,
             eps=r.eps,
+            bps=r.bps,
             per=r.per,
             pbr=r.pbr,
+            psr=r.psr,
             roe=r.roe,
+            ev_ebitda=r.ev_ebitda,
         )
         for r in rows
     ]
+
+
+def _sync_valuation_bg(code: str) -> None:
+    """백그라운드 EV/EBITDA·PSR 산출 — 자체 세션."""
+    from app.db.session import SessionLocal
+
+    db = SessionLocal()
+    try:
+        valuation_ingest.sync_valuation(db, get_settings(), code)
+    except Exception as e:  # 백그라운드 실패가 조회를 깨지 않도록
+        import logging
+
+        db.rollback()
+        logging.getLogger(__name__).warning("valuation sync failed %s: %s", code, e)
+    finally:
+        db.close()
 
 
 @router.get("/{code}/peers", response_model=list[PeerOut])
@@ -371,6 +407,8 @@ def company_peers(code: str, db: Session = Depends(get_session)) -> list[PeerOut
     rows = db.scalars(
         select(Peer).where(Peer.base_stock_code == code).order_by(Peer.id)
     ).all()
+    # EV/EBITDA·PSR 은 네이버 동일업종 테이블에 없어, 각 peer 의 최근 Financial(DART 산출)에서 채운다.
+    val = _peer_valuations(db, [r.peer_stock_code for r in rows])
     return [
         PeerOut(
             stock_code=r.peer_stock_code,
@@ -381,9 +419,34 @@ def company_peers(code: str, db: Session = Depends(get_session)) -> list[PeerOut
             per=r.per,
             pbr=r.pbr,
             roe=r.roe,
+            ev_ebitda=val.get(r.peer_stock_code, (None, None))[0],
+            psr=val.get(r.peer_stock_code, (None, None))[1],
         )
         for r in rows
     ]
+
+
+def _peer_valuations(db: Session, codes: list[str]) -> dict[str, tuple[str | None, str | None]]:
+    """peer 종목들의 최근(추정 아닌) 분기 ev_ebitda·psr 을 표시문자열로 반환한다.
+
+    Financial 은 종목당 여러 분기가 있으므로 ev_ebitda/psr 이 채워진 가장 최신 분기를 고른다.
+    """
+    if not codes:
+        return {}
+    rows = db.scalars(
+        select(Financial)
+        .where(Financial.stock_code.in_(codes), Financial.is_estimate.is_(False))
+        .order_by(Financial.period.desc())
+    ).all()
+    out: dict[str, tuple[str | None, str | None]] = {}
+    for r in rows:
+        if r.stock_code in out:
+            continue  # 이미 더 최신 분기를 잡음(period desc)
+        if r.ev_ebitda is not None or r.psr is not None:
+            ev = f"{r.ev_ebitda:.1f}" if r.ev_ebitda is not None else None
+            psr = f"{r.psr:.2f}" if r.psr is not None else None
+            out[r.stock_code] = (ev, psr)
+    return out
 
 
 @router.get("/{code}/timeline", response_model=list[TimelineItem])

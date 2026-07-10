@@ -118,9 +118,12 @@ class FinancialPeriodOut(BaseModel):
     operating_income: float | None
     net_income: float | None
     eps: float | None
+    bps: float | None = None  # PBR 밴드 계산용(#139)
     per: float | None
     pbr: float | None
+    psr: float | None = None
     roe: float | None
+    ev_ebitda: float | None = None
 
 
 class PeerOut(BaseModel):
@@ -132,6 +135,8 @@ class PeerOut(BaseModel):
     per: str | None
     pbr: str | None
     roe: str | None
+    ev_ebitda: str | None = None
+    psr: str | None = None
 
 
 class CompanyGrowth(BaseModel):

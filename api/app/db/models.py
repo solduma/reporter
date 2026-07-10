@@ -132,6 +132,11 @@ class Financial(Base):
     per: Mapped[float | None] = mapped_column(Float)
     pbr: Mapped[float | None] = mapped_column(Float)
     roe: Mapped[float | None] = mapped_column(Float)
+    # DART 재무제표 크롤 산출(EV/EBITDA·PSR). ebitda·net_debt 은 원 단위 원자료.
+    ebitda: Mapped[float | None] = mapped_column(Float)
+    net_debt: Mapped[float | None] = mapped_column(Float)
+    ev_ebitda: Mapped[float | None] = mapped_column(Float)
+    psr: Mapped[float | None] = mapped_column(Float)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
@@ -155,6 +160,8 @@ class Peer(Base):
     per: Mapped[str | None] = mapped_column(String(32))
     pbr: Mapped[str | None] = mapped_column(String(32))
     roe: Mapped[str | None] = mapped_column(String(32))
+    ev_ebitda: Mapped[str | None] = mapped_column(String(32))  # 동일업종 비교(#139)
+    psr: Mapped[str | None] = mapped_column(String(32))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
@@ -174,6 +181,17 @@ class DisclosureSyncState(Base):
     """종목별 DART 마지막 동기화 시각. 공시가 0건이거나 신규가 없어도 재조회를 억제한다."""
 
     __tablename__ = "disclosure_sync_state"
+
+    stock_code: Mapped[str] = mapped_column(String(6), primary_key=True)
+    synced_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class ValuationSyncState(Base):
+    """종목별 EV/EBITDA·PSR 마지막 산출 시각. 분기 단위라 24h TTL 로 DART 재조회 억제."""
+
+    __tablename__ = "valuation_sync_state"
 
     stock_code: Mapped[str] = mapped_column(String(6), primary_key=True)
     synced_at: Mapped[datetime] = mapped_column(

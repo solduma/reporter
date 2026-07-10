@@ -129,3 +129,40 @@
   color: var(--sell);
   font-size: 0.88rem;
 }
+
+/* 비교 차트 공용 컨트롤 바: [분/일/주 탭] [date-range 슬라이더] [MA 레전드] */
+.controlBar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+  padding: 8px 0;
+}
+
+.maLegend {
+  display: flex;
+  gap: 12px;
+  margin-left: auto;
+}
+
+.maItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.maDot {
+  width: 12px;
+  height: 3px;
+  border-radius: 2px;
+}
+
+.subHead {
+  margin: 18px 0 8px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text);
+}

@@ -207,9 +207,12 @@ export interface FinancialPeriod {
   operating_income: number | null;
   net_income: number | null;
   eps: number | null;
+  bps?: number | null;
   per: number | null;
   pbr: number | null;
+  psr?: number | null;
   roe: number | null;
+  ev_ebitda?: number | null;
 }
 
 export interface Peer {
@@ -221,6 +224,8 @@ export interface Peer {
   per: string | null;
   pbr: string | null;
   roe: string | null;
+  ev_ebitda: string | null;
+  psr: string | null;
 }
 
 // 관세청 수출입 무역통계 프리셋 — 4자리 대표품목 + 하위 6자리 세부품목.
