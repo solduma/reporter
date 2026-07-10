@@ -6,19 +6,15 @@ import time
 from datetime import date, datetime, timedelta
 
 import requests
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from sqlalchemy import case, func, select
-from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from app.config import get_settings
 from app.db.models import (
     DailyMarketInfo,
-    PriceCandle,
     Report,
     ReportAnalysis,
     Sentiment,
-    Timeframe,
     TradeStat,
 )
 from app.db.session import get_session
@@ -31,7 +27,7 @@ from app.schemas import (
     SectorFlowRow,
     SectorRow,
 )
-from app.services import chart, sector_flow
+from app.services import candle_service, chart, sector_flow
 from reporter import sector_etf, us_market
 
 router = APIRouter(prefix="/api", tags=["market"])
@@ -220,38 +216,15 @@ def market_overview(db: Session = Depends(get_session)) -> MarketOverview:
     )
 
 
-def _kr_chart(db: Session, code: str, tf: str) -> list[CandlePoint]:
-    """국내 종목/ETF 봉 — 네이버(→KIS 폴백) 조회분을 저장(증분)하고 정렬해 반환."""
-    session = requests.Session()
-    end = datetime.now()
-    start = end - timedelta(days=_CHART_RANGE_DAYS[tf])
-    fresh = chart.fetch_periodic_with_fallback(get_settings(), code, tf, start, end, session)
-    if fresh:
-        frame = Timeframe(tf)
-        for c in fresh:
-            stmt = insert(PriceCandle).values(
-                stock_code=code, timeframe=frame, bar_date=c.ts.date(),
-                open=c.open, high=c.high, low=c.low, close=c.close, volume=c.volume,
-                foreign_ratio=c.foreign_ratio,
-            )
-            stmt = stmt.on_conflict_do_update(
-                constraint="uq_candle",
-                set_={"open": stmt.excluded.open, "high": stmt.excluded.high,
-                      "low": stmt.excluded.low, "close": stmt.excluded.close,
-                      "volume": stmt.excluded.volume, "foreign_ratio": stmt.excluded.foreign_ratio},
-            )
-            db.execute(stmt)
-        db.commit()
-        rows = db.scalars(
-            select(PriceCandle)
-            .where(PriceCandle.stock_code == code, PriceCandle.timeframe == Timeframe(tf))
-            .order_by(PriceCandle.bar_date)
-        ).all()
-        return [
-            CandlePoint(t=r.bar_date.isoformat(), o=r.open, h=r.high, low=r.low, c=r.close, v=r.volume)
-            for r in rows
-        ]
-    return []
+def _kr_chart(db: Session, code: str, tf: str, bg: BackgroundTasks) -> list[CandlePoint]:
+    """국내 종목/ETF 봉 — DB 우선 즉시 반환. 뒤처졌으면 백그라운드 증분 갱신을 예약한다."""
+    rows = candle_service.ensure_periodic(db, code, tf)
+    if candle_service.is_stale(db, code, tf):
+        bg.add_task(candle_service.refresh_periodic, code, tf)
+    return [
+        CandlePoint(t=r.bar_date.isoformat(), o=r.open, h=r.high, low=r.low, c=r.close, v=r.volume)
+        for r in rows
+    ]
 
 
 def _us_chart(symbol: str, tf: str) -> list[CandlePoint]:
@@ -268,10 +241,35 @@ def _us_chart(symbol: str, tf: str) -> list[CandlePoint]:
 
 @router.get("/chart", response_model=list[CandlePoint])
 def chart_candles(
+    bg: BackgroundTasks,
     symbol: str = Query(..., description="국내 6자리 코드 또는 미국 네이버 심볼"),
     market: str = Query(default="KR", pattern="^(KR|US)$"),
     tf: str = Query(default="day", pattern="^(day|week|month)$"),
     db: Session = Depends(get_session),
 ) -> list[CandlePoint]:
-    """범용 봉 차트 — 섹터 ETF·지수·종목 공용. 국내=저장+폴백, 미국=실시간 foreign."""
-    return _kr_chart(db, symbol, tf) if market == "KR" else _us_chart(symbol, tf)
+    """범용 봉 차트 — 섹터 ETF·지수·종목 공용. 국내=DB우선+백그라운드증분, 미국=실시간 foreign."""
+    return _kr_chart(db, symbol, tf, bg) if market == "KR" else _us_chart(symbol, tf)
+
+
+# 로그인 진입 시 미리 데워 둘 지수 심볼(일봉). 대시보드·비교 차트에서 가장 먼저 쓰인다.
+_WARM_INDICES = ("KOSPI", "KOSDAQ")
+
+
+def _warm() -> None:
+    """지수 시세 캐시(120s TTL) 워밍 + 지수 일봉 증분 갱신. 실패는 흡수(백그라운드)."""
+    try:
+        # 대시보드 지수·환율 타일용 인메모리 캐시를 미리 채운다(첫 조회의 네이버 왕복 제거).
+        us_market.fetch_us_indices()
+        us_market.fetch_kr_indices()
+        us_market.fetch_exchange_rates()
+    except Exception:
+        pass
+    for sym in _WARM_INDICES:
+        candle_service.refresh_periodic(sym, "day")
+
+
+@router.post("/warm")
+def warm(bg: BackgroundTasks) -> dict:
+    """로그인 진입 시 프론트가 fire-and-forget 로 호출 — 지수 캐시·일봉을 백그라운드로 데운다."""
+    bg.add_task(_warm)
+    return {"ok": True}

@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 
 import requests
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from sqlalchemy import case, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
@@ -18,13 +18,11 @@ from app.db.models import (
     GrowthMetric,
     Peer,
     PriceCandle,
-    PriceCandleIntraday,
     Report,
     ReportAnalysis,
     SectorTheme,
     SectorThemeStock,
     Sentiment,
-    Timeframe,
     UniverseSnapshot,
 )
 from app.db.session import get_session
@@ -40,12 +38,9 @@ from app.schemas import (
     TimelineItem,
     TopDownView,
 )
-from app.services import analysis, chart, dart_ingest, intraday, quote, technicals
+from app.services import analysis, candle_service, dart_ingest, quote, technicals
 
 router = APIRouter(prefix="/api/companies", tags=["companies"])
-
-# tf 별 조회 범위(요구사항): 30m=2주, day=2년, week=10년, month=3년(구 탭 호환).
-_RANGE_DAYS = {"day": 365 * 2 + 10, "week": 365 * 10 + 30, "month": 365 * 3 + 30}
 
 
 def _search_rank(query: str, code: str, name: str) -> int:
@@ -111,73 +106,26 @@ def company_summary(code: str, db: Session = Depends(get_session)) -> CompanySum
     return CompanySummary(stock_code=code, stock_name=name)
 
 
-def _upsert_periodic(db: Session, code: str, tf: Timeframe, candles: list[chart.Candle]) -> None:
-    for c in candles:
-        stmt = insert(PriceCandle).values(
-            stock_code=code,
-            timeframe=tf,
-            bar_date=c.ts.date(),
-            open=c.open,
-            high=c.high,
-            low=c.low,
-            close=c.close,
-            volume=c.volume,
-            foreign_ratio=c.foreign_ratio,
-        )
-        stmt = stmt.on_conflict_do_update(
-            constraint="uq_candle",
-            set_={
-                "open": stmt.excluded.open,
-                "high": stmt.excluded.high,
-                "low": stmt.excluded.low,
-                "close": stmt.excluded.close,
-                "volume": stmt.excluded.volume,
-                "foreign_ratio": stmt.excluded.foreign_ratio,
-            },
-        )
-        db.execute(stmt)
-    db.commit()
-
-
 @router.get("/{code}/candles", response_model=list[CandlePoint])
 def company_candles(
     code: str,
+    bg: BackgroundTasks,
     tf: str = Query(default="day", pattern="^(30m|day|week|month)$"),
     db: Session = Depends(get_session),
 ) -> list[CandlePoint]:
-    session = requests.Session()
-
+    """종목 봉 — DB 우선 즉시 반환. 뒤처졌으면 백그라운드 증분 갱신을 예약한다."""
     if tf == "30m":
-        # 매 조회 시 가용 분봉을 리샘플·누적(cache-aside). 누적분과 합쳐 반환.
-        fresh = chart.fetch_intraday_30min(code, session)
-        if fresh:
-            intraday.upsert_intraday(db, code, fresh)
-        # 요구사항은 '최근 2주' 30분봉. cron 누적(8단계)으로 더 쌓여도 2주만 반환한다.
-        window_start = datetime.now() - timedelta(days=14)
-        rows = db.scalars(
-            select(PriceCandleIntraday)
-            .where(
-                PriceCandleIntraday.stock_code == code,
-                PriceCandleIntraday.bar_ts >= window_start,
-            )
-            .order_by(PriceCandleIntraday.bar_ts)
-        ).all()
+        # 30분봉은 '최근 2주' 창만 반환. DB 우선(비면 최초 1회 조회) + 백그라운드 최신화.
+        rows_i = candle_service.read_intraday_or_fetch(db, code, days=14)
+        bg.add_task(candle_service.refresh_intraday, code)
         return [
             CandlePoint(t=r.bar_ts.isoformat(), o=r.open, h=r.high, low=r.low, c=r.close, v=r.volume)
-            for r in rows
+            for r in rows_i
         ]
 
-    frame = Timeframe(tf)
-    end = datetime.now()
-    start = end - timedelta(days=_RANGE_DAYS[tf])
-    fresh = chart.fetch_periodic_with_fallback(get_settings(), code, tf, start, end, session)
-    if fresh:
-        _upsert_periodic(db, code, frame, fresh)
-    rows = db.scalars(
-        select(PriceCandle)
-        .where(PriceCandle.stock_code == code, PriceCandle.timeframe == frame)
-        .order_by(PriceCandle.bar_date)
-    ).all()
+    rows = candle_service.ensure_periodic(db, code, tf)
+    if candle_service.is_stale(db, code, tf):
+        bg.add_task(candle_service.refresh_periodic, code, tf)
     return [
         CandlePoint(t=r.bar_date.isoformat(), o=r.open, h=r.high, low=r.low, c=r.close, v=r.volume)
         for r in rows
@@ -185,26 +133,23 @@ def company_candles(
 
 
 def _ensure_day_candles(db: Session, code: str) -> list[PriceCandle]:
-    """일봉을 확보(cache-aside)하고 날짜 오름차순으로 반환한다. 기술 지표 계산용."""
-    session = requests.Session()
-    end = datetime.now()
-    start = end - timedelta(days=_RANGE_DAYS["day"])
-    fresh = chart.fetch_periodic_with_fallback(get_settings(), code, "day", start, end, session)
-    if fresh:
-        _upsert_periodic(db, code, Timeframe.DAY, fresh)
-    return list(
-        db.scalars(
-            select(PriceCandle)
-            .where(PriceCandle.stock_code == code, PriceCandle.timeframe == Timeframe.DAY)
-            .order_by(PriceCandle.bar_date)
-        ).all()
-    )
+    """일봉을 DB 우선으로 확보한다(기술 지표 계산용). 비었을 때만 최초 1회 동기 조회.
+
+    이후 최신화는 차트 조회(/candles·/chart)의 백그라운드 증분이 담당한다. 지표는 다일
+    누적값이라 하루 지연은 무해하므로 매 분석마다 외부를 타지 않는다.
+    """
+    return candle_service.ensure_periodic(db, code, "day")
 
 
 @router.get("/{code}/analysis", response_model=CompanyAnalysis)
-def company_analysis(code: str, db: Session = Depends(get_session)) -> CompanyAnalysis:
+def company_analysis(
+    code: str, bg: BackgroundTasks, db: Session = Depends(get_session)
+) -> CompanyAnalysis:
     """테크노펀더멘탈 종합 — 성장(린치)·기술(오닐/미너비니)·탑다운(리버모어)."""
     settings = get_settings()
+    # 기술 지표가 쓰는 일봉이 뒤처졌으면 백그라운드로 증분 갱신(조회는 DB 로 즉시 진행).
+    if candle_service.is_stale(db, code, "day"):
+        bg.add_task(candle_service.refresh_periodic, code, "day")
     snap = db.scalars(
         select(UniverseSnapshot)
         .where(UniverseSnapshot.stock_code == code)
