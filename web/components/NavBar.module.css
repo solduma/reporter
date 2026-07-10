@@ -86,6 +86,25 @@
   color: #fff;
 }
 
+.logout {
+  display: inline-block;
+  padding: 8px 14px;
+  margin-left: 4px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  font-size: 0.92rem;
+  font-family: inherit;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.logout:hover {
+  background: var(--sell-bg);
+  color: var(--sell);
+}
+
 @media (max-width: 520px) {
   .brand span:last-child {
     display: none;

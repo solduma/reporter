@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 import styles from "./NavBar.module.css";
 
@@ -15,6 +15,18 @@ const LINKS = [
 
 export default function NavBar() {
   const pathname = usePathname();
+  const router = useRouter();
+
+  // 로그인 화면에는 내비게이션을 노출하지 않는다.
+  if (pathname === "/login") {
+    return null;
+  }
+
+  async function handleLogout() {
+    await fetch("/api/logout", { method: "POST" });
+    router.replace("/login");
+    router.refresh();
+  }
 
   return (
     <header className={styles.header}>
@@ -41,6 +53,11 @@ export default function NavBar() {
               </li>
             );
           })}
+          <li>
+            <button type="button" className={styles.logout} onClick={handleLogout}>
+              로그아웃
+            </button>
+          </li>
         </ul>
       </nav>
     </header>
