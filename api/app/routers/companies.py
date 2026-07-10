@@ -115,8 +115,8 @@ def company_candles(
 ) -> list[CandlePoint]:
     """종목 봉 — DB 우선 즉시 반환. 뒤처졌으면 백그라운드 증분 갱신을 예약한다."""
     if tf == "30m":
-        # 30분봉은 '최근 2주' 창만 반환. 최신화는 백그라운드(cron 누적과 동일 경로).
-        rows_i = candle_service.read_intraday(db, code, days=14)
+        # 30분봉은 '최근 2주' 창만 반환. DB 우선(비면 최초 1회 조회) + 백그라운드 최신화.
+        rows_i = candle_service.read_intraday_or_fetch(db, code, days=14)
         bg.add_task(candle_service.refresh_intraday, code)
         return [
             CandlePoint(t=r.bar_ts.isoformat(), o=r.open, h=r.high, low=r.low, c=r.close, v=r.volume)
@@ -142,9 +142,14 @@ def _ensure_day_candles(db: Session, code: str) -> list[PriceCandle]:
 
 
 @router.get("/{code}/analysis", response_model=CompanyAnalysis)
-def company_analysis(code: str, db: Session = Depends(get_session)) -> CompanyAnalysis:
+def company_analysis(
+    code: str, bg: BackgroundTasks, db: Session = Depends(get_session)
+) -> CompanyAnalysis:
     """테크노펀더멘탈 종합 — 성장(린치)·기술(오닐/미너비니)·탑다운(리버모어)."""
     settings = get_settings()
+    # 기술 지표가 쓰는 일봉이 뒤처졌으면 백그라운드로 증분 갱신(조회는 DB 로 즉시 진행).
+    if candle_service.is_stale(db, code, "day"):
+        bg.add_task(candle_service.refresh_periodic, code, "day")
     snap = db.scalars(
         select(UniverseSnapshot)
         .where(UniverseSnapshot.stock_code == code)

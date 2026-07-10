@@ -143,7 +143,66 @@ def test_refresh_periodic_dedups_inflight(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _clear_inflight():
+def _clear_state():
     candle_service._inflight.clear()
+    candle_service._last_attempt.clear()
     yield
     candle_service._inflight.clear()
+    candle_service._last_attempt.clear()
+
+
+def test_batch_upsert_dedups_same_date(monkeypatch):
+    # 같은 bar_date 두 봉이 오면 하나로 합쳐 다중행 ON CONFLICT 21000 을 피한다.
+    db = _FakeSession()
+    dup = [_candle(date(2026, 7, 1)), _candle(date(2026, 7, 1)), _candle(date(2026, 7, 2))]
+    n = candle_service.batch_upsert_periodic(db, "005930", Timeframe.DAY, dup)
+    assert n == 2  # 날짜 2개로 축약
+    assert len(db.executed) == 1
+
+
+def test_refresh_periodic_cooldown_blocks_second(monkeypatch):
+    # 쿨다운 내 재호출은 외부를 안 탄다(마감후·주말 헛된 반복 조회 방지).
+    calls = {"fetch": 0}
+    monkeypatch.setattr(
+        candle_service.chart, "fetch_periodic_with_fallback",
+        lambda *a, **k: calls.__setitem__("fetch", calls["fetch"] + 1) or [],
+    )
+    monkeypatch.setattr(candle_service, "SessionLocal", lambda: _FakeSession(latest=date.today()))
+    candle_service.refresh_periodic("005930", "day")
+    candle_service.refresh_periodic("005930", "day")  # 쿨다운 → 스킵
+    assert calls["fetch"] == 1
+
+
+def test_ensure_periodic_empty_code_cooldown(monkeypatch):
+    # 데이터 없는 코드: 첫 요청만 동기 조회, 두 번째는 쿨다운으로 외부 미호출.
+    calls = {"fetch": 0}
+    monkeypatch.setattr(
+        candle_service.chart, "fetch_periodic_with_fallback",
+        lambda *a, **k: calls.__setitem__("fetch", calls["fetch"] + 1) or [],
+    )
+    candle_service.ensure_periodic(_FakeSession(rows=[]), "000000", "day")
+    candle_service.ensure_periodic(_FakeSession(rows=[]), "000000", "day")
+    assert calls["fetch"] == 1
+
+
+def test_read_intraday_or_fetch_fills_when_empty(monkeypatch):
+    # 30m DB 비면 최초 1회 조회로 채운다(첫 로드 빈 화면 회귀 방지).
+    calls = {"fetch": 0}
+    monkeypatch.setattr(
+        candle_service.chart, "fetch_intraday_30min",
+        lambda code, session: calls.__setitem__("fetch", calls["fetch"] + 1) or [],
+    )
+    monkeypatch.setattr(candle_service.intraday, "upsert_intraday", lambda *a: 0)
+    candle_service.read_intraday_or_fetch(_FakeSession(rows=[]), "999999")
+    assert calls["fetch"] == 1
+
+
+def test_read_intraday_or_fetch_skips_when_present(monkeypatch):
+    calls = {"fetch": 0}
+    monkeypatch.setattr(
+        candle_service.chart, "fetch_intraday_30min",
+        lambda code, session: calls.__setitem__("fetch", calls["fetch"] + 1) or [],
+    )
+    out = candle_service.read_intraday_or_fetch(_FakeSession(rows=["a"]), "005930")
+    assert out == ["a"]
+    assert calls["fetch"] == 0

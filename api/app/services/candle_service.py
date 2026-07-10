@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from datetime import datetime, timedelta
 
 import requests
@@ -32,6 +33,23 @@ RANGE_DAYS = {"day": 365 * 2 + 10, "week": 365 * 10 + 30, "month": 365 * 3 + 30}
 # (한 페이지가 차트 6~7개를 동시에 열어 같은 심볼을 중복 트리거하는 것을 막는다).
 _inflight: set[str] = set()
 _inflight_lock = threading.Lock()
+
+# 갱신 쿨다운 — 마감 후·주말·공휴일엔 새 봉이 없어 is_stale 이 계속 True 다. 쿨다운 없이는
+# 매 요청이 헛된 외부 조회를 유발하므로(rate-limit 위험), 같은 심볼은 이 간격 내 재조회를 막는다.
+_REFRESH_COOLDOWN_S = 600.0  # 10분
+_last_attempt: dict[str, float] = {}
+_attempt_lock = threading.Lock()
+
+
+def _cooldown_ok(key: str) -> bool:
+    """마지막 시도 후 쿨다운이 지났으면 True 를 주고 시도 시각을 갱신한다(동시성 안전)."""
+    now = time.monotonic()
+    with _attempt_lock:
+        last = _last_attempt.get(key)
+        if last is not None and now - last < _REFRESH_COOLDOWN_S:
+            return False
+        _last_attempt[key] = now
+        return True
 
 
 def read_periodic(db: Session, code: str, tf: str) -> list[PriceCandle]:
@@ -77,11 +95,16 @@ def batch_upsert_periodic(
     """
     if not candles:
         return 0
+    # 같은 bar_date 가 중복되면 다중행 ON CONFLICT 가 "cannot affect row a second time"(21000)로
+    # 실패한다. 소스가 드물게 같은 날짜를 두 번 줄 수 있으므로 날짜별 마지막 값만 남긴다.
+    by_date: dict = {}
+    for c in candles:
+        by_date[c.ts.date()] = c
     rows = [
         {
             "stock_code": code,
             "timeframe": tf,
-            "bar_date": c.ts.date(),
+            "bar_date": d,
             "open": c.open,
             "high": c.high,
             "low": c.low,
@@ -89,7 +112,7 @@ def batch_upsert_periodic(
             "volume": c.volume,
             "foreign_ratio": c.foreign_ratio,
         }
-        for c in candles
+        for d, c in by_date.items()
     ]
     stmt = insert(PriceCandle).values(rows)
     stmt = stmt.on_conflict_do_update(
@@ -116,9 +139,12 @@ def ensure_periodic(db: Session, code: str, tf: str) -> list[PriceCandle]:
     rows = read_periodic(db, code, tf)
     if rows:
         return rows
-    # DB 가 비었으면(처음 보는 심볼) 최초 1회 동기 조회로 화면을 채운다.
-    _fetch_and_store(db, code, tf, since=None)
-    return read_periodic(db, code, tf)
+    # DB 가 비었으면(처음 보는 심볼) 최초 1회 동기 조회로 화면을 채운다. 단 데이터가 아예 없는
+    # 심볼(상폐·오타)은 매 요청 ~1.7s 동기 조회를 반복하지 않도록 쿨다운으로 막는다.
+    if _cooldown_ok(f"{code}|{tf}"):
+        _fetch_and_store(db, code, tf, since=None)
+        rows = read_periodic(db, code, tf)
+    return rows
 
 
 def is_stale(db: Session, code: str, tf: str) -> bool:
@@ -144,10 +170,12 @@ def _fetch_and_store(db: Session, code: str, tf: str, since) -> int:
 def refresh_periodic(code: str, tf: str) -> None:
     """백그라운드 증분 갱신 — 자체 세션. 마지막 bar 이후만 조회·적재한다.
 
-    같은 (code, tf) 가 이미 갱신 중이면 건너뛴다(중복 외부 호출 방지). 예외는 흡수한다
-    (백그라운드라 요청 흐름에 영향 없음).
+    같은 (code, tf) 가 이미 갱신 중이거나 쿨다운 내면 건너뛴다(중복·헛된 외부 호출 방지).
+    예외는 흡수한다(백그라운드라 요청 흐름에 영향 없음).
     """
     key = f"{code}|{tf}"
+    if not _cooldown_ok(key):
+        return
     with _inflight_lock:
         if key in _inflight:
             return
@@ -167,9 +195,26 @@ def refresh_periodic(code: str, tf: str) -> None:
             _inflight.discard(key)
 
 
+def read_intraday_or_fetch(db: Session, code: str, days: int = 14) -> list[PriceCandleIntraday]:
+    """DB 우선 30분봉. 비었으면(cron·백필 미커버 종목) 최초 1회 동기 조회로 채운다.
+
+    이후 최신화는 refresh_intraday(백그라운드)가 담당. 첫 로드 빈 화면(회귀) 방지.
+    """
+    rows = read_intraday(db, code, days)
+    if rows:
+        return rows
+    session = requests.Session()
+    fresh = chart.fetch_intraday_30min(code, session)
+    if fresh:
+        intraday.upsert_intraday(db, code, fresh)
+    return read_intraday(db, code, days)
+
+
 def refresh_intraday(code: str) -> None:
     """백그라운드 30분봉 갱신 — 자체 세션. 가용 분봉 리샘플·누적."""
     key = f"{code}|30m"
+    if not _cooldown_ok(key):
+        return
     with _inflight_lock:
         if key in _inflight:
             return
