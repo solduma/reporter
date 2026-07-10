@@ -102,15 +102,30 @@ def search_stocks(
     ]
 
 
-@router.get("/{code}/summary", response_model=CompanySummary)
-def company_summary(code: str, db: Session = Depends(get_session)) -> CompanySummary:
+def _resolve_stock_name(db: Session, code: str) -> str | None:
+    """종목명 조회 — 유니버스 스냅샷(전 종목 보유) 우선, 없으면 리포트 폴백.
+
+    리포트가 없는 종목도 이름이 나오도록 통일한다(summary/analysis/growth 공통).
+    """
     name = db.scalar(
+        select(UniverseSnapshot.stock_name)
+        .where(UniverseSnapshot.stock_code == code, UniverseSnapshot.stock_name.is_not(None))
+        .order_by(UniverseSnapshot.snapshot_date.desc())
+        .limit(1)
+    )
+    if name:
+        return name
+    return db.scalar(
         select(Report.stock_name)
         .where(Report.stock_code == code, Report.stock_name.is_not(None))
         .order_by(Report.published_date.desc())
         .limit(1)
     )
-    return CompanySummary(stock_code=code, stock_name=name)
+
+
+@router.get("/{code}/summary", response_model=CompanySummary)
+def company_summary(code: str, db: Session = Depends(get_session)) -> CompanySummary:
+    return CompanySummary(stock_code=code, stock_name=_resolve_stock_name(db, code))
 
 
 @router.get("/{code}/candles", response_model=list[CandlePoint])
@@ -163,12 +178,7 @@ def company_analysis(
         .order_by(UniverseSnapshot.snapshot_date.desc())
         .limit(1)
     ).first()
-    name = snap.stock_name if snap else db.scalar(
-        select(Report.stock_name)
-        .where(Report.stock_code == code, Report.stock_name.is_not(None))
-        .order_by(Report.published_date.desc())
-        .limit(1)
-    )
+    name = (snap.stock_name if snap else None) or _resolve_stock_name(db, code)
     market = snap.market if snap else None
 
     # 성장 축 — GrowthMetric.
