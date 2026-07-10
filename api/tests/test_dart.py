@@ -70,6 +70,40 @@ def test_fetch_disclosures_parses_and_builds_url():
     assert "20260707000403" in d.dart_url
 
 
+def _doc_zip_session(xml_by_name: dict[str, bytes]) -> MagicMock:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        for name, content in xml_by_name.items():
+            zf.writestr(name, content)
+    resp = MagicMock()
+    resp.content = buf.getvalue()
+    resp.raise_for_status = MagicMock()
+    session = MagicMock()
+    session.get.return_value = resp
+    return session
+
+
+def test_fetch_document_text_strips_tags_and_truncates():
+    xml = "<doc><TITLE>자기주식처분</TITLE><P>총 1,083,434주 처분</P></doc>".encode()
+    sess = _doc_zip_session({"20260710000585.xml": xml})
+    text = dart.fetch_document_text("key", "20260710000585", sess, max_chars=6000)
+    assert "<" not in text and ">" not in text  # 태그 제거
+    assert "자기주식처분" in text
+    assert "총 1,083,434주 처분" in text
+    # max_chars 절삭
+    short = dart.fetch_document_text("key", "20260710000585", sess, max_chars=5)
+    assert len(short) == 5
+
+
+def test_fetch_document_text_bad_zip_returns_empty():
+    resp = MagicMock()
+    resp.content = b"not a zip"
+    resp.raise_for_status = MagicMock()
+    sess = MagicMock()
+    sess.get.return_value = resp
+    assert dart.fetch_document_text("key", "x", sess) == ""
+
+
 def test_fetch_disclosures_empty_status_returns_empty():
     # status != 000 (예: 013 데이터없음) → 빈 리스트
     discs = dart.fetch_disclosures(

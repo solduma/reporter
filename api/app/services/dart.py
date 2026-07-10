@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import io
 import logging
+import re
 import zipfile
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -21,6 +22,7 @@ logger = logging.getLogger(__name__)
 _CORPCODE_URL = "https://opendart.fss.or.kr/api/corpCode.xml"
 _LIST_URL = "https://opendart.fss.or.kr/api/list.json"
 _FNLTT_URL = "https://opendart.fss.or.kr/api/fnlttSinglAcntAll.json"
+_DOCUMENT_URL = "https://opendart.fss.or.kr/api/document.xml"
 _DART_VIEWER = "https://dart.fss.or.kr/dsaf001/main.do?rcpNo={rcept_no}"
 
 # 분기 → DART 보고서 코드. 1Q=11013·반기=11012·3Q=11014·사업보고서(연간)=11011.
@@ -137,6 +139,90 @@ def _parse_statement(rows: list[dict]) -> FinStatement:
 
 
 @dataclass
+class IncomeEquity:
+    """한 종목·기간의 손익·자본 계정(원 단위). PER/PBR/PSR 역산용.
+
+    revenue·net_income 은 회계연도 **누적(YTD)**, equity·eps 는 시점/기간 값이다.
+    """
+
+    revenue: float | None = None  # 매출(영업수익), 누적
+    net_income: float | None = None  # 지배주주 순이익, 누적
+    eps: float | None = None  # 기본주당이익(원), 누적
+    equity: float | None = None  # 지배주주 자본총계(BS 시점값)
+
+
+# IFRS 표준 account_id 로 매칭한다(계정명은 회사마다 편차가 커 신뢰 불가).
+# 과거(≤2018경) 공시는 구 태그(ifrs_*, 언더스코어), 최근은 ifrs-full_* (하이픈)을 쓴다 — 둘 다 본다.
+_AID_REVENUE = {"ifrs-full_Revenue", "ifrs_Revenue"}
+_AID_NI_OWNERS = {
+    "ifrs-full_ProfitLossAttributableToOwnersOfParent",
+    "ifrs_ProfitLossAttributableToOwnersOfParent",
+}
+_AID_NI = {"ifrs-full_ProfitLoss", "ifrs_ProfitLoss"}  # 지배주주 항목 없을 때 폴백
+_AID_EPS = {"ifrs-full_BasicEarningsLossPerShare", "ifrs_BasicEarningsLossPerShare"}
+_AID_EQ_OWNERS = {
+    "ifrs-full_EquityAttributableToOwnersOfParent",
+    "ifrs_EquityAttributableToOwnersOfParent",
+}
+_AID_EQ = {"ifrs-full_Equity", "ifrs_Equity"}  # 지배주주 지분 없을 때 폴백
+
+
+def fetch_income_and_equity(
+    api_key: str, corp_code: str, year: int, quarter: int, session: requests.Session
+) -> IncomeEquity | None:
+    """DART 전체재무제표에서 매출·지배순이익·EPS·지배자본을 account_id 로 추출한다.
+
+    연결(CFS) 우선, 없으면 별도(OFS). 손익은 IS/CIS 어디에나 올 수 있어 sj_div 무관하게
+    account_id 로 잡는다. 실패·데이터없음이면 None.
+    """
+    reprt_code = DART_REPORT_CODES.get(quarter)
+    if not reprt_code:
+        return None
+    for fs_div in ("CFS", "OFS"):
+        params = {
+            "crtfc_key": api_key,
+            "corp_code": corp_code,
+            "bsns_year": str(year),
+            "reprt_code": reprt_code,
+            "fs_div": fs_div,
+        }
+        try:
+            resp = session.get(_FNLTT_URL, params=params, timeout=20)
+            resp.raise_for_status()
+            data = resp.json()
+        except (requests.RequestException, ValueError) as e:
+            logger.warning("dart income failed %s %sQ%s: %s", corp_code, year, quarter, e)
+            return None
+        if data.get("status") != "000":
+            continue  # 013(데이터없음) → 다음 fs_div
+        return _parse_income_equity(data.get("list", []))
+    return None
+
+
+def _parse_income_equity(rows: list[dict]) -> IncomeEquity:
+    fin = IncomeEquity()
+    for row in rows:
+        aid = row.get("account_id") or ""
+        amt = _amount(row)
+        if amt is None:
+            continue
+        # 지배주주 항목을 우선하되(덮어쓰기), 없으면 전체 항목으로 채운다(setdefault 성격).
+        if aid in _AID_REVENUE and fin.revenue is None:
+            fin.revenue = amt
+        elif aid in _AID_NI_OWNERS:
+            fin.net_income = amt  # 지배주주 우선(덮어씀)
+        elif aid in _AID_NI and fin.net_income is None:
+            fin.net_income = amt
+        elif aid in _AID_EPS and fin.eps is None:
+            fin.eps = amt
+        elif aid in _AID_EQ_OWNERS:
+            fin.equity = amt  # 지배주주 우선
+        elif aid in _AID_EQ and fin.equity is None:
+            fin.equity = amt
+    return fin
+
+
+@dataclass
 class CorpMapping:
     stock_code: str
     corp_code: str
@@ -236,3 +322,35 @@ def fetch_disclosures(
         page += 1
 
     return disclosures
+
+
+# 공시 본문 XML 의 태그를 제거해 순수 텍스트로. 표·서식은 버리고 판단에 쓸 서술만 남긴다.
+def _strip_document_xml(raw: bytes) -> str:
+    text = raw.decode("utf-8", errors="ignore")
+    text = re.sub(r"<[^>]+>", " ", text)  # 태그 제거
+    text = re.sub(r"&[a-zA-Z]+;", " ", text)  # 잔여 엔티티
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def fetch_document_text(
+    api_key: str, rcept_no: str, session: requests.Session, max_chars: int = 6000
+) -> str:
+    """공시 원문(document.xml, zip 내 XML)을 받아 태그를 벗겨 앞 max_chars 만 반환한다.
+
+    첨부가 여러 XML 이면 이어붙인다. 실패·빈 응답이면 빈 문자열(호출측은 제목-only 로 폴백).
+    """
+    try:
+        resp = session.get(
+            _DOCUMENT_URL, params={"crtfc_key": api_key, "rcept_no": rcept_no}, timeout=30
+        )
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        logger.warning("dart document fetch failed %s: %s", rcept_no, e)
+        return ""
+    try:
+        with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
+            parts = [_strip_document_xml(zf.read(n)) for n in zf.namelist()]
+    except (zipfile.BadZipFile, KeyError) as e:
+        logger.warning("dart document parse failed %s: %s", rcept_no, e)
+        return ""
+    return " ".join(p for p in parts if p)[:max_chars]

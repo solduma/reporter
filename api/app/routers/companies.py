@@ -23,6 +23,7 @@ from app.db.models import (
     SectorTheme,
     SectorThemeStock,
     Sentiment,
+    SyncState,
     UniverseSnapshot,
 )
 from app.db.session import get_session
@@ -43,6 +44,7 @@ from app.services import (
     analysis_comment,
     candle_service,
     dart_ingest,
+    financials_backfill,
     quote,
     sync_state,
     technicals,
@@ -338,6 +340,9 @@ def company_financials(
         bg.add_task(_sync_financials_bg, code)
     # EV/EBITDA·PSR(DART, 24h TTL)은 valuation_ingest 가 자체 게이트 — 항상 백그라운드 예약.
     bg.add_task(_sync_valuation_bg, code)
+    # 10년 재무·밸류 백필은 종목당 1회만(야간 배치가 나머지를 채움). 아직이면 백그라운드로.
+    if not _financials_10y_done(db, code):
+        bg.add_task(_backfill_financials_10y_bg, code)
 
     return [
         FinancialPeriodOut(
@@ -359,21 +364,26 @@ def company_financials(
 
 
 def _sync_financials(db: Session, code: str) -> None:
-    """네이버 재무 스크랩 → financials upsert + sync_state 마킹. 예외는 호출측이 처리."""
+    """네이버 재무 스크랩 → financials upsert + sync_state 마킹. 예외는 호출측이 처리.
+
+    per/pbr/psr(밸류)은 financials_backfill(총액·분할무관 방법론)이 전 분기를 일관되게
+    소유하므로 여기서 덮어쓰지 않는다(방법론 혼재로 밴드 시계열이 튀는 것 방지). 네이버는
+    operating_income/roe/추정치(E) 등 백필이 못 만드는 필드를 채운다.
+    """
     session = requests.Session()
     fetched = quote.fetch_financials(code, session)
     for f in fetched:
         stmt = insert(Financial).values(
             stock_code=code, period=f.period, is_estimate=f.is_estimate,
             revenue=f.revenue, operating_income=f.operating_income, net_income=f.net_income,
-            eps=f.eps, bps=f.bps, per=f.per, pbr=f.pbr, roe=f.roe,
+            eps=f.eps, bps=f.bps, roe=f.roe,
         )
         stmt = stmt.on_conflict_do_update(
             constraint="uq_financial",
             set_={
                 c: getattr(stmt.excluded, c)
                 for c in ("is_estimate", "revenue", "operating_income", "net_income",
-                          "eps", "bps", "per", "pbr", "roe")
+                          "eps", "bps", "roe")
             },
         )
         db.execute(stmt)
@@ -408,6 +418,35 @@ def _sync_valuation_bg(code: str) -> None:
 
         db.rollback()
         logging.getLogger(__name__).warning("valuation sync failed %s: %s", code, e)
+    finally:
+        db.close()
+
+
+def _financials_10y_done(db: Session, code: str) -> bool:
+    """이 종목이 10년 재무 백필을 이미 마쳤는지(sync_state financials_10y)."""
+    return bool(
+        db.scalar(
+            select(SyncState.id).where(
+                SyncState.domain == "financials_10y", SyncState.stock_code == code
+            )
+        )
+    )
+
+
+def _backfill_financials_10y_bg(code: str) -> None:
+    """백그라운드 10년 재무·밸류 백필 — 종목당 1회(야간 배치가 나머지). 자체 세션."""
+    from app.db.session import SessionLocal
+
+    db = SessionLocal()
+    try:
+        if financials_backfill.backfill_stock(db, get_settings(), code):
+            sync_state.mark(db, "financials_10y", code)
+            db.commit()
+    except Exception as e:  # 백그라운드 실패가 조회를 깨지 않도록
+        import logging
+
+        db.rollback()
+        logging.getLogger(__name__).warning("financials 10y backfill failed %s: %s", code, e)
     finally:
         db.close()
 
