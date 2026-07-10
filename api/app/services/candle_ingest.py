@@ -19,8 +19,8 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
-from app.db.models import PriceCandle, PriceCandleIntraday, Timeframe, UniverseSnapshot
-from app.services import chart, intraday, kis
+from app.db.models import PriceCandle, PriceCandleIntraday, SyncState, Timeframe, UniverseSnapshot
+from app.services import chart, intraday, kis, sync_state
 from reporter.fallback import log_fallback
 
 logger = logging.getLogger(__name__)
@@ -316,3 +316,60 @@ def run_candle_batch(db: Session, settings: Settings | None = None) -> dict:
 
     logger.info("candle batch done: %s", stats)
     return stats
+
+
+# ── 10년 일봉 점진 백필 (야간, 재개 가능) ──────────────────────────────
+
+_BACKFILL_DOMAIN = "backfill_10y"  # SyncState 도메인: 10년 백필 완료 종목 마킹
+# 한 번(하룻밤)에 처리할 종목 수. 종목당 10년치는 무거워(네이버 왕복+수천 봉 upsert) 나눠 처리.
+_BACKFILL_PER_RUN = 200
+
+
+def _backfilled_codes(db: Session) -> set[str]:
+    """이미 10년 백필 완료로 마킹된 종목코드 집합(재개 시 재처리 방지)."""
+    return set(
+        db.scalars(
+            select(SyncState.stock_code).where(SyncState.domain == _BACKFILL_DOMAIN)
+        ).all()
+    )
+
+
+def run_backfill_progressive(
+    db: Session, settings: Settings | None = None, per_run: int = _BACKFILL_PER_RUN
+) -> dict:
+    """유니버스 종목의 일봉을 10년치로 점진 백필한다(하룻밤 per_run 개씩, 재개 가능).
+
+    이미 완료(SyncState backfill_10y) 종목은 건너뛰고, 미완 종목만 앞에서부터 per_run 개
+    처리 후 완료 마킹. 여러 밤에 걸쳐 전체를 채운다. 종목당 간격을 둬 네이버 연타를 막는다.
+    반환: {done, failed, remaining}.
+    """
+    settings = settings or get_settings()
+    codes = _universe_codes(db)
+    if not codes:
+        logger.warning("no universe stocks; skip 10y backfill")
+        return {"done": 0, "failed": 0, "remaining": 0}
+
+    already = _backfilled_codes(db)
+    pending = [c for c in codes if c not in already]
+    batch = pending[:per_run]
+    session = requests.Session()
+    end = datetime.now()
+    start = end - timedelta(days=_DAY_RANGE_DAYS)  # 10년
+    done = failed = 0
+    for code in batch:
+        try:
+            candles = chart.fetch_periodic_with_fallback(settings, code, "day", start, end, session)
+            if candles:
+                _upsert(db, code, Timeframe.DAY, candles)
+            sync_state.mark(db, _BACKFILL_DOMAIN, code)  # 봉이 없어도(신규상장 등) 완료 처리
+            db.commit()
+            done += 1
+        except Exception as e:  # 한 종목 실패가 배치를 막지 않도록(다음 밤 재시도)
+            db.rollback()
+            failed += 1
+            logger.warning("10y backfill failed for %s: %s", code, e)
+        time.sleep(_BATCH_STOCK_INTERVAL_S)
+
+    remaining = len(pending) - done
+    logger.info("10y backfill: done=%d failed=%d remaining=%d", done, failed, remaining)
+    return {"done": done, "failed": failed, "remaining": remaining}

@@ -30,6 +30,9 @@ _CRON = CronTrigger(day_of_week="mon-fri", hour="9-19", minute="0,30", timezone=
 _NIGHTLY_CRON = CronTrigger(day_of_week="mon-fri", hour=18, minute=0, timezone=_TZ)
 # 봉 배치: 유니버스 스냅샷(18시) 이후 19:30 에 전 종목 일/주/30분봉 증분 + 변동 시 재적재.
 _CANDLE_CRON = CronTrigger(day_of_week="mon-fri", hour=19, minute=30, timezone=_TZ)
+# 10년 일봉 점진 백필: 매일 20:30, 미완 종목 per_run 개씩(재개 가능). 무거워 저녁 배치와 시차.
+# 주말도 실행해 전체 완성을 앞당긴다(새 봉은 없지만 미완 종목 백필은 요일 무관).
+_BACKFILL_CRON = CronTrigger(hour=20, minute=30, timezone=_TZ)
 
 
 def run_ingest_cycle(settings: Settings | None = None) -> dict:
@@ -84,6 +87,17 @@ def run_candle_batch(settings: Settings | None = None) -> dict:
         session.close()
 
 
+def run_backfill_progressive(settings: Settings | None = None) -> dict:
+    """10년 일봉 점진 백필 1회분(미완 종목 per_run 개). 여러 밤에 걸쳐 전체 완성."""
+    from app.services import candle_ingest
+
+    session = SessionLocal()
+    try:
+        return candle_ingest.run_backfill_progressive(session, settings)
+    finally:
+        session.close()
+
+
 def build_scheduler(settings: Settings | None = None) -> BlockingScheduler:
     """잡이 등록된 스케줄러를 반환한다 (start 는 호출자가)."""
     settings = settings or get_settings()
@@ -108,6 +122,14 @@ def build_scheduler(settings: Settings | None = None) -> BlockingScheduler:
         run_candle_batch,
         trigger=_CANDLE_CRON,
         id="candle_batch",
+        max_instances=1,
+        coalesce=True,
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        run_backfill_progressive,
+        trigger=_BACKFILL_CRON,
+        id="backfill_10y",
         max_instances=1,
         coalesce=True,
         replace_existing=True,
