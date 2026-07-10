@@ -87,7 +87,8 @@ class PriceCandle(Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    stock_code: Mapped[str] = mapped_column(String(6), index=True)
+    # 국내 6자리 코드·지수(KOSPI)뿐 아니라 미국 심볼(QQQ.O·XLK 등)도 저장하므로 16자.
+    stock_code: Mapped[str] = mapped_column(String(16), index=True)
     timeframe: Mapped[Timeframe] = mapped_column(Enum(Timeframe))
     bar_date: Mapped[date] = mapped_column(Date)
     open: Mapped[float] = mapped_column(Float)

@@ -26,6 +26,8 @@ _COLUMN_MIGRATIONS = (
     "ALTER TABLE financials ADD COLUMN IF NOT EXISTS psr DOUBLE PRECISION",
     "ALTER TABLE peers ADD COLUMN IF NOT EXISTS ev_ebitda VARCHAR(32)",
     "ALTER TABLE peers ADD COLUMN IF NOT EXISTS psr VARCHAR(32)",
+    # 미국 심볼(QQQ.O·XLK 등) 저장 위해 봉 stock_code 폭 확장(기존 6→16). 축소가 아니라 안전.
+    "ALTER TABLE price_candles ALTER COLUMN stock_code TYPE VARCHAR(16)",
 )
 
 

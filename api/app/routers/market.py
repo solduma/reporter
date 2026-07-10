@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import time
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 
-import requests
 from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
@@ -27,13 +26,13 @@ from app.schemas import (
     SectorFlowRow,
     SectorRow,
 )
-from app.services import candle_service, chart, sector_flow
+from app.services import candle_service, sector_flow
 from reporter import sector_etf, us_market
 
 router = APIRouter(prefix="/api", tags=["market"])
 
-# tf 별 조회 범위: 일=2년, 주=10년, 월=3년(종목 상세와 통일).
-_CHART_RANGE_DAYS = {"day": 365 * 2 + 10, "week": 365 * 10 + 30, "month": 365 * 3 + 30}
+# tf 별 조회 범위: 일·주·월 모두 10년(종목 상세와 통일). 저장은 DB, 조회는 date-range 로 제한.
+_CHART_RANGE_DAYS = {"day": 365 * 10 + 30, "week": 365 * 10 + 30, "month": 365 * 10 + 30}
 
 # 섹터 ETF 로테이션은 시장당 12~15회 차트 조회라 무거워 프로세스 캐시(TTL)로 반복 부하를 막는다.
 _FLOW_TTL = 300.0  # 초
@@ -227,15 +226,14 @@ def _kr_chart(db: Session, code: str, tf: str, bg: BackgroundTasks) -> list[Cand
     ]
 
 
-def _us_chart(symbol: str, tf: str) -> list[CandlePoint]:
-    """미국 ETF/종목 봉 — foreign 실시간 조회(저장 안 함, 심볼이 6자리 초과라 PriceCandle 부적합)."""
-    session = requests.Session()
-    end = datetime.now()
-    start = end - timedelta(days=_CHART_RANGE_DAYS[tf])
-    fresh = chart.fetch_periodic_foreign(symbol, tf, start, end, session)
+def _us_chart(db: Session, symbol: str, tf: str, bg: BackgroundTasks) -> list[CandlePoint]:
+    """미국 ETF/지수 봉 — DB 우선. 미국 심볼도 PriceCandle 에 저장(stock_code 16자로 확장)."""
+    rows = candle_service.ensure_periodic(db, symbol, tf, market="US")
+    if candle_service.is_stale(db, symbol, tf):
+        bg.add_task(candle_service.refresh_periodic, symbol, tf, "US")
     return [
-        CandlePoint(t=c.ts.date().isoformat(), o=c.open, h=c.high, low=c.low, c=c.close, v=c.volume)
-        for c in fresh
+        CandlePoint(t=r.bar_date.isoformat(), o=r.open, h=r.high, low=r.low, c=r.close, v=r.volume)
+        for r in rows
     ]
 
 
@@ -247,8 +245,8 @@ def chart_candles(
     tf: str = Query(default="day", pattern="^(day|week|month)$"),
     db: Session = Depends(get_session),
 ) -> list[CandlePoint]:
-    """범용 봉 차트 — 섹터 ETF·지수·종목 공용. 국내=DB우선+백그라운드증분, 미국=실시간 foreign."""
-    return _kr_chart(db, symbol, tf, bg) if market == "KR" else _us_chart(symbol, tf)
+    """범용 봉 차트 — 섹터 ETF·지수·종목 공용. 국내·미국 모두 DB 우선 + 백그라운드 증분."""
+    return _kr_chart(db, symbol, tf, bg) if market == "KR" else _us_chart(db, symbol, tf, bg)
 
 
 # 로그인 진입 시 미리 데워 둘 지수 심볼(일봉). 대시보드·비교 차트에서 가장 먼저 쓰인다.

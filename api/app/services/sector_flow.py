@@ -10,11 +10,10 @@ from __future__ import annotations
 import threading
 import time
 from dataclasses import dataclass
-from datetime import datetime, timedelta
 
 import requests
 
-from app.services import chart, technicals
+from app.services import technicals
 from app.services.technicals import Technicals
 from reporter import sector_etf
 
@@ -91,17 +90,20 @@ def compute_flows(market: str, session: requests.Session | None = None) -> list[
 def _compute_flows_uncached(
     market: str, session: requests.Session | None = None
 ) -> list[SectorFlow]:
-    session = session or requests.Session()
     etfs = sector_etf.KR_SECTOR_ETFS if market == "KR" else sector_etf.US_SECTOR_ETFS
-    end = datetime.now()
-    start = end - timedelta(days=400)
+
+    # DB 우선: 저장된 ETF 일봉을 쓰고, 없을 때만 외부 조회(candle_service 가 저장까지 함).
+    # 지연 import(순환 방지: candle_service→chart, 여기선 candle_service 만 필요).
+    from app.db.session import SessionLocal
+    from app.services import candle_service
 
     flows: list[SectorFlow] = []
     for etf in etfs:
-        if market == "KR":
-            candles = chart.fetch_periodic(etf.symbol, "day", start, end, session)
-        else:
-            candles = chart.fetch_periodic_foreign(etf.symbol, "day", start, end, session)
+        db = SessionLocal()
+        try:
+            candles = candle_service.ensure_periodic(db, etf.symbol, "day", market=market)
+        finally:
+            db.close()
         if not candles:
             continue
         tech = technicals.compute(candles)

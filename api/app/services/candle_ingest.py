@@ -25,7 +25,7 @@ from reporter.fallback import log_fallback
 
 logger = logging.getLogger(__name__)
 
-_DAY_RANGE_DAYS = 365 * 2 + 10  # 2년치
+_DAY_RANGE_DAYS = 365 * 10 + 30  # 10년치
 _WEEK_RANGE_DAYS = 365 * 10 + 30  # 10년치(주봉)
 _INTRADAY_TRADING_DAYS = 10  # 2주 ≈ 거래일 10일
 # tf → 재적재 시 조회 범위(일수). 30분봉은 KIS 거래일 기반이라 별도 처리.
