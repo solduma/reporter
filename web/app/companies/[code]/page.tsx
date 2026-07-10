@@ -19,6 +19,7 @@ import {
   fetchPeers,
 } from "@/lib/api";
 import { dateToTs, monthsAgoIso } from "@/lib/chartTime";
+import { addQuickPick } from "@/lib/quickPicks";
 import type {
   CandlePoint,
   ChartTimeframe,
@@ -254,6 +255,14 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
   );
 
   const displayName = summary?.stock_name ?? "이름 미상";
+
+  // 조회한 종목을 '자주 찾는 종목'(localStorage)에 자동 추가. 이름이 확인된 뒤에만 등록해
+  // '이름 미상'이 목록에 남지 않게 한다.
+  useEffect(() => {
+    if (summary?.stock_name) {
+      addQuickPick({ code: summary.stock_code ?? code, name: summary.stock_name });
+    }
+  }, [summary, code]);
 
   const stockChart = useMemo(() => {
     if (loading && stockCandles.length === 0) {

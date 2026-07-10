@@ -32,10 +32,20 @@
   font-weight: 600;
 }
 
+.empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 12px;
+}
+
+.cardWrap {
+  position: relative;
 }
 
 .card {
@@ -53,6 +63,48 @@
 .card:hover {
   border-color: var(--accent);
   transform: translateY(-1px);
+}
+
+/* 카드 우측 상단 제거 버튼. 카드(Link) 위에 겹쳐 두되 클릭이 링크로 전파되지 않게 별도 요소로 둔다. */
+.remove {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  font-size: 0.8rem;
+  line-height: 1;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  opacity: 0;
+  /* 숨김 상태에선 포인터를 통과시켜, 안 보이는 버튼이 카드 탭을 가로채 오삭제하는 것을 막는다. */
+  pointer-events: none;
+  transition: opacity 0.15s ease, background 0.15s ease;
+}
+
+.cardWrap:hover .remove,
+.remove:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.remove:hover {
+  background: var(--border);
+}
+
+/* 호버가 없는 터치 기기: 버튼을 항상 노출해 발견성·조작성을 확보한다. */
+@media (hover: none) {
+  .remove {
+    opacity: 1;
+    pointer-events: auto;
+  }
 }
 
 .name {
