@@ -28,12 +28,16 @@ _inflight_lock = threading.Lock()
 
 
 def inputs_hash(axes: list[dict]) -> str:
-    """축 점수·지표 입력을 결정적으로 직렬화해 해시한다. 입력이 바뀌면 캐시가 무효화된다.
+    """코멘트 입력을 결정적으로 직렬화해 해시한다. 입력이 바뀌면 캐시가 무효화된다.
 
-    프롬프트가 바뀌어도 재생성되도록 프롬프트 시스템 텍스트도 해시에 포함한다.
+    **축 점수(key→score)만** 해시한다. metrics 값에는 장중 실시간 지수 등락률처럼 초 단위로
+    바뀌는 값이 섞여 있어, 그대로 해시하면 장중 내내 캐시가 계속 미스되어 ~17초 재생성을
+    반복한다. 코멘트는 점수 기반 종합이라 점수가 안 바뀌면 재생성이 불필요하다. 프롬프트
+    변경 시에도 재생성되도록 시스템 텍스트를 포함한다.
     """
+    scores = {ax["key"]: ax.get("score") for ax in axes}
     payload = json.dumps(
-        {"axes": axes, "sys": analysis._COMMENT_SYSTEM}, ensure_ascii=False, sort_keys=True
+        {"scores": scores, "sys": analysis._COMMENT_SYSTEM}, ensure_ascii=False, sort_keys=True
     )
     return hashlib.sha256(payload.encode()).hexdigest()[:16]
 

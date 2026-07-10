@@ -28,6 +28,17 @@ def test_inputs_hash_deterministic_and_sensitive():
     assert analysis_comment.inputs_hash(changed) != h1  # 점수 바뀌면 무효화
 
 
+def test_inputs_hash_ignores_volatile_metrics():
+    # 장중 실시간 지수 등락률 등 metrics 값이 바뀌어도 점수가 같으면 해시 불변
+    # (안 그러면 장중 내내 캐시 미스 → ~17초 재생성 반복).
+    h1 = analysis_comment.inputs_hash(_AXES)
+    live = [
+        dict(_AXES[0], metrics=[{"label": "매출 YoY", "value": "+21%"}]),
+        dict(_AXES[1], metrics=[{"label": "코스피", "value": "-0.28%"}]),
+    ]
+    assert analysis_comment.inputs_hash(live) == h1
+
+
 class _Row:
     def __init__(self, h, comment):
         self.inputs_hash = h

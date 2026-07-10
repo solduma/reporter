@@ -99,21 +99,27 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
   useEffect(() => {
     let active = true;
     let pollTimer: ReturnType<typeof setTimeout> | undefined;
-    async function load() {
-      setAnalysis({ status: "loading", data: null });
+    // 코멘트 백그라운드 생성이 계속 실패해도 무한 폴링/재생성하지 않도록 상한을 둔다.
+    const MAX_POLLS = 10;
+    // poll=false 인 최초 로드만 로딩 상태로 리셋. 폴링 재조회는 기존 데이터를 유지해
+    // 3초마다 패널 전체가 깜빡이지 않게 한다(코멘트만 채워짐).
+    async function load(poll = false, attempt = 0) {
+      if (!poll) {
+        setAnalysis({ status: "loading", data: null });
+      }
       try {
         const res = await fetchCompanyAnalysis(code);
         if (!active) {
           return;
         }
         setAnalysis({ status: "ready", data: res });
-        // 코멘트가 백그라운드 생성 중이면(캐시 미스) 완성될 때까지 폴링해 채운다.
-        if (res.comment_pending) {
-          pollTimer = setTimeout(() => void load(), 3000);
+        // 코멘트가 백그라운드 생성 중이면(캐시 미스) 완성될 때까지 폴링해 채운다(상한까지만).
+        if (res.comment_pending && attempt < MAX_POLLS) {
+          pollTimer = setTimeout(() => void load(true, attempt + 1), 3000);
         }
       } catch (e) {
-        // 분석 실패 시 비교 차트(지수·섹터)만 생략한다 — 종목 차트는 별도로 뜬다.
-        if (active) {
+        // 폴링 중 실패는 기존 데이터를 유지(패널 유지). 최초 로드 실패만 에러 표시.
+        if (active && !poll) {
           setAnalysis({
             status: "error",
             data: null,
