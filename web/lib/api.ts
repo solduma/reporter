@@ -33,7 +33,10 @@ import type {
   TradePresets,
 } from "@/lib/types";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8010";
+// 기본은 same-origin(빈 문자열) — 브라우저는 /api/... 를 현재 오리진으로 호출하고,
+// Next.js rewrites(next.config.mjs)가 이를 loopback FastAPI 로 프록시한다. 그래야 프로덕션
+// 빌드에 개발용 로컬호스트 주소가 구워지지 않는다. 별도 API 오리진을 쓸 때만 이 값을 설정.
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "";
 
 export function apiUrl(path: string): string {
   return `${API_BASE}${path}`;
