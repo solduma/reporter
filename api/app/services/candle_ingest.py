@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from datetime import datetime, timedelta
 
 import requests
@@ -29,6 +30,9 @@ _WEEK_RANGE_DAYS = 365 * 10 + 30  # 10년치(주봉)
 _INTRADAY_TRADING_DAYS = 10  # 2주 ≈ 거래일 10일
 # tf → 재적재 시 조회 범위(일수). 30분봉은 KIS 거래일 기반이라 별도 처리.
 _PERIODIC_RANGE = {Timeframe.DAY: _DAY_RANGE_DAYS, Timeframe.WEEK: _WEEK_RANGE_DAYS}
+# 저녁 배치는 종목당 여러 네이버 콜(일·주·30분)을 낸다. 무인증 API 를 초당 수십 콜로 연타하면
+# 차단 위험이 있어 종목 간 짧은 간격을 둔다(~2653종목 x 0.15s = 약 7분 추가, 야간이라 무해).
+_BATCH_STOCK_INTERVAL_S = 0.15
 
 
 def _universe_codes(db: Session) -> list[str]:
@@ -202,51 +206,74 @@ def _fetch_periodic_range(
     return chart.fetch_periodic_with_fallback(settings, code, tf.value, start, end, session)
 
 
-def _refresh_one_periodic(
+
+def _seed_or_incremental(
     db: Session, settings: Settings, code: str, tf: Timeframe, session: requests.Session
 ) -> str:
-    """한 종목·tf 를 증분 갱신하되, 전날 종가 불일치면 전체 재적재한다.
+    """한 종목·tf 를 채운다: 저장분 없으면 seed(전체), 있으면 incremental(마지막 이후만).
 
-    반환: "reload"(재적재) | "incremental"(증분) | "seed"(최초 적재) | "noop".
+    주식변동 감지·재적재는 호출측(run_candle_batch)이 종목 단위로 판단한다.
+    반환: "seed" | "incremental" | "noop".
     """
     stored = _last_two_periodic(db, code, tf)
     if not stored:
-        # 최초 적재(주봉 미백필 종목 등) — 전체 범위 조회.
         fresh = _fetch_periodic_range(settings, code, tf, _PERIODIC_RANGE[tf], session)
         _upsert(db, code, tf, fresh)
         db.commit()
         return "seed"
 
-    # 마지막 bar 이후만 좁게 조회하되, 전날 종가 대조를 위해 직전 확정 bar 까지 포함해 받는다.
     since = stored[-2].bar_date if len(stored) >= 2 else stored[-1].bar_date
     end = datetime.now()
     start = datetime(since.year, since.month, since.day) - timedelta(days=3)
     fresh = chart.fetch_periodic_with_fallback(settings, code, tf.value, start, end, session)
     if not fresh:
         return "noop"
-
-    if _corporate_action(stored, fresh):
-        log_fallback(
-            "candle.corporate_action_reload",
-            reason=f"전날 종가 불일치(합병·분할 등 소급 조정) → 전체 재적재 {tf.value}",
-            detail=code,
-        )
-        _delete_all_candles(db, code)
-        full = _fetch_periodic_range(settings, code, tf, _PERIODIC_RANGE[tf], session)
-        _upsert(db, code, tf, full)
-        db.commit()
-        return "reload"
-
     _upsert(db, code, tf, fresh)
     db.commit()
     return "incremental"
 
 
-def run_candle_batch(db: Session, settings: Settings | None = None) -> dict:
-    """매일 저녁: 유니버스 전 종목의 일·주·30분봉을 증분 갱신(변동 시 전체 재적재).
+def _detect_corporate_action(
+    db: Session, settings: Settings, code: str, session: requests.Session
+) -> bool:
+    """일봉 직전 확정 bar 종가로 주식변동(합병·분할 등)을 판별한다.
 
-    종가 불일치가 감지되면 그 종목의 모든 봉을 파기 후 재적재하므로, 이후 tf 처리는
-    자연히 seed 경로로 다시 채운다. 실패 종목은 건너뛴다.
+    일봉은 주식변동 시 전 구간이 소급 조정되므로 단일 신호로 충분하다(주봉은 라벨 편차로
+    누락 가능해 보조로만). 저장 일봉이 2개 미만이면 판단 보류(False).
+    """
+    stored = _last_two_periodic(db, code, Timeframe.DAY)
+    if len(stored) < 2:
+        return False
+    ref = stored[-2]
+    start = datetime(ref.bar_date.year, ref.bar_date.month, ref.bar_date.day) - timedelta(days=3)
+    fresh = chart.fetch_periodic_with_fallback(
+        settings, code, Timeframe.DAY.value, start, datetime.now(), session
+    )
+    return _corporate_action(stored, fresh)
+
+
+def _reload_stock(db: Session, settings: Settings, code: str, session: requests.Session) -> None:
+    """한 종목의 모든 봉(일/주/30분)을 파기 후 보유기간 전체 재적재한다(주식변동 대응)."""
+    _delete_all_candles(db, code)
+    for tf in (Timeframe.DAY, Timeframe.WEEK):
+        full = _fetch_periodic_range(settings, code, tf, _PERIODIC_RANGE[tf], session)
+        _upsert(db, code, tf, full)
+    db.commit()
+    # 30분봉은 네이버 최근분만 우선 복원(2주 과거 구간은 별도 KIS 백필). 실패해도 무시.
+    try:
+        bars = chart.fetch_intraday_30min(code, session)
+        if bars:
+            intraday.upsert_intraday(db, code, bars)
+    except Exception as e:
+        logger.warning("reload intraday failed for %s: %s", code, e)
+
+
+def run_candle_batch(db: Session, settings: Settings | None = None) -> dict:
+    """매일 저녁: 유니버스 전 종목의 일·주·30분봉을 증분 갱신(주식변동 시 전체 재적재).
+
+    종목 단위로 먼저 주식변동(일봉 종가 소급 조정)을 판별해, 감지되면 그 종목의 모든 봉을
+    파기 후 재적재하고, 아니면 각 tf 를 seed/incremental 로 채운다. 일봉을 단일 신호로 쓰는
+    이유는 주식변동이 전 구간을 소급 조정하기 때문(주봉은 라벨 편차로 보조). 실패 종목은 건너뛴다.
     """
     settings = settings or get_settings()
     codes = _universe_codes(db)
@@ -255,38 +282,37 @@ def run_candle_batch(db: Session, settings: Settings | None = None) -> dict:
         return {"stocks": 0, "reloaded": 0, "failed": 0}
 
     session = requests.Session()
-    stats = {"stocks": 0, "reloaded": 0, "incremental": 0, "seed": 0, "failed": 0}
-    reloaded_codes: set[str] = set()
+    stats = {"stocks": 0, "reloaded": 0, "incremental": 0, "seed": 0, "noop": 0, "failed": 0}
     for i, code in enumerate(codes, 1):
         try:
-            for tf in (Timeframe.DAY, Timeframe.WEEK):
-                # 앞선 tf 에서 이미 재적재(전체 파기)했으면 이 tf 는 seed 로 채워진다.
-                outcome = _refresh_one_periodic(db, settings, code, tf, session)
-                if outcome == "reload":
-                    reloaded_codes.add(code)
-                stats[outcome] = stats.get(outcome, 0) + 1
+            if _detect_corporate_action(db, settings, code, session):
+                log_fallback(
+                    "candle.corporate_action_reload",
+                    reason="일봉 전날 종가 불일치(합병·분할 등 소급 조정) → 전체 재적재",
+                    detail=code,
+                )
+                _reload_stock(db, settings, code, session)
+                stats["reloaded"] += 1
+            else:
+                for tf in (Timeframe.DAY, Timeframe.WEEK):
+                    outcome = _seed_or_incremental(db, settings, code, tf, session)
+                    stats[outcome] = stats.get(outcome, 0) + 1
+                # 30분봉: 네이버 분봉(1콜/종목)으로 최근분 누적(2주 과거는 KIS 백필 담당).
+                try:
+                    bars = chart.fetch_intraday_30min(code, session)
+                    if bars:
+                        intraday.upsert_intraday(db, code, bars)
+                except Exception as e:
+                    db.rollback()
+                    logger.warning("candle batch intraday failed for %s: %s", code, e)
             stats["stocks"] += 1
         except Exception as e:  # 한 종목 실패가 배치를 막지 않도록
             db.rollback()
             stats["failed"] += 1
             logger.warning("candle batch failed for %s: %s", code, e)
         if i % 200 == 0:
-            logger.info("candle batch %d/%d (reloaded=%d)", i, len(codes), len(reloaded_codes))
+            logger.info("candle batch %d/%d (reloaded=%d)", i, len(codes), stats["reloaded"])
+        time.sleep(_BATCH_STOCK_INTERVAL_S)  # 네이버 무인증 API 연타 방지
 
-    # 30분봉: 유니버스 전 종목을 네이버 분봉(1콜/종목)으로 누적한다. 네이버는 최근 ~5거래일만
-    # 주므로 이 배치가 2주 윈도우의 최근 구간을 유지한다(과거 구간은 KIS backfill_intraday 담당).
-    # 재적재(전체 파기)된 종목도 여기서 최근 30분봉이 다시 채워진다.
-    intraday_touched = 0
-    for code in codes:
-        try:
-            bars = chart.fetch_intraday_30min(code, session)
-            if bars:
-                intraday.upsert_intraday(db, code, bars)
-                intraday_touched += 1
-        except Exception as e:
-            db.rollback()
-            logger.warning("candle batch intraday failed for %s: %s", code, e)
-    stats["reloaded"] = len(reloaded_codes)
-    stats["intraday_touched"] = intraday_touched
     logger.info("candle batch done: %s", stats)
     return stats
