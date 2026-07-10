@@ -17,11 +17,25 @@ def test_summarize_ingest_cycle():
 
 
 def test_summarize_nightly_batch():
+    # growth 는 실제로 dict({processed,total})라 대표 수치만 뽑아야 한다(원본 dict 노출 금지).
     rows, detail = ingest_log._summarize(
-        "nightly_batch", {"universe_rows": 4295, "growth": 100, "sectors": 30}
+        "nightly_batch",
+        {"universe_rows": 4295, "growth": {"processed": 100, "total": 200}, "sectors": 30},
     )
     assert rows == 4295
     assert "유니버스 4295" in detail
+    assert "성장 100" in detail
+    assert "{" not in detail  # dict 가 그대로 문자열화되지 않아야 한다
+
+
+def test_summarize_nightly_batch_alt_growth_shape():
+    # growth 가 {financials,momentum} 형태(초기값)여도 깨지지 않아야 한다.
+    _, detail = ingest_log._summarize(
+        "nightly_batch",
+        {"universe_rows": 10, "growth": {"financials": 5, "momentum": 3}, "sectors": 0},
+    )
+    assert "성장 5" in detail
+    assert "{" not in detail
 
 
 def test_summarize_candle_batch():

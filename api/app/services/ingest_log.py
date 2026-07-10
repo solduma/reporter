@@ -43,7 +43,10 @@ def _summarize(job: str, result: dict) -> tuple[int, str]:
         )
     if job == "nightly_batch":
         rows = int(result.get("universe_rows", 0))
-        return rows, f"유니버스 {rows}종목 · 성장 {result.get('growth', 0)} · 섹터 {result.get('sectors', 0)}"
+        # growth 는 dict({processed,total} 또는 {financials,momentum})라 대표 수치만 뽑는다.
+        g = result.get("growth")
+        g_n = g.get("processed", g.get("financials", 0)) if isinstance(g, dict) else (g or 0)
+        return rows, f"유니버스 {rows}종목 · 성장 {g_n} · 섹터 {result.get('sectors', 0)}"
     if job == "candle_batch":
         rows = int(result.get("stocks", 0))
         return rows, (
@@ -74,17 +77,20 @@ def record(
     result 를 주면 job 규칙으로 rows·detail 을 요약한다. rows·detail 을 직접 주면 우선한다.
     기록 실패는 흡수한다(배치 결과가 이미 커밋됐을 수 있어 이력 누락이 배치를 깨면 안 됨).
     """
-    if result is not None:
-        sum_rows, sum_detail = _summarize(job, result)
-        rows = sum_rows if rows is None else rows
-        detail = sum_detail if detail is None else detail
-    row = IngestLog(
-        job=job, status=status, rows=rows or 0, detail=(detail or "")[:500], duration_ms=duration_ms
-    )
     own = db is None
     session = SessionLocal() if own else db
     try:
-        session.add(row)
+        # 요약·모델 구성도 try 안에서(결과 dict 이상값이 배치를 깨지 않게 흡수).
+        if result is not None:
+            sum_rows, sum_detail = _summarize(job, result)
+            rows = sum_rows if rows is None else rows
+            detail = sum_detail if detail is None else detail
+        session.add(
+            IngestLog(
+                job=job, status=status, rows=rows or 0,
+                detail=(detail or "")[:500], duration_ms=duration_ms,
+            )
+        )
         session.commit()
     except Exception as e:  # 이력 기록 실패가 배치를 깨지 않도록
         session.rollback()
