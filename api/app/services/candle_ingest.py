@@ -15,7 +15,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
-from app.db.models import PriceCandle, Timeframe, UniverseSnapshot
+from app.db.models import PriceCandle, PriceCandleIntraday, Timeframe, UniverseSnapshot
 from app.services import chart, intraday, kis
 
 logger = logging.getLogger(__name__)
@@ -99,21 +99,29 @@ def _recent_trading_days(db: Session, n: int) -> list[str]:
     return [d.strftime("%Y%m%d") for d in reversed(rows)]
 
 
+def _intraday_loaded_codes(db: Session) -> set[str]:
+    """이미 30분봉이 적재된 종목코드 집합 — 중단 후 재개 시 재조회 방지."""
+    return set(db.scalars(select(PriceCandleIntraday.stock_code).distinct()).all())
+
+
 def backfill_intraday(db: Session, settings: Settings | None = None) -> dict:
     """전 종목 30분봉 2주치(≈10거래일)를 KIS 분봉으로 적재한다. 매우 무겁다(종목당 40+콜).
 
-    {'stocks': 처리수, 'failed': 실패수, 'days': 거래일수}.
+    이미 적재된 종목은 건너뛰어(재개 가능) 중단 후 재실행해도 KIS 콜을 낭비하지 않는다.
+    {'stocks': 처리수, 'failed': 실패수, 'skipped': 기적재수, 'days': 거래일수}.
     """
     settings = settings or get_settings()
     codes = _universe_codes(db)
     days = _recent_trading_days(db, _INTRADAY_TRADING_DAYS)
     if not codes or not days:
         logger.warning("no codes/days; skip intraday backfill (일봉 먼저 적재 필요)")
-        return {"stocks": 0, "failed": 0, "days": len(days)}
+        return {"stocks": 0, "failed": 0, "skipped": 0, "days": len(days)}
 
+    loaded = _intraday_loaded_codes(db)
+    pending = [c for c in codes if c not in loaded]
     session = requests.Session()
     done = failed = 0
-    for i, code in enumerate(codes, 1):
+    for i, code in enumerate(pending, 1):
         try:
             bars = kis.fetch_intraday_30min(settings, code, days, session)
             if bars:
@@ -126,7 +134,13 @@ def backfill_intraday(db: Session, settings: Settings | None = None) -> dict:
             failed += 1
             logger.warning("intraday backfill failed for %s: %s", code, e)
         if i % 100 == 0:
-            logger.info("intraday backfill %d/%d (ok=%d fail=%d)", i, len(codes), done, failed)
+            logger.info(
+                "intraday backfill %d/%d (ok=%d fail=%d, skipped=%d)",
+                i, len(pending), done, failed, len(loaded),
+            )
 
-    logger.info("intraday backfill done: %d stocks, %d failed, %d days", done, failed, len(days))
-    return {"stocks": done, "failed": failed, "days": len(days)}
+    logger.info(
+        "intraday backfill done: %d stocks, %d failed, %d skipped, %d days",
+        done, failed, len(loaded), len(days),
+    )
+    return {"stocks": done, "failed": failed, "skipped": len(loaded), "days": len(days)}
