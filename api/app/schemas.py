@@ -159,7 +159,7 @@ class AnalysisAxis(BaseModel):
     """분석 한 축(성장/기술/탑다운)의 점수와 근거 지표."""
 
     key: str  # growth | technical | topdown
-    label: str  # 성장(피터 린치) 등 표시명
+    label: str  # 성장 등 표시명
     score: float | None  # 0~100 (계산 불가 시 None)
     metrics: list[dict]  # [{label, value}] 표시용 지표
 
