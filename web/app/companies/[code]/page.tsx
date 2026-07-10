@@ -7,9 +7,13 @@ import AnalysisPanel from "@/components/AnalysisPanel";
 import CompanyTimeline from "@/components/CompanyTimeline";
 import GrowthMetrics from "@/components/GrowthMetrics";
 import PeersTable from "@/components/PeersTable";
-import { fetchCandles, fetchCompanySummary, fetchFinancials, fetchPeers } from "@/lib/api";
+import SectorCharts from "@/components/SectorCharts";
+import SymbolChartCard from "@/components/SymbolChartCard";
+import TimeframeSlider from "@/components/TimeframeSlider";
+import { fetchCandles, fetchCompanyAnalysis, fetchCompanySummary, fetchFinancials, fetchPeers } from "@/lib/api";
 import type {
   CandlePoint,
+  ChartTimeframe,
   CompanySummary,
   FinancialPeriod,
   Peer,
@@ -54,6 +58,11 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // 탑다운 비교 차트(지수·섹터·종목)용 섹터명. 분석 API 의 topdown.kr_sector 에서 얻는다.
+  const [krSector, setKrSector] = useState<string | null>(null);
+  // 비교 차트 3종을 함께 조정하는 공용 기간(일/주/월).
+  const [compareTf, setCompareTf] = useState<ChartTimeframe>("day");
+
   const [financials, setFinancials] = useState<SectionState<FinancialPeriod[]>>({
     status: "loading",
     data: [],
@@ -72,6 +81,27 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
         // 요약 실패는 헤더에만 영향 — 차트 흐름을 막지 않도록 코드만 표시한다.
         if (active) {
           setSummary(null);
+        }
+      }
+    }
+    void load();
+    return () => {
+      active = false;
+    };
+  }, [code]);
+
+  useEffect(() => {
+    let active = true;
+    async function load() {
+      try {
+        const res = await fetchCompanyAnalysis(code);
+        if (active) {
+          setKrSector(res.topdown?.kr_sector ?? null);
+        }
+      } catch {
+        // 분석 실패 시 비교 차트(지수·섹터)만 생략한다 — 종목 차트는 별도로 뜬다.
+        if (active) {
+          setKrSector(null);
         }
       }
     }
@@ -250,6 +280,31 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
           })}
         </div>
         {chartArea}
+      </section>
+
+      <section className={styles.chartCard}>
+        <div className={styles.growthHead}>
+          <div>
+            <h2 className={styles.sectionTitle}>탑다운 비교 차트</h2>
+            <p className={styles.compareSub}>지수 · 섹터 · 종목을 같은 기간으로 함께 본다</p>
+          </div>
+          <TimeframeSlider value={compareTf} onChange={setCompareTf} label="기간" />
+        </div>
+        <div className={styles.compareStock}>
+          <SymbolChartCard
+            symbol={summary?.stock_code ?? code}
+            market="KR"
+            timeframe={compareTf}
+            label={`${displayName} (종목)`}
+          />
+        </div>
+        {krSector ? (
+          <SectorCharts industry={krSector} timeframe={compareTf} />
+        ) : (
+          <p className={styles.sectionStatus}>
+            이 종목의 섹터를 특정할 수 없어 지수·섹터 차트를 생략합니다.
+          </p>
+        )}
       </section>
 
       <section className={styles.chartCard}>

@@ -82,7 +82,8 @@
 /* 성장 지표 헤더: 제목과 스냅샷 태그를 한 줄에 배치 */
 .growthHead {
   display: flex;
-  align-items: baseline;
+  align-items: center;
+  justify-content: space-between;
   gap: 10px;
   margin-bottom: 16px;
 }
@@ -98,6 +99,17 @@
   font-weight: 700;
   padding: 2px 8px;
   border-radius: 999px;
+}
+
+/* 탑다운 비교 차트 헤더: 제목/설명은 왼쪽, 기간 슬라이더는 오른쪽. */
+.compareSub {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.compareStock {
+  margin-bottom: 14px;
 }
 
 .sectionStatus {
