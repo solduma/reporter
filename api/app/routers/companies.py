@@ -169,7 +169,7 @@ def _ensure_day_candles(db: Session, code: str) -> list[PriceCandle]:
 def company_analysis(
     code: str, bg: BackgroundTasks, db: Session = Depends(get_session)
 ) -> CompanyAnalysis:
-    """테크노펀더멘탈 종합 — 성장(린치)·기술(오닐/미너비니)·탑다운(리버모어)."""
+    """테크노펀더멘탈 종합 — 성장·기술적 추세·탑다운."""
     settings = get_settings()
     # 기술 지표가 쓰는 일봉이 뒤처졌으면 백그라운드로 증분 갱신(조회는 DB 로 즉시 진행).
     if candle_service.is_stale(db, code, "day"):
@@ -192,7 +192,7 @@ def company_analysis(
     )
     growth_axis = AnalysisAxis(
         key="growth",
-        label="성장 (피터 린치)",
+        label="성장",
         score=growth_sc,
         metrics=[
             {"label": "매출 YoY", "value": _pct(g.revenue_yoy) if g else "—"},
@@ -206,7 +206,7 @@ def company_analysis(
     tech = technicals.compute(candles)
     tech_axis = AnalysisAxis(
         key="technical",
-        label="기술적 추세 (오닐·미너비니)",
+        label="기술적 추세",
         score=tech.trend_score,
         metrics=[
             {"label": "52주 고점 근접", "value": f"{tech.near_high_pct}%" if tech.near_high_pct else "—"},
@@ -229,7 +229,7 @@ def company_analysis(
     us_sec = topdown_view["us_sector"]
     topdown_axis = AnalysisAxis(
         key="topdown",
-        label="탑다운 (리버모어)",
+        label="탑다운",
         score=topdown_sc,
         metrics=[
             {

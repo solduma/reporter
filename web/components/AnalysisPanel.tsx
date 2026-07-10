@@ -137,7 +137,7 @@ export default function AnalysisPanel({ code, analysis, status, message }: Props
         </div>
       ) : (
         <p className={styles.note}>
-          미국 섹터 선행(리버모어)은 안정 조회되는 반도체·기술·대형주 프록시 기준입니다.
+          미국 섹터 선행은 안정 조회되는 반도체·기술·대형주 프록시 기준입니다.
         </p>
       )}
     </div>
