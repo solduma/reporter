@@ -363,6 +363,25 @@ class FallbackEvent(Base):
     context: Mapped[dict] = mapped_column(JSONB, default=dict)  # 추가 구조화 맥락
 
 
+class IngestLog(Base):
+    """크롤링·적재 배치 실행 이력(append-only). 실행 1회당 1행.
+
+    스케줄러 5개 잡과 TUI 수동 트리거가 종료 시 결과를 남긴다. sync_state 는 (domain,code)당
+    최신 시각만 upsert 라 이력이 안 남으므로, '언제 무엇을 얼마나 적재했는지'는 여기서 본다.
+    운영 관측성 전용(다른 테이블과 조인하지 않음).
+    """
+
+    __tablename__ = "ingest_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    job: Mapped[str] = mapped_column(String(32), index=True)  # 예: "ingest_cycle" | "candle_batch"
+    status: Mapped[str] = mapped_column(String(8), default="ok")  # ok | fail
+    rows: Mapped[int] = mapped_column(Integer, default=0)  # 수집·적재 건수(잡별 대표 수치)
+    detail: Mapped[str] = mapped_column(Text, default="")  # 결과 요약(사람이 읽는 한 줄)
+    duration_ms: Mapped[int] = mapped_column(Integer, default=0)  # 실행 소요(ms)
+
+
 class BroadcastKind(enum.StrEnum):
     """텔레그램 발송 콘텐츠 유형. digest_* 는 카테고리 장문 종합, 나머지는 뉴스/리서치."""
 

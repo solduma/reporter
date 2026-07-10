@@ -28,6 +28,7 @@ from app.services import (
     fallback_store,
     growth_ingest,
     ingest,
+    ingest_log,
     universe_ingest,
 )
 from app.services.schedule_control import ScheduleControl
@@ -111,6 +112,8 @@ class AdminTUI(App):
     #fallback { height: auto; max-height: 10; border: round $warning; margin: 0 1; }
     #db_title { height: auto; padding: 0 1; }
     #db_status { height: auto; max-height: 14; border: round $success; margin: 0 1; }
+    #ingest_title { height: auto; padding: 0 1; }
+    #ingest_history { height: auto; max-height: 12; border: round $accent; margin: 0 1; }
     #log { height: 10; border: round $secondary; }
     #preview_bar { height: auto; align: left middle; padding: 0 1; }
     #preview_bar Button { margin: 0 1; min-width: 8; }
@@ -161,6 +164,8 @@ class AdminTUI(App):
             yield DataTable(id="schedule")
             yield Static(id="db_title")
             yield DataTable(id="db_status")
+            yield Static(id="ingest_title")
+            yield DataTable(id="ingest_history")
             yield Static(id="fallback_title")
             yield DataTable(id="fallback")
             yield Log(id="log", highlight=True)
@@ -200,6 +205,9 @@ class AdminTUI(App):
 
         dbt = self.query_one("#db_status", DataTable)
         dbt.add_columns("테이블", "행수", "최신 업데이트")
+
+        ih = self.query_one("#ingest_history", DataTable)
+        ih.add_columns("시각", "작업", "결과", "건수", "소요")
 
         self.action_refresh()
         # 서버가 스스로 죽거나(bind 실패·크래시) 하면 상태 패널이 stale 하지 않도록 주기 갱신.
@@ -257,6 +265,7 @@ class AdminTUI(App):
         self._refresh_server_status()
         self._load_schedule()
         self._load_db_status()
+        self._load_ingest_history()
         self._load_fallbacks()
         self._load_preview()
 
@@ -294,6 +303,26 @@ class AdminTUI(App):
         table.clear()
         for s in statuses:
             table.add_row(s.name, f"{s.rows:,}", s.latest)
+
+    def _load_ingest_history(self) -> None:
+        """적재 이력 — 최근 배치·수동 실행(시각·작업·결과·건수·소요)."""
+        db = SessionLocal()
+        try:
+            rows = ingest_log.recent(db, limit=30)
+        finally:
+            db.close()
+
+        self.query_one("#ingest_title", Static).update(
+            "[b]적재 이력[/b]  (스케줄러 배치 + 수동 트리거 최근 30건)"
+        )
+        table = self.query_one("#ingest_history", DataTable)
+        table.clear()
+        for r in rows:
+            ts = r.ts.astimezone().strftime("%m-%d %H:%M") if r.ts else "—"
+            label = ingest_log.JOB_LABELS.get(r.job, r.job)
+            mark = "[green]✔[/green]" if r.status == "ok" else "[red]✖[/red]"
+            dur = f"{r.duration_ms / 1000:.1f}s" if r.duration_ms else "—"
+            table.add_row(ts, f"{mark} {label}", r.detail[:48], f"{r.rows:,}", dur)
 
     def _load_fallbacks(self) -> None:
         """폴백 발생 이력 — 최근 이벤트 + 24h key 별 집계를 표시한다."""
@@ -487,17 +516,35 @@ class AdminTUI(App):
         for bid in self._JOB_BUTTONS:
             self.query_one(f"#{bid}", Button).disabled = not enabled
 
+    # TUI 트리거 버튼 id → ingest_log job 명(수동 실행도 이력에 남긴다).
+    _MANUAL_JOB: ClassVar = {
+        "ingest": "manual_ingest",
+        "universe": "manual_universe",
+        "growth": "manual_growth",
+    }
+
     @work(thread=True, exclusive=True, group="job")
     def _run_job(self, job_id: str) -> None:
+        import time
+
         label, fn = self._jobs()[job_id]
         self.call_from_thread(self._set_jobs_enabled, False)
         self.call_from_thread(self._log_line, f"▶ {label} 시작…")
         db = SessionLocal()
+        start = time.monotonic()
         try:
             result = fn(db)
             self.call_from_thread(self._log_line, f"✔ {label} 완료: {result}")
+            ingest_log.record(
+                None, self._MANUAL_JOB[job_id], detail=str(result),
+                duration_ms=int((time.monotonic() - start) * 1000),
+            )
         except Exception as e:
             self.call_from_thread(self._log_line, f"✖ {label} 실패: {e}")
+            ingest_log.record(
+                None, self._MANUAL_JOB[job_id], status="fail", detail=str(e)[:200],
+                duration_ms=int((time.monotonic() - start) * 1000),
+            )
         finally:
             db.close()
         self.call_from_thread(self.action_refresh)

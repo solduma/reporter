@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from datetime import datetime
 
 from apscheduler.schedulers.blocking import BlockingScheduler
@@ -15,11 +16,36 @@ from apscheduler.triggers.cron import CronTrigger
 
 from app.config import Settings, get_settings
 from app.db.session import SessionLocal, init_db
-from app.services import broadcast_ingest, ingest, intraday, universe_ingest
+from app.services import broadcast_ingest, ingest, ingest_log, intraday, universe_ingest
 
 logger = logging.getLogger(__name__)
 
 _TZ = "Asia/Seoul"
+
+
+def _logged(job: str, fn):
+    """스케줄러 잡을 감싸 실행 시간·결과를 ingest_log 에 남긴다(성공·실패 모두).
+
+    잡 함수 자체는 수동 호출도 되므로 여기(등록 계층)서만 기록해 직접 호출은 깔끔히 둔다.
+    실패해도 예외를 다시 던져 APScheduler 가 정상 처리(로그·다음 실행)하게 한다.
+    """
+
+    def _run():
+        start = time.monotonic()
+        try:
+            result = fn()
+            ingest_log.record(
+                None, job, result, duration_ms=int((time.monotonic() - start) * 1000)
+            )
+            return result
+        except Exception as e:
+            ingest_log.record(
+                None, job, status="fail", detail=str(e)[:200],
+                duration_ms=int((time.monotonic() - start) * 1000),
+            )
+            raise
+
+    return _run
 
 # 리포트는 장 시작 후 순차 발행되므로 넉넉히 커버한다. 멱등이라 중복 실행 무해.
 # timezone 을 트리거에 직접 지정: 지정하지 않으면 프로세스 로컬 tz(컨테이너=UTC)로
@@ -119,7 +145,7 @@ def build_scheduler(settings: Settings | None = None) -> BlockingScheduler:
     settings = settings or get_settings()
     scheduler = BlockingScheduler(timezone=_TZ)
     scheduler.add_job(
-        run_ingest_cycle,
+        _logged("ingest_cycle", run_ingest_cycle),
         trigger=_CRON,
         id="ingest_cycle",
         max_instances=1,  # 이전 사이클이 안 끝났으면 겹쳐 실행하지 않는다
@@ -127,7 +153,7 @@ def build_scheduler(settings: Settings | None = None) -> BlockingScheduler:
         replace_existing=True,
     )
     scheduler.add_job(
-        run_nightly_batch,
+        _logged("nightly_batch", run_nightly_batch),
         trigger=_NIGHTLY_CRON,
         id="nightly_batch",
         max_instances=1,
@@ -135,7 +161,7 @@ def build_scheduler(settings: Settings | None = None) -> BlockingScheduler:
         replace_existing=True,
     )
     scheduler.add_job(
-        run_candle_batch,
+        _logged("candle_batch", run_candle_batch),
         trigger=_CANDLE_CRON,
         id="candle_batch",
         max_instances=1,
@@ -143,7 +169,7 @@ def build_scheduler(settings: Settings | None = None) -> BlockingScheduler:
         replace_existing=True,
     )
     scheduler.add_job(
-        run_backfill_progressive,
+        _logged("backfill_10y", run_backfill_progressive),
         trigger=_BACKFILL_CRON,
         id="backfill_10y",
         max_instances=1,
@@ -151,7 +177,7 @@ def build_scheduler(settings: Settings | None = None) -> BlockingScheduler:
         replace_existing=True,
     )
     scheduler.add_job(
-        run_financials_backfill,
+        _logged("financials_10y", run_financials_backfill),
         trigger=_FIN_BACKFILL_CRON,
         id="financials_10y",
         max_instances=1,

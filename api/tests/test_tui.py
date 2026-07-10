@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from unittest.mock import MagicMock
 
 import pytest
@@ -52,6 +53,15 @@ def _stub_services(monkeypatch):
         lambda db: [admin_status.TableStatus(name="리포트", rows=49, latest="2026-07-08")],
     )
     monkeypatch.setattr(tui.admin_status, "backfill_progress", lambda db: (2, 2767))
+    monkeypatch.setattr(
+        tui.ingest_log, "recent",
+        lambda db, limit=30: [
+            tui.ingest_log.IngestLogRow(
+                ts=datetime(2026, 7, 11, 2, 0), job="backfill_10y", status="ok",
+                rows=200, detail="완료 200 · 실패 0 · 남음 100", duration_ms=13000,
+            )
+        ],
+    )
 
 
 async def test_tui_mounts_and_shows_status():
