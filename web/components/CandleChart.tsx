@@ -20,6 +20,7 @@ import { useEffect, useRef, useState } from "react";
 import type { CandlePoint, Timeframe } from "@/lib/types";
 
 import styles from "./CandleChart.module.css";
+import { TimeDividers } from "./timeDividers";
 
 // 한국 시장 관례: 상승 빨강 · 하락 파랑. globals.css 토큰을 SVG/캔버스가 해석하지 못해 직접 값을 둔다.
 const COLOR_UP = "#c02b2b";
@@ -61,6 +62,32 @@ function movingAverage(data: CandlePoint[], tf: Timeframe, period: number): Line
     }
   }
   return out;
+}
+
+// 시간 구분 경계: 각 봉의 구분 키가 직전 봉과 달라지는 첫 봉이 경계다.
+// 30분봉=일(날짜), 일봉=월(연-월), 주봉=연. 그 첫 봉의 time 을 수직선 위치로 쓴다.
+function dividerKey(point: CandlePoint, tf: Timeframe): string {
+  const d = point.t.slice(0, 10); // YYYY-MM-DD
+  if (tf === "30m") {
+    return d; // 날짜가 바뀌면 새 일(日)
+  }
+  if (tf === "week") {
+    return d.slice(0, 4); // 연
+  }
+  return d.slice(0, 7); // 월(day 및 기타)
+}
+
+function dividerTimes(data: CandlePoint[], tf: Timeframe): Time[] {
+  const times: Time[] = [];
+  let prevKey: string | null = null;
+  for (const point of data) {
+    const key = dividerKey(point, tf);
+    if (prevKey !== null && key !== prevKey) {
+      times.push(toChartTime(point, tf));
+    }
+    prevKey = key;
+  }
+  return times;
 }
 
 export default function CandleChart({ data, timeframe, height = 420 }: Props) {
@@ -144,6 +171,12 @@ export default function CandleChart({ data, timeframe, height = 420 }: Props) {
         crosshairMarkerVisible: false,
       });
       line.setData(movingAverage(data, timeframe, period));
+    }
+
+    // 시간 구분 수직선(붉은 점선): 30분봉=일 · 일봉=월 · 주봉=연 경계.
+    const dividers = dividerTimes(data, timeframe);
+    if (dividers.length > 0) {
+      candleSeries.attachPrimitive(new TimeDividers(chart, dividers));
     }
 
     chart.timeScale().fitContent();
