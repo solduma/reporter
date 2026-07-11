@@ -22,6 +22,7 @@ from app.db.models import (
     Report,
     ReportAnalysis,
     Sentiment,
+    StockEvent,
     UniverseSnapshot,
 )
 from app.db.session import get_session
@@ -139,7 +140,7 @@ def screen(
     div_min: float | None = Query(default=None, description="시가배당률 하한(%)"),
     # 이벤트 전략 필터
     event_kind: str | None = Query(
-        default=None, pattern="^(disclosure|report|surge|broadcast)$", description="이벤트 유형"
+        default=None, pattern="^(disclosure|report|surge|broadcast|news)$", description="이벤트 유형"
     ),
     # 공통
     market: str | None = Query(default=None, pattern="^(KOSPI|KOSDAQ)$"),
@@ -373,6 +374,11 @@ def _recent_events(db, codes: list[str], since: date) -> dict[str, dict[str, dic
         for c in (b.stock_codes or []):
             if c in code_set:
                 _consider(c, "브리핑", b.created_at.date(), b.title or "브리핑 언급")
+    # 뉴스 이벤트(매크로/신기술/공급망 등, 테마 전파). StockEvent 에서 종목별 최근 1건.
+    for e in db.scalars(
+        select(StockEvent).where(StockEvent.stock_code.in_(codes), StockEvent.event_date >= since)
+    ).all():
+        _consider(e.stock_code, "뉴스", e.event_date, e.summary or e.theme or "뉴스 이벤트")
     return ev
 
 
@@ -419,7 +425,9 @@ def _screen_event(db, base, as_of, event_kind, sort, limit, offset) -> ScreenerR
     return ScreenerResult(as_of=as_of, total=total, items=items)
 
 
-_EVENT_KIND_LABEL = {"disclosure": "공시", "report": "리포트", "surge": "급등락", "broadcast": "브리핑"}
+_EVENT_KIND_LABEL = {
+    "disclosure": "공시", "report": "리포트", "surge": "급등락", "broadcast": "브리핑", "news": "뉴스",
+}
 
 
 @router.get("/sectors", response_model=list[str])

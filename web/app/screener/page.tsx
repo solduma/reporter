@@ -76,6 +76,7 @@ const EVENT_KIND_PRESETS: Preset<ScreenerEventKind | undefined>[] = [
   { label: "리포트", value: "report" },
   { label: "급등락", value: "surge" },
   { label: "브리핑", value: "broadcast" },
+  { label: "뉴스", value: "news" },
 ];
 
 // undefined = 하한 없음 → 쿼리 파라미터 생략

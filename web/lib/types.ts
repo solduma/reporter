@@ -261,7 +261,7 @@ export type ScreenerSort =
 export type ScreenerOpGrowth = "turnaround" | "growth";
 
 // 이벤트 유형 필터
-export type ScreenerEventKind = "disclosure" | "report" | "surge" | "broadcast";
+export type ScreenerEventKind = "disclosure" | "report" | "surge" | "broadcast" | "news";
 
 export interface ScreenerRow {
   stock_code: string;

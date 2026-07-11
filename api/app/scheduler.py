@@ -67,6 +67,9 @@ _FIN_BACKFILL_CRON = CronTrigger(hour=3, minute=30, timezone=_TZ)
 # 보고서 원문 파싱 백필(정밀 감가상각·EV/EBITDA): 매일 05:00. 보고서당 document.xml(수MB)
 # 다운로드라 가장 무거워 재무 백필(03:30) 이후로 뺀다. sync_state 로 재개 가능.
 _REPORT_BACKFILL_CRON = CronTrigger(hour=5, minute=0, timezone=_TZ)
+# 매크로/뉴스 이벤트 분류: 매일 07:00. 뉴스 수집 → LLM 분류 → 테마 구성종목 전파(StockEvent).
+# LLM 토큰을 쓰므로 하루 1회. 이벤트드리븐 스크리너의 '뉴스' 이벤트 소스.
+_NEWS_EVENTS_CRON = CronTrigger(hour=7, minute=0, timezone=_TZ)
 
 
 def run_ingest_cycle(settings: Settings | None = None) -> dict:
@@ -154,6 +157,17 @@ def run_report_backfill(settings: Settings | None = None) -> dict:
         session.close()
 
 
+def run_news_events(settings: Settings | None = None) -> dict:
+    """매크로/뉴스 수집·LLM 분류·테마 전파 → StockEvent 적재(이벤트드리븐 스크리너 소스)."""
+    from app.services import news_events
+
+    session = SessionLocal()
+    try:
+        return news_events.run_news_events(session, settings)
+    finally:
+        session.close()
+
+
 def build_scheduler(settings: Settings | None = None) -> BlockingScheduler:
     """잡이 등록된 스케줄러를 반환한다 (start 는 호출자가)."""
     settings = settings or get_settings()
@@ -202,6 +216,14 @@ def build_scheduler(settings: Settings | None = None) -> BlockingScheduler:
         _logged("report_10y", run_report_backfill),
         trigger=_REPORT_BACKFILL_CRON,
         id="report_10y",
+        max_instances=1,
+        coalesce=True,
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        _logged("news_events", run_news_events),
+        trigger=_NEWS_EVENTS_CRON,
+        id="news_events",
         max_instances=1,
         coalesce=True,
         replace_existing=True,
