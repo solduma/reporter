@@ -381,11 +381,23 @@ function ScreenerContent() {
     setOffset(0);
   }
 
-  // 전략 전환: 정렬을 score 로 리셋(전략마다 컬럼이 다르므로)하고 첫 페이지로.
+  // 전략 전환: 정렬·페이지 리셋 + 전략 전용 필터 초기화. 안 그러면 숨겨진 필터가 다른 전략에
+  // 새어 들어간다(예: 성장 탭의 rev_yoy_min 이 가치 결과를 걸러버림).
   function changeStrategy(next: ScreenerStrategy) {
     setStrategy(next);
     setSort("score");
     setOffset(0);
+    // 성장 전용
+    setRevYoyMin(undefined);
+    setOpGrowth(undefined);
+    setMom("none");
+    setCoverage("none");
+    // 가치 전용
+    setPerMax(undefined);
+    setPbrMax(undefined);
+    setRoeMin(undefined);
+    // 이벤트 전용
+    setEventKind(undefined);
   }
 
   const columns = COLUMNS_BY_STRATEGY[strategy];

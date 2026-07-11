@@ -241,7 +241,12 @@ def _screen_growth(db, base, as_of, sort, limit, offset) -> ScreenerResult:
 
 # ── 가치 전략 ──────────────────────────────────────────────────────────
 def _latest_financials(db, codes: list[str]) -> dict[str, Financial]:
-    """종목별 최신 비추정 분기 Financial. period 내림차순 첫 행."""
+    """종목별, 밸류 지표(per/pbr)가 있는 최신 비추정 분기 Financial.
+
+    단순 max period 를 쓰면, report_ingest 가 연간(.12) 행에 ev_ebitda 만 채우고 per/pbr 은
+    NULL 로 둔 경우 그 반쪽 행이 최신으로 잡혀 가치 스크리너에서 종목이 통째로 누락된다.
+    per/pbr 이 있는 최신 분기를 우선하고, 그런 행이 없을 때만 최신 행으로 폴백한다.
+    """
     if not codes:
         return {}
     rows = db.scalars(
@@ -250,8 +255,13 @@ def _latest_financials(db, codes: list[str]) -> dict[str, Financial]:
         .order_by(Financial.period.desc())
     ).all()
     out: dict[str, Financial] = {}
+    fallback: dict[str, Financial] = {}
     for r in rows:
-        out.setdefault(r.stock_code, r)  # period desc → 첫 것이 최신
+        fallback.setdefault(r.stock_code, r)  # per/pbr 없어도 최신 행(폴백)
+        if (r.per is not None or r.pbr is not None) and r.stock_code not in out:
+            out[r.stock_code] = r  # 밸류 지표 있는 최신 분기(우선)
+    for code, r in fallback.items():
+        out.setdefault(code, r)
     return out
 
 
@@ -294,23 +304,26 @@ def _screen_value(db, base, as_of, per_max, pbr_max, roe_min, sort, limit, offse
 
 
 # ── 이벤트드리븐 전략 ──────────────────────────────────────────────────
-def _recent_events(db, codes: list[str], since: date) -> dict[str, dict]:
-    """종목별 최근 대표 이벤트. 공시·리포트·브리핑에서 가장 최신 1건 + 강도 신호."""
+def _recent_events(db, codes: list[str], since: date) -> dict[str, dict[str, dict]]:
+    """종목별·유형별 최근 이벤트. {code: {kind: {kind,date,summary}}}.
+
+    유형별로 최신 1건씩 보관해, event_kind 필터가 '그 유형 이벤트를 가진 종목'을 정확히 잡게
+    한다(단일 대표 이벤트만 두면 최신이 다른 유형일 때 해당 종목이 누락됨).
+    """
     if not codes:
         return {}
-    ev: dict[str, dict] = {}
+    ev: dict[str, dict[str, dict]] = {}
 
     def _consider(code: str, kind: str, edate: date, summary: str) -> None:
-        cur = ev.get(code)
+        by_kind = ev.setdefault(code, {})
+        cur = by_kind.get(kind)
         if cur is None or edate > cur["date"]:
-            ev[code] = {"kind": kind, "date": edate, "summary": summary[:80]}
+            by_kind[kind] = {"kind": kind, "date": edate, "summary": summary[:80]}
 
-    # 공시(DART): 최근 N일, BUY/SELL 판정된 것 우선(HOLD 도 포함하되 요약).
     for d in db.scalars(
         select(Disclosure).where(Disclosure.stock_code.in_(codes), Disclosure.rcept_dt >= since)
     ).all():
         _consider(d.stock_code, "공시", d.rcept_dt, d.report_nm)
-    # 신규 리포트.
     for r in db.execute(
         select(Report.stock_code, Report.published_date, Report.title)
         .where(Report.stock_code.in_(codes), Report.published_date >= since)
@@ -333,22 +346,25 @@ def _screen_event(db, base, as_of, event_kind, sort, limit, offset) -> ScreenerR
     rows = list(db.execute(base).all())
     codes = [r[0].stock_code for r in rows]
     ev_map = _recent_events(db, codes, since)
+    want_kind = _EVENT_KIND_LABEL.get(event_kind) if event_kind else None
 
-    # 급등락: 최근 이벤트 없어도 당일 등락률 급변(±7%)은 자체 이벤트로 취급.
     def _event_of(r) -> dict | None:
         u = r[0]
-        ev = ev_map.get(u.stock_code)
-        surge = u.change_pct is not None and abs(u.change_pct) >= 7.0
-        if ev is None and surge:
-            return {"kind": "급등락", "date": as_of, "summary": f"당일 {u.change_pct:+.1f}%"}
-        return ev
+        by_kind = dict(ev_map.get(u.stock_code, {}))
+        # 급등락: 당일 등락률 급변(±7%)을 자체 이벤트로 추가(다른 이벤트와 공존 가능).
+        if u.change_pct is not None and abs(u.change_pct) >= 7.0:
+            by_kind.setdefault("급등락", {"kind": "급등락", "date": as_of, "summary": f"당일 {u.change_pct:+.1f}%"})
+        if not by_kind:
+            return None
+        if want_kind is not None:
+            return by_kind.get(want_kind)  # 필터: 그 유형 이벤트만(없으면 제외)
+        # 필터 없음: 유형 무관 최신 이벤트를 대표로.
+        return max(by_kind.values(), key=lambda e: e["date"])
 
     kept = []
     for r in rows:
         ev = _event_of(r)
         if ev is None:
-            continue
-        if event_kind is not None and ev["kind"] != _EVENT_KIND_LABEL.get(event_kind):
             continue
         kept.append((r, ev))
     total = len(kept)
