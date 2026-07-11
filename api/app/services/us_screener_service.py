@@ -106,12 +106,14 @@ def screen(
         page = scored[offset : offset + limit]
         items = [_to_row(r, event_tickers, score=sc) for r, sc in page]
     else:
+        # None 은 맨 뒤로 보내되, 0.0(보합·무모멘텀)은 정상값으로 정렬해야 한다
+        # (`x or -1e9` 는 0.0 도 falsy 라 None 과 같게 최하위로 밀리는 버그).
         key = {
             "market_cap": lambda r: -(r.market_cap or 0),
-            "momentum": lambda r: -(r.momentum_3m or -1e9),
+            "momentum": lambda r: -(r.momentum_3m if r.momentum_3m is not None else -1e9),
             "per": lambda r: (r.per if (r.per and r.per > 0) else 1e9),  # 저PER 먼저
             "trading_value": lambda r: -(r.trading_value or 0),
-            "change": lambda r: -(r.change_pct or -1e9),
+            "change": lambda r: -(r.change_pct if r.change_pct is not None else -1e9),
         }[sort]
         rows.sort(key=lambda r: (key(r), r.ticker))
         page = rows[offset : offset + limit]

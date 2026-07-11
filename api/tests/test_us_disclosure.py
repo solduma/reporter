@@ -46,8 +46,9 @@ def test_sync_8k_upserts_and_dedups(db, monkeypatch):
     rows = ing.recent_disclosures(db, "NVDA")
     assert [r.filing_date for r in rows] == [date(2026, 7, 2), date(2026, 6, 30)]  # 최신순
     assert rows[0].title == "임원 변동"  # item 라벨 저장
-    # 재수집은 중복 없음(on_conflict_do_nothing).
-    ing.sync_8k(db, "NVDA", settings, requests.Session())
+    # 재수집은 중복 없음(on_conflict_do_nothing) + saved 카운트도 0(실제 삽입분만).
+    again = ing.sync_8k(db, "NVDA", settings, requests.Session())
+    assert again == 0
     assert len(ing.recent_disclosures(db, "NVDA")) == 2
 
 

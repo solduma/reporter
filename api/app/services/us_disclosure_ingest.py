@@ -53,8 +53,8 @@ def sync_8k(db: Session, ticker: str, settings: Settings, session: requests.Sess
             .values(accession=f.accession, **values)
             .on_conflict_do_nothing(constraint="uq_us_disclosure")
         )
-        db.execute(stmt)
-        saved += 1
+        result = db.execute(stmt)
+        saved += result.rowcount or 0  # 실제 삽입된 행만(재수집 시 중복은 0)
     db.commit()
     return saved
 
