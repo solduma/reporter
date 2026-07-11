@@ -2,22 +2,12 @@
 
 from __future__ import annotations
 
-import logging
-import threading
 import time
 from datetime import date, timedelta
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query
-from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
-from app.db.models import (
-    DailyMarketInfo,
-    Report,
-    ReportAnalysis,
-    Sentiment,
-    TradeStat,
-)
 from app.db.session import get_session
 from app.domain import analysis_scoring
 from app.schemas import (
@@ -29,10 +19,9 @@ from app.schemas import (
     SectorFlowRow,
     SectorRow,
 )
-from app.services import candle_service, market_quote, sector_flow
+from app.services import candle_service, market_quote, sector_flow, sector_service
 from reporter import sector_etf
 
-logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["market"])
 
 # tf 별 조회 범위: 일·주·월 모두 10년(종목 상세와 통일). 저장은 DB, 조회는 date-range 로 제한.
@@ -42,37 +31,11 @@ _CHART_RANGE_DAYS = {"day": 365 * 10 + 30, "week": 365 * 10 + 30, "month": 365 *
 _FLOW_TTL = 300.0  # 초
 _flow_cache: dict[str, tuple[float, list[SectorFlowRow]]] = {}
 
-_SENT_CASE = case(
-    (ReportAnalysis.sentiment == Sentiment.BUY, 1.0),
-    (ReportAnalysis.sentiment == Sentiment.SELL, -1.0),
-    else_=0.0,
-)
-
-
-def _sector_rows(db: Session, since: date) -> list[tuple[str, int, float]]:
-    """산업별 (섹터, 리포트수, 평균 센티먼트). since 이후 발행 industry 리포트."""
-    return list(
-        db.execute(
-            select(
-                Report.industry_name,
-                func.count(Report.id),
-                func.avg(_SENT_CASE),
-            )
-            .join(ReportAnalysis, ReportAnalysis.report_id == Report.id)
-            .where(
-                Report.category == "industry",
-                Report.industry_name.is_not(None),
-                Report.published_date >= since,
-            )
-            .group_by(Report.industry_name)
-        ).all()
-    )
-
 
 @router.get("/sectors", response_model=list[SectorRow])
 def sectors(db: Session = Depends(get_session)) -> list[SectorRow]:
     """섹터 로테이션 랭킹 — 센티먼트·리포트 수 기반. 최근 30일."""
-    rows = _sector_rows(db, date.today() - timedelta(days=30))
+    rows = sector_service.sector_rows(db, date.today() - timedelta(days=30))
     if not rows:
         return []
     max_count = max(c for _, c, _ in rows) or 1
@@ -171,9 +134,7 @@ def market_overview(
 
     지수·환율은 DB 스냅샷(market_quote) 우선. 없으면 최초 1회 동기 스냅샷, 오래됐으면 백그라운드.
     """
-    brief = db.scalars(
-        select(DailyMarketInfo).order_by(DailyMarketInfo.market_date.desc()).limit(1)
-    ).first()
+    brief = sector_service.latest_market_info(db)
 
     def _index_dicts(quotes) -> list[dict]:
         return [
@@ -191,7 +152,7 @@ def market_overview(
     if not market_quote.latest_quotes(db, "us"):
         market_quote.snapshot_quotes(db)
     elif market_quote.is_stale(db):
-        bg.add_task(_snapshot_quotes_bg)
+        bg.add_task(market_quote.snapshot_quotes_bg)
     indices = _index_dicts(market_quote.latest_quotes(db, "us"))
     kr_indices = _index_dicts(market_quote.latest_quotes(db, "kr")) + _index_dicts(
         market_quote.latest_quotes(db, "fx")
@@ -202,19 +163,7 @@ def market_overview(
         for s in sectors(db)[:8]
     ]
 
-    # 무역 스파크: HS 품목별 최신 수출액(있으면).
-    trade_rows = db.execute(
-        select(TradeStat.hs_code, func.max(TradeStat.period))
-        .group_by(TradeStat.hs_code)
-    ).all()
-    trade_spark = []
-    for hs, period in trade_rows[:5]:
-        latest = db.scalar(
-            select(TradeStat.export_usd).where(
-                TradeStat.hs_code == hs, TradeStat.period == period
-            )
-        )
-        trade_spark.append({"hs": hs, "period": period, "export_usd": latest})
+    trade_spark = sector_service.trade_spark(db)
 
     return MarketOverview(
         market_date=brief.market_date if brief else None,
@@ -264,37 +213,9 @@ def chart_candles(
 _WARM_INDICES = ("KOSPI", "KOSDAQ")
 
 
-# 스냅샷 단일 실행 가드 — 시세 TTL(30s)이 짧아 폴링마다 is_stale 이 True 가 되면 매 요청이
-# 백그라운드 스냅샷을 예약한다. 동시 뷰어 N 명이면 스냅샷 스레드가 우르르 떠 네이버를 몰아치므로,
-# 이미 도는 스냅샷이 있으면 새 요청은 건너뛴다(single-flight).
-_snapshot_inflight = False
-_snapshot_lock = threading.Lock()
-
-
-def _snapshot_quotes_bg() -> None:
-    """백그라운드 지수·환율 스냅샷 적재 — 자체 세션. 이미 실행 중이면 건너뛴다. 실패 흡수."""
-    global _snapshot_inflight
-    from app.db.session import SessionLocal
-
-    with _snapshot_lock:
-        if _snapshot_inflight:
-            return
-        _snapshot_inflight = True
-    db = SessionLocal()
-    try:
-        market_quote.snapshot_quotes(db)
-    except Exception as e:
-        db.rollback()
-        logger.warning("market quote snapshot failed: %s", e)
-    finally:
-        db.close()
-        with _snapshot_lock:
-            _snapshot_inflight = False
-
-
 def _warm() -> None:
     """지수·환율 시세를 DB 스냅샷으로 적재 + 지수 일봉 증분 갱신. 실패는 흡수(백그라운드)."""
-    _snapshot_quotes_bg()  # 대시보드 타일용 시세를 DB 에 미리 채운다(첫 조회 지연 제거)
+    market_quote.snapshot_quotes_bg()  # 대시보드 타일용 시세를 DB 에 미리 채운다(첫 조회 지연 제거)
     for sym in _WARM_INDICES:
         candle_service.refresh_periodic(sym, "day")
 

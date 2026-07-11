@@ -4,24 +4,13 @@ from __future__ import annotations
 
 from datetime import date
 
-import requests
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func, select
-from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from app.adapters.external import customs
-from app.config import get_settings
-from app.db.models import (
-    Report,
-    ReportAnalysis,
-    TradeStat,
-    UniverseSnapshot,
-)
 from app.db.session import get_session
 from app.domain.analysis_scoring import SENTIMENT_SCORE
 from app.schemas import IndustrySummary, ReportRef, SectorStock, SentimentPoint, TradePoint
-from app.services import sector_ingest, universe_ingest
+from app.services import industry_service, trade_service
 from reporter import sector_etf, us_market
 
 router = APIRouter(prefix="/api/industries", tags=["industries"])
@@ -29,14 +18,7 @@ router = APIRouter(prefix="/api/industries", tags=["industries"])
 
 @router.get("", response_model=list[IndustrySummary])
 def list_industries(db: Session = Depends(get_session)) -> list[IndustrySummary]:
-    # 센티먼트 시계열과 동일하게 analysis 가 있는 리포트만 센다(카운트-플롯 정합성).
-    rows = db.execute(
-        select(Report.industry_name, func.count(Report.id))
-        .join(ReportAnalysis, ReportAnalysis.report_id == Report.id)
-        .where(Report.category == "industry", Report.industry_name.is_not(None))
-        .group_by(Report.industry_name)
-        .order_by(func.count(Report.id).desc())
-    ).all()
+    rows = industry_service.industry_counts(db)
     return [IndustrySummary(industry=name, report_count=count) for name, count in rows]
 
 
@@ -47,19 +29,8 @@ def industry_sentiment(
     to: date | None = Query(default=None),
     db: Session = Depends(get_session),
 ) -> list[SentimentPoint]:
-    stmt = (
-        select(Report, ReportAnalysis)
-        .join(ReportAnalysis, ReportAnalysis.report_id == Report.id)
-        .where(Report.category == "industry", Report.industry_name == name)
-        .order_by(Report.published_date)
-    )
-    if from_:
-        stmt = stmt.where(Report.published_date >= from_)
-    if to:
-        stmt = stmt.where(Report.published_date <= to)
-
-    by_date: dict[date, list[tuple[Report, ReportAnalysis]]] = {}
-    for report, analysis in db.execute(stmt).all():
+    by_date: dict[date, list[tuple]] = {}
+    for report, analysis in industry_service.sentiment_rows(db, name, from_, to):
         by_date.setdefault(report.published_date, []).append((report, analysis))
 
     points: list[SentimentPoint] = []
@@ -91,24 +62,11 @@ def _kr_sector_stocks(
     db: Session, industry: str, sort: str, limit: int, offset: int
 ) -> list[SectorStock]:
     """산업명 → 섹터 소속 종목 + 최신 시세. sort=cap|value 정렬 후 [offset:offset+limit]."""
-    codes = sector_ingest.sector_stock_codes(db, industry)
+    codes = industry_service.sector_stock_codes(db, industry)
     if not codes:
         return []
 
-    as_of = universe_ingest.latest_snapshot_date(db)
-    rows = db.execute(
-        select(
-            UniverseSnapshot.stock_code,
-            UniverseSnapshot.stock_name,
-            UniverseSnapshot.close_price,
-            UniverseSnapshot.change_pct,
-            UniverseSnapshot.market_cap,
-            UniverseSnapshot.trading_value,
-        ).where(
-            UniverseSnapshot.snapshot_date == as_of,
-            UniverseSnapshot.stock_code.in_(codes),
-        )
-    ).all()
+    rows = industry_service.kr_sector_stock_rows(db, industry, codes)
     key_idx = 5 if sort == "value" else 4  # value=거래대금, cap=시총
     rows = sorted(rows, key=lambda r: r[key_idx] or 0, reverse=True)[offset : offset + limit]
     out: list[SectorStock] = []
@@ -236,41 +194,7 @@ def trade_stats(
     end: str = Query(..., pattern=r"^\d{6}$", description="종료 YYYYMM"),
     db: Session = Depends(get_session),
 ) -> list[TradePoint]:
-    settings = get_settings()
-    if settings.customs_api_key:
-        fetched = customs.fetch_trade_by_hs(
-            settings.customs_api_key, hs, start, end, requests.Session()
-        )
-        for m in fetched:
-            stmt = insert(TradeStat).values(
-                hs_code=hs,
-                period=m.period,
-                export_usd=m.export_usd,
-                import_usd=m.import_usd,
-                balance_usd=m.balance_usd,
-            )
-            stmt = stmt.on_conflict_do_update(
-                constraint="uq_trade_stat",
-                set_={
-                    "export_usd": stmt.excluded.export_usd,
-                    "import_usd": stmt.excluded.import_usd,
-                    "balance_usd": stmt.excluded.balance_usd,
-                },
-            )
-            db.execute(stmt)
-        if fetched:
-            db.commit()
-
-    # 요청 [start, end] 윈도우만 반환. period 는 'YYYY.MM' 제로패딩이라 문자열 비교로 대소 판정.
-    start_p, end_p = f"{start[:4]}.{start[4:]}", f"{end[:4]}.{end[4:]}"
-    rows = db.scalars(
-        select(TradeStat)
-        .where(
-            TradeStat.hs_code == hs,
-            TradeStat.period.between(start_p, end_p),
-        )
-        .order_by(TradeStat.period)
-    ).all()
+    rows = trade_service.trade_points(db, hs, start, end)
     return [
         TradePoint(
             period=r.period,
