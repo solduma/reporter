@@ -1,12 +1,13 @@
-"""성장지표 배치 — 스크리너 유니버스(시총 상한 이하)의 재무·모멘텀을 적재.
+"""성장지표 배치 — 유니버스 전 종목의 재무·모멘텀을 적재.
 
 종목당 main.naver 재무 스크랩(~0.4s) + 3개월 모멘텀(price_candles 없으면 chart API).
-무겁기에 야간 배치로 시총 상한 이하 종목만 처리한다.
+무겁기에 야간 배치로 매일 갱신한다(성장지표는 분기 YoY 라 주기 갱신 필요, 일회성 백필 아님).
 """
 
 from __future__ import annotations
 
 import logging
+import time
 from datetime import date, datetime, timedelta
 
 import requests
@@ -20,9 +21,9 @@ from app.services import chart, growth, quote
 
 logger = logging.getLogger(__name__)
 
-# 배치 대상 시총 상한(원). 스크리너 최대 프리셋(1조)까지만 재무를 채운다.
-_MKTCAP_CEILING = 1_000_000_000_000
 _MOMENTUM_DAYS = 90
+# 종목 간 간격(초). 네이버 무인증 API 연타 차단 방지(전 종목 순회 시 필수).
+_STOCK_INTERVAL_S = 0.15
 
 
 def _latest_snapshot_date(db: Session) -> date | None:
@@ -44,10 +45,13 @@ def _momentum_3m(code: str, session: requests.Session) -> float | None:
 
 
 def run_growth_batch(db: Session, limit: int | None = None) -> dict:
-    """유니버스(시총 상한 이하) 종목의 재무·모멘텀을 적재. 처리 종목 수를 반환한다."""
+    """유니버스 전 종목의 재무·모멘텀을 적재. 처리 종목 수를 반환한다.
+
+    시총 상한 없이 보통주 전량을 대상으로 한다(대형주도 성장지표를 채워 전종목 스크리너 지원).
+    """
     snap_date = _latest_snapshot_date(db)
     if not snap_date:
-        return {"financials": 0, "momentum": 0}
+        return {"processed": 0, "total": 0}
 
     stmt = (
         select(UniverseSnapshot.stock_code)
@@ -55,7 +59,6 @@ def run_growth_batch(db: Session, limit: int | None = None) -> dict:
             UniverseSnapshot.snapshot_date == snap_date,
             UniverseSnapshot.stock_type == "stock",
             UniverseSnapshot.market_cap.is_not(None),
-            UniverseSnapshot.market_cap <= _MKTCAP_CEILING,
             UniverseSnapshot.trading_value > 0,
         )
         .order_by(UniverseSnapshot.market_cap)
@@ -73,8 +76,9 @@ def run_growth_batch(db: Session, limit: int | None = None) -> dict:
         except Exception as e:  # 종목 하나 실패가 배치를 막지 않도록
             db.rollback()
             logger.warning("growth ingest failed %s: %s", code, e)
+        time.sleep(_STOCK_INTERVAL_S)  # 네이버 연타 방지
     db.commit()
-    logger.info("growth batch: %d codes processed", fin_count)
+    logger.info("growth batch: %d/%d codes processed", fin_count, len(codes))
     return {"processed": fin_count, "total": len(codes)}
 
 

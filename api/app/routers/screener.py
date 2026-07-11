@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.db.models import (
@@ -101,20 +101,23 @@ def _growth_score(u, g, cov_count, buy_count, rev_rank, op_rank, mom_rank) -> fl
 
 
 def _value_score(fin, per_rank, pbr_rank, ev_rank) -> float:
-    """가치스코어(0~100). 저PER·저PBR·저EV-EBITDA 백분위 + 고ROE 가점.
+    """가치스코어(0~100). 저PER·저PBR·저EV-EBITDA 백분위 + 고ROE·고배당 가점.
 
-    저PBR 을 가장 무겁게(자산가치 기준), 저PER·저EV/EBITDA 를 수익가치로. ROE 는 우량 가점.
+    저PBR 을 가장 무겁게(자산가치 기준), 저PER·저EV/EBITDA 를 수익가치로. ROE·배당은 우량 가점.
     """
     if fin is None:
         return 0.0
     per = per_rank(fin.per)
     pbr = pbr_rank(fin.pbr)
     ev = ev_rank(fin.ev_ebitda)
-    # ROE 는 절대 기준 가점(15% 이상 만점). ROE 는 % 값(예: 12.3).
+    # ROE 절대 기준 가점(15% 이상 만점, % 값). 배당 가점(5% 이상 만점, 시가배당률 %).
     roe_bonus = 0.0
     if fin.roe is not None:
-        roe_bonus = max(0.0, min(fin.roe / 15.0, 1.0)) * 0.15
-    score = 0.35 * pbr + 0.30 * per + 0.20 * ev + roe_bonus
+        roe_bonus = max(0.0, min(fin.roe / 15.0, 1.0)) * 0.12
+    div_bonus = 0.0
+    if fin.div_yield is not None:
+        div_bonus = max(0.0, min(fin.div_yield / 5.0, 1.0)) * 0.08
+    score = 0.35 * pbr + 0.28 * per + 0.17 * ev + roe_bonus + div_bonus
     return round(min(score, 1.0) * 100, 1)
 
 
@@ -133,6 +136,7 @@ def screen(
     per_max: float | None = Query(default=None, description="PER 상한"),
     pbr_max: float | None = Query(default=None, description="PBR 상한"),
     roe_min: float | None = Query(default=None, description="ROE 하한(%)"),
+    div_min: float | None = Query(default=None, description="시가배당률 하한(%)"),
     # 이벤트 전략 필터
     event_kind: str | None = Query(
         default=None, pattern="^(disclosure|report|surge|broadcast)$", description="이벤트 유형"
@@ -204,7 +208,9 @@ def screen(
     )
 
     if strategy == "value":
-        return _screen_value(db, base, as_of, per_max, pbr_max, roe_min, sort, limit, offset)
+        return _screen_value(
+            db, base, as_of, per_max, pbr_max, roe_min, div_min, sort, limit, offset
+        )
     if strategy == "event":
         return _screen_event(db, base, as_of, event_kind, sort, limit, offset)
     return _screen_growth(db, base, as_of, sort, limit, offset)
@@ -243,41 +249,70 @@ def _screen_growth(db, base, as_of, sort, limit, offset) -> ScreenerResult:
 def _latest_financials(db, codes: list[str]) -> dict[str, Financial]:
     """종목별, 밸류 지표(per/pbr)가 있는 최신 비추정 분기 Financial.
 
-    단순 max period 를 쓰면, report_ingest 가 연간(.12) 행에 ev_ebitda 만 채우고 per/pbr 은
-    NULL 로 둔 경우 그 반쪽 행이 최신으로 잡혀 가치 스크리너에서 종목이 통째로 누락된다.
-    per/pbr 이 있는 최신 분기를 우선하고, 그런 행이 없을 때만 최신 행으로 폴백한다.
+    DISTINCT ON (stock_code) 로 종목당 1행만 DB 에서 뽑는다(전 종목이면 재무 수만 행 전량
+    로드를 피함). 정렬 우선순위: per/pbr 있는 행 먼저 → period 최신. 이는 report_ingest 가
+    연간(.12) 행에 ev_ebitda 만 채우고 per/pbr 을 NULL 로 둔 반쪽 행이 최신으로 잡혀 종목이
+    통째로 누락되는 것을 막는다(밸류 지표 있는 최신 분기 우선, 없으면 최신 행 폴백).
     """
     if not codes:
         return {}
+    # has_value: per 또는 pbr 이 있으면 0(먼저), 없으면 1(뒤). DISTINCT ON 은 첫 행을 남긴다.
+    has_value = case((or_(Financial.per.is_not(None), Financial.pbr.is_not(None)), 0), else_=1)
     rows = db.scalars(
         select(Financial)
         .where(Financial.stock_code.in_(codes), Financial.is_estimate.is_(False))
-        .order_by(Financial.period.desc())
+        .distinct(Financial.stock_code)
+        .order_by(Financial.stock_code, has_value.asc(), Financial.period.desc())
     ).all()
-    out: dict[str, Financial] = {}
-    fallback: dict[str, Financial] = {}
-    for r in rows:
-        fallback.setdefault(r.stock_code, r)  # per/pbr 없어도 최신 행(폴백)
-        if (r.per is not None or r.pbr is not None) and r.stock_code not in out:
-            out[r.stock_code] = r  # 밸류 지표 있는 최신 분기(우선)
-    for code, r in fallback.items():
-        out.setdefault(code, r)
-    return out
+    return {r.stock_code: r for r in rows}
 
 
-def _screen_value(db, base, as_of, per_max, pbr_max, roe_min, sort, limit, offset) -> ScreenerResult:
+def _latest_dividends(db, codes: list[str]) -> dict[str, float]:
+    """종목별 시가배당률 — 결산분기(.12)의 최신값. {code: div_yield}.
+
+    배당은 연간 지표라 네이버 분기 컬럼에선 결산분기(12월)에만 값이 있고 나머지는 비어 있다.
+    분기 파편값이 아닌 결산 배당수익률을 쓰려고 period 가 '.12'인 행만 최신순으로 잡는다.
+    """
+    if not codes:
+        return {}
+    rows = db.execute(
+        select(Financial.stock_code, Financial.div_yield)
+        .where(
+            Financial.stock_code.in_(codes),
+            Financial.is_estimate.is_(False),
+            Financial.div_yield.is_not(None),
+            Financial.period.like("%.12"),  # 결산분기(연간 배당)만
+        )
+        .distinct(Financial.stock_code)
+        .order_by(Financial.stock_code, Financial.period.desc())
+    ).all()
+    return dict(rows)
+
+
+def _screen_value(
+    db, base, as_of, per_max, pbr_max, roe_min, div_min, sort, limit, offset
+) -> ScreenerResult:
     rows = list(db.execute(base).all())
-    fin_map = _latest_financials(db, [r[0].stock_code for r in rows])
+    codes = [r[0].stock_code for r in rows]
+    fin_map = _latest_financials(db, codes)
+    # 배당은 연간 지표라 per/pbr 최신 분기엔 결측이 흔함 → 배당 기재된 최신 분기값으로 보정.
+    div_map = _latest_dividends(db, codes)
+    for c, fin in fin_map.items():
+        dy = div_map.get(c)
+        if dy is not None:
+            fin.div_yield = dy  # 세션 객체 in-memory 보정(커밋 안 함, 읽기 전용)
 
-    # 가치 지표 필터 + 최소 데이터(PER 또는 PBR 존재) 요구.
+    # 가치 지표 필터 + 최소 데이터(PER/PBR/배당 중 하나 존재) 요구.
     def _passes(fin: Financial | None) -> bool:
-        if fin is None or (fin.per is None and fin.pbr is None):
-            return False  # 재무 데이터 없는 종목은 가치 스크리너에서 제외
+        if fin is None or (fin.per is None and fin.pbr is None and fin.div_yield is None):
+            return False  # 밸류 지표가 전혀 없는 종목은 가치 스크리너에서 제외
         if per_max is not None and not (fin.per is not None and 0 < fin.per <= per_max):
             return False
         if pbr_max is not None and not (fin.pbr is not None and 0 < fin.pbr <= pbr_max):
             return False
-        return not (roe_min is not None and not (fin.roe is not None and fin.roe >= roe_min))
+        if roe_min is not None and not (fin.roe is not None and fin.roe >= roe_min):
+            return False
+        return not (div_min is not None and not (fin.div_yield is not None and fin.div_yield >= div_min))
 
     kept = [(r, fin_map.get(r[0].stock_code)) for r in rows]
     kept = [(r, f) for r, f in kept if _passes(f)]
@@ -423,6 +458,7 @@ def _to_row(
         pbr=fin.pbr if fin else None,
         roe=fin.roe if fin else None,
         ev_ebitda=fin.ev_ebitda if fin else None,
+        div_yield=fin.div_yield if fin else None,
         event_kind=event["kind"] if event else None,
         event_summary=event["summary"] if event else None,
         event_date=event["date"] if event else None,

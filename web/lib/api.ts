@@ -165,6 +165,7 @@ export interface ScreenerQuery {
   perMax?: number;
   pbrMax?: number;
   roeMin?: number;
+  divMin?: number;
   // 이벤트 전략
   eventKind?: ScreenerEventKind;
   market?: ScreenerMarket | "";
@@ -195,6 +196,7 @@ export function fetchScreener(query: ScreenerQuery): Promise<ScreenerResult> {
   set("per_max", query.perMax);
   set("pbr_max", query.pbrMax);
   set("roe_min", query.roeMin);
+  set("div_min", query.divMin);
   set("event_kind", query.eventKind);
   set("market", query.market);
   set("sector", query.sector);

@@ -358,6 +358,8 @@ def company_financials(
             psr=r.psr,
             roe=r.roe,
             ev_ebitda=r.ev_ebitda,
+            dps=r.dps,
+            div_yield=r.div_yield,
         )
         for r in rows
     ]
@@ -376,14 +378,14 @@ def _sync_financials(db: Session, code: str) -> None:
         stmt = insert(Financial).values(
             stock_code=code, period=f.period, is_estimate=f.is_estimate,
             revenue=f.revenue, operating_income=f.operating_income, net_income=f.net_income,
-            eps=f.eps, bps=f.bps, roe=f.roe,
+            eps=f.eps, bps=f.bps, roe=f.roe, dps=f.dps, div_yield=f.div_yield,
         )
         stmt = stmt.on_conflict_do_update(
             constraint="uq_financial",
             set_={
                 c: getattr(stmt.excluded, c)
                 for c in ("is_estimate", "revenue", "operating_income", "net_income",
-                          "eps", "bps", "roe")
+                          "eps", "bps", "roe", "dps", "div_yield")
             },
         )
         db.execute(stmt)

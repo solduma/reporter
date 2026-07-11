@@ -133,6 +133,8 @@ class Financial(Base):
     per: Mapped[float | None] = mapped_column(Float)
     pbr: Mapped[float | None] = mapped_column(Float)
     roe: Mapped[float | None] = mapped_column(Float)
+    dps: Mapped[float | None] = mapped_column(Float)  # 주당배당금(원)
+    div_yield: Mapped[float | None] = mapped_column(Float)  # 시가배당률(배당수익률, %)
     # DART 재무제표 크롤 산출(EV/EBITDA·PSR). ebitda·net_debt 은 원 단위 원자료.
     ebitda: Mapped[float | None] = mapped_column(Float)
     net_debt: Mapped[float | None] = mapped_column(Float)
