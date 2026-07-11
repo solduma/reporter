@@ -27,6 +27,7 @@ JOB_LABELS = {
     "backfill_10y": "일봉 10년 백필",
     "financials_10y": "재무 10년 백필",
     "report_10y": "보고서 원문 백필",
+    "news_events": "뉴스 이벤트 분류",
     "manual_ingest": "수동 리포트 수집",
     "manual_universe": "수동 유니버스",
     "manual_growth": "수동 성장 배치",
@@ -58,6 +59,11 @@ def _summarize(job: str, result: dict) -> tuple[int, str]:
         rows = int(result.get("done", 0))
         return rows, (
             f"완료 {rows} · 실패 {result.get('failed', 0)} · 남음 {result.get('remaining', 0)}"
+        )
+    if job == "news_events":
+        rows = int(result.get("events", 0))
+        return rows, (
+            f"뉴스 {result.get('news', 0)} · 분류 {result.get('classified', 0)} · 종목이벤트 {rows}"
         )
     # 수동 트리거 등: 결과를 그대로 문자열화.
     return 0, str(result)[:200]

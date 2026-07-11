@@ -418,6 +418,48 @@ class IngestLog(Base):
     duration_ms: Mapped[int] = mapped_column(Integer, default=0)  # 실행 소요(ms)
 
 
+class NewsArticle(Base):
+    """매크로/테마 뉴스 원문 — Google News RSS 수집분. LLM 이벤트 분류의 입력·이력 보존.
+
+    link 로 멱등 dedup. 분류 결과(이벤트 유형·테마·관련 종목)는 StockEvent 로 전파한다.
+    """
+
+    __tablename__ = "news_article"
+    __table_args__ = (UniqueConstraint("link", name="uq_news_link"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    link: Mapped[str] = mapped_column(Text)
+    title: Mapped[str] = mapped_column(Text)
+    source: Mapped[str] = mapped_column(String(128), default="")
+    published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    # LLM 분류 결과: event_kind(신기술|공급망|규제|매크로|실적 등), 관련 테마·요약.
+    event_kind: Mapped[str] = mapped_column(String(16), default="")
+    theme: Mapped[str] = mapped_column(String(64), default="")  # 매칭된 sector_theme 명(있으면)
+    summary: Mapped[str] = mapped_column(Text, default="")  # LLM 한 줄 요약
+    classified: Mapped[bool] = mapped_column(default=False)  # LLM 분류 완료 여부
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class StockEvent(Base):
+    """종목별 뉴스 이벤트 — 뉴스 분류 결과를 테마 매핑으로 구성종목에 전파한 것.
+
+    이벤트드리븐 스크리너가 공시·리포트·급등락과 함께 이 테이블(뉴스 이벤트)을 조회한다.
+    (stock_code, news_id) 로 멱등. 한 뉴스가 여러 구성종목에 퍼진다.
+    """
+
+    __tablename__ = "stock_event"
+    __table_args__ = (UniqueConstraint("stock_code", "news_id", name="uq_stock_event"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    stock_code: Mapped[str] = mapped_column(String(6), index=True)
+    news_id: Mapped[int] = mapped_column(ForeignKey("news_article.id"), index=True)
+    event_kind: Mapped[str] = mapped_column(String(16), default="")  # 신기술|공급망|규제|매크로|실적
+    theme: Mapped[str] = mapped_column(String(64), default="")
+    summary: Mapped[str] = mapped_column(Text, default="")
+    event_date: Mapped[date] = mapped_column(Date, index=True)  # 뉴스 발행일
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class BroadcastKind(enum.StrEnum):
     """텔레그램 발송 콘텐츠 유형. digest_* 는 카테고리 장문 종합, 나머지는 뉴스/리서치."""
 
