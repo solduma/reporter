@@ -104,3 +104,15 @@ source_modules =
     app.tui
 forbidden_modules =
     app.routers
+
+[importlinter:contract:routers-no-orm]
+name = 라우터는 ORM(db.models)에 직접 접근하지 않는다(데이터 접근은 services 경유)
+type = forbidden
+source_modules =
+    app.routers
+forbidden_modules =
+    app.db.models
+; 직접 import 만 금지한다(services→db.models 경유 간접 체인은 정상이므로 허용).
+allow_indirect_imports = true
+; db.session(get_session DI)·db.session.SessionLocal 은 프레임워크 배선이라 허용 —
+; db.models(엔티티·쿼리)만 금지해 라우터가 응용 계층을 우회하지 못하게 한다.
