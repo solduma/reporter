@@ -9,8 +9,18 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.db.session import init_db
-from app.routers import admin, broadcasts, companies, industries, market, screener, today
+from app.routers import (
+    admin,
+    broadcasts,
+    companies,
+    industries,
+    market,
+    realtime,
+    screener,
+    today,
+)
 from app.services import fallback_store
+from app.services.realtime import manager as realtime_manager
 from reporter import fallback
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -22,7 +32,12 @@ async def lifespan(app: FastAPI):
     # 폴백 이벤트 DB 영속화 sink 등록(단일 writer=API). reporter.fallback 은 계층상 DB 를 몰라
     # 여기서 주입한다. 미등록 시엔 로그만 남는다.
     fallback.register_sink(fallback_store.db_sink)
-    yield
+    # KIS 실시간 시세 WebSocket 상시 연결(키 없으면 자동 비활성).
+    realtime_manager.start()
+    try:
+        yield
+    finally:
+        await realtime_manager.stop()
 
 
 app = FastAPI(title="reporter web API", lifespan=lifespan)
@@ -43,6 +58,7 @@ app.include_router(screener.router)
 app.include_router(market.router)
 app.include_router(admin.router)
 app.include_router(broadcasts.router)
+app.include_router(realtime.router)
 
 
 @app.get("/health")

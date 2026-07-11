@@ -242,6 +242,17 @@ export interface TradePoint {
   balance_usd: number;
 }
 
+// KIS WebSocket 실시간 체결 틱(SSE /api/realtime/quote 로 push).
+export interface RealtimeQuote {
+  code: string;
+  price: number;
+  rising: boolean | null; // 상승 true · 하락 false · 보합/불명 null
+  change: number;
+  change_ratio: number; // 등락률 %
+  volume: number; // 누적 거래량
+  ts: string; // 체결 시각 HHMMSS
+}
+
 export type ScreenerMarket = "KOSPI" | "KOSDAQ";
 
 // 스크리너 전략: growth(성장) · value(가치) · event(이벤트드리븐)

@@ -10,6 +10,7 @@ import CompanyTimeline from "@/components/CompanyTimeline";
 import DateRangeSlider from "@/components/DateRangeSlider";
 import GrowthMetrics from "@/components/GrowthMetrics";
 import PeersTable from "@/components/PeersTable";
+import RealtimeQuoteBadge from "@/components/RealtimeQuoteBadge";
 import SectorCharts from "@/components/SectorCharts";
 import {
   fetchCandles,
@@ -381,6 +382,7 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
       <header className={styles.head}>
         <h1 className={styles.title}>{displayName}</h1>
         <span className={styles.code}>{summary?.stock_code ?? code}</span>
+        <RealtimeQuoteBadge code={summary?.stock_code ?? code} />
       </header>
 
       {error ? <p className={styles.error}>API 연결 실패: {error}</p> : null}
