@@ -13,6 +13,12 @@ if changed '^(api|src)/'; then
 	echo "▶ ruff check (python)"
 	if changed '^src/'; then
 		( cd "$root" && uv run ruff check src tests )
+		# import-linter(lint-imports)는 설정·설치돼 있을 때만 수행(미설치 시 건너뜀)
+		if ( cd "$root" && uv run python -c "import importlinter" >/dev/null 2>&1 ) \
+			&& [ -f "$root/.importlinter" ]; then
+			echo "▶ lint-imports (reporter)"
+			( cd "$root" && uv run lint-imports )
+		fi
 	fi
 	if changed '^api/'; then
 		( cd "$root/api" && uv run ruff check app tests )
