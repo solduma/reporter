@@ -390,3 +390,53 @@ export interface UsFinancial {
   psr: number | null;
   roe: number | null; // %
 }
+
+// US 스크리너 행(/api/us/screener)
+export interface UsScreenerRow {
+  ticker: string;
+  name: string;
+  exchange: string | null; // NASDAQ | NYSE
+  sector: string | null;
+  close_price: number | null; // USD
+  change_pct: number | null;
+  market_cap: number | null; // USD
+  trading_value: number | null; // USD
+  per: number | null;
+  pbr: number | null;
+  eps: number | null;
+  momentum_3m: number | null; // %
+  near_high_pct: number | null; // 52주 고점 근접 %
+  has_recent_8k: boolean;
+  score: number | null;
+}
+
+export interface UsScreenerResult {
+  as_of: string | null;
+  total: number;
+  items: UsScreenerRow[];
+}
+
+export interface UsScreenerQuery {
+  mktcapMin?: number;
+  mktcapMax?: number;
+  liqMin?: number;
+  perMax?: number;
+  pbrMax?: number;
+  momMin?: number;
+  exchange?: "NASDAQ" | "NYSE";
+  sector?: string;
+  hasEvent?: boolean;
+  sort?: string;
+  limit?: number;
+  offset?: number;
+}
+
+// US 8-K 공시(/api/us/companies/{ticker}/disclosures)
+export interface UsDisclosure {
+  accession: string;
+  form_type: string;
+  filing_date: string;
+  title: string | null;
+  primary_doc_url: string;
+  sentiment: string | null;
+}
