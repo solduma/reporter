@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from app.services import chart
+from app.adapters.market import naver as chart
 
 
 def _session_returning(payload) -> MagicMock:

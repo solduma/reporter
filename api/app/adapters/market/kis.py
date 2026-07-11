@@ -14,7 +14,7 @@ from datetime import datetime
 import requests
 
 from app.config import Settings
-from app.services.chart import Candle, resample_candles_30min
+from app.domain.candle import Candle, resample_candles_30min
 
 logger = logging.getLogger(__name__)
 

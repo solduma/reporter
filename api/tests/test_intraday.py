@@ -5,7 +5,8 @@ from __future__ import annotations
 from datetime import datetime
 from unittest.mock import MagicMock
 
-from app.services import chart, intraday
+from app.adapters.market import naver as chart
+from app.services import intraday
 
 
 def test_tracked_stock_codes_filters_none():

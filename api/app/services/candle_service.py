@@ -14,14 +14,14 @@ import threading
 import time
 from datetime import datetime, timedelta
 
-import requests
 from sqlalchemy.orm import Session
 
+from app.adapters.market import get_market_data
+from app.adapters.market import naver as chart
 from app.adapters.persistence import SqlCandleRepository
-from app.config import get_settings
 from app.db.models import PriceCandle, PriceCandleIntraday, Timeframe
 from app.db.session import SessionLocal
-from app.services import chart, intraday
+from app.services import intraday
 
 logger = logging.getLogger(__name__)
 
@@ -98,19 +98,15 @@ def is_stale(db: Session, code: str, tf: str) -> bool:
 
 
 def _fetch_and_store(db: Session, code: str, tf: str, since, market: str = "KR") -> int:
-    """[since→now] 구간(since 없으면 tf 기본 범위)을 조회·배치 upsert. 국내=네이버(→KIS 폴백),
-    미국=네이버 foreign. 미국 심볼도 같은 PriceCandle 에 저장(stock_code 로 구분, 충돌 없음)."""
-    session = requests.Session()
+    """[since→now] 구간(since 없으면 tf 기본 범위)을 조회·배치 upsert. 시장별 소스는 MarketDataPort
+    어댑터가 감춘다(KR=네이버→KIS 폴백, US=네이버 foreign). 미국 심볼도 같은 PriceCandle 에 저장."""
     end = datetime.now()
     start = (
         datetime(since.year, since.month, since.day) - timedelta(days=1)
         if since
         else end - timedelta(days=RANGE_DAYS[tf])
     )
-    if market == "US":
-        fresh = chart.fetch_periodic_foreign(code, tf, start, end, session)
-    else:
-        fresh = chart.fetch_periodic_with_fallback(get_settings(), code, tf, start, end, session)
+    fresh = get_market_data(market).fetch_periodic(code, tf, start, end)
     return batch_upsert_periodic(db, code, Timeframe(tf), fresh)
 
 
@@ -150,8 +146,7 @@ def read_intraday_or_fetch(db: Session, code: str, days: int = 14) -> list[Price
     rows = read_intraday(db, code, days)
     if rows:
         return rows
-    session = requests.Session()
-    fresh = chart.fetch_intraday_30min(code, session)
+    fresh = get_market_data("KR").fetch_intraday_30min(code)
     if fresh:
         intraday.upsert_intraday(db, code, fresh)
     return read_intraday(db, code, days)
@@ -169,8 +164,7 @@ def refresh_intraday(code: str) -> None:
     try:
         db = SessionLocal()
         try:
-            session = requests.Session()
-            fresh = chart.fetch_intraday_30min(code, session)
+            fresh = get_market_data("KR").fetch_intraday_30min(code)
             if fresh:
                 intraday.upsert_intraday(db, code, fresh)
         finally:
