@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.db.models import (
@@ -243,26 +243,22 @@ def _screen_growth(db, base, as_of, sort, limit, offset) -> ScreenerResult:
 def _latest_financials(db, codes: list[str]) -> dict[str, Financial]:
     """종목별, 밸류 지표(per/pbr)가 있는 최신 비추정 분기 Financial.
 
-    단순 max period 를 쓰면, report_ingest 가 연간(.12) 행에 ev_ebitda 만 채우고 per/pbr 은
-    NULL 로 둔 경우 그 반쪽 행이 최신으로 잡혀 가치 스크리너에서 종목이 통째로 누락된다.
-    per/pbr 이 있는 최신 분기를 우선하고, 그런 행이 없을 때만 최신 행으로 폴백한다.
+    DISTINCT ON (stock_code) 로 종목당 1행만 DB 에서 뽑는다(전 종목이면 재무 수만 행 전량
+    로드를 피함). 정렬 우선순위: per/pbr 있는 행 먼저 → period 최신. 이는 report_ingest 가
+    연간(.12) 행에 ev_ebitda 만 채우고 per/pbr 을 NULL 로 둔 반쪽 행이 최신으로 잡혀 종목이
+    통째로 누락되는 것을 막는다(밸류 지표 있는 최신 분기 우선, 없으면 최신 행 폴백).
     """
     if not codes:
         return {}
+    # has_value: per 또는 pbr 이 있으면 0(먼저), 없으면 1(뒤). DISTINCT ON 은 첫 행을 남긴다.
+    has_value = case((or_(Financial.per.is_not(None), Financial.pbr.is_not(None)), 0), else_=1)
     rows = db.scalars(
         select(Financial)
         .where(Financial.stock_code.in_(codes), Financial.is_estimate.is_(False))
-        .order_by(Financial.period.desc())
+        .distinct(Financial.stock_code)
+        .order_by(Financial.stock_code, has_value.asc(), Financial.period.desc())
     ).all()
-    out: dict[str, Financial] = {}
-    fallback: dict[str, Financial] = {}
-    for r in rows:
-        fallback.setdefault(r.stock_code, r)  # per/pbr 없어도 최신 행(폴백)
-        if (r.per is not None or r.pbr is not None) and r.stock_code not in out:
-            out[r.stock_code] = r  # 밸류 지표 있는 최신 분기(우선)
-    for code, r in fallback.items():
-        out.setdefault(code, r)
-    return out
+    return {r.stock_code: r for r in rows}
 
 
 def _screen_value(db, base, as_of, per_max, pbr_max, roe_min, sort, limit, offset) -> ScreenerResult:
