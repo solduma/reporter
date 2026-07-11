@@ -3,16 +3,17 @@
 순수 도메인 로직(I/O 없음). 입력은 companyfacts dict + 시가총액이고, 영속화·HTTP 를 모른다.
 
 US-GAAP 특성(KR DART 와 다름):
-- 10-Q 는 분기 개별값을 보고한다(DART 의 회계연도 누적 YTD 아님). 따라서 TTM = 최근 4개 분기 합.
-- companyfacts 는 같은 기간을 여러 정정 공시로 중복 수록하고, 분기값과 연간/YTD 값이 units 에
-  섞여 있다. → span(기간 일수)으로 분기(~90일)만 골라내고, (start,end) 중복은 마지막 값으로 접는다.
-- 매출 계정은 회사마다 'Revenues' 또는 'RevenueFromContractWithCustomerExcludingAssessedTax'.
+- 10-Q 는 분기 개별값이나 10-K 는 discrete Q4 를 안 주고 연간(FY)만 준다. 따라서 TTM 은
+  '최근 4개 분기 합'이 아니라 최근 FY + (FY 종료 후 분기) - (전년 동기 분기)로 계산한다.
+- companyfacts 는 같은 기간을 여러 정정 공시로 중복 수록하고, 분기·반기·9개월누적·연간 값이
+  units 에 섞여 있다. → span(기간 일수)으로 분류하고, (start,end) 중복은 마지막(정정) 값으로 접는다.
+- 매출 계정은 회사마다 'Revenues' 또는 'RevenueFromContract...'(또는 둘 다) — 최신 계정을 쓴다.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 
 # 분기 span 허용 범위(일). 10-Q 분기는 약 91일 — 정확히 3개월이 아니라 회계주(週) 기준이라 폭을 둔다.
 _Q_MIN_DAYS = 80
@@ -84,8 +85,9 @@ def _ttm(facts: dict, key: str, unit: str = "USD") -> float | None:
         after = sorted((p for p in quarters if p[1] > fy[1]), key=lambda p: p[1])
         total = fy_val
         for qp in after:
-            # 전년 동기 분기(end 가 약 1년 전) 매칭.
-            prior_end = qp[1].replace(year=qp[1].year - 1)
+            # 전년 동기 분기(end 가 약 1년 전) 매칭. timedelta 사용(2/29 종료 분기에서
+            # date.replace(year=...) 가 ValueError 나는 것을 피한다).
+            prior_end = qp[1] - timedelta(days=365)
             prior = next(
                 (v for p, v in quarters.items() if abs((p[1] - prior_end).days) <= _YEAR_TOL_DAYS),
                 None,
@@ -121,7 +123,6 @@ def _ttm_revenue(facts: dict) -> float | None:
         if end is not None and (best_end is None or end > best_end):
             best_key, best_end = key, end
     return _ttm(facts, best_key) if best_key else None
-    return None
 
 
 def _latest_instant(facts: dict, key: str, unit: str = "USD") -> float | None:

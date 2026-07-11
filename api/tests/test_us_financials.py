@@ -86,6 +86,26 @@ def test_compute_without_market_cap_yields_no_multiples(nvda):
     assert r.roe is not None
 
 
+def test_ttm_leap_day_quarter_no_crash():
+    # 회귀: 2/29 종료 분기에서 전년 동기 매칭 시 date.replace(year=...) 가 ValueError 나면 안 됨.
+    facts = {
+        "facts": {
+            "us-gaap": {
+                "Revenues": {
+                    "units": {"USD": [
+                        {"start": "2023-03-01", "end": "2024-02-29", "val": 100e9},  # FY(윤년말)
+                        {"start": "2023-03-01", "end": "2023-05-31", "val": 24e9},   # 전년 Q1
+                        {"start": "2024-03-01", "end": "2024-05-31", "val": 28e9},   # 당해 Q1
+                    ]}
+                },
+            }
+        }
+    }
+    # 크래시 없이 산출: 100 + (28-24) = 104B.
+    ttm = us_financials._ttm_revenue(facts)
+    assert ttm is not None and abs(ttm - 104e9) < 1e9
+
+
 def test_compute_empty_facts_all_none():
     r = us_financials.compute({"facts": {"us-gaap": {}}}, market_cap=1e12)
     assert r.per is None and r.pbr is None and r.roe is None
