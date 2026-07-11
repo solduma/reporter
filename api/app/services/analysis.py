@@ -8,40 +8,15 @@ from __future__ import annotations
 
 import logging
 
+from app.domain.analysis_scoring import growth_score, overall, topdown_flow_score
 from app.services import sector_flow
 from reporter import sector_etf, us_market
 from reporter.ollama_client import OllamaClient
 
 logger = logging.getLogger(__name__)
 
-
-def growth_score(revenue_yoy: float | None, op_yoy: float | None, op_turnaround: bool) -> float | None:
-    """성장 점수(0~100). 매출·영업이익 YoY 를 구간 정규화하고 흑자전환 가점.
-
-    데이터가 전무하면 None. YoY 는 -20%~+60% 를 0~1 로 클램프.
-    """
-    def norm(yoy: float | None) -> float | None:
-        if yoy is None:
-            return None
-        return max(0.0, min((yoy + 0.2) / 0.8, 1.0))
-
-    rev, op = norm(revenue_yoy), norm(op_yoy)
-    parts: list[tuple[float, float]] = []
-    if rev is not None:
-        parts.append((rev, 0.5))
-    if op is not None:
-        parts.append((op, 0.4))
-    if not parts and not op_turnaround:
-        return None
-    base = sum(v * w for v, w in parts) / sum(w for _, w in parts) if parts else 0.0
-    turn = 0.15 if op_turnaround else 0.0
-    return round(min(base + turn, 1.0) * 100, 1)
-
-
-def overall(scores: list[float | None]) -> float | None:
-    """계산된 축들의 단순 평균. 전부 None 이면 None."""
-    vals = [s for s in scores if s is not None]
-    return round(sum(vals) / len(vals), 1) if vals else None
+# 스코어 규칙은 domain.analysis_scoring 로 이동. 하위호환을 위해 재노출한다.
+__all__ = ["build_topdown", "growth_score", "llm_comment", "overall", "topdown_flow_score"]
 
 
 def _index_dir(quotes, name: str) -> bool | None:
@@ -49,26 +24,6 @@ def _index_dir(quotes, name: str) -> bool | None:
         if q.name == name:
             return q.rising
     return None
-
-
-def topdown_flow_score(
-    us_flow: float | None, kr_flow: float | None, kr_index_rising: bool | None
-) -> float | None:
-    """수급 섹터 flow 기반 탑다운 점수(0~100).
-
-    미국 동일섹터 flow(선행, 가중 큼) + 국내 동일섹터 flow + 국내 지수 방향(보조).
-    섹터 flow 를 못 구하면 지수 방향만으로 폴백(계산 가능한 것만 가중 평균).
-    """
-    parts: list[tuple[float, float]] = []
-    if us_flow is not None:
-        parts.append((us_flow / 100, 0.45))  # 미국 섹터 선행
-    if kr_flow is not None:
-        parts.append((kr_flow / 100, 0.40))  # 국내 섹터 수급
-    if kr_index_rising is not None:
-        parts.append((1.0 if kr_index_rising else 0.0, 0.15))  # 지수 방향 보조
-    if not parts:
-        return None
-    return round(sum(v * w for v, w in parts) / sum(w for _, w in parts) * 100, 1)
 
 
 def build_topdown(

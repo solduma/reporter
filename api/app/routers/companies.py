@@ -27,7 +27,7 @@ from app.db.models import (
     UniverseSnapshot,
 )
 from app.db.session import get_session
-from app.domain import technicals
+from app.domain import analysis_scoring, technicals
 from app.schemas import (
     AnalysisAxis,
     CandlePoint,
@@ -295,12 +295,8 @@ def _signed(ratio: str, rising: bool | None) -> str:
     return f"{sign}{r}%"
 
 
-def _flow_label(score: float | None) -> str:
-    """자금유입 강도(0~100)를 '강함/보통/약함' 라벨 + 점수로."""
-    if score is None:
-        return "—"
-    tag = "강함" if score >= 60 else "보통" if score >= 40 else "약함"
-    return f"{tag} {score:.0f}"
+# 자금유입 강도 라벨 규칙은 domain 으로 이동. 하위호환 별칭.
+_flow_label = analysis_scoring.flow_label
 
 
 # 동일업종 테이블의 한글 행 라벨 → peers 컬럼

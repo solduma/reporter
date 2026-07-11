@@ -14,19 +14,16 @@ from app.config import get_settings
 from app.db.models import (
     Report,
     ReportAnalysis,
-    Sentiment,
     TradeStat,
     UniverseSnapshot,
 )
 from app.db.session import get_session
+from app.domain.analysis_scoring import SENTIMENT_SCORE
 from app.schemas import IndustrySummary, ReportRef, SectorStock, SentimentPoint, TradePoint
 from app.services import customs, sector_ingest, universe_ingest
 from reporter import sector_etf, us_market
 
 router = APIRouter(prefix="/api/industries", tags=["industries"])
-
-# 센티먼트 → 수치 (시계열 평균 산출용)
-_SCORE = {Sentiment.BUY: 1.0, Sentiment.HOLD: 0.0, Sentiment.SELL: -1.0}
 
 
 @router.get("", response_model=list[IndustrySummary])
@@ -67,7 +64,7 @@ def industry_sentiment(
     points: list[SentimentPoint] = []
     for day in sorted(by_date):
         rows = by_date[day]
-        avg = sum(_SCORE[a.sentiment] for _, a in rows) / len(rows)
+        avg = sum(SENTIMENT_SCORE[a.sentiment] for _, a in rows) / len(rows)
         points.append(
             SentimentPoint(
                 date=day,
