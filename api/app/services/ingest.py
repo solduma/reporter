@@ -14,10 +14,10 @@ import requests
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.adapters.storage import minio_store
 from app.config import Settings
 from app.db.models import DailyMarketInfo, Report, ReportAnalysis, Sentiment
 from app.services import sentiment as sentiment_svc
-from app.storage import minio_store
 from reporter import analyzer, article, fallback, market, news, us_market
 from reporter.crawler import crawl_categories
 from reporter.models import Report as CrawledReport

@@ -8,10 +8,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.adapters.storage import minio_store
 from app.db.models import DailyMarketInfo, Report
 from app.db.session import get_session
 from app.schemas import MarketBrief, ReportCard
-from app.storage import minio_store
 
 router = APIRouter(prefix="/api", tags=["today"])
 

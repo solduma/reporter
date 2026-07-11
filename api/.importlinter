@@ -29,7 +29,6 @@ forbidden_modules =
     app.db
     app.services
     app.routers
-    app.storage
     app.main
     app.scheduler
     app.tui
@@ -45,7 +44,6 @@ forbidden_modules =
     app.services
     app.routers
     app.adapters
-    app.storage
     app.main
     app.scheduler
     app.tui
