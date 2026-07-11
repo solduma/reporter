@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from app.domain.technicals import Technicals
 from app.services.sector_flow import flow_score, foreign_delta
-from app.services.technicals import Technicals
 
 
 def _tech(return_3m=None, near_high_pct=None, vol_ratio=None) -> Technicals:

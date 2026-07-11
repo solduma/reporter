@@ -6,7 +6,7 @@
 root_package = app
 
 [importlinter:contract:layers]
-name = 계층 방향 (routers → services → db)
+name = 계층 방향 (routers → services → domain·db)
 type = layers
 layers =
     app.routers
@@ -14,6 +14,22 @@ layers =
     app.db
 ; main(조립 루트)·scheduler·tui(진입 어댑터)는 여러 계층을 조합하므로 계층에 넣지 않는다.
 ; 대신 아래 독립성/금지 계약으로 역방향 오염만 막는다.
+
+[importlinter:contract:domain-leaf]
+name = domain 은 순수 코어(app 내부 의존 0)
+type = forbidden
+source_modules =
+    app.domain
+forbidden_modules =
+    app.config
+    app.schemas
+    app.db
+    app.services
+    app.routers
+    app.storage
+    app.main
+    app.scheduler
+    app.tui
 
 [importlinter:contract:db-leaf]
 name = db 는 상위 계층을 모른다

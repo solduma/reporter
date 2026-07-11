@@ -26,6 +26,7 @@ from app.db.models import (
     UniverseSnapshot,
 )
 from app.db.session import get_session
+from app.domain import scoring
 from app.schemas import ScreenerResult, ScreenerRow
 from app.services import sector_ingest
 
@@ -54,72 +55,35 @@ def _coverage_subquery(since: date):
     )
 
 
-def _percentile_ranker(values: list[float]):
-    """값 리스트에 대해 백분위(0~1) 함수를 만든다. 결측·소표본에 강건."""
-    clean = sorted(v for v in values if v is not None)
-    n = len(clean)
-    if n <= 1:
-        return lambda v: 0.5 if v is not None else 0.0
-
-    def rank(v: float | None) -> float:
-        if v is None:
-            return 0.0
-        lo = sum(1 for c in clean if c < v)
-        return lo / (n - 1)
-
-    return rank
-
-
-def _cheap_ranker(values: list[float]):
-    """저평가 백분위(작을수록 1.0). PER/PBR/EV-EBITDA 처럼 낮을수록 좋은 지표용. 양수만."""
-    clean = sorted(v for v in values if v is not None and v > 0)
-    n = len(clean)
-    if n <= 1:
-        return lambda v: 0.5 if (v is not None and v > 0) else 0.0
-
-    def rank(v: float | None) -> float:
-        if v is None or v <= 0:  # 결측·적자(음수 PER 등)는 최하위
-            return 0.0
-        hi = sum(1 for c in clean if c > v)
-        return hi / (n - 1)  # 작을수록 1.0
-
-    return rank
-
-
 def _growth_score(u, g, cov_count, buy_count, rev_rank, op_rank, mom_rank) -> float:
-    """성장스코어(0~100). YoY 백분위 + 모멘텀 + 흑전 + 센티먼트·커버리지 factor."""
-    rev = rev_rank(g.revenue_yoy if g else None)
-    op = op_rank(g.op_yoy if g else None)
-    mom = mom_rank(u.momentum_3m)
-    turn_bonus = 0.10 if (g and g.op_turnaround) else 0.0
-    sentiment_factor = (buy_count / cov_count) if cov_count else 0.0
-    coverage_factor = 1.0 if cov_count else 0.0
-    score = (
-        0.30 * rev + 0.25 * op + 0.15 * mom + turn_bonus
-        + 0.12 * sentiment_factor + 0.08 * coverage_factor
+    """성장스코어 — 도메인 규칙(scoring.growth_score)에 ORM 행에서 뽑은 값을 넘긴다."""
+    return scoring.growth_score(
+        revenue_yoy=g.revenue_yoy if g else None,
+        op_yoy=g.op_yoy if g else None,
+        momentum_3m=u.momentum_3m,
+        op_turnaround=bool(g and g.op_turnaround),
+        coverage_count=cov_count,
+        buy_count=buy_count,
+        rev_rank=rev_rank,
+        op_rank=op_rank,
+        mom_rank=mom_rank,
     )
-    return round(min(score, 1.0) * 100, 1)
 
 
 def _value_score(fin, per_rank, pbr_rank, ev_rank) -> float:
-    """가치스코어(0~100). 저PER·저PBR·저EV-EBITDA 백분위 + 고ROE·고배당 가점.
-
-    저PBR 을 가장 무겁게(자산가치 기준), 저PER·저EV/EBITDA 를 수익가치로. ROE·배당은 우량 가점.
-    """
+    """가치스코어 — 도메인 규칙(scoring.value_score)에 ORM 행에서 뽑은 값을 넘긴다."""
     if fin is None:
         return 0.0
-    per = per_rank(fin.per)
-    pbr = pbr_rank(fin.pbr)
-    ev = ev_rank(fin.ev_ebitda)
-    # ROE 절대 기준 가점(15% 이상 만점, % 값). 배당 가점(5% 이상 만점, 시가배당률 %).
-    roe_bonus = 0.0
-    if fin.roe is not None:
-        roe_bonus = max(0.0, min(fin.roe / 15.0, 1.0)) * 0.12
-    div_bonus = 0.0
-    if fin.div_yield is not None:
-        div_bonus = max(0.0, min(fin.div_yield / 5.0, 1.0)) * 0.08
-    score = 0.35 * pbr + 0.28 * per + 0.17 * ev + roe_bonus + div_bonus
-    return round(min(score, 1.0) * 100, 1)
+    return scoring.value_score(
+        per=fin.per,
+        pbr=fin.pbr,
+        ev_ebitda=fin.ev_ebitda,
+        roe=fin.roe,
+        div_yield=fin.div_yield,
+        per_rank=per_rank,
+        pbr_rank=pbr_rank,
+        ev_rank=ev_rank,
+    )
 
 
 @router.get("", response_model=ScreenerResult)
@@ -223,9 +187,9 @@ def _screen_growth(db, base, as_of, sort, limit, offset) -> ScreenerResult:
     total = db.scalar(select(func.count()).select_from(base.subquery())) or 0
     if sort == "score":
         rows = list(db.execute(base).all())
-        rev_rank = _percentile_ranker([r[1].revenue_yoy for r in rows if r[1]])
-        op_rank = _percentile_ranker([r[1].op_yoy for r in rows if r[1]])
-        mom_rank = _percentile_ranker([r[0].momentum_3m for r in rows])
+        rev_rank = scoring.percentile_ranker([r[1].revenue_yoy for r in rows if r[1]])
+        op_rank = scoring.percentile_ranker([r[1].op_yoy for r in rows if r[1]])
+        mom_rank = scoring.percentile_ranker([r[0].momentum_3m for r in rows])
         scored = [
             (r, _growth_score(r[0], r[1], r[2], r[3], rev_rank, op_rank, mom_rank)) for r in rows
         ]
@@ -320,9 +284,9 @@ def _screen_value(
     total = len(kept)
 
     if sort == "score" or sort not in ("market_cap", "change", "trading_value"):
-        per_rank = _cheap_ranker([f.per for _, f in kept])
-        pbr_rank = _cheap_ranker([f.pbr for _, f in kept])
-        ev_rank = _cheap_ranker([f.ev_ebitda for _, f in kept])
+        per_rank = scoring.cheap_ranker([f.per for _, f in kept])
+        pbr_rank = scoring.cheap_ranker([f.pbr for _, f in kept])
+        ev_rank = scoring.cheap_ranker([f.ev_ebitda for _, f in kept])
         scored = [(r, f, _value_score(f, per_rank, pbr_rank, ev_rank)) for r, f in kept]
         scored.sort(key=lambda x: (-x[2], x[0][0].stock_code))
         page = scored[offset : offset + limit]

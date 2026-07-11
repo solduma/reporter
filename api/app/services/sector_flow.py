@@ -13,8 +13,8 @@ from dataclasses import dataclass
 
 import requests
 
-from app.services import technicals
-from app.services.technicals import Technicals
+from app.domain import technicals
+from app.domain.technicals import Technicals
 from reporter import sector_etf
 
 # compute_flows 는 섹터 ETF ~17종(KR/US 각각)의 일봉을 외부 조회해 ~1초 걸린다. 섹터 ETF 는

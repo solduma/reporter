@@ -27,6 +27,7 @@ from app.db.models import (
     UniverseSnapshot,
 )
 from app.db.session import get_session
+from app.domain import technicals
 from app.schemas import (
     AnalysisAxis,
     CandlePoint,
@@ -47,7 +48,6 @@ from app.services import (
     financials_backfill,
     quote,
     sync_state,
-    technicals,
     valuation_ingest,
 )
 
