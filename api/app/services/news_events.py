@@ -19,8 +19,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
-from app.db.models import NewsArticle, SectorTheme, StockEvent
-from app.services import sector_ingest
+from app.db.models import NewsArticle, SectorTheme, SectorThemeStock, StockEvent
 from app.services.sentiment import _extract_json
 from reporter import news
 from reporter.ollama_client import OllamaClient, OllamaError
@@ -35,6 +34,10 @@ _EVENT_KEYWORDS = [
 ]
 _MAX_NEWS = 40  # 배치당 최대 뉴스 수(LLM 토큰 통제)
 _VALID_KINDS = {"신기술", "공급망", "규제", "매크로", "실적", "정책"}
+# 종목 테마가 아닌 상품·그룹 분류(전파 시 과대). LLM 후보에서 제외.
+_EXCLUDE_THEMES = {"ETF", "ETN"}
+# 한 뉴스가 이보다 많은 종목에 전파되면 너무 광범위 → 이벤트 신호로서 무의미하므로 스킵.
+_MAX_PROPAGATION = 120
 
 _SYSTEM = (
     "너는 증시 뉴스를 읽고 어떤 종목 테마에 영향을 주는지 판단하는 애널리스트다. "
@@ -68,7 +71,24 @@ def _classify(client: OllamaClient, model: str, title: str, theme_names: list[st
 
 
 def _theme_names(db: Session) -> list[str]:
-    return list(db.scalars(select(SectorTheme.name)).all())
+    """LLM 후보 테마명(상품·그룹 분류 제외). 그룹주(예: 'CJ그룹')도 이벤트 테마로 부적합해 뺀다."""
+    names = db.scalars(select(SectorTheme.name)).all()
+    return [n for n in names if n not in _EXCLUDE_THEMES and not n.endswith("그룹")]
+
+
+def _theme_stock_codes(db: Session, theme: str) -> list[str]:
+    """정확한 테마명의 구성종목만. sector_stock_codes 는 대표섹터로 접어 과전파(반도체→131종목)
+    되므로, 뉴스 전파는 그 테마(judal_idx)의 구성종목(반도체→22종목)만 쓴다."""
+    idxs = list(db.scalars(select(SectorTheme.judal_idx).where(SectorTheme.name == theme)).all())
+    if not idxs:
+        return []
+    return list(
+        db.scalars(
+            select(SectorThemeStock.stock_code)
+            .where(SectorThemeStock.judal_idx.in_(idxs))
+            .distinct()
+        ).all()
+    )
 
 
 def run_news_events(db: Session, settings: Settings | None = None) -> dict:
@@ -108,7 +128,9 @@ def run_news_events(db: Session, settings: Settings | None = None) -> dict:
         # 테마 매핑 → 구성종목 전파.
         theme = result["theme"]
         if theme and theme in theme_names:
-            codes = sector_ingest.sector_stock_codes(db, theme)
+            codes = _theme_stock_codes(db, theme)
+            if len(codes) > _MAX_PROPAGATION:
+                codes = []  # 너무 광범위한 테마는 전파 스킵(이벤트 신호 무의미)
             for code in codes:
                 _upsert_event(db, code, news_row.id, result, now.date())
                 events += 1
