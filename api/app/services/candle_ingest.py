@@ -71,38 +71,6 @@ def _upsert(db: Session, code: str, tf: Timeframe, candles: list[chart.Candle]) 
         db.execute(stmt)
 
 
-def backfill_daily(db: Session, settings: Settings | None = None) -> dict:
-    """전 종목 일봉 2년치를 적재한다. {'stocks': 처리수, 'failed': 실패수}."""
-    settings = settings or get_settings()
-    codes = _universe_codes(db)
-    if not codes:
-        logger.warning("no universe stocks; skip daily backfill")
-        return {"stocks": 0, "failed": 0}
-
-    session = requests.Session()
-    end = datetime.now()
-    start = end - timedelta(days=_DAY_RANGE_DAYS)
-    done = failed = 0
-    for i, code in enumerate(codes, 1):
-        try:
-            candles = chart.fetch_periodic_with_fallback(settings, code, "day", start, end, session)
-            if candles:
-                _upsert(db, code, Timeframe.DAY, candles)
-                db.commit()  # 종목 단위 커밋 — 중간 중단해도 앞선 종목 보존
-                done += 1
-            else:
-                failed += 1
-        except Exception as e:  # 한 종목 실패가 배치를 막지 않도록
-            db.rollback()
-            failed += 1
-            logger.warning("daily backfill failed for %s: %s", code, e)
-        if i % 200 == 0:
-            logger.info("daily backfill %d/%d (ok=%d fail=%d)", i, len(codes), done, failed)
-
-    logger.info("daily backfill done: %d stocks, %d failed", done, failed)
-    return {"stocks": done, "failed": failed}
-
-
 def _recent_trading_days(db: Session, n: int) -> list[str]:
     """적재된 일봉의 최근 n 거래일(YYYYMMDD). 삼성전자(005930) 기준 — 장 열린 날 정확."""
     rows = db.scalars(
