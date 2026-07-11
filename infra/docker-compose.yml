@@ -93,6 +93,9 @@ services:
       OLLAMA_API_KEY: ${OLLAMA_API_KEY:-}
       SUMMARY_MODEL: ${SUMMARY_MODEL:-glm-5.2:cloud}
       INSIGHT_MODEL: ${INSIGHT_MODEL:-glm-5.2:cloud}
+      # 재무·보고서·EV/EBITDA 백필이 DART/KRX 를 호출한다(없으면 배치가 조용히 스킵됨).
+      DART_API_KEY: ${DART_API_KEY:-}
+      KRX_API: ${KRX_API:-}
       # 호스트 CLI(launchd)가 발송 기록을 쓰는 스풀을 워커가 읽어 broadcast 테이블로 흡수한다.
       # 아래 볼륨 마운트 경로와 일치. WORKDIR/parents 가정에 흔들리지 않게 명시.
       BROADCAST_SPOOL: /app/logs/broadcasts.jsonl
