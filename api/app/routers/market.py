@@ -19,6 +19,7 @@ from app.db.models import (
     TradeStat,
 )
 from app.db.session import get_session
+from app.domain import analysis_scoring
 from app.schemas import (
     CandlePoint,
     ChartRef,
@@ -78,14 +79,12 @@ def sectors(db: Session = Depends(get_session)) -> list[SectorRow]:
     out: list[SectorRow] = []
     for name, count, sent in rows:
         avg = float(sent or 0)
-        # 로테이션 스코어: 센티먼트(0~1 정규화) 70% + 커버리지 비중 30%.
-        rotation = (0.7 * (avg + 1) / 2 + 0.3 * count / max_count) * 100
         out.append(
             SectorRow(
                 sector=name,
                 report_count=count,
                 avg_sentiment=round(avg, 2),
-                rotation_score=round(rotation, 1),
+                rotation_score=analysis_scoring.rotation_score(avg, count, max_count),
             )
         )
     out.sort(key=lambda s: s.rotation_score, reverse=True)

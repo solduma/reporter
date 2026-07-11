@@ -13,6 +13,7 @@ from dataclasses import dataclass
 
 import requests
 
+from app.domain import analysis_scoring as domain_scoring
 from app.domain import technicals
 from app.domain.technicals import Technicals
 from reporter import sector_etf
@@ -38,35 +39,20 @@ class SectorFlow:
 
 
 def flow_score(tech: Technicals, foreign_delta: float | None) -> float | None:
-    """섹터 ETF 기술 지표를 0~100 자금유입 스코어로. 계산 가능한 항목만 가중 평균."""
-    parts: list[tuple[float, float]] = []
-    if tech.return_3m is not None:
-        # -20%~+40% → 0~1. 추세가 핵심 가중.
-        parts.append((max(0.0, min((tech.return_3m + 20) / 60, 1.0)), 0.40))
-    if tech.near_high_pct is not None:
-        # 70%~100% 근접 → 0~1. 주도 섹터일수록 신고가권.
-        parts.append((max(0.0, min((tech.near_high_pct / 100 - 0.7) / 0.3, 1.0)), 0.30))
-    if tech.vol_ratio is not None:
-        # 거래량 0.5배=0, 2배↑=1. 관심 유입.
-        parts.append((max(0.0, min((tech.vol_ratio - 0.5) / 1.5, 1.0)), 0.20))
-    if foreign_delta is not None:
-        # 외국인비율 -1pp~+1pp → 0~1(국내 전용 수급 신호).
-        parts.append((max(0.0, min((foreign_delta + 1) / 2, 1.0)), 0.10))
-    if not parts:
-        return None
-    total_w = sum(w for _, w in parts)
-    return round(sum(v * w for v, w in parts) / total_w * 100, 1)
+    """섹터 ETF 기술 지표를 0~100 자금유입 스코어로. 규칙은 domain.analysis_scoring 에 위임.
+
+    Technicals 객체에서 원시 지표를 뽑아 도메인 스코어러에 넘기는 얇은 어댑터.
+    """
+    return domain_scoring.flow_score(
+        return_3m=tech.return_3m,
+        near_high_pct=tech.near_high_pct,
+        vol_ratio=tech.vol_ratio,
+        foreign_delta=foreign_delta,
+    )
 
 
-def foreign_delta(foreign_ratios: list[float | None], lookback: int = 20) -> float | None:
-    """외국인 보유율의 최근 변화(pp). 최신 - lookback거래일 전. 데이터 부족 시 None."""
-    vals = [(i, r) for i, r in enumerate(foreign_ratios) if r is not None]
-    if len(vals) < 2:
-        return None
-    last_i, last = vals[-1]
-    # lookback 이전 중 가장 가까운 유효값.
-    prior = next((r for i, r in reversed(vals) if i <= last_i - lookback), vals[0][1])
-    return round(last - prior, 2)
+# 외국인 보유율 변화는 순수 계산 그대로 도메인 함수를 재노출.
+foreign_delta = domain_scoring.foreign_delta
 
 
 def compute_flows(market: str, session: requests.Session | None = None) -> list[SectorFlow]:
