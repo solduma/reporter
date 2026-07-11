@@ -4,6 +4,8 @@
 
 [importlinter]
 root_package = app
+; domain·ports 가 외부 IO 패키지(reporter)를 import 하지 않는지 검사하려면 외부 패키지도 그래프에 포함.
+include_external_packages = True
 
 [importlinter:contract:layers]
 name = 계층 방향 (routers → services → adapters → db)
@@ -48,6 +50,31 @@ forbidden_modules =
     app.scheduler
     app.tui
 ; db.models 는 TYPE_CHECKING(런타임 미import) 타입 힌트로만 참조하므로 금지 목록에서 제외한다.
+
+[importlinter:contract:domain-no-external-io]
+name = domain·ports 는 외부 IO 패키지(reporter)를 모른다
+type = forbidden
+source_modules =
+    app.domain
+    app.ports
+forbidden_modules =
+    reporter
+allow_indirect_imports = true
+
+[importlinter:contract:entrypoints-not-imported]
+name = 진입점(main·scheduler·tui)은 아무도 import 하지 않는다
+type = forbidden
+source_modules =
+    app.domain
+    app.ports
+    app.db
+    app.adapters
+    app.services
+    app.routers
+forbidden_modules =
+    app.main
+    app.scheduler
+    app.tui
 
 [importlinter:contract:db-leaf]
 name = db 는 상위 계층을 모른다
