@@ -39,33 +39,70 @@ def _gaap(facts: dict) -> dict:
     return facts.get("facts", {}).get("us-gaap", {})
 
 
-def _discrete_quarters(facts: dict, key: str, unit: str = "USD") -> list[tuple[date, float]]:
-    """계정의 분기 개별값 [(end_date, val)] 오름차순. span 으로 분기만 추리고 (start,end) 중복 접기.
+_FY_MIN_DAYS = 350
+_FY_MAX_DAYS = 380
+_YEAR_TOL_DAYS = 20  # 전년 동기 매칭 허용 오차
 
-    같은 (start,end) 가 여러 번 나오면(정정 공시) 뒤에 오는 값으로 덮는다(companyfacts 는
-    대체로 시간순). 반환은 end 오름차순.
-    """
+
+def _periods(facts: dict, key: str, unit: str = "USD") -> dict[tuple[date, date], float]:
+    """계정의 모든 duration 엔트리 {(start,end): val}. (start,end) 중복은 뒤값(정정) 우선."""
     acct = _gaap(facts).get(key)
     if not acct or unit not in acct.get("units", {}):
-        return []
-    by_period: dict[tuple[str, str], float] = {}
+        return {}
+    out: dict[tuple[date, date], float] = {}
     for row in acct["units"][unit]:
-        start, end = row.get("start"), row.get("end")
-        val = row.get("val")
-        if not start or not end or val is None:
+        s, e, v = row.get("start"), row.get("end"), row.get("val")
+        if not s or not e or v is None:
             continue
-        span = (date.fromisoformat(end) - date.fromisoformat(start)).days
-        if _Q_MIN_DAYS <= span <= _Q_MAX_DAYS:
-            by_period[(start, end)] = float(val)
-    return [(date.fromisoformat(end), v) for (_start, end), v in sorted(by_period.items(), key=lambda kv: kv[0][1])]
+        out[(date.fromisoformat(s), date.fromisoformat(e))] = float(v)
+    return out
+
+
+def _span(p: tuple[date, date]) -> int:
+    return (p[1] - p[0]).days
 
 
 def _ttm(facts: dict, key: str, unit: str = "USD") -> float | None:
-    """최근 4개 분기 개별값 합(TTM). 4개 미만이면 None."""
-    quarters = _discrete_quarters(facts, key, unit)
-    if len(quarters) < 4:
+    """정확한 TTM(최근 12개월) 합.
+
+    US-GAAP 10-Q 는 분기 개별값을 주지만 **10-K 는 discrete Q4 를 안 주고 연간(FY)만** 준다.
+    따라서 최근 4개 ~90일 분기를 무검증 합산하면 Q4 부재로 12개월 아닌 구간을 더해 값이 틀린다.
+    올바른 TTM = 최근 FY + (FY 종료 후 분기 합) - (전년 동기 분기 합). FY 가 없으면 연속 4분기
+    (합산 구간이 ~365일인지 검증)로 폴백한다.
+    """
+    periods = _periods(facts, key, unit)
+    if not periods:
         return None
-    return sum(v for _end, v in quarters[-4:])
+    quarters = {p: v for p, v in periods.items() if _Q_MIN_DAYS <= _span(p) <= _Q_MAX_DAYS}
+    fys = sorted(
+        (p for p in periods if _FY_MIN_DAYS <= _span(p) <= _FY_MAX_DAYS), key=lambda p: p[1]
+    )
+    if fys:
+        fy = fys[-1]
+        fy_val = periods[fy]
+        # FY 종료 후 최신 분기들(오름차순).
+        after = sorted((p for p in quarters if p[1] > fy[1]), key=lambda p: p[1])
+        total = fy_val
+        for qp in after:
+            # 전년 동기 분기(end 가 약 1년 전) 매칭.
+            prior_end = qp[1].replace(year=qp[1].year - 1)
+            prior = next(
+                (v for p, v in quarters.items() if abs((p[1] - prior_end).days) <= _YEAR_TOL_DAYS),
+                None,
+            )
+            if prior is None:
+                return None  # 전년 동기 없어 TTM 이동 불가 → 값 왜곡 방지 위해 미산출
+            total += quarters[qp] - prior
+        return total
+    # 폴백: FY 엔트리 없음 → 연속 4분기, 단 합산 구간이 ~1년인지 확인.
+    qs = sorted(quarters.items(), key=lambda kv: kv[0][1])
+    if len(qs) < 4:
+        return None
+    last4 = qs[-4:]
+    total_span = (last4[-1][0][1] - last4[0][0][0]).days
+    if not (_FY_MIN_DAYS <= total_span <= _FY_MAX_DAYS):
+        return None  # 분기 누락으로 4개가 1년을 안 덮음 → 미산출
+    return sum(v for _p, v in last4)
 
 
 def _ttm_revenue(facts: dict) -> float | None:

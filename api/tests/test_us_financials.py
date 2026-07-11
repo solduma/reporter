@@ -17,20 +17,21 @@ def nvda() -> dict:
     return json.loads(_FIXTURE.read_text())
 
 
-def test_discrete_quarters_dedup_and_span(nvda):
-    # 매출 분기값: (start,end) 중복 접기 + ~90일 span 만. 최소 4개 이상이어야 TTM 가능.
-    qs = us_financials._discrete_quarters(nvda, "Revenues")
-    assert len(qs) >= 4
-    ends = [e for e, _ in qs]
-    assert ends == sorted(ends)  # end 오름차순
-    assert len(ends) == len(set(ends))  # 중복 제거됨
-
-
-def test_ttm_revenue_reasonable(nvda):
-    # NVDA 최근 4분기 매출 합은 수백억 달러 규모(2025~2026 급성장).
+def test_ttm_uses_fy_plus_delta_not_naive_4q(nvda):
+    # 회귀(중요): 10-K 는 discrete Q4 를 안 줘서 '최근 4개 ~90일 분기 무검증 합산'은 틀린다.
+    # 올바른 TTM = 최근 FY(215.9B, ~2026-01 종료) + Q1'26(81.6B) - Q1'25(44.1B) = 253.5B.
+    # 순진한 4분기 합(229.4B)이 아니어야 한다.
     ttm = us_financials._ttm_revenue(nvda)
     assert ttm is not None
-    assert ttm > 100e9  # 1000억 달러 초과
+    assert abs(ttm - 253.5e9) < 1e9  # FY+delta 방식
+    assert abs(ttm - 229.4e9) > 5e9  # 순진한 4분기 합이 아님
+
+
+def test_ttm_periods_dedup(nvda):
+    # (start,end) 중복 제거되어 하나의 값만.
+    ps = us_financials._periods(nvda, "Revenues")
+    keys = list(ps.keys())
+    assert len(keys) == len(set(keys))
 
 
 def test_latest_shares_and_equity(nvda):
