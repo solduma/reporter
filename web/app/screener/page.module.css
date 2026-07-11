@@ -25,6 +25,54 @@
   font-size: 0.9rem;
 }
 
+/* 전략 탭(성장/가치/이벤트) */
+.strategyTabs {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.strategyTab {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.92rem;
+  font-weight: 600;
+  padding: 8px 18px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.strategyTab:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.strategyTabActive {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.strategyTabActive:hover {
+  color: #fff;
+}
+
+/* 이벤트 전략 셀 */
+.eventBadge {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.eventSummary {
+  max-width: 260px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+}
+
 .filters {
   display: flex;
   flex-direction: column;

@@ -64,12 +64,24 @@ class ScreenerRow(BaseModel):
     market_cap: int | None  # 원
     trading_value: int | None
     momentum_3m: float | None  # 3개월 수익률%
+    # 성장 전략
     revenue_yoy: float | None  # 매출 YoY (0.28=+28%)
     op_yoy: float | None
     op_turnaround: bool
     coverage_count: int  # 최근 90일 리포트 수
     recent_sentiment: str | None  # 최근 리포트 센티먼트 BUY/SELL/HOLD
     growth_score: float | None  # 0~100
+    # 가치 전략(Financial 최신 분기)
+    per: float | None = None
+    pbr: float | None = None
+    roe: float | None = None
+    ev_ebitda: float | None = None
+    # 이벤트 전략(최근 이벤트 요약)
+    event_kind: str | None = None  # 대표 이벤트 유형(공시|리포트|급등락|브리핑)
+    event_summary: str | None = None  # 한 줄 요약
+    event_date: date | None = None  # 이벤트 발생일
+    # 전략별 스코어(0~100). 어느 전략이든 이 필드에 담아 정렬한다.
+    score: float | None = None
 
 
 class ScreenerResult(BaseModel):

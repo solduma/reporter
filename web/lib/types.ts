@@ -244,7 +244,10 @@ export interface TradePoint {
 
 export type ScreenerMarket = "KOSPI" | "KOSDAQ";
 
-// score(성장스코어, 기본) · market_cap(시총 작은순) · rev_yoy(매출성장률) · momentum(3개월 수익률) · trading_value(거래대금) · change(등락률) · coverage(리포트 수)
+// 스크리너 전략: growth(성장) · value(가치) · event(이벤트드리븐)
+export type ScreenerStrategy = "growth" | "value" | "event";
+
+// score(전략 스코어, 기본) · market_cap · rev_yoy · momentum · trading_value · change · coverage
 export type ScreenerSort =
   | "score"
   | "market_cap"
@@ -256,6 +259,9 @@ export type ScreenerSort =
 
 // 영업이익 필터: turnaround(흑자전환) · growth(YoY 성장)
 export type ScreenerOpGrowth = "turnaround" | "growth";
+
+// 이벤트 유형 필터
+export type ScreenerEventKind = "disclosure" | "report" | "surge" | "broadcast";
 
 export interface ScreenerRow {
   stock_code: string;
@@ -269,9 +275,20 @@ export interface ScreenerRow {
   revenue_yoy: number | null; // 매출 YoY 비율 (0.28 = +28%)
   op_yoy: number | null; // 영업이익 YoY 비율
   op_turnaround: boolean; // 흑자전환 여부
-  growth_score: number | null; // 0~100, sort=score일 때만 채워짐
+  growth_score: number | null; // 성장 전략 스코어(하위호환)
   coverage_count: number; // 최근 90일 리포트 수, 커버리지 없으면 0
   recent_sentiment: "BUY" | "HOLD" | null; // 커버리지 있으면 BUY/HOLD, 없으면 null
+  // 가치 전략(Financial 최신 분기)
+  per: number | null;
+  pbr: number | null;
+  roe: number | null;
+  ev_ebitda: number | null;
+  // 이벤트 전략
+  event_kind: string | null; // 공시|리포트|급등락|브리핑
+  event_summary: string | null;
+  event_date: string | null; // YYYY-MM-DD
+  // 전략별 스코어(0~100). 어느 전략이든 채워진다.
+  score: number | null;
 }
 
 export interface ScreenerResult {
