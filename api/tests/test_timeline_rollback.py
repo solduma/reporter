@@ -10,6 +10,7 @@ import pytest
 
 from app.config import Settings
 from app.routers import companies
+from app.services import company_service
 
 
 class _FakeResult:
@@ -40,14 +41,15 @@ class _FakeDB:
 
 @pytest.fixture
 def _dart_key(monkeypatch):
-    monkeypatch.setattr(companies, "get_settings", lambda: Settings(dart_api_key="k"))
+    # 롤백 로직은 company_service.sync_disclosures_safe 가 소유 — 거기서 키·dart_ingest 를 본다.
+    monkeypatch.setattr(company_service, "get_settings", lambda: Settings(dart_api_key="k"))
 
 
 def test_timeline_rolls_back_and_returns_on_sync_failure(monkeypatch, _dart_key):
     def _boom(db, settings, code, begin, end):
         raise RuntimeError("DART down")
 
-    monkeypatch.setattr(companies.dart_ingest, "sync_disclosures", _boom)
+    monkeypatch.setattr(company_service.dart_ingest, "sync_disclosures", _boom)
 
     db = _FakeDB()
     # sync 예외가 전파되지 않고, 빈 타임라인을 정상 반환해야 한다.
@@ -58,7 +60,7 @@ def test_timeline_rolls_back_and_returns_on_sync_failure(monkeypatch, _dart_key)
 
 
 def test_timeline_no_rollback_when_sync_ok(monkeypatch, _dart_key):
-    monkeypatch.setattr(companies.dart_ingest, "sync_disclosures", lambda *a, **k: 0)
+    monkeypatch.setattr(company_service.dart_ingest, "sync_disclosures", lambda *a, **k: 0)
     db = _FakeDB()
     result = companies.company_timeline("093320", db=db)
     assert result == []
