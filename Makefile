@@ -34,9 +34,9 @@ test-cli: ## CLI(src/reporter) 테스트
 test-api: ## API 테스트
 	cd api && uv run pytest
 
-lint: ## 린트 (ruff: cli+api, eslint+tsc: web)
+lint: ## 린트 (ruff: cli+api, import-linter: api 계층, eslint+tsc: web)
 	uv run ruff check src tests
-	cd api && uv run ruff check app tests
+	cd api && uv run ruff check app tests && uv run lint-imports
 	cd web && pnpm lint && pnpm exec tsc --noEmit
 
 fmt: ## 포매팅 (ruff format: cli+api)
