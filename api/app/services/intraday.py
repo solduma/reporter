@@ -12,8 +12,8 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from app.adapters.market import naver as chart
 from app.db.models import PriceCandleIntraday, Report
-from app.services import chart
 
 logger = logging.getLogger(__name__)
 

@@ -22,9 +22,11 @@ from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from app.adapters.market import kis
+from app.adapters.market import naver as chart
 from app.config import Settings, get_settings
 from app.db.models import PriceCandle, PriceCandleIntraday, SyncState, Timeframe, UniverseSnapshot
-from app.services import candle_service, chart, intraday, kis, sync_state, universe_ingest
+from app.services import candle_service, intraday, sync_state, universe_ingest
 from reporter.fallback import log_fallback
 
 logger = logging.getLogger(__name__)

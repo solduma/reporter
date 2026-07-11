@@ -93,7 +93,7 @@ def _compute_flows_uncached(
     etfs = sector_etf.KR_SECTOR_ETFS if market == "KR" else sector_etf.US_SECTOR_ETFS
 
     # DB 우선: 저장된 ETF 일봉을 쓰고, 없을 때만 외부 조회(candle_service 가 저장까지 함).
-    # 지연 import(순환 방지: candle_service→chart, 여기선 candle_service 만 필요).
+    # 지연 import(순환 방지: candle_service→adapters, 여기선 candle_service 만 필요).
     from app.db.session import SessionLocal
     from app.services import candle_service
 

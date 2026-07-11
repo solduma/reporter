@@ -1,36 +1,37 @@
-"""주가 봉차트 데이터 — 네이버 신형 차트 API(api.stock.naver.com) 래핑.
+"""주가 봉차트 데이터 — 네이버 신형 차트 API(api.stock.naver.com) 래핑(driven adapter).
 
 - 일/주/월봉: {tf} 엔드포인트. 파라미터는 YYYYMMDDHHMM(12자리)여야 한다(8자리면 빈 배열).
 - 30분봉: minute 엔드포인트가 minuteUnit=30 을 무시하고 1분봉을 주므로 서버에서 30분 리샘플한다.
   분봉 보존기간이 짧아(~5거래일) 2주는 cron 누적(8단계)으로 완성한다.
 무인증(UA 위장). 개인 리서치 용도로 호출을 최소화하고 DB/Redis 캐시로 재호출을 줄인다.
+
+봉 값 객체(Candle)·리샘플 규칙은 도메인(domain.candle)에 있고, 여기선 HTTP 조회·파싱만 한다.
+Candle·resample_candles_30min 은 하위호환을 위해 여기서도 재노출한다.
 """
 
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
 from datetime import datetime
 
 import requests
+
+from app.domain.candle import Candle, resample_candles_30min
 
 logger = logging.getLogger(__name__)
 
 _BASE = "https://api.stock.naver.com/chart/domestic/item"
 _FOREIGN_BASE = "https://api.stock.naver.com/chart/foreign/item"
 _HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; reporter-bot/1.0)"}
-_INTRADAY_BUCKET_MIN = 30
 
-
-@dataclass
-class Candle:
-    ts: datetime  # 봉 기준 시각(일/주/월봉은 자정)
-    open: float
-    high: float
-    low: float
-    close: float
-    volume: int
-    foreign_ratio: float | None = None
+__all__ = [
+    "Candle",
+    "fetch_intraday_30min",
+    "fetch_periodic",
+    "fetch_periodic_foreign",
+    "fetch_periodic_with_fallback",
+    "resample_candles_30min",
+]
 
 
 def _get(url: str, params: dict, session: requests.Session) -> list[dict]:
@@ -87,7 +88,7 @@ def fetch_periodic_with_fallback(
     candles = fetch_periodic(stock_code, timeframe, start, end, session)
     if candles:
         return candles
-    from app.services import kis
+    from app.adapters.market import kis
     from reporter.fallback import log_fallback
 
     fallback = kis.fetch_periodic(settings, stock_code, timeframe, start, end, session)
@@ -134,31 +135,6 @@ def _resample_30min(minute_rows: list[dict]) -> list[Candle]:
         except (KeyError, ValueError, TypeError):
             continue
     return resample_candles_30min(minutes)
-
-
-def resample_candles_30min(minutes: list[Candle]) -> list[Candle]:
-    """1분봉 Candle 리스트를 30분봉으로 리샘플한다(OHLC 집계·거래량 합산). 소스 무관 공용."""
-    buckets: dict[datetime, list[Candle]] = {}
-    for c in minutes:
-        floored = c.ts.replace(
-            minute=(c.ts.minute // _INTRADAY_BUCKET_MIN) * _INTRADAY_BUCKET_MIN, second=0
-        )
-        buckets.setdefault(floored, []).append(c)
-
-    out: list[Candle] = []
-    for bucket_ts in sorted(buckets):
-        rows = sorted(buckets[bucket_ts], key=lambda c: c.ts)  # open/close 정확성
-        out.append(
-            Candle(
-                ts=bucket_ts,
-                open=rows[0].open,
-                high=max(c.high for c in rows),
-                low=min(c.low for c in rows),
-                close=rows[-1].close,
-                volume=sum(c.volume for c in rows),
-            )
-        )
-    return out
 
 
 def fetch_intraday_30min(stock_code: str, session: requests.Session) -> list[Candle]:
