@@ -9,6 +9,7 @@ import styles from "./NavBar.module.css";
 const LINKS = [
   { href: "/", label: "Today's Brew", featured: false },
   { href: "/screener", label: "스몰캡 스크리너", featured: true },
+  { href: "/us-screener", label: "US 스크리너", featured: false },
   { href: "/industries", label: "산업 흐름", featured: false },
   { href: "/companies", label: "기업 분석", featured: false },
   { href: "/archive", label: "브리핑 아카이브", featured: false },

@@ -33,8 +33,11 @@ import type {
   TimelineItem,
   TradePoint,
   TradePresets,
+  UsDisclosure,
   UsFinancial,
   UsQuote,
+  UsScreenerQuery,
+  UsScreenerResult,
 } from "@/lib/types";
 
 // 기본은 same-origin(빈 문자열) — 브라우저는 /api/... 를 현재 오리진으로 호출하고,
@@ -142,6 +145,27 @@ export function fetchUsQuote(ticker: string): Promise<UsQuote> {
 
 export function fetchUsFinancials(ticker: string): Promise<UsFinancial> {
   return getJson<UsFinancial>(`/api/us/companies/${encodeURIComponent(ticker)}/financials`);
+}
+
+export function fetchUsScreener(query: UsScreenerQuery): Promise<UsScreenerResult> {
+  const p = new URLSearchParams();
+  if (query.mktcapMin !== undefined) p.set("mktcap_min", String(query.mktcapMin));
+  if (query.mktcapMax !== undefined) p.set("mktcap_max", String(query.mktcapMax));
+  if (query.liqMin !== undefined) p.set("liq_min", String(query.liqMin));
+  if (query.perMax !== undefined) p.set("per_max", String(query.perMax));
+  if (query.pbrMax !== undefined) p.set("pbr_max", String(query.pbrMax));
+  if (query.momMin !== undefined) p.set("mom_min", String(query.momMin));
+  if (query.exchange) p.set("exchange", query.exchange);
+  if (query.sector) p.set("sector", query.sector);
+  if (query.hasEvent) p.set("has_event", "true");
+  p.set("sort", query.sort ?? "score");
+  p.set("limit", String(query.limit ?? 50));
+  p.set("offset", String(query.offset ?? 0));
+  return getJson<UsScreenerResult>(`/api/us/screener?${p.toString()}`);
+}
+
+export function fetchUsDisclosures(ticker: string): Promise<UsDisclosure[]> {
+  return getJson<UsDisclosure[]>(`/api/us/companies/${encodeURIComponent(ticker)}/disclosures`);
 }
 
 export function fetchIndustrySentiment(

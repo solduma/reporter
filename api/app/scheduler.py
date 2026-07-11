@@ -70,6 +70,9 @@ _REPORT_BACKFILL_CRON = CronTrigger(hour=5, minute=0, timezone=_TZ)
 # 매크로/뉴스 이벤트 분류: 매일 07:00. 뉴스 수집 → LLM 분류 → 테마 구성종목 전파(StockEvent).
 # LLM 토큰을 쓰므로 하루 1회. 이벤트드리븐 스크리너의 '뉴스' 이벤트 소스.
 _NEWS_EVENTS_CRON = CronTrigger(hour=7, minute=0, timezone=_TZ)
+# US 배치는 미국 장 마감(16시 ET ≈ 06시 KST) 후. 유니버스 스냅샷 → 8-K 순.
+_US_UNIVERSE_CRON = CronTrigger(hour=6, minute=10, timezone=_TZ)
+_US_DISCLOSURE_CRON = CronTrigger(hour=6, minute=40, timezone=_TZ)
 
 
 def run_ingest_cycle(settings: Settings | None = None) -> dict:
@@ -168,6 +171,28 @@ def run_news_events(settings: Settings | None = None) -> dict:
         session.close()
 
 
+def run_us_universe_batch(settings: Settings | None = None) -> dict:
+    """US 유니버스 스냅샷(S&P500+보충 네이버 시세). US 스크리너 소스."""
+    from app.services import us_universe_ingest
+
+    session = SessionLocal()
+    try:
+        return us_universe_ingest.snapshot_us_universe(session)
+    finally:
+        session.close()
+
+
+def run_us_disclosure_batch(settings: Settings | None = None) -> dict:
+    """US 유니버스 종목의 최근 SEC 8-K 수집."""
+    from app.services import us_disclosure_ingest
+
+    session = SessionLocal()
+    try:
+        return us_disclosure_ingest.run_us_disclosure_batch(session, settings)
+    finally:
+        session.close()
+
+
 def build_scheduler(settings: Settings | None = None) -> BlockingScheduler:
     """잡이 등록된 스케줄러를 반환한다 (start 는 호출자가)."""
     settings = settings or get_settings()
@@ -224,6 +249,22 @@ def build_scheduler(settings: Settings | None = None) -> BlockingScheduler:
         _logged("news_events", run_news_events),
         trigger=_NEWS_EVENTS_CRON,
         id="news_events",
+        max_instances=1,
+        coalesce=True,
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        _logged("us_universe", run_us_universe_batch),
+        trigger=_US_UNIVERSE_CRON,
+        id="us_universe",
+        max_instances=1,
+        coalesce=True,
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        _logged("us_disclosure", run_us_disclosure_batch),
+        trigger=_US_DISCLOSURE_CRON,
+        id="us_disclosure",
         max_instances=1,
         coalesce=True,
         replace_existing=True,

@@ -1,0 +1,174 @@
+.page {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 28px 20px 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.title {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 700;
+}
+
+.tag {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--accent);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.asof {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.filters {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.filter {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.filter select {
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  font-size: 0.9rem;
+}
+
+.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  align-self: flex-end;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 12px 16px;
+  overflow-x: auto;
+}
+
+.tableHead {
+  display: flex;
+  justify-content: flex-end;
+  padding: 4px 0 8px;
+}
+
+.count {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.table th,
+.table td {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.table th {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.8rem;
+}
+
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.tickerLink {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  text-decoration: none;
+  color: inherit;
+}
+
+.tickerLink:hover .ticker {
+  color: var(--accent);
+}
+
+.ticker {
+  font-weight: 700;
+}
+
+.name {
+  font-size: 0.75rem;
+  color: var(--muted);
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.exch {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.up {
+  color: #c02b2b;
+}
+
+.down {
+  color: #1d4ed8;
+}
+
+.score {
+  font-weight: 700;
+}
+
+.badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #c02b2b;
+  border: 1px solid #f3cccc;
+  background: #fbe9e9;
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+.empty,
+.error {
+  color: var(--muted);
+  padding: 24px 0;
+  text-align: center;
+}
+
+.error {
+  color: var(--sell);
+}

@@ -3,8 +3,14 @@
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 
-import { fetchChart, fetchUsFinancials, fetchUsQuote } from "@/lib/api";
-import type { CandlePoint, ChartTimeframe, UsFinancial, UsQuote } from "@/lib/types";
+import { fetchChart, fetchUsDisclosures, fetchUsFinancials, fetchUsQuote } from "@/lib/api";
+import type {
+  CandlePoint,
+  ChartTimeframe,
+  UsDisclosure,
+  UsFinancial,
+  UsQuote,
+} from "@/lib/types";
 
 import styles from "./page.module.css";
 
@@ -40,6 +46,7 @@ export default function UsCompanyPage({ params }: { params: { ticker: string } }
   const [fin, setFin] = useState<UsFinancial | null>(null);
   const [candles, setCandles] = useState<CandlePoint[]>([]);
   const [tf, setTf] = useState<ChartTimeframe>("day");
+  const [disclosures, setDisclosures] = useState<UsDisclosure[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   // 시세 + 재무(각자 독립 로드). 재무는 SEC 첫 계산이 느릴 수 있어 시세를 먼저 보여준다.
@@ -53,6 +60,11 @@ export default function UsCompanyPage({ params }: { params: { ticker: string } }
       .then((f) => active && setFin(f))
       .catch(() => {
         /* 재무 없음(SEC 미등록)은 치명적 아님 — 차트·시세만 표시 */
+      });
+    void fetchUsDisclosures(ticker)
+      .then((d) => active && setDisclosures(d))
+      .catch(() => {
+        /* 공시 없음(배치 미수집)은 무해 */
       });
     return () => {
       active = false;
@@ -143,6 +155,25 @@ export default function UsCompanyPage({ params }: { params: { ticker: string } }
           <div className={styles.chartStatus}>차트 데이터가 없습니다</div>
         )}
       </section>
+
+      {disclosures.length > 0 ? (
+        <section className={styles.card}>
+          <div className={styles.cardHead}>
+            <h2 className={styles.sectionTitle}>최근 공시 (SEC 8-K)</h2>
+          </div>
+          <ul className={styles.filings}>
+            {disclosures.map((d) => (
+              <li key={d.accession} className={styles.filing}>
+                <span className={styles.filingDate}>{d.filing_date}</span>
+                <a href={d.primary_doc_url} target="_blank" rel="noreferrer" className={styles.filingTitle}>
+                  {d.title ?? d.form_type}
+                </a>
+                <span className={styles.filingForm}>{d.form_type}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
     </div>
   );
 }
