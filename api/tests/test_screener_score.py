@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from app.domain import scoring
-from app.routers import screener
+from app.services import screener_service as screener
 
 
 @dataclass
