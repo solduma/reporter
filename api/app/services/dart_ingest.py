@@ -10,9 +10,9 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from app.adapters import dart
 from app.config import Settings
 from app.db.models import CorpCodeMap, Disclosure, DisclosureSyncState, Sentiment
-from app.services import dart
 from app.services import sentiment as sentiment_svc
 from reporter.ollama_client import OllamaClient
 

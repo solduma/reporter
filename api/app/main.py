@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.adapters.realtime import manager as realtime_manager
 from app.db.session import init_db
 from app.routers import (
     admin,
@@ -20,7 +21,6 @@ from app.routers import (
     today,
 )
 from app.services import fallback_store
-from app.services.realtime import manager as realtime_manager
 from reporter import fallback
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")

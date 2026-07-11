@@ -8,9 +8,9 @@ from datetime import date
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from app.adapters.external import universe
 from app.adapters.persistence import SqlUniverseRepository
 from app.db.models import UniverseSnapshot
-from app.services import universe
 
 logger = logging.getLogger(__name__)
 

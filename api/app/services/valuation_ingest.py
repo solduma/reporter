@@ -20,9 +20,10 @@ import requests
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.adapters import dart
 from app.config import Settings
 from app.db.models import CorpCodeMap, Financial, UniverseSnapshot, ValuationSyncState
-from app.services import dart, universe_ingest
+from app.services import universe_ingest
 
 logger = logging.getLogger(__name__)
 

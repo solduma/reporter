@@ -7,7 +7,7 @@ import zipfile
 from datetime import UTC, date
 from unittest.mock import MagicMock
 
-from app.services import dart
+from app.adapters import dart
 
 _CORPCODE_XML = b"""<?xml version="1.0" encoding="UTF-8"?>
 <result>

@@ -5,7 +5,7 @@ from __future__ import annotations
 import io
 import zipfile
 
-from app.services import dart_report_parser as p
+from app.adapters.dart import report_parser as p
 
 
 def _zip(xml: str, name: str = "doc.xml") -> bytes:

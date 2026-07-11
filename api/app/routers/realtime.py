@@ -15,7 +15,7 @@ import logging
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import StreamingResponse
 
-from app.services.realtime import manager
+from app.adapters.realtime import manager
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/realtime", tags=["realtime"])

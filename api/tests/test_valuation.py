@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from app.services import dart, valuation_ingest
+from app.adapters.dart import client as dart
+from app.services import valuation_ingest
 
 
 def _row(sj, nm, amt):
