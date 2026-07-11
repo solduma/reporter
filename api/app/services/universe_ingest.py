@@ -8,10 +8,19 @@ from datetime import date
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from app.adapters.persistence import SqlUniverseRepository
 from app.db.models import UniverseSnapshot
 from app.services import universe
 
 logger = logging.getLogger(__name__)
+
+
+def latest_snapshot_date(db: Session) -> date | None:
+    """가장 최근 유니버스 스냅샷 날짜(UniverseRepository 위임). 없으면 None.
+
+    여러 라우터·서비스가 "오늘 기준 유니버스"를 잡을 때 쓰던 중복 쿼리를 이 헬퍼로 통일한다.
+    """
+    return SqlUniverseRepository(db).latest_snapshot_date()
 
 
 def snapshot_universe(db: Session, snapshot_date: date, markets: tuple[str, ...] = ("KOSDAQ", "KOSPI")) -> int:

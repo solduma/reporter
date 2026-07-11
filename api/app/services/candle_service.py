@@ -15,10 +15,9 @@ import time
 from datetime import datetime, timedelta
 
 import requests
-from sqlalchemy import func, select
-from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from app.adapters.persistence import SqlCandleRepository
 from app.config import get_settings
 from app.db.models import PriceCandle, PriceCandleIntraday, Timeframe
 from app.db.session import SessionLocal
@@ -56,81 +55,23 @@ def _cooldown_ok(key: str, cooldown: float = _REFRESH_COOLDOWN_S) -> bool:
 
 def read_periodic(db: Session, code: str, tf: str) -> list[PriceCandle]:
     """저장된 일/주/월봉을 날짜 오름차순으로 반환한다(외부 호출 없음)."""
-    return list(
-        db.scalars(
-            select(PriceCandle)
-            .where(PriceCandle.stock_code == code, PriceCandle.timeframe == Timeframe(tf))
-            .order_by(PriceCandle.bar_date)
-        ).all()
-    )
+    return SqlCandleRepository(db).read_periodic(code, tf)
 
 
 def read_intraday(db: Session, code: str, days: int = 14) -> list[PriceCandleIntraday]:
     """저장된 30분봉 최근 days 일치를 시각 오름차순으로 반환한다(외부 호출 없음)."""
-    window_start = datetime.now() - timedelta(days=days)
-    return list(
-        db.scalars(
-            select(PriceCandleIntraday)
-            .where(
-                PriceCandleIntraday.stock_code == code,
-                PriceCandleIntraday.bar_ts >= window_start,
-            )
-            .order_by(PriceCandleIntraday.bar_ts)
-        ).all()
-    )
+    return SqlCandleRepository(db).read_intraday(code, days)
 
 
 def _latest_bar_date(db: Session, code: str, tf: Timeframe):
-    return db.scalar(
-        select(func.max(PriceCandle.bar_date)).where(
-            PriceCandle.stock_code == code, PriceCandle.timeframe == tf
-        )
-    )
+    return SqlCandleRepository(db).latest_bar_date(code, tf)
 
 
 def batch_upsert_periodic(
     db: Session, code: str, tf: Timeframe, candles: list[chart.Candle]
 ) -> int:
-    """봉들을 단일 다중행 INSERT ... ON CONFLICT 로 upsert 한다(개별 execute 루프 제거).
-
-    반환값은 입력 봉 수(신규/갱신 구분 없이). 빈 입력이면 0.
-    """
-    if not candles:
-        return 0
-    # 같은 bar_date 가 중복되면 다중행 ON CONFLICT 가 "cannot affect row a second time"(21000)로
-    # 실패한다. 소스가 드물게 같은 날짜를 두 번 줄 수 있으므로 날짜별 마지막 값만 남긴다.
-    by_date: dict = {}
-    for c in candles:
-        by_date[c.ts.date()] = c
-    rows = [
-        {
-            "stock_code": code,
-            "timeframe": tf,
-            "bar_date": d,
-            "open": c.open,
-            "high": c.high,
-            "low": c.low,
-            "close": c.close,
-            "volume": c.volume,
-            "foreign_ratio": c.foreign_ratio,
-        }
-        for d, c in by_date.items()
-    ]
-    stmt = insert(PriceCandle).values(rows)
-    stmt = stmt.on_conflict_do_update(
-        constraint="uq_candle",
-        set_={
-            "open": stmt.excluded.open,
-            "high": stmt.excluded.high,
-            "low": stmt.excluded.low,
-            "close": stmt.excluded.close,
-            "volume": stmt.excluded.volume,
-            "foreign_ratio": stmt.excluded.foreign_ratio,
-        },
-    )
-    db.execute(stmt)
-    db.commit()
-    return len(rows)
+    """봉들을 upsert 한다(영속화는 CandleRepository 에 위임). 반영 건수 반환, 빈 입력이면 0."""
+    return SqlCandleRepository(db).upsert_periodic(code, tf, candles)
 
 
 def ensure_periodic(db: Session, code: str, tf: str, market: str = "KR") -> list[PriceCandle]:

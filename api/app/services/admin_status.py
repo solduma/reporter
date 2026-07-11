@@ -23,6 +23,7 @@ from app.db.models import (
     TradeStat,
     UniverseSnapshot,
 )
+from app.services import universe_ingest
 
 
 def table_counts(db: Session) -> dict[str, int]:
@@ -39,7 +40,7 @@ def table_counts(db: Session) -> dict[str, int]:
 def freshness(db: Session) -> dict[str, str]:
     """데이터 신선도 — 최신 적재 시점(문자열)."""
     latest_report = db.scalar(select(func.max(Report.published_date)))
-    latest_uni = db.scalar(select(func.max(UniverseSnapshot.snapshot_date)))
+    latest_uni = universe_ingest.latest_snapshot_date(db)
     uni_rows = 0
     if latest_uni:
         uni_rows = db.scalar(
@@ -97,7 +98,7 @@ def backfill_progress(db: Session) -> tuple[int, int]:
     done = db.scalar(
         select(func.count()).select_from(SyncState).where(SyncState.domain == "backfill_10y")
     ) or 0
-    latest_uni = db.scalar(select(func.max(UniverseSnapshot.snapshot_date)))
+    latest_uni = universe_ingest.latest_snapshot_date(db)
     total = 0
     if latest_uni:
         total = db.scalar(
@@ -146,7 +147,7 @@ def screener_preview(
     TUI 용 경량 조회. 라우터 screen() 은 FastAPI Query 기본값에 의존하므로 직접 호출하지
     않고 여기서 조회한다. total 은 페이지네이션 표시용 전체 건수.
     """
-    latest = db.scalar(select(func.max(UniverseSnapshot.snapshot_date)))
+    latest = universe_ingest.latest_snapshot_date(db)
     if not latest:
         return PreviewPage(rows=[], total=0)
 

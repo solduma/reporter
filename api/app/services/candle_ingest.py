@@ -18,13 +18,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 
 import requests
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
 from app.db.models import PriceCandle, PriceCandleIntraday, SyncState, Timeframe, UniverseSnapshot
-from app.services import candle_service, chart, intraday, kis, sync_state
+from app.services import candle_service, chart, intraday, kis, sync_state, universe_ingest
 from reporter.fallback import log_fallback
 
 logger = logging.getLogger(__name__)
@@ -41,7 +41,7 @@ _BATCH_STOCK_INTERVAL_S = 0.15
 
 def _universe_codes(db: Session) -> list[str]:
     """최신 스냅샷의 보통주 종목코드(ETF/ETN·우선주 제외)."""
-    as_of = db.scalar(select(func.max(UniverseSnapshot.snapshot_date)))
+    as_of = universe_ingest.latest_snapshot_date(db)
     if as_of is None:
         return []
     return list(

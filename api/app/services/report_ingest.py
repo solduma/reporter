@@ -15,7 +15,7 @@ import logging
 from datetime import UTC, date, datetime, timedelta
 
 import requests
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -29,7 +29,7 @@ from app.db.models import (
     Timeframe,
     UniverseSnapshot,
 )
-from app.services import dart, dart_report_parser, krx, sync_state
+from app.services import dart, dart_report_parser, krx, sync_state, universe_ingest
 
 logger = logging.getLogger(__name__)
 
@@ -134,7 +134,7 @@ def backfill_stock(
         return True
 
     if shares is None:  # 배치가 주지 않았으면(온디맨드 단건) 이때 조회.
-        latest = db.scalar(select(func.max(UniverseSnapshot.snapshot_date)))
+        latest = universe_ingest.latest_snapshot_date(db)
         if latest:
             with requests.Session() as s:
                 shares = krx.fetch_shares(settings.krx_api, latest.strftime("%Y%m%d"), code, s)
@@ -175,7 +175,7 @@ _PER_RUN = 100  # 보고서당 document.xml(수MB) 다운로드라 무거움 →
 
 
 def _universe_codes(db: Session) -> list[str]:
-    as_of = db.scalar(select(func.max(UniverseSnapshot.snapshot_date)))
+    as_of = universe_ingest.latest_snapshot_date(db)
     if as_of is None:
         return []
     return list(
@@ -209,7 +209,7 @@ def run_backfill_progressive(
     batch = pending[:per_run]
     # 주식수 시장맵을 배치당 1회만 조회(종목마다 전체시장 pull 반복 방지). 최신 스냅샷 기준.
     shares_map: dict[str, int] = {}
-    latest = db.scalar(select(func.max(UniverseSnapshot.snapshot_date)))
+    latest = universe_ingest.latest_snapshot_date(db)
     if latest:
         with requests.Session() as s:
             bas = latest.strftime("%Y%m%d")

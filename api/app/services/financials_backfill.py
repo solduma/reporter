@@ -18,7 +18,7 @@ import logging
 from datetime import UTC, date, datetime, timedelta
 
 import requests
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -31,7 +31,7 @@ from app.db.models import (
     Timeframe,
     UniverseSnapshot,
 )
-from app.services import dart, quote, sync_state
+from app.services import dart, quote, sync_state, universe_ingest
 
 logger = logging.getLogger(__name__)
 
@@ -213,7 +213,7 @@ _PER_RUN = 150
 
 
 def _universe_codes(db: Session) -> list[str]:
-    as_of = db.scalar(select(func.max(UniverseSnapshot.snapshot_date)))
+    as_of = universe_ingest.latest_snapshot_date(db)
     if as_of is None:
         return []
     return list(

@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import GrowthMetric as GrowthMetricRow
 from app.db.models import UniverseSnapshot
-from app.services import chart, growth, quote
+from app.services import chart, growth, quote, universe_ingest
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,7 @@ _STOCK_INTERVAL_S = 0.15
 
 
 def _latest_snapshot_date(db: Session) -> date | None:
-    return db.scalar(select(func.max(UniverseSnapshot.snapshot_date)))
+    return universe_ingest.latest_snapshot_date(db)
 
 
 def _momentum_3m(code: str, session: requests.Session) -> float | None:
