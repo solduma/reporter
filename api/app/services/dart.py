@@ -149,11 +149,13 @@ class IncomeEquity:
     net_income: float | None = None  # 지배주주 순이익, 누적
     eps: float | None = None  # 기본주당이익(원), 누적
     equity: float | None = None  # 지배주주 자본총계(BS 시점값)
+    operating_income: float | None = None  # 영업이익(EBITDA 산출용), 누적
 
 
 # IFRS 표준 account_id 로 매칭한다(계정명은 회사마다 편차가 커 신뢰 불가).
 # 과거(≤2018경) 공시는 구 태그(ifrs_*, 언더스코어), 최근은 ifrs-full_* (하이픈)을 쓴다 — 둘 다 본다.
 _AID_REVENUE = {"ifrs-full_Revenue", "ifrs_Revenue"}
+_AID_OP = {"dart_OperatingIncomeLoss", "ifrs-full_ProfitLossFromOperatingActivities"}
 _AID_NI_OWNERS = {
     "ifrs-full_ProfitLossAttributableToOwnersOfParent",
     "ifrs_ProfitLossAttributableToOwnersOfParent",
@@ -209,6 +211,8 @@ def _parse_income_equity(rows: list[dict]) -> IncomeEquity:
         # 지배주주 항목을 우선하되(덮어쓰기), 없으면 전체 항목으로 채운다(setdefault 성격).
         if aid in _AID_REVENUE and fin.revenue is None:
             fin.revenue = amt
+        elif aid in _AID_OP and fin.operating_income is None:
+            fin.operating_income = amt
         elif aid in _AID_NI_OWNERS:
             fin.net_income = amt  # 지배주주 우선(덮어씀)
         elif aid in _AID_NI and fin.net_income is None:
@@ -322,6 +326,46 @@ def fetch_disclosures(
         page += 1
 
     return disclosures
+
+
+# 정기공시 보고서 종류 → report_nm 키워드. 정정공시(재무 최신)를 위해 최신 접수건을 택한다.
+_REPORT_KEYWORDS = {"annual": "사업보고서", "half": "반기보고서", "quarter": "분기보고서"}
+
+
+def find_periodic_report(
+    api_key: str, corp_code: str, year: int, kind: str, session: requests.Session
+) -> str | None:
+    """해당 연도 정기공시(kind=annual|half|quarter)의 접수번호. 없으면 None.
+
+    보고서는 회계연도 종료 후 다음 해에 제출되므로 [year+1.01 ~ year+1.09]에서 찾는다.
+    정정 제출이 있으면 최신(가장 늦은 접수)을 택해 확정 재무를 쓴다. 분기는 1Q·3Q 둘 다
+    '분기보고서'라 여기선 최초 1건만 — 분기 상세 백필은 호출측이 접수일로 구분.
+    """
+    keyword = _REPORT_KEYWORDS.get(kind)
+    if not keyword:
+        return None
+    params = {
+        "crtfc_key": api_key,
+        "corp_code": corp_code,
+        "bgn_de": f"{year + 1}0101",
+        "end_de": f"{year + 1}0930",
+        "pblntf_ty": "A",  # 정기공시
+        "page_count": 100,
+    }
+    try:
+        resp = session.get(_LIST_URL, params=params, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+    except (requests.RequestException, ValueError) as e:
+        logger.warning("dart periodic list failed %s %s: %s", corp_code, year, e)
+        return None
+    if data.get("status") != "000":
+        return None
+    matches = [r for r in data.get("list", []) if keyword in (r.get("report_nm") or "")]
+    if not matches:
+        return None
+    # 접수일 최신순(정정 반영). rcept_no 는 시간순 증가라 최대값이 최신.
+    return max(matches, key=lambda r: r.get("rcept_no", "")).get("rcept_no")
 
 
 # 공시 본문 XML 의 태그를 제거해 순수 텍스트로. 표·서식은 버리고 판단에 쓸 서술만 남긴다.
