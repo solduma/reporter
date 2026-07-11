@@ -19,6 +19,14 @@ class _G:
     op_turnaround: bool
 
 
+@dataclass
+class _F:
+    per: float | None = None
+    pbr: float | None = None
+    roe: float | None = None
+    ev_ebitda: float | None = None
+
+
 def test_coverage_label():
     assert screener._coverage_label(0, 0) is None  # 커버 없음
     assert screener._coverage_label(3, 0) == "HOLD"  # 커버 있으나 BUY 없음
@@ -70,3 +78,45 @@ def test_growth_score_null_growth_low():
     mom_rank = screener._percentile_ranker([10.0])
     score = screener._growth_score(_U(10.0), None, 0, 0, rev_rank, op_rank, mom_rank)
     assert score <= 20  # 모멘텀(0.15)만 최대
+
+
+# ── 가치 전략 ──────────────────────────────────────────────────────────
+def test_cheap_ranker_lower_is_higher():
+    # 저평가 백분위: 값이 작을수록 1.0(PER/PBR 처럼 낮을수록 좋은 지표).
+    rank = screener._cheap_ranker([5.0, 10.0, 20.0, 40.0])
+    assert rank(5.0) == 1.0  # 최저 → 최고 점수
+    assert rank(40.0) == 0.0  # 최고 → 최저 점수
+    assert rank(None) == 0.0  # 결측
+    assert rank(-3.0) == 0.0  # 음수(적자 PER 등) → 최하
+
+
+def test_value_score_cheap_above_expensive():
+    per_rank = screener._cheap_ranker([3.0, 10.0, 30.0])
+    pbr_rank = screener._cheap_ranker([0.3, 1.0, 3.0])
+    ev_rank = screener._cheap_ranker([3.0, 8.0, 20.0])
+    cheap = screener._value_score(_F(per=3.0, pbr=0.3, roe=15.0, ev_ebitda=3.0), per_rank, pbr_rank, ev_rank)
+    pricey = screener._value_score(_F(per=30.0, pbr=3.0, roe=2.0, ev_ebitda=20.0), per_rank, pbr_rank, ev_rank)
+    assert cheap > pricey
+    assert 0 <= pricey <= 100 and 0 <= cheap <= 100
+
+
+def test_value_score_none_is_zero():
+    per_rank = pbr_rank = ev_rank = screener._cheap_ranker([10.0, 10.0])
+    assert screener._value_score(None, per_rank, pbr_rank, ev_rank) == 0.0
+
+
+def test_value_score_roe_bonus():
+    # ROE 가 높으면 가점(같은 밸류 배수라도).
+    per_rank = pbr_rank = ev_rank = screener._cheap_ranker([10.0, 10.0])
+    hi = screener._value_score(_F(per=10.0, pbr=10.0, roe=15.0), per_rank, pbr_rank, ev_rank)
+    lo = screener._value_score(_F(per=10.0, pbr=10.0, roe=0.0), per_rank, pbr_rank, ev_rank)
+    assert hi > lo
+
+
+# ── 이벤트 전략 ────────────────────────────────────────────────────────
+def test_event_kind_label_map():
+    # event_kind 쿼리 파라미터 → 표시 라벨 매핑.
+    assert screener._EVENT_KIND_LABEL["disclosure"] == "공시"
+    assert screener._EVENT_KIND_LABEL["surge"] == "급등락"
+    assert screener._EVENT_KIND_LABEL["broadcast"] == "브리핑"
+    assert screener._EVENT_KIND_LABEL["report"] == "리포트"
