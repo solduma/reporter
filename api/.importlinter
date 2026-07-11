@@ -1,0 +1,62 @@
+; 육각형 아키텍처 계층 계약(0단계). 코드 이동 없이 "지금 지켜지는 경계"를 고정한다.
+; 의존성 방향은 항상 안쪽(하위 계층)으로만 흐른다: routers → services → db.
+; 신규 위반(예: 서비스가 라우터를 import, worker 가 라우터에 의존)을 githook/CI 에서 차단한다.
+
+[importlinter]
+root_package = app
+
+[importlinter:contract:layers]
+name = 계층 방향 (routers → services → domain·db)
+type = layers
+layers =
+    app.routers
+    app.services
+    app.db
+; main(조립 루트)·scheduler·tui(진입 어댑터)는 여러 계층을 조합하므로 계층에 넣지 않는다.
+; 대신 아래 독립성/금지 계약으로 역방향 오염만 막는다.
+
+[importlinter:contract:domain-leaf]
+name = domain 은 순수 코어(app 내부 의존 0)
+type = forbidden
+source_modules =
+    app.domain
+forbidden_modules =
+    app.config
+    app.schemas
+    app.db
+    app.services
+    app.routers
+    app.storage
+    app.main
+    app.scheduler
+    app.tui
+
+[importlinter:contract:db-leaf]
+name = db 는 상위 계층을 모른다
+type = forbidden
+source_modules =
+    app.db
+forbidden_modules =
+    app.services
+    app.routers
+    app.schemas
+
+[importlinter:contract:config-schemas-leaf]
+name = config·schemas 는 순수 리프(앱 내부 의존 없음)
+type = forbidden
+source_modules =
+    app.config
+    app.schemas
+forbidden_modules =
+    app.db
+    app.services
+    app.routers
+
+[importlinter:contract:driving-adapters]
+name = worker·tui(진입 어댑터)는 라우터를 모른다
+type = forbidden
+source_modules =
+    app.scheduler
+    app.tui
+forbidden_modules =
+    app.routers
