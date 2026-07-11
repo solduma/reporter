@@ -363,3 +363,30 @@ export interface BroadcastDetail {
   stock_codes: string[];
   industries: string[];
 }
+
+// US 종목 현재 시세 + 네이버 차트 심볼(/api/us/companies/{ticker}/quote)
+export interface UsQuote {
+  ticker: string;
+  naver_symbol: string; // /api/chart?market=US 조회용
+  name: string | null;
+  close: number | null;
+  change_ratio: string | null;
+  rising: boolean | null;
+}
+
+// US 종목 재무 지표(SEC EDGAR 산출, /api/us/companies/{ticker}/financials)
+export interface UsFinancial {
+  ticker: string;
+  name: string | null;
+  ttm_revenue: number | null; // USD
+  ttm_net_income: number | null;
+  ttm_operating_income: number | null;
+  ttm_eps: number | null;
+  equity: number | null;
+  shares: number | null;
+  market_cap: number | null; // 근사(종가×주식수), USD
+  per: number | null;
+  pbr: number | null;
+  psr: number | null;
+  roe: number | null; // %
+}

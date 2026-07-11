@@ -33,6 +33,8 @@ import type {
   TimelineItem,
   TradePoint,
   TradePresets,
+  UsFinancial,
+  UsQuote,
 } from "@/lib/types";
 
 // 기본은 same-origin(빈 문자열) — 브라우저는 /api/... 를 현재 오리진으로 호출하고,
@@ -132,6 +134,14 @@ export function fetchChart(
   return getJson<CandlePoint[]>(
     `/api/chart?symbol=${encodeURIComponent(symbol)}&market=${market}&tf=${tf}`,
   );
+}
+
+export function fetchUsQuote(ticker: string): Promise<UsQuote> {
+  return getJson<UsQuote>(`/api/us/companies/${encodeURIComponent(ticker)}/quote`);
+}
+
+export function fetchUsFinancials(ticker: string): Promise<UsFinancial> {
+  return getJson<UsFinancial>(`/api/us/companies/${encodeURIComponent(ticker)}/financials`);
 }
 
 export function fetchIndustrySentiment(

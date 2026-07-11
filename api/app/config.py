@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     dart_api_key: str = ""
     customs_api_key: str = ""
 
+    # SEC EDGAR(US 재무) — 무인증이나 연락처 명시 User-Agent 필수(SEC 정책). 기본값은 일반 표기.
+    sec_user_agent: str = "reporter research contact@example.com"
+
     # 차트 폴백 소스: 네이버 실패 시 KIS(한국투자증권 OpenAPI)·KRX 로 국내 봉 조회.
     kis_app_key: str = ""
     kis_app_secret: str = ""

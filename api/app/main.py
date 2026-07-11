@@ -19,6 +19,7 @@ from app.routers import (
     realtime,
     screener,
     today,
+    us,
 )
 from app.services import fallback_store
 from reporter import fallback
@@ -59,6 +60,7 @@ app.include_router(market.router)
 app.include_router(admin.router)
 app.include_router(broadcasts.router)
 app.include_router(realtime.router)
+app.include_router(us.router)
 
 
 @app.get("/health")

@@ -291,3 +291,28 @@ class BroadcastDetail(BaseModel):
     source_refs: dict
     stock_codes: list[str]
     industries: list[str]
+
+
+class UsFinancialOut(BaseModel):
+    ticker: str
+    name: str | None
+    ttm_revenue: float | None  # USD
+    ttm_net_income: float | None
+    ttm_operating_income: float | None
+    ttm_eps: float | None
+    equity: float | None
+    shares: float | None
+    market_cap: float | None  # 근사(종가 x 주식수), USD
+    per: float | None
+    pbr: float | None
+    psr: float | None
+    roe: float | None  # %
+
+
+class UsQuoteOut(BaseModel):
+    ticker: str
+    naver_symbol: str  # 차트 조회용(/api/chart?market=US)
+    name: str | None
+    close: float | None
+    change_ratio: str | None
+    rising: bool | None
