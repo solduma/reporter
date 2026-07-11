@@ -64,6 +64,22 @@ def test_sort_by_market_cap(db):
     assert [i.ticker for i in r.items] == ["NVDA", "JPM", "XOM"]  # 시총 내림차순
 
 
+def test_sort_momentum_zero_not_below_negative(db):
+    # 회귀(falsy-0.0 버그): momentum 0.0 종목이 -50% 종목보다 위여야 한다.
+    # 픽스처 모멘텀: JPM 20.0, NVDA 5.0, XOM -2.0 → 0.0 을 가진 행을 추가.
+    db.add(UsUniverse(snapshot_date=_AS_OF, ticker="FLAT", naver_symbol="FLAT", name="Flat",
+                      exchange="NYSE", sector="X", close_price=10.0, change_pct=0.0,
+                      market_cap=1e9, trading_value=1e6, per=10.0, pbr=1.0, eps=1.0,
+                      high_52w=12.0, low_52w=8.0, momentum_3m=0.0))
+    db.add(UsUniverse(snapshot_date=_AS_OF, ticker="DROP", naver_symbol="DROP", name="Drop",
+                      exchange="NYSE", sector="X", close_price=5.0, change_pct=-3.0,
+                      market_cap=1e9, trading_value=1e6, per=10.0, pbr=1.0, eps=1.0,
+                      high_52w=12.0, low_52w=4.0, momentum_3m=-50.0))
+    db.commit()
+    order = [i.ticker for i in scr.screen(db, sort="momentum").items]
+    assert order.index("FLAT") < order.index("DROP")  # 0.0 이 -50% 보다 위
+
+
 def test_near_high_pct_computed(db):
     r = scr.screen(db, sort="market_cap")
     nvda = next(i for i in r.items if i.ticker == "NVDA")
