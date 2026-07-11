@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import styles from "./NavBar.module.css";
 
@@ -18,11 +18,35 @@ export default function NavBar() {
   const pathname = usePathname();
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const navRef = useRef<HTMLElement>(null);
 
-  // 경로가 바뀌면(링크 이동) 모바일 메뉴를 닫는다.
+  // 경로가 바뀌면(다른 페이지 이동) 모바일 메뉴를 닫는다.
   useEffect(() => {
     setOpen(false);
   }, [pathname]);
+
+  // 열린 동안 바깥 클릭·Escape 로도 닫는다(같은 페이지 링크 탭 등 pathname 불변 케이스 보완).
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const onDown = (e: MouseEvent) => {
+      if (navRef.current && !navRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
 
   // 로그인 화면에는 내비게이션을 노출하지 않는다.
   if (pathname === "/login") {
@@ -38,8 +62,8 @@ export default function NavBar() {
 
   return (
     <header className={styles.header}>
-      <nav className={styles.nav}>
-        <Link href="/" className={styles.brand}>
+      <nav className={styles.nav} ref={navRef}>
+        <Link href="/" className={styles.brand} onClick={() => setOpen(false)}>
           <span className={styles.brandMark}>☕</span>
           <span>Report Pulse</span>
         </Link>
@@ -48,7 +72,7 @@ export default function NavBar() {
         <button
           type="button"
           className={styles.menuToggle}
-          aria-label="메뉴 열기"
+          aria-label={open ? "메뉴 닫기" : "메뉴 열기"}
           aria-expanded={open}
           onClick={() => setOpen((v) => !v)}
         >
@@ -68,7 +92,11 @@ export default function NavBar() {
             }
             return (
               <li key={link.href}>
-                <Link href={link.href} className={classes.join(" ")}>
+                <Link
+                  href={link.href}
+                  className={classes.join(" ")}
+                  onClick={() => setOpen(false)}
+                >
                   {link.label}
                 </Link>
               </li>
