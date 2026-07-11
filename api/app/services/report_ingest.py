@@ -84,10 +84,13 @@ def _upsert_report(db: Session, code: str, period: str, kind: str, rcept_no: str
     db.execute(stmt)
 
 
-def backfill_stock(db: Session, settings: Settings, code: str) -> bool:
+def backfill_stock(
+    db: Session, settings: Settings, code: str, shares: int | None = None
+) -> bool:
     """한 종목의 보고서 재무를 원문 파싱해 report_financials 적재 + EV/EBITDA 재산출.
 
-    성공(또는 데이터없음 확정) 시 True. 일시 실패면 False(재시도).
+    shares(현재 상장주식수)를 주면 KRX 조회를 생략한다(배치가 시장맵을 1회 받아 넘김). 없으면
+    단건 조회. 성공(또는 데이터없음 확정) 시 True. 일시 실패면 False(재시도).
     """
     corp_code = db.scalar(select(CorpCodeMap.corp_code).where(CorpCodeMap.stock_code == code))
     if not corp_code:
@@ -130,28 +133,26 @@ def backfill_stock(db: Session, settings: Settings, code: str) -> bool:
     if not any_data:
         return True
 
-    _recompute_ev_ebitda(db, settings, code, annual_ev)
+    if shares is None:  # 배치가 주지 않았으면(온디맨드 단건) 이때 조회.
+        latest = db.scalar(select(func.max(UniverseSnapshot.snapshot_date)))
+        if latest:
+            with requests.Session() as s:
+                shares = krx.fetch_shares(settings.krx_api, latest.strftime("%Y%m%d"), code, s)
+    _recompute_ev_ebitda(db, code, annual_ev, shares)
     db.commit()
     logger.info("report backfill %s: %d annual EV periods", code, len(annual_ev))
     return True
 
 
 def _recompute_ev_ebitda(
-    db: Session, settings: Settings, code: str, annual_ev: dict[str, tuple[float, float | None]]
+    db: Session, code: str, annual_ev: dict[str, tuple[float, float | None]], shares: int | None
 ) -> None:
     """연간 EBITDA·순차입으로 EV/EBITDA 를 산출해 financials 에 반영(연간 .12 행만 소유).
 
     EV = 시총(분기말 수정종가 x 현재 주식수) + 순차입. 순차입 결측이면 EV≈시총.
     valuation_ingest 는 .12 행 ev_ebitda 를 건드리지 않아(방법론 통일) 여기가 단일 소유자.
     """
-    if not annual_ev:
-        return
-    latest = db.scalar(select(func.max(UniverseSnapshot.snapshot_date)))
-    if not latest:
-        return
-    with requests.Session() as s:
-        shares = krx.fetch_shares(settings.krx_api, latest.strftime("%Y%m%d"), code, s)
-    if not shares:
+    if not annual_ev or not shares:
         return
     for period, (ebitda, net_debt) in annual_ev.items():
         if ebitda <= 0:
@@ -206,10 +207,18 @@ def run_backfill_progressive(
         return {"done": 0, "failed": 0, "remaining": 0}
     pending = [c for c in codes if c not in _done_codes(db)]
     batch = pending[:per_run]
+    # 주식수 시장맵을 배치당 1회만 조회(종목마다 전체시장 pull 반복 방지). 최신 스냅샷 기준.
+    shares_map: dict[str, int] = {}
+    latest = db.scalar(select(func.max(UniverseSnapshot.snapshot_date)))
+    if latest:
+        with requests.Session() as s:
+            bas = latest.strftime("%Y%m%d")
+            for market in ("KOSPI", "KOSDAQ"):
+                shares_map.update(krx.fetch_shares_by_date(settings.krx_api, bas, s, market))
     done = failed = 0
     for code in batch:
         try:
-            if backfill_stock(db, settings, code):
+            if backfill_stock(db, settings, code, shares=shares_map.get(code)):
                 sync_state.mark(db, _BACKFILL_DOMAIN, code)
                 db.commit()
                 done += 1
