@@ -95,8 +95,8 @@ def backfill_stock(db: Session, settings: Settings, code: str) -> bool:
 
     today = datetime.now(UTC).date()
     any_data = False
-    # (year, kind) → EBITDA(원), 매출(원) 캐시(EV/EBITDA 재산출용).
-    ebitda_by_period: dict[str, float] = {}
+    # 연간 period → (EBITDA 원, 순차입 원|None). EV/EBITDA 재산출용(annual 만).
+    annual_ev: dict[str, tuple[float, float | None]] = {}
     with requests.Session() as session:
         for year, kind in _target_reports(today):
             rcept_no = dart.find_periodic_report(settings.dart_api_key, corp_code, year, kind, session)
@@ -119,31 +119,33 @@ def backfill_stock(db: Session, settings: Settings, code: str) -> bool:
                 net_income=fin.net_income,
                 equity=fin.equity,
                 eps=fin.eps,
-                depreciation=dep,
-                amortization=None,  # parse_cf_depreciation 는 감가+무형 합산값을 depreciation 에 담음
+                depreciation=dep,  # parse_cf_depreciation 은 감가+무형 합산값(모델 주석 참조)
+                amortization=None,
             )
-            # EBITDA = 영업이익 + D&A. 둘 다 있어야 산출.
-            if fin.operating_income is not None and dep is not None:
-                ebitda_by_period[period] = fin.operating_income + dep
+            # EBITDA = 영업이익 + D&A. 연간만 EV/EBITDA 대상(반기/분기 누적은 TTM 아님).
+            if kind == "annual" and fin.operating_income is not None and dep is not None:
+                annual_ev[period] = (fin.operating_income + dep, fin.net_debt)
             db.commit()
 
     if not any_data:
         return True
 
-    _recompute_ev_ebitda(db, settings, code, ebitda_by_period)
+    _recompute_ev_ebitda(db, settings, code, annual_ev)
     db.commit()
-    logger.info("report backfill %s: %d periods", code, len(ebitda_by_period))
+    logger.info("report backfill %s: %d annual EV periods", code, len(annual_ev))
     return True
 
 
 def _recompute_ev_ebitda(
-    db: Session, settings: Settings, code: str, ebitda_by_period: dict[str, str]
+    db: Session, settings: Settings, code: str, annual_ev: dict[str, tuple[float, float | None]]
 ) -> None:
-    """연간 EBITDA 로 EV/EBITDA 를 산출해 financials 에 반영.
+    """연간 EBITDA·순차입으로 EV/EBITDA 를 산출해 financials 에 반영(연간 .12 행만 소유).
 
-    EV ≈ 시총(분기말 수정종가 x 현재 주식수)으로 근사(순차입 미수집 — 후속 정밀화 여지).
-    annual 기간만 사용(반기/분기 누적값은 TTM 아님).
+    EV = 시총(분기말 수정종가 x 현재 주식수) + 순차입. 순차입 결측이면 EV≈시총.
+    valuation_ingest 는 .12 행 ev_ebitda 를 건드리지 않아(방법론 통일) 여기가 단일 소유자.
     """
+    if not annual_ev:
+        return
     latest = db.scalar(select(func.max(UniverseSnapshot.snapshot_date)))
     if not latest:
         return
@@ -151,14 +153,15 @@ def _recompute_ev_ebitda(
         shares = krx.fetch_shares(settings.krx_api, latest.strftime("%Y%m%d"), code, s)
     if not shares:
         return
-    for period, ebitda in ebitda_by_period.items():
-        if not period.endswith(".12") or ebitda <= 0:  # 연간(12월)만
+    for period, (ebitda, net_debt) in annual_ev.items():
+        if ebitda <= 0:
             continue
         year = int(period.split(".")[0])
         close = _quarter_end_close(db, code, year, "annual")
         if not close:
             continue
-        ev_ebitda = round((close * shares) / ebitda, 2)
+        ev = close * shares + (net_debt or 0.0)
+        ev_ebitda = round(ev / ebitda, 2)
         stmt = insert(Financial).values(
             stock_code=code, period=period, is_estimate=False, ev_ebitda=ev_ebitda
         )

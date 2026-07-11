@@ -150,6 +150,15 @@ class IncomeEquity:
     eps: float | None = None  # 기본주당이익(원), 누적
     equity: float | None = None  # 지배주주 자본총계(BS 시점값)
     operating_income: float | None = None  # 영업이익(EBITDA 산출용), 누적
+    borrowings: float | None = None  # 총차입(단기·장기·사채, BS 시점값) — EV 순차입용
+    cash: float | None = None  # 현금및현금성자산(BS 시점값)
+
+    @property
+    def net_debt(self) -> float | None:
+        """순차입 = 총차입 - 현금. 둘 다 없으면 None(EV 산출 시 순차입 0 취급 대신 미반영)."""
+        if self.borrowings is None and self.cash is None:
+            return None
+        return (self.borrowings or 0.0) - (self.cash or 0.0)
 
 
 # IFRS 표준 account_id 로 매칭한다(계정명은 회사마다 편차가 커 신뢰 불가).
@@ -202,9 +211,14 @@ def fetch_income_and_equity(
 
 
 def _parse_income_equity(rows: list[dict]) -> IncomeEquity:
+    """손익·자본은 account_id(안정), 차입금·현금은 계정명(표준태그 불안정)으로 함께 뽑는다."""
     fin = IncomeEquity()
+    borrowings = 0.0
+    got_borrowing = False
     for row in rows:
         aid = row.get("account_id") or ""
+        nm = (row.get("account_nm") or "").replace(" ", "")
+        sj = row.get("sj_div")
         amt = _amount(row)
         if amt is None:
             continue
@@ -223,6 +237,16 @@ def _parse_income_equity(rows: list[dict]) -> IncomeEquity:
             fin.equity = amt  # 지배주주 우선
         elif aid in _AID_EQ and fin.equity is None:
             fin.equity = amt
+        # 순차입용: 차입금 합산·현금(BS 계정명). 누계·잔액 아님.
+        elif sj == "BS" and nm == "현금및현금성자산" and fin.cash is None:
+            fin.cash = amt
+        elif sj == "BS" and any(
+            k in nm for k in ("단기차입금", "장기차입금", "사채", "유동성장기부채")
+        ) and "누계" not in nm:
+            borrowings += amt
+            got_borrowing = True
+    if got_borrowing:
+        fin.borrowings = borrowings
     return fin
 
 
@@ -328,27 +352,32 @@ def fetch_disclosures(
     return disclosures
 
 
-# 정기공시 보고서 종류 → report_nm 키워드. 정정공시(재무 최신)를 위해 최신 접수건을 택한다.
+# 정기공시 종류 → (report_nm 키워드, 회계연도 종료월). '분기보고서'는 1Q·3Q 둘 다라 report_nm
+# 의 대상기간(YYYY.03)으로 1Q 를 특정한다.
 _REPORT_KEYWORDS = {"annual": "사업보고서", "half": "반기보고서", "quarter": "분기보고서"}
+_REPORT_PERIOD_MONTH = {"annual": "12", "half": "06", "quarter": "03"}
 
 
 def find_periodic_report(
     api_key: str, corp_code: str, year: int, kind: str, session: requests.Session
 ) -> str | None:
-    """해당 연도 정기공시(kind=annual|half|quarter)의 접수번호. 없으면 None.
+    """해당 회계연도 정기공시(kind=annual|half|quarter)의 접수번호. 없으면 None.
 
-    보고서는 회계연도 종료 후 다음 해에 제출되므로 [year+1.01 ~ year+1.09]에서 찾는다.
-    정정 제출이 있으면 최신(가장 늦은 접수)을 택해 확정 재무를 쓴다. 분기는 1Q·3Q 둘 다
-    '분기보고서'라 여기선 최초 1건만 — 분기 상세 백필은 호출측이 접수일로 구분.
+    제출 시점이 종류마다 다르다: 사업보고서는 다음 해 3월, 반기/분기는 당해 회계연도 내
+    (반기 ~8월·분기 ~5/11월). 따라서 조회 창을 종류별로 다르게 잡는다. '분기보고서'는 1Q·3Q
+    둘 다 매칭되므로 report_nm 의 대상기간(YYYY.03)으로 1Q 만 고른다. 정정 제출이 있으면
+    최신(가장 늦은 접수)을 택해 확정 재무를 쓴다.
     """
     keyword = _REPORT_KEYWORDS.get(kind)
     if not keyword:
         return None
+    # annual 은 다음 해 상반기 제출, half/quarter 는 당해 연중 제출.
+    begin, end = (f"{year + 1}0101", f"{year + 1}0930") if kind == "annual" else (f"{year}0301", f"{year + 1}0331")
     params = {
         "crtfc_key": api_key,
         "corp_code": corp_code,
-        "bgn_de": f"{year + 1}0101",
-        "end_de": f"{year + 1}0930",
+        "bgn_de": begin,
+        "end_de": end,
         "pblntf_ty": "A",  # 정기공시
         "page_count": 100,
     }
@@ -361,7 +390,12 @@ def find_periodic_report(
         return None
     if data.get("status") != "000":
         return None
-    matches = [r for r in data.get("list", []) if keyword in (r.get("report_nm") or "")]
+    # 대상 회계연도·기간이 report_nm 에 'YYYY.MM' 로 명시된다(예: '분기보고서 (2026.03)').
+    tag = f"{year}.{_REPORT_PERIOD_MONTH[kind]}"
+    matches = [
+        r for r in data.get("list", [])
+        if keyword in (r.get("report_nm") or "") and tag in (r.get("report_nm") or "")
+    ]
     if not matches:
         return None
     # 접수일 최신순(정정 반영). rcept_no 는 시간순 증가라 최대값이 최신.

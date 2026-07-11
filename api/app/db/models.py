@@ -168,8 +168,10 @@ class ReportFinancial(Base):
     net_income: Mapped[float | None] = mapped_column(Float)  # 지배주주
     equity: Mapped[float | None] = mapped_column(Float)  # 지배주주 자본(BS 시점)
     eps: Mapped[float | None] = mapped_column(Float)
-    depreciation: Mapped[float | None] = mapped_column(Float)  # 현금흐름표 감가상각비
-    amortization: Mapped[float | None] = mapped_column(Float)  # 현금흐름표 무형자산상각비
+    # 현금흐름표 D&A. 파서가 감가상각+무형자산상각을 합산해 depreciation 에 담는다(개별 분리
+    # 불가한 종목이 많아). amortization 은 예비 컬럼(현재 미사용, 항상 None).
+    depreciation: Mapped[float | None] = mapped_column(Float)  # 감가상각비+무형자산상각비 합
+    amortization: Mapped[float | None] = mapped_column(Float)  # 예비(미사용)
     parsed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
