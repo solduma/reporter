@@ -581,3 +581,26 @@ class UsUniverse(Base):
     high_52w: Mapped[float | None] = mapped_column(Float)
     low_52w: Mapped[float | None] = mapped_column(Float)
     momentum_3m: Mapped[float | None] = mapped_column(Float)  # 3개월 수익률% (봉에서 계산)
+
+
+class UsDisclosure(Base):
+    """US 공시(SEC EDGAR 8-K 등) — KR Disclosure(DART, String(6)/rcept_no)와 별개 테이블.
+
+    accession(18자+대시)·form_type·CIK 는 DART 스키마에 안 맞아 US 전용으로 둔다(Approach A).
+    sentiment/rationale 는 조회 시 LLM 요약(비용 통제). filing_date·primary_doc_url 로 원문 링크.
+    """
+
+    __tablename__ = "us_disclosures"
+    __table_args__ = (UniqueConstraint("accession", name="uq_us_disclosure"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ticker: Mapped[str] = mapped_column(String(16), index=True)
+    cik: Mapped[str] = mapped_column(String(10))
+    accession: Mapped[str] = mapped_column(String(24))  # 0000320193-24-000123
+    form_type: Mapped[str] = mapped_column(String(16))  # 8-K | 10-K | 10-Q ...
+    filing_date: Mapped[date] = mapped_column(Date, index=True)
+    primary_doc_url: Mapped[str] = mapped_column(Text)
+    title: Mapped[str | None] = mapped_column(Text)  # 8-K item 요약(수집 시 기재)
+    sentiment: Mapped[Sentiment | None] = mapped_column(Enum(Sentiment))
+    rationale: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

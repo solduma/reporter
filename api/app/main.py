@@ -61,6 +61,7 @@ app.include_router(admin.router)
 app.include_router(broadcasts.router)
 app.include_router(realtime.router)
 app.include_router(us.router)
+app.include_router(us.screener_router)
 
 
 @app.get("/health")

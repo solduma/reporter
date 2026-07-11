@@ -316,3 +316,27 @@ class UsQuoteOut(BaseModel):
     close: float | None
     change_ratio: str | None
     rising: bool | None
+
+
+class UsScreenerRow(BaseModel):
+    ticker: str
+    name: str
+    exchange: str | None  # NASDAQ | NYSE
+    sector: str | None
+    close_price: float | None  # USD
+    change_pct: float | None
+    market_cap: float | None  # USD
+    trading_value: float | None  # USD
+    per: float | None
+    pbr: float | None
+    eps: float | None
+    momentum_3m: float | None  # %
+    near_high_pct: float | None  # 52주 고점 근접도 %
+    has_recent_8k: bool  # 최근 이벤트(8-K) 유무 — 이벤트 스크리너용
+    score: float | None  # 0~100 (저평가·모멘텀 종합)
+
+
+class UsScreenerResult(BaseModel):
+    as_of: str | None
+    total: int
+    items: list[UsScreenerRow]

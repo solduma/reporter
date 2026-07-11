@@ -96,3 +96,29 @@ def value_score(
         div_bonus = max(0.0, min(div_yield / 5.0, 1.0)) * 0.08
     score = 0.35 * pbr_r + 0.28 * per_r + 0.17 * ev_r + roe_bonus + div_bonus
     return round(min(score, 1.0) * 100, 1)
+
+
+def us_screen_score(
+    *,
+    per: float | None,
+    pbr: float | None,
+    momentum_3m: float | None,
+    near_high_pct: float | None,
+    per_rank: Ranker,
+    pbr_rank: Ranker,
+    mom_rank: Ranker,
+) -> float:
+    """US 스크리너 종합 스코어(0~100). 저PER·저PBR(집합 내 백분위) + 모멘텀 + 신고가 근접.
+
+    가치(저평가)와 모멘텀(주도력)을 함께 본다: 저PBR 0.30 + 저PER 0.25 + 모멘텀 0.30 +
+    신고가근접 0.15. per/pbr 랭커는 cheap_ranker(작을수록 1.0), mom 은 percentile_ranker.
+    """
+    per_r = per_rank(per)
+    pbr_r = pbr_rank(pbr)
+    mom_r = mom_rank(momentum_3m)
+    # 신고가 근접(0.7~1.0 → 0~1). near_high_pct 는 종가/52주고가 비율(%)로 호출측이 넘긴다.
+    nh = 0.0
+    if near_high_pct is not None:
+        nh = max(0.0, min((near_high_pct / 100 - 0.7) / 0.3, 1.0))
+    score = 0.30 * pbr_r + 0.25 * per_r + 0.30 * mom_r + 0.15 * nh
+    return round(min(score, 1.0) * 100, 1)
