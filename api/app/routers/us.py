@@ -10,8 +10,8 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from sqlalchemy.orm import Session
 
 from app.db.session import get_session
-from app.schemas import UsFinancialOut, UsQuoteOut, UsScreenerResult
-from app.services import us_company_service, us_screener_service
+from app.schemas import UsDisclosureOut, UsFinancialOut, UsQuoteOut, UsScreenerResult
+from app.services import us_company_service, us_disclosure_ingest, us_screener_service
 
 router = APIRouter(prefix="/api/us/companies", tags=["us"])
 screener_router = APIRouter(prefix="/api/us/screener", tags=["us"])
@@ -69,3 +69,19 @@ def us_financials(
         equity=row.equity, shares=row.shares, market_cap=row.market_cap,
         per=row.per, pbr=row.pbr, psr=row.psr, roe=row.roe,
     )
+
+
+@router.get("/{ticker}/disclosures", response_model=list[UsDisclosureOut])
+def us_disclosures(
+    ticker: str = Path(..., pattern=r"^[A-Za-z.\-]{1,10}$"),
+    db: Session = Depends(get_session),
+) -> list[UsDisclosureOut]:
+    """US 종목 최근 SEC 8-K 공시(야간 배치 수집분). 상세 타임라인용."""
+    return [
+        UsDisclosureOut(
+            accession=d.accession, form_type=d.form_type, filing_date=d.filing_date,
+            title=d.title, primary_doc_url=d.primary_doc_url,
+            sentiment=d.sentiment.value if d.sentiment else None,
+        )
+        for d in us_disclosure_ingest.recent_disclosures(db, ticker)
+    ]

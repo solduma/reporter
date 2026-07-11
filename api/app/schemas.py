@@ -340,3 +340,12 @@ class UsScreenerResult(BaseModel):
     as_of: str | None
     total: int
     items: list[UsScreenerRow]
+
+
+class UsDisclosureOut(BaseModel):
+    accession: str
+    form_type: str
+    filing_date: date
+    title: str | None  # 8-K item 요약
+    primary_doc_url: str
+    sentiment: str | None

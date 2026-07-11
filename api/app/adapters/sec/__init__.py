@@ -5,15 +5,21 @@
 
 from app.adapters.sec import throttle
 from app.adapters.sec.client import (
+    Filing,
     company_name,
+    describe_8k_items,
     fetch_company_facts,
+    fetch_recent_filings,
     resolve_cik,
     ticker_map,
 )
 
 __all__ = [
+    "Filing",
     "company_name",
+    "describe_8k_items",
     "fetch_company_facts",
+    "fetch_recent_filings",
     "resolve_cik",
     "throttle",
     "ticker_map",
