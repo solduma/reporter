@@ -11,7 +11,6 @@ from app.db.session import get_session
 from app.domain.analysis_scoring import SENTIMENT_SCORE
 from app.schemas import IndustrySummary, ReportRef, SectorStock, SentimentPoint, TradePoint
 from app.services import industry_service, trade_service
-from reporter import sector_etf, us_market
 
 router = APIRouter(prefix="/api/industries", tags=["industries"])
 
@@ -62,11 +61,7 @@ def _kr_sector_stocks(
     db: Session, industry: str, sort: str, limit: int, offset: int
 ) -> list[SectorStock]:
     """산업명 → 섹터 소속 종목 + 최신 시세. sort=cap|value 정렬 후 [offset:offset+limit]."""
-    codes = industry_service.sector_stock_codes(db, industry)
-    if not codes:
-        return []
-
-    rows = industry_service.kr_sector_stock_rows(db, industry, codes)
+    rows = industry_service.kr_sector_stock_rows(db, industry)
     key_idx = 5 if sort == "value" else 4  # value=거래대금, cap=시총
     rows = sorted(rows, key=lambda r: r[key_idx] or 0, reverse=True)[offset : offset + limit]
     out: list[SectorStock] = []
@@ -87,13 +82,7 @@ def _kr_sector_stocks(
 
 
 def _us_sector_stocks(industry: str, limit: int, offset: int) -> list[SectorStock]:
-    """산업명 → 대응 미국 섹터 대표종목 + 네이버 시세. 정적 목록이라 [offset:offset+limit] 슬라이스."""
-    kr_sector = sector_etf.themes_to_kr_sector([industry])
-    us_sector = sector_etf.kr_sector_to_us(kr_sector)
-    symbols = sector_etf.us_sector_stocks(us_sector)[offset : offset + limit]
-    if not symbols:
-        return []
-    quotes = us_market.fetch_us_stock_quotes(symbols)
+    """산업명 → 대응 미국 섹터 대표종목 + 네이버 시세. 외부 조회는 industry_service 가 담당."""
     return [
         SectorStock(
             name=q.name,
@@ -104,7 +93,7 @@ def _us_sector_stocks(industry: str, limit: int, offset: int) -> list[SectorStoc
             change_ratio=q.change_ratio,
             rising=q.rising,
         )
-        for symbol, q in quotes
+        for symbol, q in industry_service.us_sector_stock_quotes(industry, limit, offset)
     ]
 
 

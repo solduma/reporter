@@ -122,13 +122,15 @@ def rotation_score(avg_sentiment: float, report_count: int, max_count: int) -> f
     return round((0.7 * (avg_sentiment + 1) / 2 + 0.3 * report_count / max_count) * 100, 1)
 
 
-# ── 라벨·분류 규칙 ────────────────────────────────────────────────────
-def flow_label(score: float | None) -> str:
-    """자금유입 강도(0~100)를 '강함/보통/약함' 라벨 + 점수로."""
+# ── 분류 규칙(임계값 정책) ────────────────────────────────────────────
+def flow_strength(score: float | None) -> str | None:
+    """자금유입 강도(0~100)를 등급으로 분류(임계 60/40). None 은 None(표시는 호출측 책임).
+
+    한글 라벨·포매팅 같은 표현(presentation)은 도메인 밖(라우터 edge)에서 한다.
+    """
     if score is None:
-        return "—"
-    tag = "강함" if score >= 60 else "보통" if score >= 40 else "약함"
-    return f"{tag} {score:.0f}"
+        return None
+    return "strong" if score >= 60 else "moderate" if score >= 40 else "weak"
 
 
 # 센티먼트 → 수치(시계열 평균 산출용). BUY +1, HOLD 0, SELL -1.

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.routers.companies import _search_rank
+from app.routers.companies import _flow_label, _search_rank
 
 
 def test_exact_code_match_ranks_first():
@@ -17,6 +17,14 @@ def test_code_prefix_beats_name_prefix():
 def test_name_substring_is_lowest():
     # 접두어가 아닌 부분일치(이름 중간 매칭)는 최하위 랭크.
     assert _search_rank("전자", "005930", "삼성전자") == 3
+
+
+def test_flow_label_presentation():
+    # 라우터 edge 의 표시 문자열(도메인 flow_strength 등급 → 한글 라벨 + 점수).
+    assert _flow_label(None) == "—"
+    assert _flow_label(75) == "강함 75"
+    assert _flow_label(50) == "보통 50"
+    assert _flow_label(30) == "약함 30"
 
 
 def test_ranking_order_sorts_by_rank_then_cap():

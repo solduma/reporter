@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Report, ReportAnalysis, UniverseSnapshot
 from app.services import sector_ingest, universe_ingest
+from reporter import sector_etf, us_market
 
 
 def industry_counts(db: Session) -> list[tuple[str, int]]:
@@ -44,8 +45,14 @@ def sentiment_rows(
     return list(db.execute(stmt).all())
 
 
-def kr_sector_stock_rows(db: Session, industry: str, codes: list[str]) -> list[tuple]:
-    """최신 유니버스 스냅샷에서 해당 종목들의 (코드,명,종가,등락,시총,거래대금)."""
+def kr_sector_stock_rows(db: Session, industry: str) -> list[tuple]:
+    """산업의 국내 섹터 소속 종목 + 최신 시세 (코드,명,종가,등락,시총,거래대금).
+
+    산업명 → judal 테마 매칭 종목코드(sector_ingest) → 최신 스냅샷 시세. 매칭 없으면 빈 리스트.
+    """
+    codes = sector_ingest.sector_stock_codes(db, industry)
+    if not codes:
+        return []
     as_of = universe_ingest.latest_snapshot_date(db)
     return list(
         db.execute(
@@ -64,6 +71,14 @@ def kr_sector_stock_rows(db: Session, industry: str, codes: list[str]) -> list[t
     )
 
 
-def sector_stock_codes(db: Session, industry: str) -> list[str]:
-    """산업명 → 섹터 소속 종목코드(sector_ingest 위임)."""
-    return sector_ingest.sector_stock_codes(db, industry)
+def us_sector_stock_quotes(industry: str, limit: int, offset: int) -> list[tuple]:
+    """산업 → 대응 미국 섹터 대표종목 시세 [(symbol, IndexQuote), ...]. 외부 조회는 여기서.
+
+    산업명 → 국내 대표섹터 → 미국 섹터 → 대표종목 심볼(정적) → 네이버 시세. 심볼 없으면 빈 리스트.
+    """
+    kr_sector = sector_etf.themes_to_kr_sector([industry])
+    us_sector = sector_etf.kr_sector_to_us(kr_sector)
+    symbols = sector_etf.us_sector_stocks(us_sector)[offset : offset + limit]
+    if not symbols:
+        return []
+    return us_market.fetch_us_stock_quotes(symbols)

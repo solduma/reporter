@@ -12,6 +12,7 @@ from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from app.db.models import DailyMarketInfo, Report, ReportAnalysis, Sentiment, TradeStat
+from app.services import today_service
 
 _SENT_CASE = case(
     (ReportAnalysis.sentiment == Sentiment.BUY, 1.0),
@@ -41,10 +42,8 @@ def sector_rows(db: Session, since: date) -> list[tuple[str, int, float]]:
 
 
 def latest_market_info(db: Session) -> DailyMarketInfo | None:
-    """가장 최근 일자 시황(대시보드 요약)."""
-    return db.scalars(
-        select(DailyMarketInfo).order_by(DailyMarketInfo.market_date.desc()).limit(1)
-    ).first()
+    """가장 최근 일자 시황(대시보드 요약). 쿼리는 today_service 가 소유(중복 제거)."""
+    return today_service.market_info(db, None)
 
 
 def trade_spark(db: Session, limit: int = 5) -> list[dict]:
