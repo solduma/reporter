@@ -15,6 +15,7 @@ reporter = "reporter.cli:main"
 
 [dependency-groups]
 dev = [
+    "import-linter>=2.13",
     "pytest>=8.0",
     "ruff>=0.6",
 ]

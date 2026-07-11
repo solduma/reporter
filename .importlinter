@@ -1,0 +1,35 @@
+; reporter(CLI 코어) 육각형 경계 — 도메인 커널을 IO 에서 분리 고정(4단계).
+; reporter 는 api/app 의 하위 공유 패키지(app→reporter 단방향)이고, 그 안에서 순수 도메인
+; (models·grouping·market·selector·sector_etf·fallback)은 외부 IO·외부 서비스 모듈을 몰라야 한다.
+; 코드 이동 없이 "지금 지켜지는 경계"를 고정한다 — 신규 위반을 githook/make lint 에서 차단.
+
+[importlinter]
+root_package = reporter
+
+[importlinter:contract:domain-kernel-leaf]
+name = 도메인 커널은 IO·외부서비스 모듈을 모른다
+type = forbidden
+source_modules =
+    reporter.models
+    reporter.grouping
+    reporter.market
+    reporter.selector
+    reporter.sector_etf
+    reporter.fallback
+forbidden_modules =
+    reporter.us_market
+    reporter.telegram
+    reporter.ollama_client
+    reporter.crawler
+    reporter.news
+    reporter.judal
+    reporter.pdf
+    reporter.shortener
+    reporter.article
+    reporter.pipeline
+    reporter.afternoon
+    reporter.archive
+    reporter.analyzer
+    reporter.forum
+    reporter.config
+    reporter.cli
