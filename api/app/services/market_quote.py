@@ -19,8 +19,9 @@ from reporter import us_market
 
 logger = logging.getLogger(__name__)
 
-# 스냅샷 주기 — 시세는 자주 바뀌지만 시계열 밀도는 이 정도면 충분(대시보드용). 분 단위로 버킷팅.
-_SNAPSHOT_TTL = timedelta(minutes=5)
+# 스냅샷 주기 — 의사 실시간(대시보드 수십초 갱신). ts 는 분 버킷이라 같은 분 재조회는 같은 행을
+# 덮어써(행 폭증 없이) 값만 신선해진다. us_market 인메모리 캐시(_CACHE_TTL)와 함께 낮춘다.
+_SNAPSHOT_TTL = timedelta(seconds=30)
 
 
 def _fetchers():

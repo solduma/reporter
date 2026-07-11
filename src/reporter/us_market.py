@@ -39,7 +39,9 @@ _PROXY_KEYWORDS: list[tuple[tuple[str, ...], str]] = [
 _DEFAULT_PROXY = ".INX"
 
 # 대시보드 최상단에서 매 로드마다 네이버를 반복 호출하지 않도록 하는 프로세스 인메모리 캐시.
-_CACHE_TTL = 120.0  # 초
+# 의사 실시간(수십초 갱신)을 위해 짧게 둔다 — 이 TTL 이 네이버 실호출 상한을 정한다
+# (지수/환율 무인증 엔드포인트라 index-set 당 20s 1회면 rate-limit 여유).
+_CACHE_TTL = 20.0  # 초
 _us_cache: tuple[float, list[IndexQuote]] | None = None
 _kr_cache: tuple[float, list[IndexQuote]] | None = None
 _proxy_cache: tuple[float, list[IndexQuote]] | None = None

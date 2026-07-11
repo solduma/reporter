@@ -118,6 +118,9 @@ function IndexTile({ index }: { index: UsIndex }) {
   );
 }
 
+// 지수·환율 시세를 의사 실시간으로 갱신하는 폴링 주기(백엔드 시세 TTL 30s 와 맞춘다).
+const POLL_INTERVAL_MS = 30_000;
+
 export default function MarketOverviewCard() {
   const [overview, setOverview] = useState<MarketOverview | null>(null);
   const [loading, setLoading] = useState(true);
@@ -125,27 +128,50 @@ export default function MarketOverviewCard() {
 
   useEffect(() => {
     let active = true;
-    async function load() {
-      setLoading(true);
-      setError(null);
+
+    // 초기 로드만 로딩 표시, 폴링 갱신은 조용히 값만 교체(깜빡임 없음).
+    // 실패해도 직전 값을 유지해 폴링 중 일시 오류로 화면이 비지 않게 한다.
+    async function load(initial: boolean) {
+      if (initial) {
+        setLoading(true);
+        setError(null);
+      }
       try {
         const res = await fetchMarketOverview();
         if (active) {
           setOverview(res);
+          setError(null);
         }
       } catch (e) {
-        if (active) {
+        if (active && initial) {
           setError(e instanceof Error ? e.message : "시황 대시보드를 불러오지 못했습니다");
         }
       } finally {
-        if (active) {
+        if (active && initial) {
           setLoading(false);
         }
       }
     }
-    void load();
+
+    void load(true);
+    // 탭이 숨겨진 동안엔 폴링을 멈춰 불필요한 조회를 줄이고, 복귀 시 즉시 한 번 갱신한다.
+    const tick = () => {
+      if (document.visibilityState === "visible") {
+        void load(false);
+      }
+    };
+    const timer = window.setInterval(tick, POLL_INTERVAL_MS);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        void load(false);
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+
     return () => {
       active = false;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, []);
 

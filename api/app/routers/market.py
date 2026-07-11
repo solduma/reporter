@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from datetime import date, timedelta
 
@@ -264,10 +265,22 @@ def chart_candles(
 _WARM_INDICES = ("KOSPI", "KOSDAQ")
 
 
+# 스냅샷 단일 실행 가드 — 시세 TTL(30s)이 짧아 폴링마다 is_stale 이 True 가 되면 매 요청이
+# 백그라운드 스냅샷을 예약한다. 동시 뷰어 N 명이면 스냅샷 스레드가 우르르 떠 네이버를 몰아치므로,
+# 이미 도는 스냅샷이 있으면 새 요청은 건너뛴다(single-flight).
+_snapshot_inflight = False
+_snapshot_lock = threading.Lock()
+
+
 def _snapshot_quotes_bg() -> None:
-    """백그라운드 지수·환율 스냅샷 적재 — 자체 세션. 실패 흡수."""
+    """백그라운드 지수·환율 스냅샷 적재 — 자체 세션. 이미 실행 중이면 건너뛴다. 실패 흡수."""
+    global _snapshot_inflight
     from app.db.session import SessionLocal
 
+    with _snapshot_lock:
+        if _snapshot_inflight:
+            return
+        _snapshot_inflight = True
     db = SessionLocal()
     try:
         market_quote.snapshot_quotes(db)
@@ -276,6 +289,8 @@ def _snapshot_quotes_bg() -> None:
         logger.warning("market quote snapshot failed: %s", e)
     finally:
         db.close()
+        with _snapshot_lock:
+            _snapshot_inflight = False
 
 
 def _warm() -> None:
