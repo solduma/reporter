@@ -17,6 +17,8 @@ from xml.etree import ElementTree
 
 import requests
 
+from app.services import dart_throttle
+
 logger = logging.getLogger(__name__)
 
 _CORPCODE_URL = "https://opendart.fss.or.kr/api/corpCode.xml"
@@ -82,7 +84,7 @@ def fetch_financial_statement(
             "fs_div": fs_div,
         }
         try:
-            resp = session.get(_FNLTT_URL, params=params, timeout=20)
+            resp = dart_throttle.get(session, _FNLTT_URL, params=params, timeout=20)
             resp.raise_for_status()
             data = resp.json()
         except (requests.RequestException, ValueError) as e:
@@ -198,7 +200,7 @@ def fetch_income_and_equity(
             "fs_div": fs_div,
         }
         try:
-            resp = session.get(_FNLTT_URL, params=params, timeout=20)
+            resp = dart_throttle.get(session, _FNLTT_URL, params=params, timeout=20)
             resp.raise_for_status()
             data = resp.json()
         except (requests.RequestException, ValueError) as e:
@@ -271,7 +273,7 @@ class Disclosure:
 def fetch_corp_mappings(api_key: str, session: requests.Session) -> list[CorpMapping]:
     """corpCode.xml(zip) 을 받아 상장사(stock_code 보유) 매핑만 반환한다."""
     try:
-        resp = session.get(_CORPCODE_URL, params={"crtfc_key": api_key}, timeout=30)
+        resp = dart_throttle.get(session, _CORPCODE_URL, params={"crtfc_key": api_key}, timeout=30)
         resp.raise_for_status()
     except requests.RequestException as e:
         logger.warning("corpCode fetch failed: %s", e)
@@ -317,7 +319,7 @@ def fetch_disclosures(
             "page_count": 100,
         }
         try:
-            resp = session.get(_LIST_URL, params=params, timeout=15)
+            resp = dart_throttle.get(session, _LIST_URL, params=params, timeout=15)
             resp.raise_for_status()
             data = resp.json()
         except (requests.RequestException, ValueError) as e:
@@ -382,7 +384,7 @@ def find_periodic_report(
         "page_count": 100,
     }
     try:
-        resp = session.get(_LIST_URL, params=params, timeout=15)
+        resp = dart_throttle.get(session, _LIST_URL, params=params, timeout=15)
         resp.raise_for_status()
         data = resp.json()
     except (requests.RequestException, ValueError) as e:
@@ -418,8 +420,8 @@ def fetch_document_text(
     첨부가 여러 XML 이면 이어붙인다. 실패·빈 응답이면 빈 문자열(호출측은 제목-only 로 폴백).
     """
     try:
-        resp = session.get(
-            _DOCUMENT_URL, params={"crtfc_key": api_key, "rcept_no": rcept_no}, timeout=30
+        resp = dart_throttle.get(
+            session, _DOCUMENT_URL, params={"crtfc_key": api_key, "rcept_no": rcept_no}, timeout=30
         )
         resp.raise_for_status()
     except requests.RequestException as e:

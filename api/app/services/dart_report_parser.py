@@ -24,6 +24,8 @@ import zipfile
 
 import requests
 
+from app.services import dart_throttle
+
 logger = logging.getLogger(__name__)
 
 _DOCUMENT_URL = "https://opendart.fss.or.kr/api/document.xml"
@@ -32,8 +34,8 @@ _DOCUMENT_URL = "https://opendart.fss.or.kr/api/document.xml"
 def fetch_report_zip(api_key: str, rcept_no: str, session: requests.Session) -> bytes | None:
     """document.xml zip 원문(bytes)을 받는다. 실패 시 None."""
     try:
-        resp = session.get(
-            _DOCUMENT_URL, params={"crtfc_key": api_key, "rcept_no": rcept_no}, timeout=60
+        resp = dart_throttle.get(
+            session, _DOCUMENT_URL, params={"crtfc_key": api_key, "rcept_no": rcept_no}, timeout=60
         )
         resp.raise_for_status()
         return resp.content
