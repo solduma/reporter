@@ -4,7 +4,14 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 
 import { fetchScreener, fetchScreenerSectors } from "@/lib/api";
-import type { ScreenerMarket, ScreenerOpGrowth, ScreenerResult, ScreenerSort } from "@/lib/types";
+import type {
+  ScreenerEventKind,
+  ScreenerMarket,
+  ScreenerOpGrowth,
+  ScreenerResult,
+  ScreenerSort,
+  ScreenerStrategy,
+} from "@/lib/types";
 
 import styles from "./page.module.css";
 
@@ -16,10 +23,51 @@ interface Preset<T> {
   value: T;
 }
 
-const MKTCAP_MAX_PRESETS: Preset<number>[] = [
+// 전략 탭: 성장/가치/이벤트. 각 탭이 필터·컬럼·스코어를 전환한다.
+const STRATEGY_TABS: { value: ScreenerStrategy; label: string; desc: string }[] = [
+  { value: "growth", label: "성장", desc: "매출·영업이익 성장과 모멘텀으로 소형 성장주 후보를 좁힌다" },
+  { value: "value", label: "가치", desc: "저PER·저PBR·저EV/EBITDA·고ROE 로 저평가 우량주를 찾는다" },
+  { value: "event", label: "이벤트", desc: "최근 공시·리포트·급등락·브리핑 이벤트가 발생한 종목을 포착한다" },
+];
+
+// undefined = 상한 없음(전체). 값 생략 시 백엔드 default(None)로 전종목.
+const MKTCAP_MAX_PRESETS: Preset<number | undefined>[] = [
+  { label: "전체", value: undefined },
   { label: "3천억", value: 300_000_000_000 },
   { label: "5천억", value: 500_000_000_000 },
   { label: "1조", value: 1_000_000_000_000 },
+];
+
+// 가치 전략 PER 상한
+const PER_MAX_PRESETS: Preset<number | undefined>[] = [
+  { label: "없음", value: undefined },
+  { label: "10배↓", value: 10 },
+  { label: "15배↓", value: 15 },
+  { label: "20배↓", value: 20 },
+];
+
+// 가치 전략 PBR 상한
+const PBR_MAX_PRESETS: Preset<number | undefined>[] = [
+  { label: "없음", value: undefined },
+  { label: "0.5배↓", value: 0.5 },
+  { label: "1배↓", value: 1 },
+  { label: "1.5배↓", value: 1.5 },
+];
+
+// 가치 전략 ROE 하한(%)
+const ROE_MIN_PRESETS: Preset<number | undefined>[] = [
+  { label: "없음", value: undefined },
+  { label: "8%↑", value: 8 },
+  { label: "15%↑", value: 15 },
+];
+
+// 이벤트 유형
+const EVENT_KIND_PRESETS: Preset<ScreenerEventKind | undefined>[] = [
+  { label: "전체", value: undefined },
+  { label: "공시", value: "disclosure" },
+  { label: "리포트", value: "report" },
+  { label: "급등락", value: "surge" },
+  { label: "브리핑", value: "broadcast" },
 ];
 
 // undefined = 하한 없음 → 쿼리 파라미터 생략
@@ -97,35 +145,50 @@ function coverageParams(key: CoverageKey): { coverage?: "has" | "none"; recentBu
   }
 }
 
-const SORT_PRESETS: Preset<ScreenerSort>[] = [
-  { label: "성장스코어", value: "score" },
-  { label: "매출성장률", value: "rev_yoy" },
-  { label: "모멘텀", value: "momentum" },
-  { label: "시총 작은순", value: "market_cap" },
-  { label: "거래대금", value: "trading_value" },
-  { label: "등락률", value: "change" },
-  { label: "리포트순", value: "coverage" },
-];
-
 // 테이블 컬럼 헤더 → 백엔드 sort 키. 매핑 없는 컬럼(종목명·현재가·영업이익)은 정렬 비활성.
 interface Column {
   label: string;
   sort?: ScreenerSort;
 }
 
-const COLUMNS: Column[] = [
-  { label: "종목명" },
-  { label: "성장스코어", sort: "score" },
-  { label: "매출YoY", sort: "rev_yoy" },
-  { label: "영업이익" },
-  { label: "모멘텀", sort: "momentum" },
-  { label: "시가총액", sort: "market_cap" },
-  { label: "현재가" },
-  { label: "등락률", sort: "change" },
-  { label: "거래대금", sort: "trading_value" },
-  { label: "리포트", sort: "coverage" },
-  { label: "의견" },
-];
+// 전략별 컬럼 세트. 종목명·시총·현재가·등락률·거래대금은 공통, 나머지는 전략 특화.
+const COLUMNS_BY_STRATEGY: Record<ScreenerStrategy, Column[]> = {
+  growth: [
+    { label: "종목명" },
+    { label: "성장스코어", sort: "score" },
+    { label: "매출YoY", sort: "rev_yoy" },
+    { label: "영업이익" },
+    { label: "모멘텀", sort: "momentum" },
+    { label: "시가총액", sort: "market_cap" },
+    { label: "현재가" },
+    { label: "등락률", sort: "change" },
+    { label: "거래대금", sort: "trading_value" },
+    { label: "리포트", sort: "coverage" },
+    { label: "의견" },
+  ],
+  value: [
+    { label: "종목명" },
+    { label: "가치스코어", sort: "score" },
+    { label: "PER" },
+    { label: "PBR" },
+    { label: "ROE" },
+    { label: "EV/EBITDA" },
+    { label: "시가총액", sort: "market_cap" },
+    { label: "현재가" },
+    { label: "등락률", sort: "change" },
+    { label: "거래대금", sort: "trading_value" },
+  ],
+  event: [
+    { label: "종목명" },
+    { label: "이벤트" },
+    { label: "요약" },
+    { label: "발생일" },
+    { label: "현재가" },
+    { label: "등락률", sort: "change" },
+    { label: "거래대금", sort: "trading_value" },
+    { label: "시가총액", sort: "market_cap" },
+  ],
+};
 
 // 백엔드 단방향 정렬: 시총만 오름차순, 나머지는 내림차순. 방향 표시(▲/▼)에 사용.
 function sortArrow(sort: ScreenerSort): string {
@@ -162,6 +225,22 @@ function formatYoy(ratio: number | null): string {
   const pct = Math.round(ratio * 100);
   const sign = pct > 0 ? "+" : "";
   return `${sign}${pct.toLocaleString("ko-KR")}%`;
+}
+
+// PER/PBR/EV 배수 표기(소수 1~2자리). 결측·비양수는 —.
+function formatMultiple(v: number | null): string {
+  if (v === null || v <= 0) {
+    return "—";
+  }
+  return `${v.toFixed(v < 10 ? 2 : 1)}배`;
+}
+
+// ROE 퍼센트(%) 표기.
+function formatRoe(v: number | null): string {
+  if (v === null) {
+    return "—";
+  }
+  return `${v.toFixed(1)}%`;
 }
 
 // 등락률 색: 한국 관행(상승 빨강/하락 파랑)
@@ -209,15 +288,22 @@ function ScreenerContent() {
   const [sector, setSector] = useState<string>(() => searchParams.get("sector") ?? "");
   const [sectors, setSectors] = useState<string[]>([]);
 
+  const [strategy, setStrategy] = useState<ScreenerStrategy>("growth");
   // 시장: 성장주 발굴이 목표이므로 KOSDAQ을 기본값으로 둔다("전체"는 ""로 표현).
   const [market, setMarket] = useState<ScreenerMarket | "">("KOSDAQ");
-  const [mktcapMax, setMktcapMax] = useState<number>(500_000_000_000);
+  const [mktcapMax, setMktcapMax] = useState<number | undefined>(500_000_000_000);
   const [mktcapMin, setMktcapMin] = useState<number | undefined>(undefined);
   const [liqMin, setLiqMin] = useState<number>(0);
   const [revYoyMin, setRevYoyMin] = useState<number | undefined>(undefined);
   const [opGrowth, setOpGrowth] = useState<ScreenerOpGrowth | undefined>(undefined);
   const [mom, setMom] = useState<MomKey>("none");
   const [coverage, setCoverage] = useState<CoverageKey>("none");
+  // 가치 전략 필터
+  const [perMax, setPerMax] = useState<number | undefined>(undefined);
+  const [pbrMax, setPbrMax] = useState<number | undefined>(undefined);
+  const [roeMin, setRoeMin] = useState<number | undefined>(undefined);
+  // 이벤트 전략 필터
+  const [eventKind, setEventKind] = useState<ScreenerEventKind | undefined>(undefined);
   const [sort, setSort] = useState<ScreenerSort>("score");
   const [offset, setOffset] = useState<number>(0);
 
@@ -250,6 +336,7 @@ function ScreenerContent() {
         const { momMin, momMax } = momParams(mom);
         const { coverage: coverageParam, recentBuy } = coverageParams(coverage);
         const res = await fetchScreener({
+          strategy,
           mktcapMax,
           mktcapMin,
           liqMin: liqMin > 0 ? liqMin : undefined,
@@ -257,6 +344,10 @@ function ScreenerContent() {
           opGrowth,
           momMin,
           momMax,
+          perMax,
+          pbrMax,
+          roeMin,
+          eventKind,
           market,
           sector: sector || undefined,
           coverage: coverageParam,
@@ -283,11 +374,45 @@ function ScreenerContent() {
     return () => {
       active = false;
     };
-  }, [market, sector, mktcapMax, mktcapMin, liqMin, revYoyMin, opGrowth, mom, coverage, sort, offset]);
+  }, [strategy, market, sector, mktcapMax, mktcapMin, liqMin, revYoyMin, opGrowth, mom, coverage, perMax, pbrMax, roeMin, eventKind, sort, offset]);
 
   // 필터 변경 시 첫 페이지로 되돌린다.
   function resetPaging() {
     setOffset(0);
+  }
+
+  // 전략 전환: 정렬을 score 로 리셋(전략마다 컬럼이 다르므로)하고 첫 페이지로.
+  function changeStrategy(next: ScreenerStrategy) {
+    setStrategy(next);
+    setSort("score");
+    setOffset(0);
+  }
+
+  const columns = COLUMNS_BY_STRATEGY[strategy];
+  const strategyDesc = STRATEGY_TABS.find((t) => t.value === strategy)?.desc ?? "";
+
+  // 스코어 셀(성장·가치 공용): 숫자 + 컬러 바.
+  function renderScoreCell(score: number | null) {
+    if (score === null) {
+      return (
+        <td className={styles.scoreCell}>
+          <span className={styles.muted}>—</span>
+        </td>
+      );
+    }
+    return (
+      <td className={styles.scoreCell}>
+        <div className={styles.score}>
+          <span className={`${styles.scoreNum} ${scoreNumClass(score)}`}>{Math.round(score)}</span>
+          <span className={styles.scoreBar}>
+            <span
+              className={`${styles.scoreFill} ${scoreFillClass(score)}`}
+              style={{ width: `${Math.max(0, Math.min(100, score))}%` }}
+            />
+          </span>
+        </div>
+      </td>
+    );
   }
 
   const total = result?.total ?? 0;
@@ -328,10 +453,25 @@ function ScreenerContent() {
   return (
     <div className={styles.page}>
       <header className={styles.head}>
-        <h1 className={styles.title}>스몰캡 성장 스크리너</h1>
-        <p className={styles.subtitle}>
-          매출·영업이익 성장과 모멘텀으로 소형 성장주 후보를 좁혀보세요 — 톱다운 관점의 1차 스크리닝
-        </p>
+        <h1 className={styles.title}>종목 스크리너</h1>
+        <p className={styles.subtitle}>{strategyDesc}</p>
+        <div className={styles.strategyTabs} role="tablist" aria-label="스크리너 전략">
+          {STRATEGY_TABS.map((tab) => {
+            const on = tab.value === strategy;
+            return (
+              <button
+                key={tab.value}
+                type="button"
+                role="tab"
+                aria-selected={on}
+                className={on ? `${styles.strategyTab} ${styles.strategyTabActive}` : styles.strategyTab}
+                onClick={() => changeStrategy(tab.value)}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
       </header>
 
       <section className={styles.filters}>
@@ -350,25 +490,53 @@ function ScreenerContent() {
           {renderChips(LIQ_PRESETS, liqMin, setLiqMin)}
         </div>
 
-        <div className={styles.filterGroup}>
-          <span className={styles.filterLabel}>매출 성장률(YoY) 최소</span>
-          {renderChips(REV_YOY_PRESETS, revYoyMin, setRevYoyMin)}
-        </div>
+        {/* 성장 전략 전용 필터 */}
+        {strategy === "growth" ? (
+          <>
+            <div className={styles.filterGroup}>
+              <span className={styles.filterLabel}>매출 성장률(YoY) 최소</span>
+              {renderChips(REV_YOY_PRESETS, revYoyMin, setRevYoyMin)}
+            </div>
+            <div className={styles.filterGroup}>
+              <span className={styles.filterLabel}>영업이익</span>
+              {renderChips(OP_GROWTH_PRESETS, opGrowth, setOpGrowth)}
+            </div>
+            <div className={styles.filterGroup}>
+              <span className={styles.filterLabel}>3개월 모멘텀</span>
+              {renderChips(MOM_PRESETS, mom, setMom)}
+            </div>
+            <div className={styles.filterGroup}>
+              <span className={styles.filterLabel}>리포트</span>
+              {renderChips(COVERAGE_PRESETS, coverage, setCoverage)}
+            </div>
+          </>
+        ) : null}
 
-        <div className={styles.filterGroup}>
-          <span className={styles.filterLabel}>영업이익</span>
-          {renderChips(OP_GROWTH_PRESETS, opGrowth, setOpGrowth)}
-        </div>
+        {/* 가치 전략 전용 필터 */}
+        {strategy === "value" ? (
+          <>
+            <div className={styles.filterGroup}>
+              <span className={styles.filterLabel}>PER 상한</span>
+              {renderChips(PER_MAX_PRESETS, perMax, setPerMax)}
+            </div>
+            <div className={styles.filterGroup}>
+              <span className={styles.filterLabel}>PBR 상한</span>
+              {renderChips(PBR_MAX_PRESETS, pbrMax, setPbrMax)}
+            </div>
+            <div className={styles.filterGroup}>
+              <span className={styles.filterLabel}>ROE 하한</span>
+              {renderChips(ROE_MIN_PRESETS, roeMin, setRoeMin)}
+            </div>
+          </>
+        ) : null}
 
-        <div className={styles.filterGroup}>
-          <span className={styles.filterLabel}>3개월 모멘텀</span>
-          {renderChips(MOM_PRESETS, mom, setMom)}
-        </div>
-
-        <div className={styles.filterGroup}>
-          <span className={styles.filterLabel}>리포트</span>
-          {renderChips(COVERAGE_PRESETS, coverage, setCoverage)}
-        </div>
+        {/* 이벤트 전략 전용 필터 */}
+        {strategy === "event" ? (
+          <div className={styles.filterGroup}>
+            <span className={styles.filterLabel}>이벤트 유형</span>
+            {renderChips(EVENT_KIND_PRESETS, eventKind, setEventKind)}
+          </div>
+        ) : null}
 
         <div className={styles.filterGroup}>
           <span className={styles.filterLabel}>시장</span>
@@ -382,11 +550,6 @@ function ScreenerContent() {
             sector,
             setSector,
           )}
-        </div>
-
-        <div className={styles.filterGroup}>
-          <span className={styles.filterLabel}>정렬</span>
-          {renderChips(SORT_PRESETS, sort, setSort)}
         </div>
       </section>
 
@@ -409,7 +572,7 @@ function ScreenerContent() {
             <table className={styles.table}>
               <thead>
                 <tr>
-                  {COLUMNS.map((col, index) => {
+                  {columns.map((col, index) => {
                     const sortable = col.sort !== undefined;
                     const activeSort = sortable && col.sort === sort;
                     const classes = [];
@@ -466,56 +629,77 @@ function ScreenerContent() {
                         <span className={styles.code}>{row.stock_code}</span>
                       </span>
                     </th>
-                    <td className={styles.scoreCell}>
-                      {row.growth_score === null ? (
-                        <span className={styles.muted}>—</span>
-                      ) : (
-                        <div className={styles.score}>
-                          <span className={`${styles.scoreNum} ${scoreNumClass(row.growth_score)}`}>
-                            {Math.round(row.growth_score)}
-                          </span>
-                          <span className={styles.scoreBar}>
+
+                    {strategy === "growth" ? (
+                      <>
+                        {renderScoreCell(row.score)}
+                        <td className={growthClass(row.revenue_yoy)}>{formatYoy(row.revenue_yoy)}</td>
+                        <td>
+                          {row.op_turnaround ? (
+                            <span className={`${styles.badge} ${styles.turnaround}`}>흑자전환</span>
+                          ) : (
+                            <span className={growthClass(row.op_yoy)}>{formatYoy(row.op_yoy)}</span>
+                          )}
+                        </td>
+                        <td className={growthClass(row.momentum_3m)}>{formatPct(row.momentum_3m)}</td>
+                        <td>{formatEok(row.market_cap)}</td>
+                        <td>{formatPrice(row.close_price)}</td>
+                        <td className={changeClass(row.change_pct)}>{formatPct(row.change_pct)}</td>
+                        <td>{formatEok(row.trading_value)}</td>
+                        <td>
+                          {row.coverage_count > 0 ? (
+                            `${row.coverage_count.toLocaleString("ko-KR")}건`
+                          ) : (
+                            <span className={styles.muted}>—</span>
+                          )}
+                        </td>
+                        <td>
+                          {row.recent_sentiment === null ? (
+                            <span className={styles.muted}>—</span>
+                          ) : (
                             <span
-                              className={`${styles.scoreFill} ${scoreFillClass(row.growth_score)}`}
-                              style={{ width: `${Math.max(0, Math.min(100, row.growth_score))}%` }}
-                            />
-                          </span>
-                        </div>
-                      )}
-                    </td>
-                    <td className={growthClass(row.revenue_yoy)}>{formatYoy(row.revenue_yoy)}</td>
-                    <td>
-                      {row.op_turnaround ? (
-                        <span className={`${styles.badge} ${styles.turnaround}`}>흑자전환</span>
-                      ) : (
-                        <span className={growthClass(row.op_yoy)}>{formatYoy(row.op_yoy)}</span>
-                      )}
-                    </td>
-                    <td className={growthClass(row.momentum_3m)}>{formatPct(row.momentum_3m)}</td>
-                    <td>{formatEok(row.market_cap)}</td>
-                    <td>{formatPrice(row.close_price)}</td>
-                    <td className={changeClass(row.change_pct)}>{formatPct(row.change_pct)}</td>
-                    <td>{formatEok(row.trading_value)}</td>
-                    <td>
-                      {row.coverage_count > 0 ? (
-                        `${row.coverage_count.toLocaleString("ko-KR")}건`
-                      ) : (
-                        <span className={styles.muted}>—</span>
-                      )}
-                    </td>
-                    <td>
-                      {row.recent_sentiment === null ? (
-                        <span className={styles.muted}>—</span>
-                      ) : (
-                        <span
-                          className={`${styles.badge} ${
-                            row.recent_sentiment === "BUY" ? styles.senBuy : styles.senHold
-                          }`}
-                        >
-                          {row.recent_sentiment}
-                        </span>
-                      )}
-                    </td>
+                              className={`${styles.badge} ${
+                                row.recent_sentiment === "BUY" ? styles.senBuy : styles.senHold
+                              }`}
+                            >
+                              {row.recent_sentiment}
+                            </span>
+                          )}
+                        </td>
+                      </>
+                    ) : null}
+
+                    {strategy === "value" ? (
+                      <>
+                        {renderScoreCell(row.score)}
+                        <td>{formatMultiple(row.per)}</td>
+                        <td>{formatMultiple(row.pbr)}</td>
+                        <td>{formatRoe(row.roe)}</td>
+                        <td>{formatMultiple(row.ev_ebitda)}</td>
+                        <td>{formatEok(row.market_cap)}</td>
+                        <td>{formatPrice(row.close_price)}</td>
+                        <td className={changeClass(row.change_pct)}>{formatPct(row.change_pct)}</td>
+                        <td>{formatEok(row.trading_value)}</td>
+                      </>
+                    ) : null}
+
+                    {strategy === "event" ? (
+                      <>
+                        <td>
+                          {row.event_kind ? (
+                            <span className={`${styles.badge} ${styles.eventBadge}`}>{row.event_kind}</span>
+                          ) : (
+                            <span className={styles.muted}>—</span>
+                          )}
+                        </td>
+                        <td className={styles.eventSummary}>{row.event_summary ?? "—"}</td>
+                        <td>{row.event_date ?? "—"}</td>
+                        <td>{formatPrice(row.close_price)}</td>
+                        <td className={changeClass(row.change_pct)}>{formatPct(row.change_pct)}</td>
+                        <td>{formatEok(row.trading_value)}</td>
+                        <td>{formatEok(row.market_cap)}</td>
+                      </>
+                    ) : null}
                   </tr>
                 ))}
               </tbody>

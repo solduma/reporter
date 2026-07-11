@@ -15,10 +15,12 @@ import type {
   Peer,
   Report,
   ReportCategory,
+  ScreenerEventKind,
   ScreenerMarket,
   ScreenerOpGrowth,
   ScreenerResult,
   ScreenerSort,
+  ScreenerStrategy,
   SectorChartMeta,
   SectorFlowDetail,
   SectorFlowRow,
@@ -151,6 +153,7 @@ export function fetchIndustrySentiment(
 }
 
 export interface ScreenerQuery {
+  strategy?: ScreenerStrategy;
   mktcapMax?: number;
   mktcapMin?: number;
   revYoyMin?: number;
@@ -158,6 +161,12 @@ export interface ScreenerQuery {
   momMin?: number;
   momMax?: number;
   liqMin?: number;
+  // 가치 전략
+  perMax?: number;
+  pbrMax?: number;
+  roeMin?: number;
+  // 이벤트 전략
+  eventKind?: ScreenerEventKind;
   market?: ScreenerMarket | "";
   sector?: string;
   coverage?: "has" | "none";
@@ -175,6 +184,7 @@ export function fetchScreener(query: ScreenerQuery): Promise<ScreenerResult> {
       params.set(key, String(value));
     }
   };
+  set("strategy", query.strategy);
   set("mktcap_max", query.mktcapMax);
   set("mktcap_min", query.mktcapMin);
   set("rev_yoy_min", query.revYoyMin);
@@ -182,6 +192,10 @@ export function fetchScreener(query: ScreenerQuery): Promise<ScreenerResult> {
   set("mom_min", query.momMin);
   set("mom_max", query.momMax);
   set("liq_min", query.liqMin);
+  set("per_max", query.perMax);
+  set("pbr_max", query.pbrMax);
+  set("roe_min", query.roeMin);
+  set("event_kind", query.eventKind);
   set("market", query.market);
   set("sector", query.sector);
   set("coverage", query.coverage);
