@@ -76,6 +76,7 @@ class ScreenerRow(BaseModel):
     pbr: float | None = None
     roe: float | None = None
     ev_ebitda: float | None = None
+    div_yield: float | None = None  # 시가배당률(%)
     # 이벤트 전략(최근 이벤트 요약)
     event_kind: str | None = None  # 대표 이벤트 유형(공시|리포트|급등락|브리핑)
     event_summary: str | None = None  # 한 줄 요약
@@ -136,6 +137,8 @@ class FinancialPeriodOut(BaseModel):
     psr: float | None = None
     roe: float | None
     ev_ebitda: float | None = None
+    dps: float | None = None  # 주당배당금(원)
+    div_yield: float | None = None  # 시가배당률(%)
 
 
 class PeerOut(BaseModel):

@@ -25,6 +25,7 @@ class _F:
     pbr: float | None = None
     roe: float | None = None
     ev_ebitda: float | None = None
+    div_yield: float | None = None
 
 
 def test_coverage_label():
@@ -110,6 +111,14 @@ def test_value_score_roe_bonus():
     per_rank = pbr_rank = ev_rank = screener._cheap_ranker([10.0, 10.0])
     hi = screener._value_score(_F(per=10.0, pbr=10.0, roe=15.0), per_rank, pbr_rank, ev_rank)
     lo = screener._value_score(_F(per=10.0, pbr=10.0, roe=0.0), per_rank, pbr_rank, ev_rank)
+    assert hi > lo
+
+
+def test_value_score_dividend_bonus():
+    # 시가배당률이 높으면 가점.
+    per_rank = pbr_rank = ev_rank = screener._cheap_ranker([10.0, 10.0])
+    hi = screener._value_score(_F(per=10.0, pbr=10.0, div_yield=5.0), per_rank, pbr_rank, ev_rank)
+    lo = screener._value_score(_F(per=10.0, pbr=10.0, div_yield=0.0), per_rank, pbr_rank, ev_rank)
     assert hi > lo
 
 

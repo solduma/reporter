@@ -61,6 +61,14 @@ const ROE_MIN_PRESETS: Preset<number | undefined>[] = [
   { label: "15%↑", value: 15 },
 ];
 
+// 가치 전략 시가배당률 하한(%)
+const DIV_MIN_PRESETS: Preset<number | undefined>[] = [
+  { label: "없음", value: undefined },
+  { label: "2%↑", value: 2 },
+  { label: "3%↑", value: 3 },
+  { label: "5%↑", value: 5 },
+];
+
 // 이벤트 유형
 const EVENT_KIND_PRESETS: Preset<ScreenerEventKind | undefined>[] = [
   { label: "전체", value: undefined },
@@ -172,6 +180,7 @@ const COLUMNS_BY_STRATEGY: Record<ScreenerStrategy, Column[]> = {
     { label: "PER" },
     { label: "PBR" },
     { label: "ROE" },
+    { label: "배당률" },
     { label: "EV/EBITDA" },
     { label: "시가총액", sort: "market_cap" },
     { label: "현재가" },
@@ -235,12 +244,20 @@ function formatMultiple(v: number | null): string {
   return `${v.toFixed(v < 10 ? 2 : 1)}배`;
 }
 
-// ROE 퍼센트(%) 표기.
+// ROE·배당률 퍼센트(%) 표기.
 function formatRoe(v: number | null): string {
   if (v === null) {
     return "—";
   }
   return `${v.toFixed(1)}%`;
+}
+
+// 시가배당률(%) — 0 또는 결측이면 —.
+function formatDiv(v: number | null): string {
+  if (v === null || v <= 0) {
+    return "—";
+  }
+  return `${v.toFixed(2)}%`;
 }
 
 // 등락률 색: 한국 관행(상승 빨강/하락 파랑)
@@ -302,6 +319,7 @@ function ScreenerContent() {
   const [perMax, setPerMax] = useState<number | undefined>(undefined);
   const [pbrMax, setPbrMax] = useState<number | undefined>(undefined);
   const [roeMin, setRoeMin] = useState<number | undefined>(undefined);
+  const [divMin, setDivMin] = useState<number | undefined>(undefined);
   // 이벤트 전략 필터
   const [eventKind, setEventKind] = useState<ScreenerEventKind | undefined>(undefined);
   const [sort, setSort] = useState<ScreenerSort>("score");
@@ -347,6 +365,7 @@ function ScreenerContent() {
           perMax,
           pbrMax,
           roeMin,
+          divMin,
           eventKind,
           market,
           sector: sector || undefined,
@@ -374,7 +393,7 @@ function ScreenerContent() {
     return () => {
       active = false;
     };
-  }, [strategy, market, sector, mktcapMax, mktcapMin, liqMin, revYoyMin, opGrowth, mom, coverage, perMax, pbrMax, roeMin, eventKind, sort, offset]);
+  }, [strategy, market, sector, mktcapMax, mktcapMin, liqMin, revYoyMin, opGrowth, mom, coverage, perMax, pbrMax, roeMin, divMin, eventKind, sort, offset]);
 
   // 필터 변경 시 첫 페이지로 되돌린다.
   function resetPaging() {
@@ -396,6 +415,7 @@ function ScreenerContent() {
     setPerMax(undefined);
     setPbrMax(undefined);
     setRoeMin(undefined);
+    setDivMin(undefined);
     // 이벤트 전용
     setEventKind(undefined);
   }
@@ -538,6 +558,10 @@ function ScreenerContent() {
             <div className={styles.filterGroup}>
               <span className={styles.filterLabel}>ROE 하한</span>
               {renderChips(ROE_MIN_PRESETS, roeMin, setRoeMin)}
+            </div>
+            <div className={styles.filterGroup}>
+              <span className={styles.filterLabel}>시가배당률 하한</span>
+              {renderChips(DIV_MIN_PRESETS, divMin, setDivMin)}
             </div>
           </>
         ) : null}
@@ -687,6 +711,9 @@ function ScreenerContent() {
                         <td>{formatMultiple(row.per)}</td>
                         <td>{formatMultiple(row.pbr)}</td>
                         <td>{formatRoe(row.roe)}</td>
+                        <td className={row.div_yield && row.div_yield > 0 ? styles.gpos : undefined}>
+                          {formatDiv(row.div_yield)}
+                        </td>
                         <td>{formatMultiple(row.ev_ebitda)}</td>
                         <td>{formatEok(row.market_cap)}</td>
                         <td>{formatPrice(row.close_price)}</td>

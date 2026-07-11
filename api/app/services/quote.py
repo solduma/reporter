@@ -30,6 +30,8 @@ _FIN_ROWS = {
     "BPS(원)": "bps",
     "PBR(배)": "pbr",
     "ROE(지배주주)": "roe",
+    "주당배당금(원)": "dps",  # 주당 배당금(원)
+    "시가배당률(%)": "div_yield",  # 시가배당률(배당수익률, %)
 }
 
 
@@ -46,6 +48,8 @@ class FinancialPeriod:
     per: float | None = None
     pbr: float | None = None
     roe: float | None = None
+    dps: float | None = None  # 주당배당금(원)
+    div_yield: float | None = None  # 시가배당률(%)
 
 
 @dataclass

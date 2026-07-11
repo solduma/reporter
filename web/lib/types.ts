@@ -283,6 +283,7 @@ export interface ScreenerRow {
   pbr: number | null;
   roe: number | null;
   ev_ebitda: number | null;
+  div_yield: number | null; // 시가배당률(%)
   // 이벤트 전략
   event_kind: string | null; // 공시|리포트|급등락|브리핑
   event_summary: string | null;
