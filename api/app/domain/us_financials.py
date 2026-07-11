@@ -105,12 +105,22 @@ def _ttm(facts: dict, key: str, unit: str = "USD") -> float | None:
     return sum(v for _p, v in last4)
 
 
+def _latest_end(facts: dict, key: str, unit: str = "USD") -> date | None:
+    """계정의 최신 데이터 end 날짜(어느 매출 계정이 현행인지 판별용)."""
+    periods = _periods(facts, key, unit)
+    return max((e for _s, e in periods), default=None)
+
+
 def _ttm_revenue(facts: dict) -> float | None:
-    """매출 TTM — 회사별 계정명 차이를 흡수(둘 중 분기 데이터가 있는 것)."""
+    """매출 TTM — 회사별 계정명 차이 흡수. 여러 매출 계정이 있으면(예: MSFT 는 구 'Revenues'가
+    2010년까지만·현행은 'RevenueFromContract...') **최신 데이터가 있는 계정**을 고른다.
+    (첫 non-None 을 쓰면 낡은 계정의 옛 값이 잡혀 값이 틀린다.)"""
+    best_key, best_end = None, None
     for key in _REVENUE_KEYS:
-        v = _ttm(facts, key)
-        if v is not None:
-            return v
+        end = _latest_end(facts, key)
+        if end is not None and (best_end is None or end > best_end):
+            best_key, best_end = key, end
+    return _ttm(facts, best_key) if best_key else None
     return None
 
 

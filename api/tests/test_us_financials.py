@@ -34,6 +34,34 @@ def test_ttm_periods_dedup(nvda):
     assert len(keys) == len(set(keys))
 
 
+def test_revenue_picks_account_with_latest_data():
+    # 회귀(MSFT형): 구 'Revenues'가 2010년까지만·현행은 RevenueFromContract 인 경우,
+    # 첫 non-None 이 아니라 '최신 데이터 계정'을 골라야 한다.
+    facts = {
+        "facts": {
+            "us-gaap": {
+                "Revenues": {  # 구 계정: 2010년까지만
+                    "units": {"USD": [
+                        {"start": "2009-01-01", "end": "2009-12-31", "val": 50e9},
+                        {"start": "2010-01-01", "end": "2010-03-31", "val": 12e9},
+                    ]}
+                },
+                "RevenueFromContractWithCustomerExcludingAssessedTax": {  # 현행
+                    "units": {"USD": [
+                        {"start": "2024-01-01", "end": "2024-12-31", "val": 280e9},  # FY
+                        {"start": "2024-01-01", "end": "2024-03-31", "val": 60e9},   # 전년 Q1
+                        {"start": "2025-01-01", "end": "2025-03-31", "val": 70e9},   # 당해 Q1
+                    ]}
+                },
+            }
+        }
+    }
+    ttm = us_financials._ttm_revenue(facts)
+    # 현행 계정: 280 + (70-60) = 290B. 구 계정(2009 FY 50B)이 아님.
+    assert ttm is not None
+    assert abs(ttm - 290e9) < 1e9
+
+
 def test_latest_shares_and_equity(nvda):
     assert us_financials._latest_shares(nvda) > 20e9  # ~240억 주
     assert us_financials._latest_instant(nvda, "StockholdersEquity") > 0
