@@ -8,17 +8,15 @@ from __future__ import annotations
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import Broadcast, BroadcastKind
 from app.db.session import get_session
 from app.schemas import BroadcastDetail, BroadcastRef
+from app.services import broadcast_ingest
 
 router = APIRouter(prefix="/api/broadcasts", tags=["broadcasts"])
 
 _SNIPPET_LEN = 180
-_VALID_KINDS = {k.value for k in BroadcastKind}
 
 
 @router.get("", response_model=list[BroadcastRef])
@@ -32,21 +30,13 @@ def list_broadcasts(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_session),
 ) -> list[BroadcastRef]:
-    stmt = select(Broadcast).order_by(Broadcast.sent_at.desc())
-    if industry:
-        stmt = stmt.where(Broadcast.industries.contains([industry]))
-    if stock:
-        stmt = stmt.where(Broadcast.stock_codes.contains([stock]))
-    if kind:
-        if kind not in _VALID_KINDS:
-            raise HTTPException(status_code=400, detail=f"알 수 없는 kind: {kind}")
-        stmt = stmt.where(Broadcast.kind == BroadcastKind(kind))
-    if from_:
-        stmt = stmt.where(Broadcast.ref_date >= from_)
-    if to:
-        stmt = stmt.where(Broadcast.ref_date <= to)
-
-    rows = db.scalars(stmt.limit(limit).offset(offset)).all()
+    try:
+        rows = broadcast_ingest.list_broadcasts(
+            db, industry=industry, stock=stock, kind=kind,
+            from_=from_, to=to, limit=limit, offset=offset,
+        )
+    except broadcast_ingest.UnknownBroadcastKind:
+        raise HTTPException(status_code=400, detail=f"알 수 없는 kind: {kind}") from None
     return [
         BroadcastRef(
             id=b.id,
@@ -64,7 +54,7 @@ def list_broadcasts(
 
 @router.get("/{broadcast_id}", response_model=BroadcastDetail)
 def get_broadcast(broadcast_id: int, db: Session = Depends(get_session)) -> BroadcastDetail:
-    b = db.get(Broadcast, broadcast_id)
+    b = broadcast_ingest.get_broadcast(db, broadcast_id)
     if not b:
         raise HTTPException(status_code=404, detail="브로드캐스트 없음")
     return BroadcastDetail(

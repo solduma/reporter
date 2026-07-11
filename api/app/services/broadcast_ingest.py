@@ -18,6 +18,7 @@ from collections.abc import Iterator
 from datetime import date, datetime
 from pathlib import Path
 
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -28,7 +29,47 @@ logger = logging.getLogger(__name__)
 
 # api/app/services/broadcast_ingest.py → parents[3] = repo root (CLI 의 logs 와 동일 위치)
 _REPO_ROOT = Path(__file__).resolve().parents[3]
-_VALID_KINDS = {k.value for k in BroadcastKind}
+VALID_KINDS = {k.value for k in BroadcastKind}
+_VALID_KINDS = VALID_KINDS  # 하위호환 별칭
+
+
+class UnknownBroadcastKind(ValueError):
+    """알 수 없는 broadcast kind 필터값 — 라우터가 400 으로 변환."""
+
+
+def list_broadcasts(
+    db: Session,
+    *,
+    industry: str | None,
+    stock: str | None,
+    kind: str | None,
+    from_: date | None,
+    to: date | None,
+    limit: int,
+    offset: int,
+) -> list[Broadcast]:
+    """필터 조건으로 브로드캐스트를 발송시각 내림차순 조회. 산업·종목은 JSONB contains(@>) 조인.
+
+    kind 가 유효 목록 밖이면 UnknownBroadcastKind 를 던진다(라우터가 400 처리).
+    """
+    stmt = select(Broadcast).order_by(Broadcast.sent_at.desc())
+    if industry:
+        stmt = stmt.where(Broadcast.industries.contains([industry]))
+    if stock:
+        stmt = stmt.where(Broadcast.stock_codes.contains([stock]))
+    if kind:
+        if kind not in VALID_KINDS:
+            raise UnknownBroadcastKind(kind)
+        stmt = stmt.where(Broadcast.kind == BroadcastKind(kind))
+    if from_:
+        stmt = stmt.where(Broadcast.ref_date >= from_)
+    if to:
+        stmt = stmt.where(Broadcast.ref_date <= to)
+    return list(db.scalars(stmt.limit(limit).offset(offset)).all())
+
+
+def get_broadcast(db: Session, broadcast_id: int) -> Broadcast | None:
+    return db.get(Broadcast, broadcast_id)
 
 
 def _spool_path(settings: Settings) -> Path:
