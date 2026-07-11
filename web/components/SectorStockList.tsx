@@ -31,12 +31,22 @@ function StockRow({ stock }: { stock: SectorStock }) {
       {stock.change_ratio ? <span className={styles.ratio}>{stock.change_ratio}%</span> : null}
     </span>
   );
-  // 국내 종목은 코드가 있어 종목분석으로 이동, 미국은 링크 없이 표시만.
+  // 국내 종목은 코드로 종목분석 이동. 미국은 심볼(NVDA.O)에서 접미사를 떼 /us/{ticker} 로 이동.
   if (stock.code) {
     return (
       <Link href={`/companies/${stock.code}`} className={`${styles.row} ${styles.linkRow}`}>
         <span className={styles.name}>{stock.name}</span>
         <span className={styles.code}>{stock.code}</span>
+        {change}
+      </Link>
+    );
+  }
+  if (stock.market === "US" && stock.symbol) {
+    const ticker = stock.symbol.split(".")[0]; // NVDA.O → NVDA
+    return (
+      <Link href={`/us/${ticker}`} className={`${styles.row} ${styles.linkRow}`}>
+        <span className={styles.name}>{stock.name}</span>
+        <span className={styles.code}>{ticker}</span>
         {change}
       </Link>
     );
