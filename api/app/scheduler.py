@@ -64,6 +64,9 @@ _BACKFILL_CRON = CronTrigger(hour=2, minute=0, timezone=_TZ)
 # 10년 재무·밸류(PER/PBR/PSR) 점진 백필: 매일 03:30. 종목당 40분기 DART 콜이라 무거워
 # 일봉 백필(02:00)과 시차를 둔다. sync_state 로 재개 가능, 완료되면 즉시 종료.
 _FIN_BACKFILL_CRON = CronTrigger(hour=3, minute=30, timezone=_TZ)
+# 보고서 원문 파싱 백필(정밀 감가상각·EV/EBITDA): 매일 05:00. 보고서당 document.xml(수MB)
+# 다운로드라 가장 무거워 재무 백필(03:30) 이후로 뺀다. sync_state 로 재개 가능.
+_REPORT_BACKFILL_CRON = CronTrigger(hour=5, minute=0, timezone=_TZ)
 
 
 def run_ingest_cycle(settings: Settings | None = None) -> dict:
@@ -140,6 +143,17 @@ def run_financials_backfill(settings: Settings | None = None) -> dict:
         session.close()
 
 
+def run_report_backfill(settings: Settings | None = None) -> dict:
+    """보고서 원문 파싱 백필 1회분(정밀 감가상각·EV/EBITDA). 여러 밤에 걸쳐 전체 완성."""
+    from app.services import report_ingest
+
+    session = SessionLocal()
+    try:
+        return report_ingest.run_backfill_progressive(session, settings)
+    finally:
+        session.close()
+
+
 def build_scheduler(settings: Settings | None = None) -> BlockingScheduler:
     """잡이 등록된 스케줄러를 반환한다 (start 는 호출자가)."""
     settings = settings or get_settings()
@@ -180,6 +194,14 @@ def build_scheduler(settings: Settings | None = None) -> BlockingScheduler:
         _logged("financials_10y", run_financials_backfill),
         trigger=_FIN_BACKFILL_CRON,
         id="financials_10y",
+        max_instances=1,
+        coalesce=True,
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        _logged("report_10y", run_report_backfill),
+        trigger=_REPORT_BACKFILL_CRON,
+        id="report_10y",
         max_instances=1,
         coalesce=True,
         replace_existing=True,

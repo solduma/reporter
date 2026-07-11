@@ -134,9 +134,12 @@ def sync_valuation(db: Session, settings: Settings, code: str) -> int:
     updated = 0
     for r in q_rows:
         yq = _period_to_year_q(r.period)
-        ttm_ebitda = _ttm_ebitda(ytd_ebitda, yq)
-        ev = (market_cap + r.net_debt) if (market_cap is not None and r.net_debt is not None) else None
-        r.ev_ebitda = round(ev / ttm_ebitda, 2) if (ev is not None and ttm_ebitda and ttm_ebitda > 0) else None
+        # 연간(.12) 행의 ev_ebitda 는 report_ingest(원문 XML 정밀 D&A)가 소유 → 여기선 안 건드림
+        # (방법론 혼재로 값이 튀는 것 방지). 분기(.03/.06/.09)만 여기서 채운다.
+        if not r.period.endswith(".12"):
+            ttm_ebitda = _ttm_ebitda(ytd_ebitda, yq)
+            ev = (market_cap + r.net_debt) if (market_cap is not None and r.net_debt is not None) else None
+            r.ev_ebitda = round(ev / ttm_ebitda, 2) if (ev is not None and ttm_ebitda and ttm_ebitda > 0) else None
         ttm_rev_eok = _ttm_revenue(rows, r.period)  # 억원
         ttm_rev = ttm_rev_eok * 1e8 if ttm_rev_eok is not None else None  # 원
         r.psr = round(market_cap / ttm_rev, 2) if (market_cap and ttm_rev and ttm_rev > 0) else None

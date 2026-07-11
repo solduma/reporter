@@ -26,6 +26,7 @@ JOB_LABELS = {
     "candle_batch": "봉 배치",
     "backfill_10y": "일봉 10년 백필",
     "financials_10y": "재무 10년 백필",
+    "report_10y": "보고서 원문 백필",
     "manual_ingest": "수동 리포트 수집",
     "manual_universe": "수동 유니버스",
     "manual_growth": "수동 성장 배치",

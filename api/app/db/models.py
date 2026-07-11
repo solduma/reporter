@@ -143,6 +143,40 @@ class Financial(Base):
     )
 
 
+class ReportFinancial(Base):
+    """DART 정규 보고서(사업/반기/분기) 원문 XML 파싱 결과 — 기간·연결구분별 원본 재무.
+
+    financials(네이버+파생 밸류)와 분리해 '보고서에서 직접 읽은 값'을 원본 그대로 보존한다.
+    감가상각/무형상각은 현금흐름표 D&A 를 정밀 파싱(구조화 API 엔 대형사 D&A 가 없다).
+    금액은 전부 원 단위로 정규화(원문은 원/천원/백만원 혼재)해 저장한다.
+    """
+
+    __tablename__ = "report_financials"
+    __table_args__ = (
+        UniqueConstraint("stock_code", "period", "fs_div", name="uq_report_financial"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    stock_code: Mapped[str] = mapped_column(String(6), index=True)
+    period: Mapped[str] = mapped_column(String(16))  # '2023.12'(사업)·'2023.06'(반기)·'2024.03'(분기)
+    fs_div: Mapped[str] = mapped_column(String(3))  # CFS(연결) | OFS(별도)
+    report_kind: Mapped[str] = mapped_column(String(8))  # annual | half | quarter
+    rcept_no: Mapped[str] = mapped_column(String(14))  # 출처 접수번호
+    # 원 단위 원본값(파싱 실패 항목은 None). 기간값(매출·손익·상각)은 보고서 기간 그대로.
+    revenue: Mapped[float | None] = mapped_column(Float)
+    operating_income: Mapped[float | None] = mapped_column(Float)
+    net_income: Mapped[float | None] = mapped_column(Float)  # 지배주주
+    equity: Mapped[float | None] = mapped_column(Float)  # 지배주주 자본(BS 시점)
+    eps: Mapped[float | None] = mapped_column(Float)
+    # 현금흐름표 D&A. 파서가 감가상각+무형자산상각을 합산해 depreciation 에 담는다(개별 분리
+    # 불가한 종목이 많아). amortization 은 예비 컬럼(현재 미사용, 항상 None).
+    depreciation: Mapped[float | None] = mapped_column(Float)  # 감가상각비+무형자산상각비 합
+    amortization: Mapped[float | None] = mapped_column(Float)  # 예비(미사용)
+    parsed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class Peer(Base):
     """동일업종비교 한 종목. 표시값을 JSON 유사 컬럼 대신 정규 컬럼으로 저장."""
 
