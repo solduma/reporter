@@ -30,7 +30,14 @@ from app.services import analysis, analysis_comment, candle_service, company_ser
 
 router = APIRouter(prefix="/api/companies", tags=["companies"])
 
-_flow_label = analysis_scoring.flow_label
+# 도메인 강도 분류 → 한글 라벨(표현은 라우터 edge 책임).
+_FLOW_TAG = {"strong": "강함", "moderate": "보통", "weak": "약함"}
+
+
+def _flow_label(score: float | None) -> str:
+    """자금유입 강도(0~100)를 '강함/보통/약함 NN' 표시 문자열로. None 은 '—'."""
+    strength = analysis_scoring.flow_strength(score)
+    return f"{_FLOW_TAG[strength]} {score:.0f}" if strength else "—"
 
 
 def _search_rank(query: str, code: str, name: str) -> int:

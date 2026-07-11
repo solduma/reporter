@@ -63,11 +63,13 @@ def test_float_association_matches_legacy():
     assert s.rotation_score(-1.0, 7, 40) == 5.3
 
 
-def test_flow_label_thresholds():
-    assert s.flow_label(None) == "—"
-    assert s.flow_label(75) == "강함 75"
-    assert s.flow_label(50) == "보통 50"
-    assert s.flow_label(30) == "약함 30"
+def test_flow_strength_thresholds():
+    assert s.flow_strength(None) is None
+    assert s.flow_strength(75) == "strong"
+    assert s.flow_strength(60) == "strong"  # 경계 포함
+    assert s.flow_strength(50) == "moderate"
+    assert s.flow_strength(40) == "moderate"  # 경계 포함
+    assert s.flow_strength(30) == "weak"
 
 
 def test_sentiment_score_mapping():

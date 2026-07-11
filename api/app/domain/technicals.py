@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
+from app.domain.analysis_scoring import band
+
 
 class _Bar(Protocol):
     close: float
@@ -103,16 +105,15 @@ def _trend_score(
     """기술 지표를 0~100 점수로 종합. 계산 가능한 항목만 가중 평균한다."""
     parts: list[tuple[float, float]] = []  # (0~1 값, 가중치)
     if near_high is not None:
-        # 0.7(고점 대비 -30%)~1.0(신고가) 구간을 0~1로.
+        # 0.7(고점 대비 -30%)~1.0(신고가) 구간을 0~1로. 리터럴 0.3 나눗셈 유지(band 의
+        # 1.0-0.7 은 부동소수 오차 → flow_score 와 동일하게 기존 결과를 보존).
         parts.append((max(0.0, min((near_high - 0.7) / 0.3, 1.0)), 0.35))
     if ma_aligned is not None:
         parts.append((1.0 if ma_aligned else (1.0 if above_ma120 else 0.0), 0.30))
     if vol_ratio is not None:
-        # 거래량 1.0배=중립(0.5), 2배 이상=최대.
-        parts.append((max(0.0, min((vol_ratio - 0.5) / 1.5, 1.0)), 0.15))
+        parts.append((band(vol_ratio, 0.5, 2.0), 0.15))  # 거래량 0.5배=0, 2배↑=1
     if return_3m is not None:
-        # -20%~+40% 구간을 0~1로.
-        parts.append((max(0.0, min((return_3m + 20) / 60, 1.0)), 0.20))
+        parts.append((band(return_3m, -20, 40), 0.20))  # -20%~+40% → 0~1
     if not parts:
         return None
     total_w = sum(w for _, w in parts)
