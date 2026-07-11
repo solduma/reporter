@@ -19,6 +19,9 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from app.adapters import dart
+from app.adapters.dart import report_parser as dart_report_parser
+from app.adapters.external import krx
 from app.config import Settings, get_settings
 from app.db.models import (
     CorpCodeMap,
@@ -29,7 +32,7 @@ from app.db.models import (
     Timeframe,
     UniverseSnapshot,
 )
-from app.services import dart, dart_report_parser, krx, sync_state, universe_ingest
+from app.services import sync_state, universe_ingest
 
 logger = logging.getLogger(__name__)
 

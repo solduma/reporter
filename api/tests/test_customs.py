@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from app.services import customs
+from app.adapters.external import customs
 
 # 2026.01 두 국가 + 총계행. 월별 국가 합산, 총계행은 제외해야 한다.
 _XML = """<?xml version="1.0" encoding="UTF-8"?>

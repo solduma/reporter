@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from app.services import universe
+from app.adapters.external import universe
 
 
 def _session(pages: list[dict]) -> MagicMock:

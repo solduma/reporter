@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from app.adapters.external import customs
 from app.config import get_settings
 from app.db.models import (
     Report,
@@ -20,7 +21,7 @@ from app.db.models import (
 from app.db.session import get_session
 from app.domain.analysis_scoring import SENTIMENT_SCORE
 from app.schemas import IndustrySummary, ReportRef, SectorStock, SentimentPoint, TradePoint
-from app.services import customs, sector_ingest, universe_ingest
+from app.services import sector_ingest, universe_ingest
 from reporter import sector_etf, us_market
 
 router = APIRouter(prefix="/api/industries", tags=["industries"])

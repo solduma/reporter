@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from app.config import Settings
-from app.services.realtime import (
+from app.adapters.realtime.kis_ws import (
     _MAX_SUBSCRIPTIONS,
     RealtimeManager,
     _sign_to_rising,
     is_data_frame,
     parse_ticks,
 )
+from app.config import Settings
 
 # H0STCNT0 필드(^): 코드^시각^현재가^전일대비부호^전일대비^등락률^가중평균^시가^고가^저가
 #                    ^매도호가1^매수호가1^체결거래량(12)^누적거래량(13) ...

@@ -22,6 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from app.adapters import dart
 from app.config import Settings, get_settings
 from app.db.models import (
     CorpCodeMap,
@@ -31,7 +32,7 @@ from app.db.models import (
     Timeframe,
     UniverseSnapshot,
 )
-from app.services import dart, quote, sync_state, universe_ingest
+from app.services import quote, sync_state, universe_ingest
 
 logger = logging.getLogger(__name__)
 

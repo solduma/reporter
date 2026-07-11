@@ -24,7 +24,7 @@ import zipfile
 
 import requests
 
-from app.services import dart_throttle
+from app.adapters.dart import throttle as dart_throttle
 
 logger = logging.getLogger(__name__)
 

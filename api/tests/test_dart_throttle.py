@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from unittest.mock import MagicMock
 
-from app.services import dart_throttle
+from app.adapters.dart import throttle as dart_throttle
 
 
 def test_enforces_min_interval(monkeypatch):
