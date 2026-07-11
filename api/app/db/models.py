@@ -552,3 +552,32 @@ class UsFinancial(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class UsUniverse(Base):
+    """US 유니버스 스냅샷 — 스크리너용(네이버 시세 야간 배치). ticker String(16), USD 지표.
+
+    KR UniverseSnapshot(String(6), KRW)과 별개 테이블로 US 격리(Approach A). 스크리너 필터·
+    정렬(시총·거래대금·PER/PBR·모멘텀)에 필요한 필드를 담는다.
+    """
+
+    __tablename__ = "us_universe"
+    __table_args__ = (UniqueConstraint("snapshot_date", "ticker", name="uq_us_universe"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    snapshot_date: Mapped[date] = mapped_column(Date, index=True)
+    ticker: Mapped[str] = mapped_column(String(16), index=True)
+    naver_symbol: Mapped[str] = mapped_column(String(24))  # .O/bare 해석된 차트 심볼
+    name: Mapped[str] = mapped_column(String(128))
+    exchange: Mapped[str | None] = mapped_column(String(16))  # NASDAQ | NYSE ...
+    sector: Mapped[str | None] = mapped_column(String(64))  # GICS 섹터
+    close_price: Mapped[float | None] = mapped_column(Float)  # USD
+    change_pct: Mapped[float | None] = mapped_column(Float)
+    market_cap: Mapped[float | None] = mapped_column(Float, index=True)  # USD
+    trading_value: Mapped[float | None] = mapped_column(Float)  # 거래대금 USD
+    per: Mapped[float | None] = mapped_column(Float)
+    pbr: Mapped[float | None] = mapped_column(Float)
+    eps: Mapped[float | None] = mapped_column(Float)
+    high_52w: Mapped[float | None] = mapped_column(Float)
+    low_52w: Mapped[float | None] = mapped_column(Float)
+    momentum_3m: Mapped[float | None] = mapped_column(Float)  # 3개월 수익률% (봉에서 계산)
