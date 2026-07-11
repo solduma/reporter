@@ -1,0 +1,62 @@
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 0.95rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+}
+
+/* 실시간 신호 — 초록 점 깜빡임 */
+.live {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #16a34a;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+.price {
+  color: var(--text);
+}
+
+.change {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 0.85rem;
+}
+
+.up .change {
+  color: #c02b2b;
+}
+
+.down .change {
+  color: #1d4ed8;
+}
+
+.flat .change {
+  color: var(--muted);
+}
+
+/* 움직임 최소화 선호 사용자는 깜빡임 정지 */
+@media (prefers-reduced-motion: reduce) {
+  .live {
+    animation: none;
+  }
+}
