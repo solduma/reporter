@@ -63,6 +63,21 @@ function compareTf(tf: Timeframe): ChartTimeframe {
   return tf === "30m" ? "day" : tf;
 }
 
+// 30분봉 의사 실시간 갱신 주기(백엔드 intraday 쿨다운 60s 와 맞춘다).
+const INTRADAY_POLL_MS = 60_000;
+
+// 형성 중인 30분봉은 장중에만 바뀌므로, 국내 정규장 시간(KST 평일 09:00~15:40)에만 폴링한다.
+// 마감·주말엔 마지막 봉이 확정돼 재조회가 무의미하다(공휴일은 드물어 별도 처리 안 함).
+function isKrMarketOpen(): boolean {
+  const kst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  const day = kst.getUTCDay(); // 0=일 6=토
+  if (day === 0 || day === 6) {
+    return false;
+  }
+  const minutes = kst.getUTCHours() * 60 + kst.getUTCMinutes();
+  return minutes >= 9 * 60 && minutes <= 15 * 60 + 40;
+}
+
 // 재무 기간('2026.03') → 분기말 'YYYY-MM-DD'. 밸류 밴드 슬라이더 날짜축용
 // (MultipleBandChart 의 periodToDate 와 동일 규칙).
 const QUARTER_END: Record<string, string> = {
@@ -193,6 +208,37 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
       active = false;
     };
   }, [code, timeframe, candlesByTf]);
+
+  // 30분봉 의사 실시간 — 장중에만, 탭이 보일 때만 주기적으로 최신 봉을 다시 받아 조용히 교체한다.
+  // (일/주봉은 하루 1회만 바뀌므로 폴링하지 않는다.)
+  useEffect(() => {
+    if (timeframe !== "30m") {
+      return;
+    }
+    let active = true;
+    async function refresh() {
+      if (document.visibilityState !== "visible" || !isKrMarketOpen()) {
+        return;
+      }
+      try {
+        const res = await fetchCandles(code, "30m");
+        if (active) {
+          setCandlesByTf((prev) => ({ ...prev, "30m": res }));
+        }
+      } catch {
+        // 폴링 실패는 무시 — 직전 봉을 유지한다.
+      }
+    }
+    const timer = window.setInterval(() => void refresh(), INTRADAY_POLL_MS);
+    // 탭 복귀 시 다음 tick(최대 60s)을 기다리지 않고 즉시 한 번 갱신한다.
+    const onVisible = () => void refresh();
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [code, timeframe]);
 
   useEffect(() => {
     let active = true;

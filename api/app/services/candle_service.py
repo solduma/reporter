@@ -36,17 +36,19 @@ _inflight_lock = threading.Lock()
 
 # 갱신 쿨다운 — 마감 후·주말·공휴일엔 새 봉이 없어 is_stale 이 계속 True 다. 쿨다운 없이는
 # 매 요청이 헛된 외부 조회를 유발하므로(rate-limit 위험), 같은 심볼은 이 간격 내 재조회를 막는다.
-_REFRESH_COOLDOWN_S = 600.0  # 10분
+_REFRESH_COOLDOWN_S = 600.0  # 10분(일/주/월봉 — 하루 1회만 새 봉)
+# 30분봉은 장중 형성 중인 봉의 고가·저가·종가가 계속 바뀌므로 훨씬 짧게 둔다(의사 실시간).
+_INTRADAY_COOLDOWN_S = 60.0
 _last_attempt: dict[str, float] = {}
 _attempt_lock = threading.Lock()
 
 
-def _cooldown_ok(key: str) -> bool:
+def _cooldown_ok(key: str, cooldown: float = _REFRESH_COOLDOWN_S) -> bool:
     """마지막 시도 후 쿨다운이 지났으면 True 를 주고 시도 시각을 갱신한다(동시성 안전)."""
     now = time.monotonic()
     with _attempt_lock:
         last = _last_attempt.get(key)
-        if last is not None and now - last < _REFRESH_COOLDOWN_S:
+        if last is not None and now - last < cooldown:
             return False
         _last_attempt[key] = now
         return True
@@ -217,7 +219,7 @@ def read_intraday_or_fetch(db: Session, code: str, days: int = 14) -> list[Price
 def refresh_intraday(code: str) -> None:
     """백그라운드 30분봉 갱신 — 자체 세션. 가용 분봉 리샘플·누적."""
     key = f"{code}|30m"
-    if not _cooldown_ok(key):
+    if not _cooldown_ok(key, _INTRADAY_COOLDOWN_S):
         return
     with _inflight_lock:
         if key in _inflight:
