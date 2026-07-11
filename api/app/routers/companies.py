@@ -48,6 +48,7 @@ from app.services import (
     financials_backfill,
     quote,
     sync_state,
+    universe_ingest,
     valuation_ingest,
 )
 
@@ -78,7 +79,7 @@ def search_stocks(
     q = q.strip()
     if not q:
         return []
-    as_of = db.scalar(select(func.max(UniverseSnapshot.snapshot_date)))
+    as_of = universe_ingest.latest_snapshot_date(db)
     if as_of is None:
         return []
 
@@ -653,7 +654,7 @@ def _snippet(body: str) -> str:
 @router.get("/{code}/growth", response_model=CompanyGrowth)
 def company_growth(code: str, db: Session = Depends(get_session)) -> CompanyGrowth:
     """종목 성장지표 — universe 스냅샷(시총·모멘텀) + growth_metric(YoY) + 커버리지."""
-    snap_date = db.scalar(select(func.max(UniverseSnapshot.snapshot_date)))
+    snap_date = universe_ingest.latest_snapshot_date(db)
     u = db.scalar(
         select(UniverseSnapshot).where(
             UniverseSnapshot.snapshot_date == snap_date, UniverseSnapshot.stock_code == code

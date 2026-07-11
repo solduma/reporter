@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings
 from app.db.models import CorpCodeMap, Financial, UniverseSnapshot, ValuationSyncState
-from app.services import dart
+from app.services import dart, universe_ingest
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +42,7 @@ def _period_to_year_q(period: str) -> tuple[int, int] | None:
 
 def _latest_market_cap(db: Session, code: str) -> float | None:
     """최신 스냅샷 시가총액(원). PSR·EV 공용."""
-    as_of = db.scalar(select(func.max(UniverseSnapshot.snapshot_date)))
+    as_of = universe_ingest.latest_snapshot_date(db)
     if not as_of:
         return None
     mc = db.scalar(

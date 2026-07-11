@@ -20,7 +20,7 @@ from app.db.models import (
 )
 from app.db.session import get_session
 from app.schemas import IndustrySummary, ReportRef, SectorStock, SentimentPoint, TradePoint
-from app.services import customs, sector_ingest
+from app.services import customs, sector_ingest, universe_ingest
 from reporter import sector_etf, us_market
 
 router = APIRouter(prefix="/api/industries", tags=["industries"])
@@ -97,7 +97,7 @@ def _kr_sector_stocks(
     if not codes:
         return []
 
-    as_of = db.scalar(select(func.max(UniverseSnapshot.snapshot_date)))
+    as_of = universe_ingest.latest_snapshot_date(db)
     rows = db.execute(
         select(
             UniverseSnapshot.stock_code,

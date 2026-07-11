@@ -28,7 +28,7 @@ from app.db.models import (
 from app.db.session import get_session
 from app.domain import scoring
 from app.schemas import ScreenerResult, ScreenerRow
-from app.services import sector_ingest
+from app.services import sector_ingest, universe_ingest
 
 router = APIRouter(prefix="/api/screener", tags=["screener"])
 
@@ -37,7 +37,7 @@ _EVENT_DAYS = 14  # 이벤트 전략: 최근 N일 내 이벤트만
 
 
 def _latest_date(db: Session) -> date | None:
-    return db.scalar(select(func.max(UniverseSnapshot.snapshot_date)))
+    return universe_ingest.latest_snapshot_date(db)
 
 
 def _coverage_subquery(since: date):
