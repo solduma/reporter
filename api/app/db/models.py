@@ -525,3 +525,30 @@ class SectorThemeStock(Base):
     judal_idx: Mapped[int] = mapped_column(Integer, index=True)
     stock_code: Mapped[str] = mapped_column(String(6), index=True)
     stock_name: Mapped[str] = mapped_column(String(128), default="")
+
+
+class UsFinancial(Base):
+    """US 종목 재무 스냅샷 — SEC EDGAR companyfacts 산출 지표(종목당 1행, TTL 갱신).
+
+    KR 재무(financials, String(6))와 별개 테이블로 US 를 격리한다(기존 KR 스키마 무변경).
+    ticker 는 대문자 심볼(예 NVDA·AAPL). 값은 USD·표시 지표.
+    """
+
+    __tablename__ = "us_financials"
+
+    ticker: Mapped[str] = mapped_column(String(16), primary_key=True)
+    name: Mapped[str | None] = mapped_column(String(128))
+    ttm_revenue: Mapped[float | None] = mapped_column(Float)  # USD
+    ttm_net_income: Mapped[float | None] = mapped_column(Float)
+    ttm_operating_income: Mapped[float | None] = mapped_column(Float)
+    ttm_eps: Mapped[float | None] = mapped_column(Float)
+    equity: Mapped[float | None] = mapped_column(Float)
+    shares: Mapped[float | None] = mapped_column(Float)
+    market_cap: Mapped[float | None] = mapped_column(Float)  # 근사(분기말 종가 x 주식수), USD
+    per: Mapped[float | None] = mapped_column(Float)
+    pbr: Mapped[float | None] = mapped_column(Float)
+    psr: Mapped[float | None] = mapped_column(Float)
+    roe: Mapped[float | None] = mapped_column(Float)  # %
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )

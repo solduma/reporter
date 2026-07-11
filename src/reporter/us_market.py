@@ -191,6 +191,34 @@ def fetch_us_stock_quotes(
     return quotes
 
 
+# 네이버 US 종목 심볼 접미사 후보 — 거래소를 티커만으로 알 수 없어(나스닥=.O, NYSE=bare 등
+# 실측상 예측 불가) 순서대로 시도해 시세가 잡히는 첫 심볼을 쓴다. bare 를 먼저 둔다.
+_US_SYMBOL_SUFFIXES = ("", ".O", ".N", ".K")
+
+
+def resolve_us_symbol(
+    ticker: str, session: requests.Session | None = None
+) -> tuple[str, IndexQuote] | None:
+    """US 티커(예 'NVDA') → (네이버 심볼, 현재 시세). 접미사 후보를 시도해 첫 성공을 반환.
+
+    네이버 심볼은 차트 조회(/api/chart market=US)와 시총 근사(종가)에 재사용한다. 실패 시 None.
+    """
+    session = session or requests.Session()
+    for suffix in _US_SYMBOL_SUFFIXES:
+        symbol = f"{ticker}{suffix}"
+        try:
+            resp = session.get(_STOCK_BASE.format(symbol=symbol), headers=_HEADERS, timeout=15)
+            if resp.status_code != 200:
+                continue
+            data = resp.json()
+        except (requests.RequestException, ValueError):
+            continue
+        quote = _parse_quote(ticker, data)
+        if quote:
+            return symbol, quote
+    return None
+
+
 def map_industry_to_proxy(industry: str | None, market: str | None = None) -> str:
     """업종 라벨(+시장)을 미국 프록시 심볼(.SOX/.IXIC/.INX)로 매핑한다.
 
