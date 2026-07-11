@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 
 import styles from "./NavBar.module.css";
 
@@ -16,6 +17,36 @@ const LINKS = [
 export default function NavBar() {
   const pathname = usePathname();
   const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const navRef = useRef<HTMLElement>(null);
+
+  // 경로가 바뀌면(다른 페이지 이동) 모바일 메뉴를 닫는다.
+  useEffect(() => {
+    setOpen(false);
+  }, [pathname]);
+
+  // 열린 동안 바깥 클릭·Escape 로도 닫는다(같은 페이지 링크 탭 등 pathname 불변 케이스 보완).
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const onDown = (e: MouseEvent) => {
+      if (navRef.current && !navRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
 
   // 로그인 화면에는 내비게이션을 노출하지 않는다.
   if (pathname === "/login") {
@@ -23,6 +54,7 @@ export default function NavBar() {
   }
 
   async function handleLogout() {
+    setOpen(false);
     await fetch("/api/logout", { method: "POST" });
     router.replace("/login");
     router.refresh();
@@ -30,12 +62,25 @@ export default function NavBar() {
 
   return (
     <header className={styles.header}>
-      <nav className={styles.nav}>
-        <Link href="/" className={styles.brand}>
+      <nav className={styles.nav} ref={navRef}>
+        <Link href="/" className={styles.brand} onClick={() => setOpen(false)}>
           <span className={styles.brandMark}>☕</span>
           <span>Report Pulse</span>
         </Link>
-        <ul className={styles.links}>
+
+        {/* 모바일 토글: 데스크톱에선 CSS 로 숨김 */}
+        <button
+          type="button"
+          className={styles.menuToggle}
+          aria-label={open ? "메뉴 닫기" : "메뉴 열기"}
+          aria-expanded={open}
+          onClick={() => setOpen((v) => !v)}
+        >
+          {open ? "✕" : "☰"}
+        </button>
+
+        {/* 모바일에선 open 일 때만 펼침(드롭다운), 데스크톱에선 항상 가로 배치 */}
+        <ul className={open ? `${styles.links} ${styles.open}` : styles.links}>
           {LINKS.map((link) => {
             const active = pathname === link.href;
             const classes = [styles.link];
@@ -47,7 +92,11 @@ export default function NavBar() {
             }
             return (
               <li key={link.href}>
-                <Link href={link.href} className={classes.join(" ")}>
+                <Link
+                  href={link.href}
+                  className={classes.join(" ")}
+                  onClick={() => setOpen(false)}
+                >
                   {link.label}
                 </Link>
               </li>

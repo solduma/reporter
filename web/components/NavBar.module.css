@@ -39,6 +39,19 @@
   padding: 0;
 }
 
+/* 모바일 햄버거 토글: 데스크톱에선 숨김. */
+.menuToggle {
+  display: none;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
 .link {
   display: inline-block;
   padding: 8px 14px;
@@ -105,8 +118,48 @@
   color: var(--sell);
 }
 
-@media (max-width: 520px) {
+/* 모바일: 링크를 햄버거 뒤 드롭다운으로. 데스크톱(≥721px)은 위 가로 배치 유지. */
+@media (max-width: 720px) {
+  .menuToggle {
+    display: inline-flex;
+    align-items: center;
+  }
+  .links {
+    display: none;
+    position: absolute;
+    top: 60px;
+    left: 0;
+    right: 0;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+    /* 좌우 12px + 링크 자체 좌패딩 8px = 브랜드/토글의 20px 인셋과 정렬을 맞춘다. */
+    padding: 8px 12px 12px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    box-shadow: var(--shadow);
+  }
+  .links.open {
+    display: flex;
+  }
+  .link,
+  .logout {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 12px 8px;
+    border-radius: 10px;
+    font-size: 1rem;
+  }
+  .logout {
+    margin-left: 0;
+    margin-top: 4px;
+  }
+}
+
+@media (max-width: 400px) {
   .brand span:last-child {
+    /* 아주 좁은 화면에서만 브랜드 워드마크를 숨겨 토글 공간 확보. */
     display: none;
   }
 }

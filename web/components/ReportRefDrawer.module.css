@@ -14,6 +14,14 @@
   overflow: auto;
 }
 
+/* 모바일(레이아웃이 1열로 collapse): sticky 로 화면을 점유하지 않고 일반 블록으로 흐르게. */
+@media (max-width: 860px) {
+  .drawer {
+    position: static;
+    max-height: none;
+  }
+}
+
 .header {
   display: flex;
   align-items: center;

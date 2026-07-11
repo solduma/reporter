@@ -378,4 +378,7 @@
   .filterLabel {
     flex-basis: 100%;
   }
+  .page {
+    padding: 18px 12px 48px;
+  }
 }
