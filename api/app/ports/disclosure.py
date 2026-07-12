@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Protocol
 import requests
 
 if TYPE_CHECKING:  # 런타임 결합 없음 — 도메인 값객체를 반환 타입 힌트로만 참조.
-    from app.domain.disclosure import Disclosure, Filing
+    from app.domain.disclosure import Disclosure, Filing, OwnershipChange
 
 
 class KrDisclosurePort(Protocol):
@@ -35,6 +35,12 @@ class KrDisclosurePort(Protocol):
         self, corp_code: str, year: int, kind: str, session: requests.Session
     ) -> str | None:
         """해당 회계연도 정기공시(annual|half|quarter)의 접수번호. 없으면 None."""
+        ...
+
+    def fetch_ownership_changes(
+        self, corp_code: str, session: requests.Session
+    ) -> dict[str, OwnershipChange]:
+        """임원·주요주주 소유변동(elestock) → {rcept_no: 변동}. 방향·수량 확보. 실패 시 빈 dict."""
         ...
 
 

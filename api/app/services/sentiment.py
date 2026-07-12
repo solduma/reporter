@@ -51,19 +51,28 @@ _DISCLOSURE_SYSTEM = (
     "너는 DART 공시를 읽고 해당 종목 주가에 미칠 영향을 판단하는 애널리스트다. "
     "제목과 (있으면) 본문 내용을 근거로 긍정적이면 BUY, 부정적이면 SELL, 중립·판단불가면 HOLD 로 분류한다. "
     "본문의 구체 수치(금액·수량·비율·일정)가 있으면 근거에 반영한다. "
+    "임원·주요주주 소유변동 요약이 주어지면 방향(취득=매수 성격, 처분=매도·증여 등)과 "
+    "사유를 함께 본다. 장내매수는 내부자 신뢰 신호로 긍정적, 장내매도는 부정적일 수 있으나, "
+    "증여·상속·수증 등 지분 이동은 시장 방향 신호가 아니므로 신중히 HOLD 로 본다. "
     "반드시 아래 JSON 형식만 출력한다.\n"
     '{"sentiment": "BUY|SELL|HOLD", "rationale": "주가에 미칠 영향을 한 줄로(100자 이내)"}'
 )
 
 
 def classify_disclosure(
-    client: LLMPort, model: str, report_nm: str, body: str = ""
+    client: LLMPort, model: str, report_nm: str, body: str = "", ownership: str = ""
 ) -> SentimentResult:
     """공시 제목(+본문)으로 주가 영향(BUY/SELL/HOLD)+근거를 분류한다. 실패 시 HOLD.
 
     body 는 DART 원문 발췌(앞 6000자). 비어 있으면 제목만으로 판단한다.
+    ownership 은 소유상황보고서의 구조화 소유변동 요약(방향·수량·사유) — 있으면 최우선 근거로 넣는다.
     """
-    prompt = f"제목: {report_nm}\n\n본문:\n{body}" if body else report_nm
+    sections = [f"제목: {report_nm}"]
+    if ownership:
+        sections.append(f"[소유변동 요약]\n{ownership}")
+    if body:
+        sections.append(f"본문:\n{body}")
+    prompt = "\n\n".join(sections)
     try:
         raw = client.chat(model, _DISCLOSURE_SYSTEM, prompt, temperature=0.2)
     except LLMError as e:
