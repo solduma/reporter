@@ -17,6 +17,7 @@ import type {
 } from "lightweight-charts";
 import { useEffect, useRef, useState } from "react";
 
+import { tsToDate } from "@/lib/chartTime";
 import type { CandlePoint, Timeframe } from "@/lib/types";
 
 import styles from "./CandleChart.module.css";
@@ -47,6 +48,9 @@ interface Props {
   height?: number; // 그리드용 소형 차트를 위해 컨테이너 높이를 조절(기본 420)
   range?: ChartRange | null; // 표시 구간(없으면 전체 fitContent)
   showControls?: boolean; // MA 레전드·로그 토글 표시(기본 true). 컨트롤을 밖으로 뺄 땐 false.
+  // 사용자가 스크롤·드래그로 표시 구간을 바꾸면 그 시작·끝 일자(YYYY-MM-DD)를 알린다.
+  // 여러 차트를 한 date-range 로 묶을 때 페이지가 이 콜백으로 공유 구간을 갱신한다.
+  onRangeChange?: (from: string, to: string) => void;
 }
 
 // 30분봉의 t는 타임존 없는 벽시계 시각이라, UTC로 간주해 표기 시각이 그대로 보이도록 한다.
@@ -105,9 +109,16 @@ export default function CandleChart({
   height = 420,
   range = null,
   showControls = true,
+  onRangeChange,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [logScale, setLogScale] = useState(false);
+  // 프로그램적으로 설정한 마지막 구간(일자). 이벤트가 이 값과 같으면 setVisibleRange 의 메아리로
+  // 보고 무시한다 — 타이밍(rAF)에 의존하지 않아 피드백 루프를 결정적으로 끊는다. 콜백은 최신 값이
+  // 필요하므로 ref 로 담아 effect 재실행 없이 참조한다.
+  const lastAppliedRef = useRef<{ from: string; to: string } | null>(null);
+  const onRangeChangeRef = useRef(onRangeChange);
+  onRangeChangeRef.current = onRangeChange;
 
   useEffect(() => {
     const container = containerRef.current;
@@ -194,18 +205,37 @@ export default function CandleChart({
       candleSeries.attachPrimitive(new TimeDividers(chart, dividers));
     }
 
-    // range 가 있으면 그 구간만, 없으면 전체를 맞춘다.
+    // range 가 있으면 그 구간만, 없으면 전체를 맞춘다. 설정한 구간을 기록해 두고, 이벤트가 이 값과
+    // 같으면(=이 설정의 메아리) 콜백을 건너뛴다.
     if (range) {
+      lastAppliedRef.current = { from: tsToDate(range.from), to: tsToDate(range.to) };
       try {
         chart.timeScale().setVisibleRange({ from: range.from, to: range.to });
       } catch {
         chart.timeScale().fitContent(); // 범위가 데이터 밖이면 전체로 폴백
       }
     } else {
+      lastAppliedRef.current = null;
       chart.timeScale().fitContent();
     }
 
+    // 사용자 스크롤·드래그로 표시 구간이 바뀌면(프로그램적 설정의 메아리 제외) 시작·끝 일자를 알린다.
+    const onVisibleRangeChange = (r: { from: Time; to: Time } | null) => {
+      if (!r || !onRangeChangeRef.current) {
+        return;
+      }
+      const from = tsToDate(r.from);
+      const to = tsToDate(r.to);
+      const last = lastAppliedRef.current;
+      if (last && last.from === from && last.to === to) {
+        return; // 방금 프로그램적으로 설정한 구간과 동일 → 메아리, 무시
+      }
+      onRangeChangeRef.current(from, to);
+    };
+    chart.timeScale().subscribeVisibleTimeRangeChange(onVisibleRangeChange);
+
     return () => {
+      chart.timeScale().unsubscribeVisibleTimeRangeChange(onVisibleRangeChange);
       chart.remove();
     };
   }, [data, timeframe, logScale, range]);

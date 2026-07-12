@@ -5,7 +5,7 @@ import type { LineData, Time } from "lightweight-charts";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { ChartRange } from "@/components/CandleChart";
-import { dateToTs } from "@/lib/chartTime";
+import { tsToDate } from "@/lib/chartTime";
 import type { FinancialPeriod } from "@/lib/types";
 
 import styles from "./FinancialsLineChart.module.css";
@@ -43,14 +43,27 @@ const METRICS: Metric[] = [
 interface Props {
   data: FinancialPeriod[];
   range?: ChartRange | null;
-  height?: number;
+  onRangeChange?: (from: string, to: string) => void; // 차트 조작 시 공유 구간 갱신
+}
+
+// 켜진 지표 수에 따른 차트 높이. 지표마다 독립 스케일이라 여러 개 켜면 라인·눈금이 겹쳐
+// 고정 높이(260)에선 다 안 보인다 → 1개 초과분마다 늘려 모든 지표가 드러나게(상한 480).
+const BASE_HEIGHT = 260;
+const PER_METRIC = 44;
+const MAX_HEIGHT = 480;
+function autoHeight(activeCount: number): number {
+  return Math.min(MAX_HEIGHT, BASE_HEIGHT + Math.max(0, activeCount - 1) * PER_METRIC);
 }
 
 // 재무 지표 라인차트 — 캔들과 동일한 lightweight-charts 시간축 + date-range 공유.
-// 6개 지표를 토글로 on/off, 기본은 영업이익만.
-export default function FinancialsLineChart({ data, range = null, height = 260 }: Props) {
+// 6개 지표를 토글로 on/off, 기본은 영업이익만. height prop 은 하위호환 무시(켜진 수로 자동 산정).
+export default function FinancialsLineChart({ data, range = null, onRangeChange }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [active, setActive] = useState<Set<string>>(new Set(["operating_income"]));
+  // 프로그램적으로 설정한 마지막 구간(메아리 식별용). CandleChart 와 동일 패턴.
+  const lastAppliedRef = useRef<{ from: string; to: string } | null>(null);
+  const onRangeChangeRef = useRef(onRangeChange);
+  onRangeChangeRef.current = onRangeChange;
 
   // period → 일자 매핑 + 오름차순 정렬(시간축 요구). 지표별 라인 데이터 미리 계산.
   const seriesData = useMemo(() => {
@@ -66,6 +79,12 @@ export default function FinancialsLineChart({ data, range = null, height = 260 }
     }
     return out;
   }, [data]);
+
+  // 실제로 그려지는(켜졌고 데이터 있는) 지표 수로 높이 산정 — 켜기만 하고 데이터 없는 칩은 제외.
+  const renderedCount = METRICS.filter(
+    (m) => active.has(m.key) && seriesData[m.key]?.length > 0,
+  ).length;
+  const chartHeight = autoHeight(renderedCount);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -100,19 +119,37 @@ export default function FinancialsLineChart({ data, range = null, height = 260 }
       any = true;
     }
 
-    if (any) {
-      if (range) {
-        try {
-          chart.timeScale().setVisibleRange({ from: range.from, to: range.to });
-        } catch {
-          chart.timeScale().fitContent();
-        }
-      } else {
+    // 설정한 구간을 기록해 두고 이벤트가 이 값과 같으면(메아리) 콜백을 건너뛴다(CandleChart 와 동일).
+    if (any && range) {
+      lastAppliedRef.current = { from: tsToDate(range.from), to: tsToDate(range.to) };
+      try {
+        chart.timeScale().setVisibleRange({ from: range.from, to: range.to });
+      } catch {
+        chart.timeScale().fitContent();
+      }
+    } else {
+      lastAppliedRef.current = null;
+      if (any) {
         chart.timeScale().fitContent();
       }
     }
 
+    const onVisibleRangeChange = (r: { from: Time; to: Time } | null) => {
+      if (!r || !onRangeChangeRef.current) {
+        return;
+      }
+      const from = tsToDate(r.from);
+      const to = tsToDate(r.to);
+      const last = lastAppliedRef.current;
+      if (last && last.from === from && last.to === to) {
+        return;
+      }
+      onRangeChangeRef.current(from, to);
+    };
+    chart.timeScale().subscribeVisibleTimeRangeChange(onVisibleRangeChange);
+
     return () => {
+      chart.timeScale().unsubscribeVisibleTimeRangeChange(onVisibleRangeChange);
       chart.remove();
     };
   }, [seriesData, active, range]);
@@ -130,7 +167,7 @@ export default function FinancialsLineChart({ data, range = null, height = 260 }
 
   return (
     <div className={styles.wrap}>
-      <div ref={containerRef} className={styles.chart} style={{ height }} />
+      <div ref={containerRef} className={styles.chart} style={{ height: chartHeight }} />
       <div className={styles.filters} role="group" aria-label="재무 지표 필터">
         {METRICS.map((m) => {
           const on = active.has(m.key);
