@@ -32,6 +32,7 @@ from app.db.models import (
     Timeframe,
     UniverseSnapshot,
 )
+from app.domain import financials
 from app.services import quote, sync_state, universe_ingest
 
 logger = logging.getLogger(__name__)
@@ -69,39 +70,20 @@ def _quarter_end_close(db: Session, code: str, year: int, quarter: int) -> float
     )
 
 
-def _discrete(raw: dict[tuple[int, int], float | None], yq: tuple[int, int]) -> float | None:
-    """DART 값을 분기 개별값으로 환산.
+def _ttm_from_discrete(discrete: dict[tuple[int, int], float | None], yq: tuple[int, int]) -> float | None:
+    """이미 분기 개별 환산된 dict 에서 yq 포함 연속 4개 분기 합(TTM). 결측·불연속이면 None.
 
-    fnlttSinglAcntAll 의 thstrm_amount 는 실측상 1~3Q(분기·반기보고서)는 '당기 3개월'
-    개별값, 4Q(사업보고서)는 '연간 누적'이다 → Q4 개별 = 연간 - (Q1+Q2+Q3).
-    단 일부 회사는 반기보고서를 누적으로 낼 수 있어, 그 경우 Q4 환산이 음수가 되면(누적
-    신호) 신뢰할 수 없으므로 None 을 반환한다(해당 분기 밸류 미산출).
+    domain.financials.ttm 은 raw(원자료)를 받아 내부 환산하지만, 여기선 음수-매출 필터를
+    적용한 뒤의 discrete dict 를 합해야 해서 별도로 둔다(환산은 financials.discrete_quarter 공용).
     """
-    year, q = yq
-    val = raw.get(yq)
-    if val is None:
-        return None
-    if q != 4:
-        return val
-    parts = [raw.get((year, i)) for i in (1, 2, 3)]
-    if any(p is None for p in parts):
-        return None
-    discrete = val - sum(parts)
-    # 매출은 음수가 불가능하므로, 음수는 1~3Q 가 누적이었다는 신호 → 폐기. 순이익은 적자로
-    # 음수가 정상이라 여기서 거르지 않는다(호출측이 필드별로 판단).
-    return discrete
-
-
-def _ttm(discrete: dict[tuple[int, int], float | None], yq: tuple[int, int]) -> float | None:
-    """yq 포함 연속 4개 분기 개별값 합(TTM). 하나라도 결측이면 None."""
     total = 0.0
-    year, q = yq
+    cursor = yq
     for _ in range(4):
-        v = discrete.get((year, q))
+        v = discrete.get(cursor)
         if v is None:
             return None
         total += v
-        year, q = (year - 1, 4) if q == 1 else (year, q - 1)
+        cursor = financials.prev_yq(cursor)
     return total
 
 
@@ -143,9 +125,9 @@ def backfill_stock(db: Session, settings: Settings, code: str) -> bool:
         return True  # 재무 공시 없음 → 완료 처리
 
     # 분기 개별값 환산(4Q=연간-누적). 매출·순이익은 총액(원), EPS 는 표시용.
-    rev_q = {yq: _discrete(rev_raw, yq) for yq in rev_raw}
-    ni_q = {yq: _discrete(ni_raw, yq) for yq in ni_raw}
-    eps_q = {yq: _discrete(eps_raw, yq) for yq in eps_raw}
+    rev_q = {yq: financials.discrete_quarter(rev_raw, yq) for yq in rev_raw}
+    ni_q = {yq: financials.discrete_quarter(ni_raw, yq) for yq in ni_raw}
+    eps_q = {yq: financials.discrete_quarter(eps_raw, yq) for yq in eps_raw}
     # 매출 개별값이 음수면 1~3Q 가 누적 보고였다는 신호 → 그 분기 매출·TTM 을 신뢰 불가로 폐기.
     rev_q = {yq: (v if (v is None or v >= 0) else None) for yq, v in rev_q.items()}
 
@@ -157,8 +139,8 @@ def backfill_stock(db: Session, settings: Settings, code: str) -> bool:
         close = _quarter_end_close(db, code, year, q)
         # 과거 시총 근사 = 분기말 수정종가 x 현재 주식수(수정주가라 분할 소급 상쇄).
         cap = (close * shares) if (close and shares) else None
-        ttm_ni = _ttm(ni_q, yq)  # 원(총액)
-        ttm_rev = _ttm(rev_q, yq)  # 원(총액)
+        ttm_ni = _ttm_from_discrete(ni_q, yq)  # 원(총액)
+        ttm_rev = _ttm_from_discrete(rev_q, yq)  # 원(총액)
         eq = equity.get(yq)  # 지배자본(원, 시점값)
 
         # 총액 기준(분할 무관): PER=시총/순이익, PBR=시총/자본, PSR=시총/매출.

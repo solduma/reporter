@@ -72,32 +72,20 @@ def test_period_to_year_q():
     assert valuation_ingest._period_to_year_q("연간") is None
 
 
-def test_discrete_ebitda_from_cumulative_ytd():
-    # DART 는 누적(YTD) 보고. Q1=3mo·Q2=6mo·Q3=9mo·Q4=12mo → 분기 개별값으로 환산.
-    ytd = {(2025, 1): 100.0, (2025, 2): 250.0, (2025, 3): 420.0, (2025, 4): 600.0}
-    assert valuation_ingest._discrete_ebitda(ytd, (2025, 1)) == 100.0  # Q1 그대로
-    assert valuation_ingest._discrete_ebitda(ytd, (2025, 2)) == 150.0  # 250-100
-    assert valuation_ingest._discrete_ebitda(ytd, (2025, 3)) == 170.0  # 420-250
-    assert valuation_ingest._discrete_ebitda(ytd, (2025, 4)) == 180.0  # 600-420
+def test_ttm_ebitda_uses_domain_discrete_rule():
+    # 회귀(#2 버그수정): DART thstrm_amount 는 실측상 1~3Q 개별·4Q 연간누적.
+    # raw = 1~3Q 개별(100/150/170), 4Q = 연간(600). Q4 개별 = 600-(100+150+170)=180.
+    # 2025 TTM(Q4 기준) = 100+150+170+180 = 600.
+    from app.domain import financials
 
-
-def test_discrete_ebitda_q1_crosses_year():
-    # Q1 의 직전은 전년 Q4. (여기선 Q1 이 YTD 그대로라 전년 불필요하지만 _prev_yq 검증)
-    assert valuation_ingest._prev_yq((2026, 1)) == (2025, 4)
-    assert valuation_ingest._prev_yq((2026, 3)) == (2026, 2)
-
-
-def test_ttm_ebitda_sums_four_discrete_quarters():
-    # 2025 전체 = Q1+Q2+Q3+Q4 개별 = 100+150+170+180 = 600 (= YTD Q4). 이중계상 아님.
-    ytd = {
-        (2024, 4): 500.0,
-        (2025, 1): 100.0, (2025, 2): 250.0, (2025, 3): 420.0, (2025, 4): 600.0,
-    }
-    assert valuation_ingest._ttm_ebitda(ytd, (2025, 4)) == 600.0
-    # 2025.Q3 기준 TTM = 2024Q4개별 + 2025Q1+Q2+Q3. 2024Q3 누적이 없어 2024Q4 개별 불가 → None.
-    assert valuation_ingest._ttm_ebitda(ytd, (2025, 3)) is None
+    raw = {(2025, 1): 100.0, (2025, 2): 150.0, (2025, 3): 170.0, (2025, 4): 600.0}
+    assert financials.discrete_quarter(raw, (2025, 2)) == 150.0  # 1~3Q 그대로(차감 없음)
+    assert financials.discrete_quarter(raw, (2025, 4)) == 180.0  # Q4 = 600-(100+150+170)
+    assert financials.ttm(raw, (2025, 4)) == 600.0
 
 
 def test_ttm_ebitda_none_on_gap():
-    ytd = {(2025, 1): 100.0, (2025, 3): 420.0, (2025, 4): 600.0}  # Q2 누락
-    assert valuation_ingest._ttm_ebitda(ytd, (2025, 4)) is None
+    from app.domain import financials
+
+    raw = {(2025, 1): 100.0, (2025, 3): 170.0, (2025, 4): 600.0}  # Q2 누락
+    assert financials.ttm(raw, (2025, 4)) is None

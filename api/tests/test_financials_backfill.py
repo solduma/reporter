@@ -2,35 +2,36 @@
 
 from __future__ import annotations
 
+from app.domain import financials
 from app.services import financials_backfill as fb
 
 
 def test_discrete_q1_to_q3_passthrough_q4_subtracts():
-    # 1~3Q 는 당기값 그대로, 4Q=연간-(1Q+2Q+3Q).
+    # 1~3Q 는 당기값 그대로, 4Q=연간-(1Q+2Q+3Q). 백필은 도메인 규칙(discrete_quarter)을 공유.
     cum = {(2023, 1): 10.0, (2023, 2): 20.0, (2023, 3): 30.0, (2023, 4): 100.0}
-    assert fb._discrete(cum, (2023, 1)) == 10.0
-    assert fb._discrete(cum, (2023, 2)) == 20.0
-    assert fb._discrete(cum, (2023, 3)) == 30.0
-    assert fb._discrete(cum, (2023, 4)) == 40.0  # 100-(10+20+30)
+    assert financials.discrete_quarter(cum, (2023, 1)) == 10.0
+    assert financials.discrete_quarter(cum, (2023, 2)) == 20.0
+    assert financials.discrete_quarter(cum, (2023, 3)) == 30.0
+    assert financials.discrete_quarter(cum, (2023, 4)) == 40.0  # 100-(10+20+30)
 
 
 def test_discrete_q4_missing_part_returns_none():
     # 4Q 환산에 1~3Q 중 하나라도 없으면 None(15개월 오인 방지).
     cum = {(2023, 1): 10.0, (2023, 3): 30.0, (2023, 4): 100.0}  # 2Q 결측
-    assert fb._discrete(cum, (2023, 4)) is None
+    assert financials.discrete_quarter(cum, (2023, 4)) is None
 
 
 def test_ttm_sums_four_consecutive_quarters():
-    # yq 포함 연속 4개 분기 개별값 합.
+    # 이미 분기 개별 환산된 dict 를 합(_ttm_from_discrete) — 음수매출 필터 이후 단계.
     discrete = {(2023, 1): 1.0, (2023, 2): 2.0, (2023, 3): 3.0, (2023, 4): 4.0}
-    assert fb._ttm(discrete, (2023, 4)) == 10.0
+    assert fb._ttm_from_discrete(discrete, (2023, 4)) == 10.0
     # 하나라도 결측이면 None.
-    assert fb._ttm(discrete, (2023, 3)) is None  # 2022 4Q 없음
+    assert fb._ttm_from_discrete(discrete, (2023, 3)) is None  # 2022 4Q 없음
 
 
 def test_ttm_crosses_year_boundary():
     discrete = {(2022, 4): 4.0, (2023, 1): 1.0, (2023, 2): 2.0, (2023, 3): 3.0}
-    assert fb._ttm(discrete, (2023, 3)) == 10.0  # 23Q3+23Q2+23Q1+22Q4
+    assert fb._ttm_from_discrete(discrete, (2023, 3)) == 10.0  # 23Q3+23Q2+23Q1+22Q4
 
 
 def test_period_str_maps_quarter_to_month():
