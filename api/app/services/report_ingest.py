@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.adapters import dart
 from app.adapters.dart import report_parser as dart_report_parser
+from app.adapters.dart.disclosure_adapter import DartDisclosureAdapter
 from app.adapters.external import krx
 from app.config import Settings, get_settings
 from app.db.models import (
@@ -32,9 +33,15 @@ from app.db.models import (
     Timeframe,
     UniverseSnapshot,
 )
+from app.ports.disclosure import KrDisclosurePort
 from app.services import sync_state, universe_ingest
 
 logger = logging.getLogger(__name__)
+
+
+# 포트 공급자 seam — 정기공시 접수번호 조회를 KrDisclosurePort 로. 기본은 실제 어댑터.
+def _disclosures(settings: Settings) -> KrDisclosurePort:
+    return DartDisclosureAdapter(settings.dart_api_key)
 
 _BACKFILL_DOMAIN = "report_10y"
 _YEARS = 10
@@ -101,11 +108,12 @@ def backfill_stock(
 
     today = datetime.now(UTC).date()
     any_data = False
+    disc = _disclosures(settings)
     # 연간 period → (EBITDA 원, 순차입 원|None). EV/EBITDA 재산출용(annual 만).
     annual_ev: dict[str, tuple[float, float | None]] = {}
     with requests.Session() as session:
         for year, kind in _target_reports(today):
-            rcept_no = dart.find_periodic_report(settings.dart_api_key, corp_code, year, kind, session)
+            rcept_no = disc.find_periodic_report(corp_code, year, kind, session)
             if not rcept_no:
                 continue
             # 손익·자본(구조화 API) — annual 은 연간, half/quarter 는 보고 기간 누적.

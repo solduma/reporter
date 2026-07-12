@@ -18,6 +18,7 @@ from xml.etree import ElementTree
 import requests
 
 from app.adapters.dart import throttle as dart_throttle
+from app.domain.disclosure import Disclosure  # 하위호환 재노출(정의는 domain)
 
 logger = logging.getLogger(__name__)
 
@@ -159,17 +160,6 @@ class CorpMapping:
     stock_code: str
     corp_code: str
     corp_name: str
-
-
-@dataclass
-class Disclosure:
-    rcept_no: str
-    corp_code: str
-    stock_code: str
-    report_nm: str
-    flr_nm: str
-    rcept_dt: date
-    dart_url: str
 
 
 def fetch_corp_mappings(api_key: str, session: requests.Session) -> list[CorpMapping]:

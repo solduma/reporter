@@ -11,12 +11,19 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.adapters import dart
+from app.adapters.dart.disclosure_adapter import DartDisclosureAdapter
 from app.adapters.llm import get_llm
 from app.config import Settings
 from app.db.models import CorpCodeMap, Disclosure, DisclosureSyncState, Sentiment
+from app.ports.disclosure import KrDisclosurePort
 from app.services import sentiment as sentiment_svc
 
 logger = logging.getLogger(__name__)
+
+
+# 포트 공급자 seam — 기본은 DartDisclosureAdapter, 테스트가 훅 교체로 fake 주입 가능.
+def _disclosures(settings: Settings) -> KrDisclosurePort:
+    return DartDisclosureAdapter(settings.dart_api_key)
 
 
 def ensure_corp_mappings(db: Session, settings: Settings, session: requests.Session) -> None:
@@ -68,9 +75,8 @@ def sync_disclosures(
         _mark_synced(db, stock_code)  # 비상장 등도 TTL 동안 재조회 억제
         return 0
 
-    fetched = dart.fetch_disclosures(
-        settings.dart_api_key, corp_code, stock_code, begin, end, session
-    )
+    disc = _disclosures(settings)
+    fetched = disc.fetch_disclosures(corp_code, stock_code, begin, end, session)
 
     # 이미 저장된 rcept_no 를 한 번에 조회해 GLM 분류 대상만 추린다.
     fetched_nos = [d.rcept_no for d in fetched]
@@ -91,7 +97,7 @@ def sync_disclosures(
         if d.rcept_no in existing:
             continue  # 멱등: 이미 저장됨
         # 원문 발췌(앞 6000자)까지 읽어 판단. 조회 실패 시 제목-only 로 폴백.
-        body = dart.fetch_document_text(settings.dart_api_key, d.rcept_no, session)
+        body = disc.fetch_document_text(d.rcept_no, session)
         sent = sentiment_svc.classify_disclosure(
             client, settings.insight_model, d.report_nm, body
         )

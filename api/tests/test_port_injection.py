@@ -78,3 +78,33 @@ def test_latest_snapshot_date_uses_injected_repo(monkeypatch):
 
     monkeypatch.setattr(universe_ingest, "_universe_repo", lambda db: _FakeUniverseRepo())
     assert universe_ingest.latest_snapshot_date(object()) == date(2026, 7, 12)
+
+
+# ── P3: 공시 어댑터가 포트를 만족하고 자격증명을 쥔 채 client 로 위임하는지 ──────────────
+def test_dart_disclosure_adapter_delegates_with_key(monkeypatch):
+    from app.adapters.dart import client
+    from app.adapters.dart.disclosure_adapter import DartDisclosureAdapter
+
+    calls = {}
+
+    def _stub(api_key, corp, year, kind, session):
+        calls["args"] = (api_key, corp, year, kind)
+        return "rcept1"
+
+    monkeypatch.setattr(client, "find_periodic_report", _stub)
+    adapter = DartDisclosureAdapter("DARTKEY")
+    out = adapter.find_periodic_report("corp1", 2025, "annual", object())
+    assert out == "rcept1"
+    assert calls["args"] == ("DARTKEY", "corp1", 2025, "annual")  # 어댑터가 api_key 를 쥐고 전달
+
+
+def test_sec_disclosure_adapter_delegates_with_settings(monkeypatch):
+    from app.adapters.sec import client
+    from app.adapters.sec.disclosure_adapter import SecDisclosureAdapter
+    from app.config import Settings
+
+    s = Settings(sec_user_agent="ua")
+    monkeypatch.setattr(client, "resolve_cik", lambda settings, ticker, session=None: 42 if settings is s else -1)
+    adapter = SecDisclosureAdapter(s)
+    assert adapter.resolve_cik("NVDA") == 42  # 어댑터가 settings 를 쥐고 전달
+    assert adapter.describe_8k_items("5.02") == "임원 변동"  # 순수 매핑 위임

@@ -7,12 +7,12 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
 
 import requests
 
 from app.adapters.sec import throttle
 from app.config import Settings
+from app.domain.disclosure import Filing  # 하위호환 재노출(정의는 domain)
 
 logger = logging.getLogger(__name__)
 
@@ -79,13 +79,6 @@ def fetch_company_facts(
         return None
 
 
-@dataclass
-class Filing:
-    accession: str
-    form: str  # 8-K | 10-K ...
-    filing_date: str  # YYYY-MM-DD
-    items: str  # 8-K item 코드(예 '5.02,7.01'), 없으면 ''
-    primary_doc_url: str
 
 
 def fetch_recent_filings(
