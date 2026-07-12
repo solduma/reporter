@@ -85,6 +85,7 @@ def _stub_services(monkeypatch):
             )
         ],
     )
+    monkeypatch.setattr(tui.ingest_log, "recent_failure_count", lambda db, since_hours=24: 0)
 
 
 async def test_tui_mounts_and_shows_status():
@@ -106,6 +107,30 @@ async def test_tui_mounts_and_shows_status():
             "ingest", "universe", "growth", "refresh", "prev", "next", "sort",
             "api_restart", "web_restart", "web_build",
         } <= ids
+
+
+async def test_ingest_history_shows_no_failure_summary():
+    # 실패 0건이면 적재 이력 제목에 '실패 없음' 이 뜬다.
+    app = tui.AdminTUI()
+    async with app.run_test() as pilot:
+        await pilot.pause(0.3)
+        from textual.widgets import Static
+
+        title = str(app.query_one("#ingest_title", Static).render())
+        assert "적재 이력" in title
+        assert "실패 없음" in title
+
+
+async def test_ingest_history_flags_failures(monkeypatch):
+    # 실패 건수가 있으면 제목에 붉은 요약('실패 N건')이 뜬다.
+    monkeypatch.setattr(tui.ingest_log, "recent_failure_count", lambda db, since_hours=24: 3)
+    app = tui.AdminTUI()
+    async with app.run_test() as pilot:
+        await pilot.pause(0.3)
+        from textual.widgets import Static
+
+        title = str(app.query_one("#ingest_title", Static).render())
+        assert "실패 3건" in title
 
 
 async def test_refresh_action_reloads():
