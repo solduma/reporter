@@ -305,24 +305,33 @@ class AdminTUI(App):
             table.add_row(s.name, f"{s.rows:,}", s.latest)
 
     def _load_ingest_history(self) -> None:
-        """적재 이력 — 최근 배치·수동 실행(시각·작업·결과·건수·소요)."""
+        """적재 이력 — 최근 배치·수동 실행(시각·작업·결과·건수·소요). 실패는 강조·요약한다."""
         db = SessionLocal()
         try:
             rows = ingest_log.recent(db, limit=30)
+            fail_24h = ingest_log.recent_failure_count(db, since_hours=24)
         finally:
             db.close()
 
-        self.query_one("#ingest_title", Static).update(
-            "[b]적재 이력[/b]  (스케줄러 배치 + 수동 트리거 최근 30건)"
-        )
+        # 실패가 있으면 제목에 붉은 요약, 없으면 정상 표기 — 화면을 안 훑어도 실패를 즉시 인지.
+        if fail_24h > 0:
+            title = f"[b]적재 이력[/b]  [red]최근 24h 실패 {fail_24h}건 ✖[/red]  (최근 30건)"
+        else:
+            title = "[b]적재 이력[/b]  [green]최근 24h 실패 없음 ✔[/green]  (스케줄러 배치 + 수동, 최근 30건)"
+        self.query_one("#ingest_title", Static).update(title)
+
         table = self.query_one("#ingest_history", DataTable)
         table.clear()
         for r in rows:
             ts = r.ts.astimezone().strftime("%m-%d %H:%M") if r.ts else "—"
             label = ingest_log.JOB_LABELS.get(r.job, r.job)
-            mark = "[green]✔[/green]" if r.status == "ok" else "[red]✖[/red]"
+            ok = r.status == "ok"
+            mark = "[green]✔[/green]" if ok else "[red]✖[/red]"
             dur = f"{r.duration_ms / 1000:.1f}s" if r.duration_ms else "—"
-            table.add_row(ts, f"{mark} {label}", r.detail[:48], f"{r.rows:,}", dur)
+            # 실패 행은 작업·결과를 붉게 강조해 목록에서 바로 눈에 띄게 한다.
+            job_cell = f"{mark} {label}" if ok else f"{mark} [red b]{label}[/red b]"
+            detail_cell = r.detail[:48] if ok else f"[red]{r.detail[:48]}[/red]"
+            table.add_row(ts, job_cell, detail_cell, f"{r.rows:,}", dur)
 
     def _load_fallbacks(self) -> None:
         """폴백 발생 이력 — 최근 이벤트 + 24h key 별 집계를 표시한다."""

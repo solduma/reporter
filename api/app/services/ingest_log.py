@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.models import IngestLog
@@ -126,3 +126,16 @@ def recent(db: Session, limit: int = 30) -> list[IngestLogRow]:
         )
         for r in rows
     ]
+
+
+def recent_failure_count(db: Session, since_hours: int = 24) -> int:
+    """최근 since_hours 시간 내 실패(status != 'ok') 배치 건수. TUI 실패 가시성 요약용."""
+    since = func.now() - timedelta(hours=since_hours)
+    return int(
+        db.scalar(
+            select(func.count())
+            .select_from(IngestLog)
+            .where(IngestLog.ts >= since, IngestLog.status != "ok")
+        )
+        or 0
+    )
