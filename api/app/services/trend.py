@@ -10,12 +10,13 @@ from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
-from app.domain import relative_strength, stage
+from app.domain import elliott, relative_strength, stage
 from app.services import candle_service
 
 # 종목 시장 → 벤치마크 지수 심볼(price_candles 에 지수 봉이 이 코드로 저장됨).
 _BENCHMARK = {"KOSPI": "KOSPI", "KOSDAQ": "KOSDAQ"}
 _DEFAULT_BENCHMARK = "KOSPI"
+_ELLIOTT_BARS = 500  # 엘리엇 파동 분석 구간(최근 ~2년) — 과거 스윙 노이즈 배제
 
 
 @dataclass
@@ -24,10 +25,11 @@ class TrendResult:
     stage_segments: list[dict]  # 중기(150) 국면 구간 [{stage, from, to}] — 차트 배경밴드용
     rs: relative_strength.RelativeStrength
     benchmark: str  # 사용한 벤치마크 지수
+    elliott: elliott.ElliottResult  # 엘리엇 파동 추정(실험적)
 
 
 def compute_trend(db: Session, code: str, market: str | None) -> TrendResult:
-    """종목의 일봉 + 벤치마크 지수 일봉으로 와인스타인 국면(3프레임)과 Mansfield RS 를 계산한다."""
+    """종목 일봉 + 벤치마크 지수로 와인스타인 국면·Mansfield RS·엘리엇 파동 추정을 계산한다."""
     stock_rows = candle_service.ensure_periodic(db, code, "day")
     closes = [r.close for r in stock_rows]
     dates = [r.bar_date.isoformat() for r in stock_rows]
@@ -43,4 +45,9 @@ def compute_trend(db: Session, code: str, market: str | None) -> TrendResult:
         [(r.bar_date.isoformat(), r.close) for r in stock_rows],
         [(r.bar_date.isoformat(), r.close) for r in bench_rows],
     )
-    return TrendResult(stages=stages, stage_segments=stage_segments, rs=rs, benchmark=benchmark)
+    # 엘리엇은 최근 구조만 의미 있음 — 최근 ~2년(500봉)으로 피벗·파동을 한정한다(과거 노이즈 배제).
+    recent = list(zip(dates, closes, strict=True))[-_ELLIOTT_BARS:]
+    wave = elliott.analyze(recent)
+    return TrendResult(
+        stages=stages, stage_segments=stage_segments, rs=rs, benchmark=benchmark, elliott=wave
+    )

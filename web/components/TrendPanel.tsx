@@ -156,6 +156,26 @@ export default function TrendPanel({ trend, status, message }: Props) {
         </div>
         <RsChart series={trend.rs_series} />
       </div>
+
+      {trend.elliott ? (
+        <div className={styles.elliottRow}>
+          <div className={styles.blockHead}>
+            <span className={styles.blockTitle}>엘리엇 파동 (추정)</span>
+            <InfoDot
+              what="주가 스윙 고·저점(피벗)과 상승 5파 추정. 차트에 보라 점선·번호로 표시."
+              guide="해석이 갈리는 보조지표라 참고용. 확정 신호가 아니며 매매 판단 근거로 삼지 마세요."
+            />
+            {trend.elliott.labeled ? (
+              <span className={styles.elliottBadge}>
+                5파 추정 · 신뢰도 {Math.round(trend.elliott.confidence * 100)}%
+              </span>
+            ) : (
+              <span className={styles.elliottBadgeMuted}>패턴 미검출</span>
+            )}
+          </div>
+          <p className={styles.elliottNote}>{trend.elliott.note}</p>
+        </div>
+      ) : null}
     </div>
   );
 }

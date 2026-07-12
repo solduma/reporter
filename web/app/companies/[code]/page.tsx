@@ -417,6 +417,9 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
     }));
   }, [timeframe, trend.data]);
 
+  // 엘리엇 파동 오버레이도 일봉 전용(피벗 날짜 축이 일봉과 맞음).
+  const elliott = timeframe === "day" ? (trend.data?.elliott ?? null) : null;
+
   const stockChart = useMemo(() => {
     if (loading && stockCandles.length === 0) {
       return <div className={styles.chartStatus}>불러오는 중…</div>;
@@ -432,9 +435,10 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
         showControls={false}
         onRangeChange={handleChartRangeChange}
         stageBands={stageBands}
+        elliott={elliott}
       />
     );
-  }, [loading, stockCandles, timeframe, chartRange, handleChartRangeChange, stageBands]);
+  }, [loading, stockCandles, timeframe, chartRange, handleChartRangeChange, stageBands, elliott]);
 
   const peersArea = useMemo(() => {
     if (peers.status === "loading") {

@@ -239,6 +239,21 @@ export interface CompanyTrend {
   rs_latest: number | null;
   rs_outperforming: boolean | null;
   rs_rating?: number | null; // IBD RS Rating 1~99
+  elliott?: ElliottView | null; // 엘리엇 파동 추정(실험적)
+}
+
+export interface ElliottPivot {
+  date: string; // YYYY-MM-DD
+  price: number;
+  kind: "high" | "low";
+  label: string; // '0'~'5' 또는 ''
+}
+
+export interface ElliottView {
+  pivots: ElliottPivot[];
+  labeled: boolean; // 5파 라벨 노출 여부
+  confidence: number; // 0~1
+  note: string;
 }
 
 export interface FinancialPeriod {

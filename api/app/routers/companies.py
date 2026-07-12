@@ -21,6 +21,8 @@ from app.schemas import (
     CompanyGrowth,
     CompanySummary,
     CompanyTrend,
+    ElliottPivot,
+    ElliottView,
     FinancialPeriodOut,
     JudgmentOut,
     PeerOut,
@@ -263,6 +265,15 @@ def company_trend(
         rs_latest=result.rs.latest,
         rs_outperforming=result.rs.outperforming,
         rs_rating=snap.rs_rating if snap else None,
+        elliott=ElliottView(
+            pivots=[
+                ElliottPivot(date=pv.date, price=pv.price, kind=pv.kind, label=pv.label)
+                for pv in result.elliott.pivots
+            ],
+            labeled=result.elliott.labeled,
+            confidence=result.elliott.confidence,
+            note=result.elliott.note,
+        ),
     )
 
 
