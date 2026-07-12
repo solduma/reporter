@@ -51,8 +51,9 @@ class _FakeHoldingRepo:
 def _wire(monkeypatch):
     repo = _FakeHoldingRepo()
     monkeypatch.setattr(portfolio, "_repo", lambda db: repo)
-    # 종목명 해석은 별개 관심사 — 스텁으로 고정.
+    # 종목명·현재가 조회는 별개 관심사 — 스텁으로 고정(현재가 None → 손익 계산 생략, CRUD 만 검증).
     monkeypatch.setattr(portfolio.company_service, "resolve_stock_name", lambda db, code: f"종목{code}")
+    monkeypatch.setattr(portfolio.company_service, "latest_snapshot", lambda db, code: None)
     return repo
 
 

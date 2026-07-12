@@ -12,8 +12,14 @@ from sqlalchemy.orm import Session
 
 from app.adapters.persistence import SqlHoldingRepository
 from app.db.models import Holding
+from app.domain import portfolio as calc
 from app.ports.repositories import HoldingRepository
-from app.schemas import HoldingOut
+from app.schemas import (
+    HoldingOut,
+    PortfolioSummaryOut,
+    PortfolioView,
+    SectorWeightOut,
+)
 from app.services import company_service
 
 
@@ -33,8 +39,15 @@ class HoldingInput:
     note: str | None = None
 
 
+def _current_price(db: Session, code: str) -> float | None:
+    """최근 유니버스 스냅샷 종가(일일 배치가 채움). 손익·손절 계산의 현재가."""
+    snap = company_service.latest_snapshot(db, code)
+    return float(snap.close_price) if snap and snap.close_price else None
+
+
 def _to_out(db: Session, h: Holding) -> HoldingOut:
-    """ORM 행 → 응답 DTO(종목명 해석 포함). 라우터가 db.models 를 모르도록 조립을 서비스가 소유."""
+    """ORM 행 → 응답 DTO(종목명 해석 + 손익·손절 계산). 조립을 서비스가 소유(라우터는 db.models 모름)."""
+    c = calc.compute_holding(h.shares, h.avg_cost, _current_price(db, h.stock_code), h.stop_loss)
     return HoldingOut(
         stock_code=h.stock_code,
         stock_name=company_service.resolve_stock_name(db, h.stock_code),
@@ -43,6 +56,12 @@ def _to_out(db: Session, h: Holding) -> HoldingOut:
         stop_loss=h.stop_loss,
         note=h.note,
         updated_at=h.updated_at,
+        current_price=c.current_price,
+        market_value=c.market_value,
+        cost_basis=c.cost_basis,
+        pnl=c.pnl,
+        pnl_pct=c.pnl_pct,
+        stop_status=c.stop_status,
     )
 
 
@@ -56,3 +75,42 @@ def save_holding(db: Session, item: HoldingInput) -> HoldingOut:
 
 def delete_holding(db: Session, stock_code: str) -> bool:
     return _repo(db).delete(stock_code)
+
+
+def _representative_sector(db: Session, code: str) -> str:
+    """보유종목의 대표 섹터명(judal 테마 첫 항목). 매핑 없으면 '기타'."""
+    names = company_service.theme_names(db, code)
+    return names[0] if names else "기타"
+
+
+def portfolio_view(db: Session) -> PortfolioView:
+    """보유목록 + 요약 + 섹터분산. 손익은 현재가 확보분만 집계."""
+    outs = list_holdings(db)
+    calcs = [
+        calc.HoldingCalc(
+            current_price=o.current_price,
+            market_value=o.market_value,
+            cost_basis=o.cost_basis,
+            pnl=o.pnl,
+            pnl_pct=o.pnl_pct,
+            stop_status=o.stop_status,
+        )
+        for o in outs
+    ]
+    s = calc.summarize(calcs)
+    sector_items = [
+        (_representative_sector(db, o.stock_code), o.market_value or 0.0) for o in outs
+    ]
+    weights = calc.sector_weights(sector_items)
+    return PortfolioView(
+        holdings=outs,
+        summary=PortfolioSummaryOut(
+            total_value=s.total_value,
+            total_cost=s.total_cost,
+            total_pnl=s.total_pnl,
+            total_pnl_pct=s.total_pnl_pct,
+            stop_hit=s.stop_hit,
+            stop_near=s.stop_near,
+        ),
+        sectors=[SectorWeightOut(sector=sec, weight_pct=w) for sec, w in weights],
+    )

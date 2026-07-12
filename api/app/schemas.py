@@ -361,7 +361,7 @@ class HoldingIn(BaseModel):
 
 
 class HoldingOut(BaseModel):
-    """보유종목 응답. 종목명은 라우터가 유니버스에서 채운다(없으면 None)."""
+    """보유종목 응답 + 파생 계산(손익·손절 상태). 현재가 없으면 손익 필드는 None."""
 
     stock_code: str
     stock_name: str | None = None
@@ -370,3 +370,31 @@ class HoldingOut(BaseModel):
     stop_loss: float | None
     note: str | None
     updated_at: datetime | None = None
+    current_price: float | None = None
+    market_value: float | None = None
+    cost_basis: float = 0.0
+    pnl: float | None = None
+    pnl_pct: float | None = None
+    stop_status: str = "none"  # none | ok | near | hit
+
+
+class PortfolioSummaryOut(BaseModel):
+    total_value: float
+    total_cost: float
+    total_pnl: float
+    total_pnl_pct: float | None
+    stop_hit: int
+    stop_near: int
+
+
+class SectorWeightOut(BaseModel):
+    sector: str
+    weight_pct: float
+
+
+class PortfolioView(BaseModel):
+    """포트폴리오 전체 뷰 — 보유목록 + 요약 + 섹터분산."""
+
+    holdings: list[HoldingOut]
+    summary: PortfolioSummaryOut
+    sectors: list[SectorWeightOut]

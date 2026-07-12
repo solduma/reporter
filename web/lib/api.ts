@@ -15,6 +15,7 @@ import type {
   MarketBrief,
   MarketOverview,
   Peer,
+  PortfolioView,
   Report,
   ReportCategory,
   ScreenerEventKind,
@@ -340,6 +341,10 @@ export function fetchBroadcast(id: number): Promise<BroadcastDetail> {
 }
 
 // ── 보유종목(포트폴리오) ──────────────────────────────────────────────
+export function fetchPortfolio(): Promise<PortfolioView> {
+  return getJson<PortfolioView>("/api/portfolio");
+}
+
 export function fetchHoldings(): Promise<Holding[]> {
   return getJson<Holding[]>("/api/portfolio/holdings");
 }
