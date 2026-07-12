@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import AnalysisPanel from "@/components/AnalysisPanel";
 import { MA_DEFS } from "@/components/CandleChart";
@@ -317,6 +317,12 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
     [dateRange],
   );
 
+  // 어떤 비교차트를 스크롤·드래그하면 그 구간을 공유 date-range 로 반영해 나머지 차트·슬라이더도
+  // 함께 움직인다. 같은 값이면 setState 를 건너뛰어(참조 안정) 재적용 루프를 끊는다.
+  const handleChartRangeChange = useCallback((from: string, to: string) => {
+    setDateRange((prev) => (prev && prev.from === from && prev.to === to ? prev : { from, to }));
+  }, []);
+
   // 밸류에이션 밴드 슬라이더의 날짜축 — 재무 분기말 'YYYY-MM-DD' 오름차순(중복 제거).
   const valuationAxis = useMemo(() => {
     const isos = financials.data
@@ -360,9 +366,15 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
       return <div className={styles.chartStatus}>차트 데이터가 없습니다</div>;
     }
     return (
-      <CandleChart data={stockCandles} timeframe={timeframe} range={chartRange} showControls={false} />
+      <CandleChart
+        data={stockCandles}
+        timeframe={timeframe}
+        range={chartRange}
+        showControls={false}
+        onRangeChange={handleChartRangeChange}
+      />
     );
-  }, [loading, stockCandles, timeframe, chartRange]);
+  }, [loading, stockCandles, timeframe, chartRange, handleChartRangeChange]);
 
   const peersArea = useMemo(() => {
     if (peers.status === "loading") {
@@ -465,6 +477,7 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
             timeframe={compareTf(timeframe)}
             market={market ?? undefined}
             dateRange={dateRange}
+            onRangeChange={handleChartRangeChange}
           />
         ) : (
           <p className={styles.sectionStatus}>
@@ -482,7 +495,11 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
         <div className={styles.compareStock}>
           <h3 className={styles.subHead}>재무 지표</h3>
           {financials.status === "ready" && financials.data.length > 0 ? (
-            <FinancialsLineChart data={financials.data} range={chartRange} />
+            <FinancialsLineChart
+              data={financials.data}
+              range={chartRange}
+              onRangeChange={handleChartRangeChange}
+            />
           ) : financials.status === "loading" ? (
             <div className={styles.sectionStatus}>불러오는 중…</div>
           ) : (

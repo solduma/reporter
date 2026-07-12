@@ -19,10 +19,17 @@ interface Props {
   timeframe: ChartTimeframe;
   market?: string; // 종목 시장(KOSPI|KOSDAQ) — 표시할 국내 지수 선택용
   dateRange?: { from: string; to: string } | null;
+  onRangeChange?: (from: string, to: string) => void; // 차트 조작 시 공유 구간 갱신
 }
 
 // 지수·섹터를 2열(왼쪽=국장, 오른쪽=미장)로 배치. 지수는 해당 종목 지수 1개 + 나스닥(QQQ)만.
-export default function SectorCharts({ industry, timeframe, market, dateRange = null }: Props) {
+export default function SectorCharts({
+  industry,
+  timeframe,
+  market,
+  dateRange = null,
+  onRangeChange,
+}: Props) {
   const [state, setState] = useState<State>({ status: "loading", meta: null });
 
   useEffect(() => {
@@ -81,6 +88,7 @@ export default function SectorCharts({ industry, timeframe, market, dateRange = 
       timeframe={timeframe}
       label={ref.label}
       dateRange={dateRange}
+      onRangeChange={onRangeChange}
     />
   );
 

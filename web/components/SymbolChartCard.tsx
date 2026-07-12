@@ -27,6 +27,7 @@ interface Props {
   meta?: ReactNode; // 헤더 우측 시세/등락 뱃지 등
   height?: number;
   dateRange?: { from: string; to: string } | null; // 표시 구간(ISO 날짜). 없으면 전체.
+  onRangeChange?: (from: string, to: string) => void; // 차트 조작 시 공유 구간 갱신
 }
 
 type State = {
@@ -46,6 +47,7 @@ export default function SymbolChartCard({
   meta,
   height = CHART_HEIGHT,
   dateRange = null,
+  onRangeChange,
 }: Props) {
   const [state, setState] = useState<State>({ status: "loading", data: [] });
 
@@ -108,6 +110,7 @@ export default function SymbolChartCard({
         height={height}
         range={range}
         showControls={false}
+        onRangeChange={onRangeChange}
       />
     );
   }
