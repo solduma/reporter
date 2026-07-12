@@ -1,10 +1,10 @@
-"""quote 스크래퍼 단위 테스트 — 재무/동일업종 파싱을 목킹된 HTML 로 검증한다."""
+"""naver_quote 어댑터 단위 테스트 — 재무/동일업종 파싱을 목킹된 HTML 로 검증한다."""
 
 from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from app.services import quote
+from app.adapters.market import naver_quote as quote
 
 # 실제 main.naver 구조 재현: 상단 그룹 행(연간 colspan=2 / 분기 colspan=3),
 # 기간 행에 연간·분기가 섞이고 '2025.12' 가 양쪽에 중복 등장.

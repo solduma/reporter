@@ -16,9 +16,10 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.adapters.market import naver as chart
+from app.adapters.market import naver_quote as quote
 from app.db.models import GrowthMetric as GrowthMetricRow
 from app.db.models import UniverseSnapshot
-from app.services import growth, quote, universe_ingest
+from app.services import growth, universe_ingest
 
 logger = logging.getLogger(__name__)
 

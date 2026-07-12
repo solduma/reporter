@@ -23,6 +23,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.adapters import dart
+from app.adapters.market import naver_quote as quote
 from app.config import Settings, get_settings
 from app.db.models import (
     CorpCodeMap,
@@ -33,7 +34,7 @@ from app.db.models import (
     UniverseSnapshot,
 )
 from app.domain import financials
-from app.services import quote, sync_state, universe_ingest
+from app.services import sync_state, universe_ingest
 
 logger = logging.getLogger(__name__)
 

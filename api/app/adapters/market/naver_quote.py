@@ -1,6 +1,8 @@
-"""네이버 종목 페이지(main.naver) 스크래핑 — 분기 재무 + 동일업종비교.
+"""네이버 종목 페이지(main.naver) 스크래핑 — 분기 재무 + 동일업종비교(driven adapter).
 
-리서치 목록은 EUC-KR 이지만 main.naver 는 UTF-8 이라 별도 모듈로 분리한다.
+봉차트(api.stock.naver.com)를 담는 naver.py 와 소스·관심사가 달라(재무·동일업종 HTML 스크랩)
+별도 어댑터로 둔다. 서비스(company_service·financials_backfill·growth_ingest)는 이 어댑터의
+fetch_* 를 호출한다 — 외부 IO·파싱은 여기(adapters)에 격리한다.
 - 재무: div.cop_analysis 의 '주요재무정보' 테이블. 헤더에 연간+분기 기간, 행에 항목.
 - 동일업종: div.section.trade_compare. 컬럼=종목, 행=지표.
 개인 리서치 용도, 조회 시 캐시로 호출 최소화.
