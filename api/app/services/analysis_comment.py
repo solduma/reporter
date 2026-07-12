@@ -28,17 +28,29 @@ _inflight: set[str] = set()
 _inflight_lock = threading.Lock()
 
 
-def inputs_hash(axes: list[dict]) -> str:
+def inputs_hash(axes: list[dict], context: analysis.CommentContext | None = None) -> str:
     """코멘트 입력을 결정적으로 직렬화해 해시한다. 입력이 바뀌면 캐시가 무효화된다.
 
-    **축 점수(key→score)만** 해시한다. metrics 값에는 장중 실시간 지수 등락률처럼 초 단위로
-    바뀌는 값이 섞여 있어, 그대로 해시하면 장중 내내 캐시가 계속 미스되어 ~17초 재생성을
-    반복한다. 코멘트는 점수 기반 종합이라 점수가 안 바뀌면 재생성이 불필요하다. 프롬프트
-    변경 시에도 재생성되도록 시스템 텍스트를 포함한다.
+    **축 점수(key→score) + coarse 맥락만** 해시한다. metrics 값·시황 요약 원문에는 장중 초 단위로
+    바뀌는 값이 섞여 있어 그대로 해시하면 캐시가 계속 미스되어 ~17초 재생성을 반복한다. 그래서
+    맥락은 국면(phase)·리포트/BUY 수처럼 **일 단위로 안정된 값**만 해시에 넣고, 요약 원문은
+    LLM 입력엔 쓰되 해시엔 넣지 않는다. 프롬프트 변경 시 재생성되도록 시스템 텍스트도 포함.
     """
     scores = {ax["key"]: ax.get("score") for ax in axes}
+    coarse_ctx = (
+        {
+            "phase": context.market_phase,
+            "reports": context.report_count,
+            "buys": context.buy_count,
+            "disc": len(context.recent_disclosures),
+        }
+        if context
+        else None
+    )
     payload = json.dumps(
-        {"scores": scores, "sys": analysis._COMMENT_SYSTEM}, ensure_ascii=False, sort_keys=True
+        {"scores": scores, "ctx": coarse_ctx, "sys": analysis._COMMENT_SYSTEM},
+        ensure_ascii=False,
+        sort_keys=True,
     )
     return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
@@ -51,7 +63,9 @@ def get_cached(db, code: str, h: str) -> str | None:
     return None
 
 
-def generate_and_store(code: str, name: str, axes: list[dict], h: str) -> None:
+def generate_and_store(
+    code: str, name: str, axes: list[dict], h: str, context: analysis.CommentContext | None = None
+) -> None:
     """백그라운드: LLM 코멘트를 생성해 캐시에 upsert 한다. 자체 세션·예외 흡수.
 
     같은 (code, hash) 가 이미 생성 중이면 건너뛴다(중복 LLM 호출 방지).
@@ -64,7 +78,7 @@ def generate_and_store(code: str, name: str, axes: list[dict], h: str) -> None:
     try:
         settings = get_settings()
         comment = analysis.llm_comment(
-            get_llm(settings), settings.insight_model, name, axes
+            get_llm(settings), settings.insight_model, name, axes, context
         )
         if not comment:
             return  # 키 없음·실패 → 캐시하지 않음(다음 조회에서 재시도)
