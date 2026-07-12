@@ -116,3 +116,7 @@ forbidden_modules =
 allow_indirect_imports = true
 ; db.session(get_session DI)·db.session.SessionLocal 은 프레임워크 배선이라 허용 —
 ; db.models(엔티티·쿼리)만 금지해 라우터가 응용 계층을 우회하지 못하게 한다.
+
+; 주의: LLM(reporter.ollama_client) 은 adapters/llm 한 곳에서만 직접 참조하고 서비스는 LLMPort
+; (app.ports.llm) 에 의존한다. import-linter 는 외부 패키지의 서브모듈(reporter.ollama_client)을
+; forbidden 대상으로 지정할 수 없어(외부 서브패키지 미지원) 이 경계는 계약 대신 코드 격리로 지킨다.

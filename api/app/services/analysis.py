@@ -9,9 +9,9 @@ from __future__ import annotations
 import logging
 
 from app.domain.analysis_scoring import growth_score, overall, topdown_flow_score
+from app.ports.llm import LLMPort
 from app.services import sector_flow
 from reporter import sector_etf, us_market
-from reporter.ollama_client import OllamaClient
 
 logger = logging.getLogger(__name__)
 
@@ -71,18 +71,17 @@ _COMMENT_SYSTEM = (
 
 
 def llm_comment(
-    host: str, api_key: str, model: str, stock_name: str, axes: list[dict]
+    llm: LLMPort | None, model: str, stock_name: str, axes: list[dict]
 ) -> str | None:
-    """세 축 점수·지표를 LLM 으로 종합 코멘트. 키 없거나 실패 시 None(스코어만 노출)."""
-    if not api_key:
+    """세 축 점수·지표를 LLM 으로 종합 코멘트. LLM 없거나 실패 시 None(스코어만 노출)."""
+    if llm is None:
         return None
     lines = [f"종목: {stock_name}"]
     for ax in axes:
         metrics = ", ".join(f"{m['label']} {m['value']}" for m in ax["metrics"])
         lines.append(f"- {ax['label']}: 점수 {ax['score']} ({metrics})")
     try:
-        client = OllamaClient(host, api_key)
-        return client.chat(model, _COMMENT_SYSTEM, "\n".join(lines), temperature=0.5).strip()
+        return llm.chat(model, _COMMENT_SYSTEM, "\n".join(lines), temperature=0.5).strip()
     except Exception as e:
         logger.warning("analysis comment failed for %s: %s", stock_name, e)
         return None

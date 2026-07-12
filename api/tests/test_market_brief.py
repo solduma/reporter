@@ -47,7 +47,7 @@ def _stub(monkeypatch):
         monkeypatch.setattr(ingest, "crawl_categories", lambda cats, target_date=None: crawled)
         monkeypatch.setattr(ingest, "_download_pdf", lambda url, s: b"pdfbytes")
         monkeypatch.setattr(ingest, "extract_text_from_bytes", lambda b, n: "본문")
-        monkeypatch.setattr(ingest, "OllamaClient", lambda host, key: object())
+        monkeypatch.setattr(ingest, "get_llm", lambda settings: object())  # LLMPort 스텁(non-None)
         monkeypatch.setattr(ingest.analyzer, "summarize_reports", lambda c, m, reps: reps)
         # 뉴스는 기본적으로 없음(각 테스트가 필요 시 오버라이드).
         monkeypatch.setattr(ingest.news, "collect", lambda kw, limit, session=None: [])

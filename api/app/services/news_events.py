@@ -18,11 +18,12 @@ from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from app.adapters.llm import get_llm
 from app.config import Settings, get_settings
 from app.db.models import NewsArticle, SectorTheme, SectorThemeStock, StockEvent
+from app.ports.llm import LLMError, LLMPort
 from app.services.sentiment import _extract_json
 from reporter import news
-from reporter.ollama_client import OllamaClient, OllamaError
 
 logger = logging.getLogger(__name__)
 
@@ -51,12 +52,12 @@ _SYSTEM = (
 )
 
 
-def _classify(client: OllamaClient, model: str, title: str, theme_names: list[str]) -> dict | None:
+def _classify(client: LLMPort, model: str, title: str, theme_names: list[str]) -> dict | None:
     """뉴스 1건을 LLM 으로 분류. {event_kind, theme, summary} 또는 실패 시 None."""
     prompt = f"뉴스 제목: {title}\n\n테마 후보(이 중에서만 고를 것):\n{', '.join(theme_names)}"
     try:
         raw = client.chat(model, _SYSTEM, prompt, temperature=0.2)
-    except OllamaError as e:
+    except LLMError as e:
         logger.warning("news classify failed for %s: %s", title[:40], e)
         return None
     data = _extract_json(raw)
@@ -119,7 +120,8 @@ def run_news_events(db: Session, settings: Settings | None = None) -> dict:
     )
     fresh = [it for it in items if it.link not in done]
 
-    client = OllamaClient(settings.ollama_host, settings.ollama_api_key)
+    client = get_llm(settings)  # 위 ollama_api_key 가드로 None 아님
+    assert client is not None
     theme_names = _theme_names(db)
     now = datetime.now(UTC)
     classified = events = 0

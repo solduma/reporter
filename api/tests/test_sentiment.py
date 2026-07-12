@@ -1,12 +1,14 @@
-"""센티먼트 분류기 단위 테스트 — GLM 응답을 목킹해 JSON 파싱·폴백을 검증한다."""
+"""센티먼트 분류기 단위 테스트 — LLM 응답을 목킹해 JSON 파싱·폴백을 검증한다."""
 
 from __future__ import annotations
 
+from app.ports.llm import LLMError
 from app.services import sentiment
-from reporter.ollama_client import OllamaError
 
 
-class _FakeClient:
+class _FakeLLM:
+    """LLMPort 를 만족하는 테스트 이중(포트 치환성) — 정해둔 응답/예외를 그대로 낸다."""
+
     def __init__(self, reply):
         self._reply = reply
 
@@ -17,7 +19,7 @@ class _FakeClient:
 
 
 def _classify(reply):
-    return sentiment.classify(_FakeClient(reply), "m", "company", "삼성전자", "본문")
+    return sentiment.classify(_FakeLLM(reply), "m", "company", "삼성전자", "본문")
 
 
 def test_parses_clean_json():
@@ -45,8 +47,8 @@ def test_non_json_response_falls_back_to_hold():
     assert r.one_liner  # 원문 앞부분을 one_liner 로 보존
 
 
-def test_glm_error_falls_back_to_hold():
-    r = _classify(OllamaError("timeout"))
+def test_llm_error_falls_back_to_hold():
+    r = _classify(LLMError("timeout"))
     assert r.sentiment == "HOLD"
     assert r.one_liner == ""
 

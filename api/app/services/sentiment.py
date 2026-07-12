@@ -11,8 +11,8 @@ import logging
 import re
 from dataclasses import dataclass
 
+from app.ports.llm import LLMError, LLMPort
 from reporter.fallback import log_fallback
-from reporter.ollama_client import OllamaClient, OllamaError
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +57,7 @@ _DISCLOSURE_SYSTEM = (
 
 
 def classify_disclosure(
-    client: OllamaClient, model: str, report_nm: str, body: str = ""
+    client: LLMPort, model: str, report_nm: str, body: str = ""
 ) -> SentimentResult:
     """공시 제목(+본문)으로 주가 영향(BUY/SELL/HOLD)+근거를 분류한다. 실패 시 HOLD.
 
@@ -66,7 +66,7 @@ def classify_disclosure(
     prompt = f"제목: {report_nm}\n\n본문:\n{body}" if body else report_nm
     try:
         raw = client.chat(model, _DISCLOSURE_SYSTEM, prompt, temperature=0.2)
-    except OllamaError as e:
+    except LLMError as e:
         logger.warning("disclosure sentiment failed for %s: %s", report_nm, e)
         return SentimentResult("HOLD", "", "")
     data = _extract_json(raw)
@@ -78,12 +78,12 @@ def classify_disclosure(
     return SentimentResult(sentiment=sentiment, one_liner="", rationale=str(data.get("rationale", "")).strip())
 
 
-def classify(client: OllamaClient, model: str, category: str, title: str, text: str) -> SentimentResult:
+def classify(client: LLMPort, model: str, category: str, title: str, text: str) -> SentimentResult:
     """리포트 본문(앞 5페이지 권장)으로 센티먼트를 분류한다. 실패 시 HOLD 폴백."""
     prompt = f"[{category}] {title}\n\n{text[:6000]}"
     try:
         raw = client.chat(model, _SYSTEM, prompt, temperature=0.2)
-    except OllamaError as e:
+    except LLMError as e:
         log_fallback(
             "sentiment.report.llm_fail_hold",
             reason=f"센티먼트 LLM 호출 실패 → HOLD ({e})",
