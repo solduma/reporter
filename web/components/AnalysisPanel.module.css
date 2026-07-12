@@ -17,10 +17,19 @@
 
 .overallRow {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   justify-content: space-between;
   padding-bottom: 10px;
   border-bottom: 1px solid var(--border);
+}
+
+/* 점수 기준선 안내 — 초보자가 '60이 좋은 건지' 판단하도록. 행 전체 폭으로 흐름. */
+.baseline {
+  flex-basis: 100%;
+  margin-top: 4px;
+  font-size: 0.75rem;
+  color: var(--muted);
 }
 
 .overallLabel {

@@ -2,10 +2,27 @@
 
 import { useEffect, useState } from "react";
 
+import InfoDot from "@/components/InfoDot";
 import { fetchCompanyAnalysis } from "@/lib/api";
 import type { AnalysisAxis, CompanyAnalysis } from "@/lib/types";
 
 import styles from "./AnalysisPanel.module.css";
+
+// 축별 초보자 설명(무엇을 보는 축인지 + 점수 해석). 서버 axis.key 기준.
+const AXIS_INFO: Record<string, { what: string; guide: string }> = {
+  growth: {
+    what: "매출·영업이익이 얼마나 빠르게 크는지(성장주 관점).",
+    guide: "60↑ 고성장 축, 40↓ 정체. 같은 후보군 내 상대 점수.",
+  },
+  technical: {
+    what: "주가 추세·모멘텀(신고가 근접·이평 정배열·거래량).",
+    guide: "60↑ 상승 추세 강함(주도주 성격), 40↓ 약함.",
+  },
+  topdown: {
+    what: "이 종목이 속한 섹터로 돈이 도는지(미국 섹터가 국내 선행).",
+    guide: "60↑ 섹터 자금유입 우호, 40↓ 자금 이탈.",
+  },
+};
 
 type State = {
   status: "loading" | "ready" | "error";
@@ -35,7 +52,12 @@ function AxisCard({ axis }: { axis: AnalysisAxis }) {
   return (
     <div className={styles.axis}>
       <div className={styles.axisHead}>
-        <span className={styles.axisLabel}>{axis.label}</span>
+        <span className={styles.axisLabel}>
+          {axis.label}
+          {AXIS_INFO[axis.key] ? (
+            <InfoDot what={AXIS_INFO[axis.key].what} guide={AXIS_INFO[axis.key].guide} />
+          ) : null}
+        </span>
         <span className={`${styles.axisScore} ${scoreClass(axis.score)}`}>
           {scoreText(axis.score)}
         </span>
@@ -117,6 +139,7 @@ export default function AnalysisPanel({ code, analysis, status, message }: Props
           {scoreText(a.overall_score)}
           <span className={styles.overallMax}>/100</span>
         </span>
+        <span className={styles.baseline}>60↑ 양호 · 40↓ 약함 (후보군 내 상대 점수)</span>
       </div>
 
       <div className={styles.axes}>
