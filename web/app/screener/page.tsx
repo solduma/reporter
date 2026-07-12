@@ -6,6 +6,7 @@ import { Suspense, useEffect, useState } from "react";
 import InfoDot from "@/components/InfoDot";
 import { fetchScreener, fetchScreenerSectors } from "@/lib/api";
 import { GLOSSARY } from "@/lib/glossary";
+import { useAutoTour } from "@/lib/useAutoTour";
 import { useHeldCodes } from "@/lib/useHeldCodes";
 import type {
   ScreenerEventKind,
@@ -455,6 +456,8 @@ function ScreenerContent() {
 
   const total = result?.total ?? 0;
   const items = result?.items ?? [];
+  // 결과가 뜬 뒤(요소 존재) 첫 방문 1회 온보딩 투어 자동 시작.
+  useAutoTour("screener", !loading && items.length > 0);
   const currentPage = Math.floor(offset / PAGE_SIZE) + 1;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const hasPrev = offset > 0;
@@ -493,7 +496,7 @@ function ScreenerContent() {
       <header className={styles.head}>
         <h1 className={styles.title}>종목 스크리너</h1>
         <p className={styles.subtitle}>{strategyDesc}</p>
-        <div className={styles.strategyTabs} role="tablist" aria-label="스크리너 전략">
+        <div className={styles.strategyTabs} role="tablist" aria-label="스크리너 전략" data-tour="strategy">
           {STRATEGY_TABS.map((tab) => {
             const on = tab.value === strategy;
             return (
@@ -512,7 +515,7 @@ function ScreenerContent() {
         </div>
       </header>
 
-      <section className={styles.filters}>
+      <section className={styles.filters} data-tour="filters">
         <div className={styles.filterGroup}>
           <span className={styles.filterLabel}>시가총액 상한</span>
           {renderChips(MKTCAP_MAX_PRESETS, mktcapMax, setMktcapMax)}
@@ -611,7 +614,7 @@ function ScreenerContent() {
       ) : (
         <>
           <div className={styles.scroll}>
-            <table className={styles.table}>
+            <table className={styles.table} data-tour="results">
               <thead>
                 <tr>
                   {columns.map((col, index) => {
@@ -653,10 +656,11 @@ function ScreenerContent() {
                 </tr>
               </thead>
               <tbody>
-                {items.map((row) => (
+                {items.map((row, rowIndex) => (
                   <tr
                     key={row.stock_code}
                     className={styles.row}
+                    data-tour={rowIndex === 0 ? "firstRow" : undefined}
                     onClick={() => router.push(`/companies/${row.stock_code}`)}
                   >
                     <th className={styles.nameCol} scope="row">

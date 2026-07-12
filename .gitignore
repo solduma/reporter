@@ -15,3 +15,6 @@ __pycache__/
 logs/
 data/
 *.pdf
+
+# Node (pnpm 이 루트에 생성할 수 있음 — web/ 이 실제 사용처)
+node_modules/

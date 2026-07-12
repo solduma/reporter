@@ -23,6 +23,7 @@ import {
 } from "@/lib/api";
 import { dateToTs, monthsAgoIso } from "@/lib/chartTime";
 import { addQuickPick } from "@/lib/quickPicks";
+import { useAutoTour } from "@/lib/useAutoTour";
 import type {
   CandlePoint,
   ChartTimeframe,
@@ -357,6 +358,8 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
   }, []);
 
   const displayName = summary?.stock_name ?? "이름 미상";
+  // 분석 로드 후(섹션 요소 존재) 첫 방문 1회 온보딩 투어.
+  useAutoTour("company", analysis.status === "ready");
 
   // 조회한 종목을 '자주 찾는 종목'(localStorage)에 자동 추가. 이름이 확인된 뒤에만 등록해
   // '이름 미상'이 목록에 남지 않게 한다.
@@ -403,13 +406,15 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
         <h1 className={styles.title}>{displayName}</h1>
         <span className={styles.code}>{summary?.stock_code ?? code}</span>
         <RealtimeQuoteBadge code={summary?.stock_code ?? code} />
-        <HoldingBadge code={summary?.stock_code ?? code} />
+        <span data-tour="holding">
+          <HoldingBadge code={summary?.stock_code ?? code} />
+        </span>
       </header>
 
       {error ? <p className={styles.error}>API 연결 실패: {error}</p> : null}
 
       {/* 분석 흐름 순: ① 스냅샷 → ② 종합분석 → ③ 탑다운차트 → ④ 밸류밴드 → ⑤ 동일업종 → ⑥ 타임라인(근거) */}
-      <section className={styles.chartCard}>
+      <section className={styles.chartCard} data-tour="snapshot">
         <div className={styles.growthHead}>
           <h2 className={styles.sectionTitle}>성장 지표</h2>
           <span className={styles.growthTag}>성장주 스냅샷</span>
@@ -417,7 +422,7 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
         <GrowthMetrics code={code} />
       </section>
 
-      <section className={styles.chartCard}>
+      <section className={styles.chartCard} data-tour="analysis">
         <div className={styles.growthHead}>
           <h2 className={styles.sectionTitle}>테크노펀더멘탈 분석</h2>
           <span className={styles.growthTag}>성장·기술·탑다운</span>
@@ -514,7 +519,7 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
       </section>
 
       {/* PER · PBR · PSR 분위수 밴드 (자체 date-range 슬라이더로 3개 차트 동시 조작) */}
-      <section className={styles.chartCard}>
+      <section className={styles.chartCard} data-tour="valuation">
         <h2 className={styles.sectionTitle}>
           밸류에이션 밴드 (PER · PBR · PSR)
           <InfoDot termKey="band" />
