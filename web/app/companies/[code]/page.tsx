@@ -348,6 +348,12 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
     [valuationRange],
   );
 
+  // 밸류에이션 밴드(PER/PBR/PSR) 중 하나를 스크롤·드래그하면 셋의 공유 구간을 반영한다
+  // (탑다운 dateRange 와 독립된 valuationRange 를 갱신). 같은 값이면 참조 유지로 루프 차단.
+  const handleValuationRangeChange = useCallback((from: string, to: string) => {
+    setValuationRange((prev) => (prev && prev.from === from && prev.to === to ? prev : { from, to }));
+  }, []);
+
   const displayName = summary?.stock_name ?? "이름 미상";
 
   // 조회한 종목을 '자주 찾는 종목'(localStorage)에 자동 추가. 이름이 확인된 뒤에만 등록해
@@ -523,7 +529,11 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
                 />
               </div>
             ) : null}
-            <MultipleBandChart data={financials.data} range={valuationChartRange} />
+            <MultipleBandChart
+              data={financials.data}
+              range={valuationChartRange}
+              onRangeChange={handleValuationRangeChange}
+            />
           </>
         ) : (
           <div className={styles.sectionStatus}>재무 데이터가 없습니다</div>
