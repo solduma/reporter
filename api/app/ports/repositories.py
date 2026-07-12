@@ -11,7 +11,17 @@ from datetime import date, datetime
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:  # 런타임 결합 없음 — 타입 힌트로만 참조(도메인 엔티티 대체 여지).
-    from app.db.models import PriceCandle, PriceCandleIntraday, Timeframe
+    from app.db.models import Holding, PriceCandle, PriceCandleIntraday, Timeframe
+
+
+class HoldingInput(Protocol):
+    """보유종목 upsert 입력의 구조(서비스 타입에 결합하지 않도록 구조적 타입)."""
+
+    stock_code: str
+    shares: float
+    avg_cost: float
+    stop_loss: float | None
+    note: str | None
 
 
 class CandleInput(Protocol):
@@ -50,4 +60,24 @@ class CandleRepository(Protocol):
 
     def upsert_periodic(self, code: str, tf: Timeframe, candles: list[CandleInput]) -> int:
         """봉들을 upsert 하고 반영 건수를 반환."""
+        ...
+
+
+class HoldingRepository(Protocol):
+    """개인 보유종목 영속화(단일 사용자)."""
+
+    def list_all(self) -> list[Holding]:
+        """보유종목 전체(종목코드 오름차순)."""
+        ...
+
+    def get(self, stock_code: str) -> Holding | None:
+        """한 종목의 보유 정보. 없으면 None."""
+        ...
+
+    def upsert(self, item: HoldingInput) -> Holding:
+        """보유종목 저장(종목당 1행, 있으면 갱신). 저장된 행 반환."""
+        ...
+
+    def delete(self, stock_code: str) -> bool:
+        """보유종목 삭제. 삭제된 행이 있으면 True."""
         ...

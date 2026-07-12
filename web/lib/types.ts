@@ -440,3 +440,21 @@ export interface UsDisclosure {
   primary_doc_url: string;
   sentiment: string | null;
 }
+
+// 개인 보유종목(단일 사용자). 관심종목(localStorage quickPicks)과 별개.
+export interface Holding {
+  stock_code: string;
+  stock_name: string | null;
+  shares: number;
+  avg_cost: number;
+  stop_loss: number | null;
+  note: string | null;
+  updated_at: string | null;
+}
+
+export interface HoldingInput {
+  shares: number;
+  avg_cost: number;
+  stop_loss?: number | null;
+  note?: string | null;
+}

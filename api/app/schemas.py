@@ -349,3 +349,24 @@ class UsDisclosureOut(BaseModel):
     title: str | None  # 8-K item 요약
     primary_doc_url: str
     sentiment: str | None
+
+
+class HoldingIn(BaseModel):
+    """보유종목 저장 입력."""
+
+    shares: float
+    avg_cost: float
+    stop_loss: float | None = None
+    note: str | None = None
+
+
+class HoldingOut(BaseModel):
+    """보유종목 응답. 종목명은 라우터가 유니버스에서 채운다(없으면 None)."""
+
+    stock_code: str
+    stock_name: str | None = None
+    shares: float
+    avg_cost: float
+    stop_loss: float | None
+    note: str | None
+    updated_at: datetime | None = None
