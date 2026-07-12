@@ -68,3 +68,25 @@ def test_hash_context_none_differs_from_context_present():
     assert analysis_comment.inputs_hash(_AXES, None) != analysis_comment.inputs_hash(
         _AXES, analysis.CommentContext(market_phase="intraday")
     )
+
+
+def test_comment_includes_report_and_disclosure_notes():
+    # 리서치 정제문(브로커·신호·요약)·공시 근거가 프롬프트에 실려 '실제 무슨 말인지'를 LLM 이 읽는다.
+    llm = _CaptureLLM()
+    ctx = analysis.CommentContext(
+        report_count=2,
+        buy_count=2,
+        report_notes=["미래에셋 BUY: 2Q 호실적·목표가 상향", "삼성증권 BUY: 반도체 업턴 수혜"],
+        disclosure_notes=["단일판매공급계약 — 매출 12% 규모 신규 수주"],
+    )
+    analysis.llm_comment(llm, "m", "삼성전자", _AXES, ctx)
+    assert "미래에셋 BUY: 2Q 호실적" in llm.user
+    assert "반도체 업턴" in llm.user
+    assert "신규 수주" in llm.user
+
+
+def test_hash_stable_when_only_note_text_changes():
+    # 같은 날 리포트 수·BUY 수는 그대로인데 요약 문구만 바뀌어도 해시는 동일(재생성 폭주 방지).
+    a = analysis.CommentContext(report_count=2, buy_count=2, report_notes=["A: 요약1"])
+    b = analysis.CommentContext(report_count=2, buy_count=2, report_notes=["A: 완전히 다른 요약"])
+    assert analysis_comment.inputs_hash(_AXES, a) == analysis_comment.inputs_hash(_AXES, b)
