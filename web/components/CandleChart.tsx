@@ -11,6 +11,7 @@ import {
 import type {
   CandlestickData,
   HistogramData,
+  IChartApi,
   LineData,
   Time,
   UTCTimestamp,
@@ -113,10 +114,13 @@ export default function CandleChart({
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [logScale, setLogScale] = useState(false);
-  // 프로그램적으로 설정한 마지막 구간(일자). 이벤트가 이 값과 같으면 setVisibleRange 의 메아리로
-  // 보고 무시한다 — 타이밍(rAF)에 의존하지 않아 피드백 루프를 결정적으로 끊는다. 콜백은 최신 값이
-  // 필요하므로 ref 로 담아 effect 재실행 없이 참조한다.
-  const lastAppliedRef = useRef<{ from: string; to: string } | null>(null);
+  // 차트 인스턴스를 ref 로 보관해 range 변경 시 재생성 없이 재사용한다(재생성=화면 움찔거림 원인).
+  const chartRef = useRef<IChartApi | null>(null);
+  // 프로그램적 setVisibleRange 가 유발하는 이벤트를 억제하는 시간창(ms 타임스탬프). 값 비교는
+  // 데이터 밀도별 스냅 차이(캔들=일·재무=분기)로 실패하고, 카운터는 이벤트가 0건이면 누수되므로,
+  // "방금 내가 설정했다" 직후 짧은 창 동안의 이벤트를 모두 삼켜 피드백 루프를 끊는다.
+  const suppressUntilRef = useRef(0);
+  const SUPPRESS_MS = 250;
   const onRangeChangeRef = useRef(onRangeChange);
   onRangeChangeRef.current = onRangeChange;
 
@@ -205,40 +209,57 @@ export default function CandleChart({
       candleSeries.attachPrimitive(new TimeDividers(chart, dividers));
     }
 
-    // range 가 있으면 그 구간만, 없으면 전체를 맞춘다. 설정한 구간을 기록해 두고, 이벤트가 이 값과
-    // 같으면(=이 설정의 메아리) 콜백을 건너뛴다.
+    // 초기 구간: range 있으면 그 구간(억제 표식 세움), 없으면 전체. 이후 range 변경은 아래 별도
+    // effect 가 재생성 없이 처리한다(range 를 이 effect deps 에 넣으면 매 동기화마다 차트가
+    // 파괴·재생성돼 화면이 움찔거림).
     if (range) {
-      lastAppliedRef.current = { from: tsToDate(range.from), to: tsToDate(range.to) };
+      suppressUntilRef.current = Date.now() + SUPPRESS_MS;
       try {
         chart.timeScale().setVisibleRange({ from: range.from, to: range.to });
       } catch {
-        chart.timeScale().fitContent(); // 범위가 데이터 밖이면 전체로 폴백
+        chart.timeScale().fitContent();
       }
     } else {
-      lastAppliedRef.current = null;
       chart.timeScale().fitContent();
     }
 
-    // 사용자 스크롤·드래그로 표시 구간이 바뀌면(프로그램적 설정의 메아리 제외) 시작·끝 일자를 알린다.
+    // 사용자 스크롤·드래그로 구간이 바뀌면 알린다. 프로그램적 setVisibleRange 직후의 이벤트는
+    // 억제창으로 삼켜(값 비교는 데이터 밀도별 스냅 차이로 실패) 피드백 루프를 끊는다.
     const onVisibleRangeChange = (r: { from: Time; to: Time } | null) => {
+      if (Date.now() < suppressUntilRef.current) {
+        return;
+      }
       if (!r || !onRangeChangeRef.current) {
         return;
       }
-      const from = tsToDate(r.from);
-      const to = tsToDate(r.to);
-      const last = lastAppliedRef.current;
-      if (last && last.from === from && last.to === to) {
-        return; // 방금 프로그램적으로 설정한 구간과 동일 → 메아리, 무시
-      }
-      onRangeChangeRef.current(from, to);
+      onRangeChangeRef.current(tsToDate(r.from), tsToDate(r.to));
     };
     chart.timeScale().subscribeVisibleTimeRangeChange(onVisibleRangeChange);
+    chartRef.current = chart;
 
     return () => {
       chart.timeScale().unsubscribeVisibleTimeRangeChange(onVisibleRangeChange);
       chart.remove();
+      chartRef.current = null;
     };
-  }, [data, timeframe, logScale, range]);
+    // range 는 의도적으로 제외 — 아래 별도 effect 가 재생성 없이 반영한다(deps 에 넣으면 매 동기화마다
+    // 차트가 파괴·재생성돼 움찔거림). 초기 range 는 최초 마운트 시 위에서 1회 적용된다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, timeframe, logScale]);
+
+  // range 변경만 반영(차트 재생성 없이). 프로그램적 적용이라 직후 이벤트를 억제창으로 삼킨다.
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || !range) {
+      return;
+    }
+    suppressUntilRef.current = Date.now() + SUPPRESS_MS;
+    try {
+      chart.timeScale().setVisibleRange({ from: range.from, to: range.to });
+    } catch {
+      /* 범위가 데이터 밖이면 무시 */
+    }
+  }, [range]);
 
   return (
     <div className={styles.wrap}>
