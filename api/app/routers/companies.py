@@ -27,7 +27,13 @@ from app.schemas import (
     TimelineItem,
     TopDownView,
 )
-from app.services import analysis, analysis_comment, candle_service, company_service
+from app.services import (
+    analysis,
+    analysis_comment,
+    candle_service,
+    company_service,
+    today_service,
+)
 
 router = APIRouter(prefix="/api/companies", tags=["companies"])
 
@@ -190,16 +196,19 @@ def company_analysis(
         checks=j.checks,
     )
 
-    # LLM 종합 코멘트 — 캐시 우선. 미스면 백그라운드 생성(응답은 pending 즉시 반환).
+    # LLM 종합 코멘트 — 3축 + 시장 맥락·정성 재료를 함께 종합. 캐시 우선, 미스면 백그라운드 생성.
     axes_dump = [a.model_dump() for a in axes]
     comment = None
     comment_pending = False
     if settings.ollama_api_key:
-        h = analysis_comment.inputs_hash(axes_dump)
+        ctx = _comment_context(db, code)
+        h = analysis_comment.inputs_hash(axes_dump, ctx)
         comment = analysis_comment.get_cached(db, code, h)
         if comment is None:
             comment_pending = True
-            bg.add_task(analysis_comment.generate_and_store, code, name or code, axes_dump, h)
+            bg.add_task(
+                analysis_comment.generate_and_store, code, name or code, axes_dump, h, ctx
+            )
 
     return CompanyAnalysis(
         stock_code=code,
@@ -229,6 +238,24 @@ def _grade(score: float | None) -> str:
     if score >= 30:
         return "완만"
     return "정체·역성장"
+
+
+def _comment_context(db: Session, code: str) -> analysis.CommentContext:
+    """LLM 종합 코멘트용 시장 맥락·정성 재료를 모은다(오늘 시황·국면 + 최근 리서치·공시)."""
+    from datetime import datetime, timedelta
+
+    mi = today_service.market_info(db, None)
+    now = datetime.now()
+    since = now.date() - timedelta(days=30)
+    reports, buys = company_service.coverage_counts(db, code, since)
+    discs = company_service.timeline_disclosures(db, code, since, now.date())
+    return analysis.CommentContext(
+        market_phase=(mi.phase or None) if mi else None,
+        market_summary=(mi.summary or None) if mi else None,
+        report_count=reports,
+        buy_count=buys,
+        recent_disclosures=[d.report_nm for d in discs[:3]],
+    )
 
 
 def _signed(ratio: str, rising: bool | None) -> str:
