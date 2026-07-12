@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { searchStocks } from "@/lib/api";
 import type { StockSearchHit } from "@/lib/types";
+import { useHeldCodes } from "@/lib/useHeldCodes";
 
 import styles from "./StockSearch.module.css";
 
@@ -28,6 +29,7 @@ export default function StockSearch() {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0); // 키보드 하이라이트 인덱스
   const boxRef = useRef<HTMLDivElement>(null);
+  const heldCodes = useHeldCodes();
 
   const trimmed = query.trim();
 
@@ -145,6 +147,9 @@ export default function StockSearch() {
                 onClick={() => goto(h.stock_code)}
               >
                 <span className={styles.optName}>{h.stock_name}</span>
+                {heldCodes.has(h.stock_code) ? (
+                  <span className={styles.optHeld}>보유</span>
+                ) : null}
                 <span className={styles.optCode}>{h.stock_code}</span>
                 <span className={styles.optMarket}>{h.market}</span>
                 {formatCap(h.market_cap) ? (
