@@ -4,9 +4,22 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
+import { startTour } from "@/lib/tour";
+import type { TourId } from "@/lib/tour";
 import { useStopAlertCount } from "@/lib/useStopAlert";
 
 import styles from "./NavBar.module.css";
+
+// 현재 경로에 해당하는 투어(없으면 '가이드' 버튼 숨김).
+function tourForPath(pathname: string): TourId | null {
+  if (pathname === "/screener") {
+    return "screener";
+  }
+  if (/^\/companies\/[^/]+$/.test(pathname)) {
+    return "company";
+  }
+  return null;
+}
 
 const LINKS = [
   { href: "/", label: "Today's Brew", featured: false },
@@ -24,6 +37,7 @@ export default function NavBar() {
   const [open, setOpen] = useState(false);
   const navRef = useRef<HTMLElement>(null);
   const stopAlerts = useStopAlertCount();
+  const tourId = tourForPath(pathname);
 
   // 경로가 바뀌면(다른 페이지 이동) 모바일 메뉴를 닫는다.
   useEffect(() => {
@@ -112,6 +126,20 @@ export default function NavBar() {
               </li>
             );
           })}
+          {tourId ? (
+            <li>
+              <button
+                type="button"
+                className={styles.link}
+                onClick={() => {
+                  setOpen(false);
+                  startTour(tourId);
+                }}
+              >
+                가이드
+              </button>
+            </li>
+          ) : null}
           <li>
             <button type="button" className={styles.logout} onClick={handleLogout}>
               로그아웃
