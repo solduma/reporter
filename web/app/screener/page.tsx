@@ -173,6 +173,7 @@ const COLUMNS_BY_STRATEGY: Record<ScreenerStrategy, Column[]> = {
     { label: "매출YoY", sort: "rev_yoy", info: "revenue_yoy" },
     { label: "영업이익", info: "op_yoy" },
     { label: "모멘텀", sort: "momentum", info: "momentum" },
+    { label: "RS", info: "rs_rating" },
     { label: "시가총액", sort: "market_cap" },
     { label: "현재가" },
     { label: "등락률", sort: "change" },
@@ -280,6 +281,17 @@ function growthClass(value: number | null): string {
     return styles.flat;
   }
   return value > 0 ? styles.gpos : styles.gneg;
+}
+
+// RS Rating 색: 80↑ 주도주(초록) / 40↓ 약함(빨강) / 그 사이 중립.
+function rsRatingClass(rating: number | null): string {
+  if (rating === null) {
+    return styles.flat;
+  }
+  if (rating >= 80) {
+    return styles.gpos;
+  }
+  return rating < 40 ? styles.gneg : styles.flat;
 }
 
 function scoreNumClass(score: number): string {
@@ -694,6 +706,7 @@ function ScreenerContent() {
                           )}
                         </td>
                         <td className={growthClass(row.momentum_3m)}>{formatPct(row.momentum_3m)}</td>
+                        <td className={rsRatingClass(row.rs_rating)}>{row.rs_rating ?? "—"}</td>
                         <td>{formatEok(row.market_cap)}</td>
                         <td>{formatPrice(row.close_price)}</td>
                         <td className={changeClass(row.change_pct)}>{formatPct(row.change_pct)}</td>

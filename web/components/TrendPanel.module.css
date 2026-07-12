@@ -105,6 +105,40 @@
   color: #2b6cc0;
 }
 
+/* RS Rating 게이지 */
+.ratingGauge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ratingValue {
+  font-size: 1.5rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.ratingMax {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin-right: 4px;
+}
+
+.ratingBar {
+  flex: 1;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--border, #e4e7eb);
+  overflow: hidden;
+}
+
+.ratingFill {
+  height: 100%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #2b6cc0 0%, #b8791f 55%, #c02b2b 85%);
+}
+
 .rsChart {
   width: 100%;
   height: 200px;

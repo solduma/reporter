@@ -238,6 +238,7 @@ export interface CompanyTrend {
   rs_series: RelStrengthPoint[];
   rs_latest: number | null;
   rs_outperforming: boolean | null;
+  rs_rating?: number | null; // IBD RS Rating 1~99
 }
 
 export interface FinancialPeriod {
@@ -323,6 +324,7 @@ export interface ScreenerRow {
   market_cap: number | null; // 원 단위(KRW)
   trading_value: number | null; // 거래대금, 원 단위
   momentum_3m: number | null; // 3개월 수익률%
+  rs_rating: number | null; // IBD RS Rating 1~99(전종목 대비 가격 모멘텀)
   revenue_yoy: number | null; // 매출 YoY 비율 (0.28 = +28%)
   op_yoy: number | null; // 영업이익 YoY 비율
   op_turnaround: boolean; // 흑자전환 여부

@@ -48,6 +48,11 @@ export const GLOSSARY: Record<string, GlossaryEntry> = {
     what: "최근 3개월 주가 수익률(%).",
     guide: "주도주는 이미 오르는 경향. 플러스면 상승 추세, 다만 과열도 함께 봐야 함.",
   },
+  rs_rating: {
+    term: "RS Rating",
+    what: "전체 종목 대비 최근 1년 가격 상승세 순위(1~99, IBD 방식).",
+    guide: "99=상위 1% 주도주. 80↑이 실전 매수 후보. 최근 분기를 2배 가중.",
+  },
   turnaround: {
     term: "흑자전환",
     what: "적자에서 흑자로 돌아섰는지.",

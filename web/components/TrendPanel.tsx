@@ -95,8 +95,32 @@ export default function TrendPanel({ trend, status, message }: Props) {
   }
 
   const rsLatest = trend.rs_latest;
+  const rating = trend.rs_rating;
   return (
     <div className={styles.panel}>
+      {rating !== null && rating !== undefined ? (
+        <div className={styles.ratingRow}>
+          <div className={styles.blockHead}>
+            <span className={styles.blockTitle}>RS Rating</span>
+            <InfoDot
+              what="전체 종목 대비 최근 1년 가격 상승세 순위(1~99, IBD 방식)."
+              guide="99=상위 1% 주도주. 80↑이 실전 매수 후보. 최근 분기를 2배 가중."
+            />
+          </div>
+          <div className={styles.ratingGauge}>
+            <span
+              className={`${styles.ratingValue} ${rating >= 80 ? styles.rsPos : rating < 40 ? styles.rsNeg : ""}`}
+            >
+              {rating}
+            </span>
+            <span className={styles.ratingMax}>/99</span>
+            <div className={styles.ratingBar}>
+              <div className={styles.ratingFill} style={{ width: `${rating}%` }} />
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <div className={styles.stageRow}>
         <div className={styles.blockHead}>
           <span className={styles.blockTitle}>와인스타인 국면</span>
