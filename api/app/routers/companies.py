@@ -13,16 +13,20 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db.session import get_session
-from app.domain import analysis_scoring, judgment, technicals
+from app.domain import analysis_scoring, judgment, stage, technicals
 from app.schemas import (
     AnalysisAxis,
     CandlePoint,
     CompanyAnalysis,
     CompanyGrowth,
     CompanySummary,
+    CompanyTrend,
     FinancialPeriodOut,
     JudgmentOut,
     PeerOut,
+    RelStrengthPoint,
+    StageFrame,
+    StageSegment,
     StockSearchHit,
     TimelineItem,
     TopDownView,
@@ -33,6 +37,7 @@ from app.services import (
     candle_service,
     company_service,
     today_service,
+    trend,
 )
 
 router = APIRouter(prefix="/api/companies", tags=["companies"])
@@ -140,14 +145,16 @@ def company_analysis(
         ],
     )
 
-    # 기술 축 — 일봉 지표.
+    # 기술 축 — 일봉 지표 + 와인스타인 중기 국면.
     candles = company_service.ensure_day_candles(db, code)
     tech = technicals.compute(candles)
+    mid_stage = stage.classify([c.close for c in candles], stage.FRAME_PERIODS["mid"])
     tech_axis = AnalysisAxis(
         key="technical",
         label="기술적 추세",
         score=tech.trend_score,
         metrics=[
+            {"label": "와인스타인 국면", "value": mid_stage.label or "—"},
             {"label": "52주 고점 근접", "value": f"{tech.near_high_pct}%" if tech.near_high_pct else "—"},
             {"label": "이평 정배열", "value": _yn(tech.ma_aligned)},
             {"label": "거래량비", "value": f"{tech.vol_ratio}x" if tech.vol_ratio else "—"},
@@ -220,6 +227,40 @@ def company_analysis(
         judgment=judgment_out,
         comment=comment,
         comment_pending=comment_pending,
+    )
+
+
+@router.get("/{code}/trend", response_model=CompanyTrend)
+def company_trend(
+    code: str, bg: BackgroundTasks, db: Session = Depends(get_session)
+) -> CompanyTrend:
+    """기술적 추세 — 와인스타인 국면(단/중/장기) + Mansfield 상대강도(지수 대비)."""
+    if candle_service.is_stale(db, code, "day"):
+        bg.add_task(candle_service.refresh_periodic, code, "day")
+    snap = company_service.latest_snapshot(db, code)
+    market = snap.market if snap else None
+
+    result = trend.compute_trend(db, code, market)
+    return CompanyTrend(
+        stock_code=code,
+        benchmark=result.benchmark,
+        stages=[
+            StageFrame(
+                frame=frame,
+                period=stage.FRAME_PERIODS[frame],
+                stage=result.stages[frame].stage,
+                label=result.stages[frame].label,
+                ma_dir=result.stages[frame].ma_dir,
+            )
+            for frame in ("short", "mid", "long")
+        ],
+        stage_segments=[
+            StageSegment(stage=s["stage"], from_date=s["from"], to_date=s["to"])
+            for s in result.stage_segments
+        ],
+        rs_series=[RelStrengthPoint(date=p.date, value=p.value) for p in result.rs.series],
+        rs_latest=result.rs.latest,
+        rs_outperforming=result.rs.outperforming,
     )
 
 

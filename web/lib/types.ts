@@ -211,6 +211,35 @@ export interface CandlePoint {
   v: number;
 }
 
+export interface StageFrame {
+  frame: "short" | "mid" | "long";
+  period: number; // 50 | 150 | 200
+  stage: number | null; // 1~4
+  label: string | null; // '② 상승' 등
+  ma_dir: "rising" | "flat" | "falling" | null;
+}
+
+export interface StageSegment {
+  stage: number; // 1~4
+  from_date: string; // YYYY-MM-DD
+  to_date: string;
+}
+
+export interface RelStrengthPoint {
+  date: string;
+  value: number; // Mansfield MRP (0중심)
+}
+
+export interface CompanyTrend {
+  stock_code: string;
+  benchmark: string; // KOSPI | KOSDAQ
+  stages: StageFrame[];
+  stage_segments: StageSegment[];
+  rs_series: RelStrengthPoint[];
+  rs_latest: number | null;
+  rs_outperforming: boolean | null;
+}
+
 export interface FinancialPeriod {
   period: string;
   is_estimate: boolean;

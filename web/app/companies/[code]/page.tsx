@@ -18,6 +18,7 @@ import {
   fetchCandles,
   fetchCompanyAnalysis,
   fetchCompanySummary,
+  fetchCompanyTrend,
   fetchFinancials,
   fetchPeers,
 } from "@/lib/api";
@@ -29,6 +30,7 @@ import type {
   ChartTimeframe,
   CompanyAnalysis,
   CompanySummary,
+  CompanyTrend,
   FinancialPeriod,
   Peer,
   Timeframe,
@@ -48,6 +50,10 @@ const FinancialsLineChart = dynamic(() => import("@/components/FinancialsLineCha
 const MultipleBandChart = dynamic(() => import("@/components/MultipleBandChart"), {
   ssr: false,
   loading: () => <div className={styles.sectionStatus}>차트 불러오는 중…</div>,
+});
+const TrendPanel = dynamic(() => import("@/components/TrendPanel"), {
+  ssr: false,
+  loading: () => <div className={styles.sectionStatus}>추세 불러오는 중…</div>,
 });
 
 interface ViewDef {
@@ -125,6 +131,10 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
     data: [],
   });
   const [peers, setPeers] = useState<SectionState<Peer[]>>({ status: "loading", data: [] });
+  const [trend, setTrend] = useState<SectionState<CompanyTrend | null>>({
+    status: "loading",
+    data: null,
+  });
 
   useEffect(() => {
     let active = true;
@@ -178,6 +188,32 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
       if (pollTimer) {
         clearTimeout(pollTimer);
       }
+      active = false;
+    };
+  }, [code]);
+
+  // 기술적 추세(와인스타인 국면 + Mansfield 상대강도). 일봉·지수봉 기반이라 종목 코드로만 조회.
+  useEffect(() => {
+    let active = true;
+    async function load() {
+      setTrend({ status: "loading", data: null });
+      try {
+        const res = await fetchCompanyTrend(code);
+        if (active) {
+          setTrend({ status: "ready", data: res });
+        }
+      } catch (e) {
+        if (active) {
+          setTrend({
+            status: "error",
+            data: null,
+            message: e instanceof Error ? e.message : "추세를 불러오지 못했습니다",
+          });
+        }
+      }
+    }
+    void load();
+    return () => {
       active = false;
     };
   }, [code]);
@@ -369,6 +405,18 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
     }
   }, [summary, code]);
 
+  // 국면 배경밴드는 중기(150일) 국면을 일봉에 얹는다. 일봉일 때만(주/월/30분봉은 축이 달라 제외).
+  const stageBands = useMemo(() => {
+    if (timeframe !== "day" || !trend.data) {
+      return undefined;
+    }
+    return trend.data.stage_segments.map((s) => ({
+      stage: s.stage,
+      from: s.from_date,
+      to: s.to_date,
+    }));
+  }, [timeframe, trend.data]);
+
   const stockChart = useMemo(() => {
     if (loading && stockCandles.length === 0) {
       return <div className={styles.chartStatus}>불러오는 중…</div>;
@@ -383,9 +431,10 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
         range={chartRange}
         showControls={false}
         onRangeChange={handleChartRangeChange}
+        stageBands={stageBands}
       />
     );
-  }, [loading, stockCandles, timeframe, chartRange, handleChartRangeChange]);
+  }, [loading, stockCandles, timeframe, chartRange, handleChartRangeChange, stageBands]);
 
   const peersArea = useMemo(() => {
     if (peers.status === "loading") {
@@ -433,6 +482,15 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
           status={analysis.status}
           message={analysis.message}
         />
+      </section>
+
+      {/* 기술적 추세: 와인스타인 국면(단/중/장기) + Mansfield 상대강도. 국면은 아래 차트에 배경밴드로도. */}
+      <section className={styles.chartCard}>
+        <div className={styles.growthHead}>
+          <h2 className={styles.sectionTitle}>기술적 추세</h2>
+          <span className={styles.growthTag}>국면 · 상대강도</span>
+        </div>
+        <TrendPanel trend={trend.data} status={trend.status} message={trend.message} />
       </section>
 
       {/* 탑다운 비교 차트: 지수 → 섹터 → 종목 → 재무. 공용 컨트롤바(분/일/주·기간·MA). */}
