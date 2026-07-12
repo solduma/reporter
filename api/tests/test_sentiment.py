@@ -64,3 +64,30 @@ def test_recovers_first_object_with_trailing_text():
     r = _classify(reply)
     assert r.sentiment == "SELL"
     assert r.one_liner == "고평가"
+
+
+class _CaptureLLM:
+    """chat 의 user 프롬프트를 캡처해 소유변동 요약 주입을 검증한다."""
+
+    def __init__(self, reply='{"sentiment": "BUY", "rationale": "x"}'):
+        self._reply = reply
+        self.user = ""
+
+    def chat(self, model, system, user, temperature=0.3):
+        self.user = user
+        return self._reply
+
+
+def test_classify_disclosure_injects_ownership_summary():
+    llm = _CaptureLLM()
+    summary = "보고자: 윤원일 (사장)\n소유 증감: +3,000주 취득 (변동후 9,214주 보유)\n변동사유: 장내매수"
+    sentiment.classify_disclosure(llm, "m", "임원ㆍ주요주주특정증권등소유상황보고서", "본문", summary)
+    assert "[소유변동 요약]" in llm.user
+    assert "+3,000주 취득" in llm.user
+    assert "장내매수" in llm.user
+
+
+def test_classify_disclosure_without_ownership_omits_section():
+    llm = _CaptureLLM()
+    sentiment.classify_disclosure(llm, "m", "주요사항보고서", "본문")
+    assert "[소유변동 요약]" not in llm.user

@@ -18,7 +18,7 @@ from xml.etree import ElementTree
 import requests
 
 from app.adapters.dart import throttle as dart_throttle
-from app.domain.disclosure import Disclosure  # 하위호환 재노출(정의는 domain)
+from app.domain.disclosure import Disclosure, OwnershipChange  # 하위호환 재노출(정의는 domain)
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +26,7 @@ _CORPCODE_URL = "https://opendart.fss.or.kr/api/corpCode.xml"
 _LIST_URL = "https://opendart.fss.or.kr/api/list.json"
 _FNLTT_URL = "https://opendart.fss.or.kr/api/fnlttSinglAcntAll.json"
 _DOCUMENT_URL = "https://opendart.fss.or.kr/api/document.xml"
+_ELESTOCK_URL = "https://opendart.fss.or.kr/api/elestock.json"
 _DART_VIEWER = "https://dart.fss.or.kr/dsaf001/main.do?rcpNo={rcept_no}"
 
 # 분기 → DART 보고서 코드. 1Q=11013·반기=11012·3Q=11014·사업보고서(연간)=11011.
@@ -326,3 +327,64 @@ def fetch_document_text(
         logger.warning("dart document parse failed %s: %s", rcept_no, e)
         return ""
     return " ".join(p for p in parts if p)[:max_chars]
+
+
+def _to_int(raw: str | None) -> int:
+    """'3,000'·'-1,700'·'' → int. 콤마·공백 제거, 파싱 실패 시 0."""
+    if not raw:
+        return 0
+    try:
+        return int(re.sub(r"[,\s]", "", raw))
+    except ValueError:
+        return 0
+
+
+# 소유변동 표의 사유는 '<사유>(+)' 또는 '<사유>(-)' 로 적힌다(예 '장내매수(+)', '증여(-)').
+# 표 안내문의 '매매'·'취득/처분' 같은 라벨이 아닌, 실제 변동행의 사유 토큰만 잡는다.
+_OWNERSHIP_REASON = re.compile(r"([가-힣]{2,10})\s*\(\s*([+\-])\s*\)")
+_REASON_LABELS = {"취득", "처분", "취득처분", "매매"}  # 표 헤더·안내문 라벨(사유 아님)
+
+
+def extract_ownership_reason(document_text: str) -> str:
+    """소유상황보고서 원문 텍스트에서 변동사유(장내매수/장내매도/증여 등)를 추출한다.
+
+    표 헤더 라벨('취득/처분')은 제외하고 첫 실제 사유 토큰을 반환한다. 없으면 빈 문자열.
+    """
+    for token, _sign in _OWNERSHIP_REASON.findall(document_text):
+        if token not in _REASON_LABELS:
+            return token
+    return ""
+
+
+def fetch_ownership_changes(
+    api_key: str, corp_code: str, session: requests.Session
+) -> dict[str, OwnershipChange]:
+    """corp_code 의 임원·주요주주 소유보고(elestock.json) → {rcept_no: 소유변동}.
+
+    구조화 API 라 부호있는 증감(sp_stock_lmp_irds_cnt)·수량·직위를 그대로 준다. 태그 제거로
+    뭉개지는 문서 표와 달리 방향이 명확하다. 실패·데이터없음이면 빈 dict.
+    """
+    try:
+        resp = dart_throttle.get(
+            session, _ELESTOCK_URL, params={"crtfc_key": api_key, "corp_code": corp_code}, timeout=15
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except (requests.RequestException, ValueError) as e:
+        logger.warning("dart elestock failed %s: %s", corp_code, e)
+        return {}
+    if data.get("status") != "000":  # 013=데이터없음 등
+        return {}
+    changes: dict[str, OwnershipChange] = {}
+    for row in data.get("list", []):
+        rcept_no = row.get("rcept_no", "")
+        if not rcept_no:
+            continue
+        changes[rcept_no] = OwnershipChange(
+            reporter=(row.get("repror") or "").strip(),
+            position=(row.get("isu_exctv_ofcps") or "").replace("\n", " ").strip(),
+            is_registered=(row.get("isu_exctv_rgist_at") or "").strip(),
+            shares_after=_to_int(row.get("sp_stock_lmp_cnt")),
+            shares_delta=_to_int(row.get("sp_stock_lmp_irds_cnt")),
+        )
+    return changes

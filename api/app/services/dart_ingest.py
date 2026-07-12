@@ -11,14 +11,19 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.adapters import dart
+from app.adapters.dart.client import extract_ownership_reason
 from app.adapters.dart.disclosure_adapter import DartDisclosureAdapter
 from app.adapters.llm import get_llm
 from app.config import Settings
 from app.db.models import CorpCodeMap, Disclosure, DisclosureSyncState, Sentiment
+from app.domain.disclosure import summarize_ownership
 from app.ports.disclosure import KrDisclosurePort
 from app.services import sentiment as sentiment_svc
 
 logger = logging.getLogger(__name__)
+
+# 이 키워드가 report_nm 에 있으면 임원·주요주주 소유변동(elestock 구조화) 요약을 보강한다.
+_OWNERSHIP_REPORT_KW = "소유상황보고서"
 
 
 # 포트 공급자 seam — 기본은 DartDisclosureAdapter, 테스트가 훅 교체로 fake 주입 가능.
@@ -92,14 +97,26 @@ def sync_disclosures(
         # (다음에 키가 생기면 재분류되도록 _mark_synced 도 하지 않는다).
         logger.warning("no LLM (OLLAMA_API_KEY); skip disclosure sentiment for %s", stock_code)
         return 0
+
+    # 소유상황보고서가 신규로 하나라도 있으면 elestock 을 corp 단위로 한 번만 조회해 방향을 확보한다.
+    ownership_changes: dict = {}
+    if any(_OWNERSHIP_REPORT_KW in d.report_nm and d.rcept_no not in existing for d in fetched):
+        ownership_changes = disc.fetch_ownership_changes(corp_code, session)
+
     saved = 0
     for d in fetched:
         if d.rcept_no in existing:
             continue  # 멱등: 이미 저장됨
         # 원문 발췌(앞 6000자)까지 읽어 판단. 조회 실패 시 제목-only 로 폴백.
         body = disc.fetch_document_text(d.rcept_no, session)
+        # 소유상황보고서면 구조화 증감(방향·수량)+문서에서 뽑은 사유를 요약해 판단 근거로 넣는다.
+        ownership_summary = ""
+        change = ownership_changes.get(d.rcept_no)
+        if change is not None:
+            change.reason = extract_ownership_reason(body)
+            ownership_summary = summarize_ownership(change)
         sent = sentiment_svc.classify_disclosure(
-            client, settings.insight_model, d.report_nm, body
+            client, settings.insight_model, d.report_nm, body, ownership_summary
         )
         # 동시 요청 경쟁에도 안전하도록 on_conflict_do_nothing 로 삽입한다.
         stmt = (

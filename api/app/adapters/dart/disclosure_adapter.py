@@ -32,3 +32,8 @@ class DartDisclosureAdapter:
         self, corp_code: str, year: int, kind: str, session: requests.Session
     ) -> str | None:
         return client.find_periodic_report(self._api_key, corp_code, year, kind, session)
+
+    def fetch_ownership_changes(
+        self, corp_code: str, session: requests.Session
+    ) -> dict[str, client.OwnershipChange]:
+        return client.fetch_ownership_changes(self._api_key, corp_code, session)
