@@ -48,6 +48,6 @@ def test_overall_averages_present_scores():
     assert analysis.overall([None, None]) is None
 
 
-def test_llm_comment_none_without_key():
-    # 키 없으면 네트워크 호출 없이 즉시 None.
-    assert analysis.llm_comment("", "", "m", "삼성전자", []) is None
+def test_llm_comment_none_without_llm():
+    # LLM 없으면(None) 네트워크 호출 없이 즉시 None.
+    assert analysis.llm_comment(None, "m", "삼성전자", []) is None

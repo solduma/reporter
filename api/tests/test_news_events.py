@@ -22,10 +22,10 @@ def test_classify_invalid_kind_falls_back_to_macro():
 
 
 def test_classify_llm_error_returns_none():
-    from reporter.ollama_client import OllamaError
+    from app.ports.llm import LLMError
 
     client = MagicMock()
-    client.chat.side_effect = OllamaError("down")
+    client.chat.side_effect = LLMError("down")
     assert news_events._classify(client, "m", "제목", ["반도체"]) is None
 
 

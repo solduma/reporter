@@ -11,10 +11,10 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.adapters import dart
+from app.adapters.llm import get_llm
 from app.config import Settings
 from app.db.models import CorpCodeMap, Disclosure, DisclosureSyncState, Sentiment
 from app.services import sentiment as sentiment_svc
-from reporter.ollama_client import OllamaClient
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +80,12 @@ def sync_disclosures(
         ).all()
     )
 
-    client = OllamaClient(settings.ollama_host, settings.ollama_api_key)
+    client = get_llm(settings)
+    if client is None:
+        # LLM 없으면 센티먼트 분류 불가 → 공시를 HOLD 로 영구 오적재하지 않도록 저장을 건너뛴다
+        # (다음에 키가 생기면 재분류되도록 _mark_synced 도 하지 않는다).
+        logger.warning("no LLM (OLLAMA_API_KEY); skip disclosure sentiment for %s", stock_code)
+        return 0
     saved = 0
     for d in fetched:
         if d.rcept_no in existing:

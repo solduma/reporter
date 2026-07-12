@@ -1,7 +1,7 @@
 """수집 파이프라인: 네이버 리서치 크롤 → PDF 저장 → GLM 요약·센티먼트 → Postgres 영속.
 
-기존 reporter.crawler / reporter.pdf / reporter.analyzer / reporter.ollama_client 를 재사용한다.
-동기 requests 기반이므로 스케줄러 워커나 threadpool(def 엔드포인트)에서 호출한다.
+기존 reporter.crawler / reporter.pdf / reporter.analyzer 를 재사용하고, LLM 은 LLMPort
+(app.adapters.llm.get_llm)로 주입받는다. 동기 requests 기반이라 스케줄러 워커나 threadpool 에서 호출.
 """
 
 from __future__ import annotations
@@ -14,14 +14,15 @@ import requests
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.adapters.llm import get_llm
 from app.adapters.storage import minio_store
 from app.config import Settings
 from app.db.models import DailyMarketInfo, Report, ReportAnalysis, Sentiment
+from app.ports.llm import LLMPort
 from app.services import sentiment as sentiment_svc
 from reporter import analyzer, article, fallback, market, news, us_market
 from reporter.crawler import crawl_categories
 from reporter.models import Report as CrawledReport
-from reporter.ollama_client import OllamaClient
 from reporter.pdf import extract_text_from_bytes
 
 logger = logging.getLogger(__name__)
@@ -51,7 +52,7 @@ def _dedup_key(cr: CrawledReport) -> str:
 
 
 def _ingest_one(
-    db: Session, client: OllamaClient, settings: Settings, cr: CrawledReport, session: requests.Session
+    db: Session, client: LLMPort, settings: Settings, cr: CrawledReport, session: requests.Session
 ) -> Report | None:
     """크롤된 리포트 1건을 저장·분석한다. 이미 있으면 건너뛴다. PDF 없으면 None."""
     dedup = _dedup_key(cr)
@@ -114,7 +115,10 @@ def ingest_reports(db: Session, settings: Settings, target_date: str | None = No
         logger.info("no reports crawled for %s", target_date or "today")
         return 0
 
-    client = OllamaClient(settings.ollama_host, settings.ollama_api_key)
+    client = get_llm(settings)
+    if client is None:
+        logger.warning("no LLM (OLLAMA_API_KEY); skip report ingest")
+        return 0
     session = requests.Session()
     saved = 0
     for cr in crawled:
@@ -203,7 +207,9 @@ def _build_intraday(settings: Settings, session: requests.Session) -> tuple[str,
         return None
     quote_lines = [_quote_line(q) for q in quotes]
     blocks = _news_blocks(items, session)
-    client = OllamaClient(settings.ollama_host, settings.ollama_api_key)
+    client = get_llm(settings)
+    if client is None:
+        return None
     briefing = analyzer.synthesize_intraday(client, settings.insight_model, quote_lines, blocks)
     return briefing.text, len(quotes) + len(items)
 
@@ -242,7 +248,9 @@ def _build_research(
     if not texts:
         return None
 
-    client = OllamaClient(settings.ollama_host, settings.ollama_api_key)
+    client = get_llm(settings)
+    if client is None:
+        return None
     summarized = analyzer.summarize_reports(client, settings.summary_model, texts)
     if not summarized:
         return None

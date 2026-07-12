@@ -15,6 +15,7 @@ import threading
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 
+from app.adapters.llm import get_llm
 from app.config import get_settings
 from app.db.models import AnalysisComment
 from app.db.session import SessionLocal
@@ -63,7 +64,7 @@ def generate_and_store(code: str, name: str, axes: list[dict], h: str) -> None:
     try:
         settings = get_settings()
         comment = analysis.llm_comment(
-            settings.ollama_host, settings.ollama_api_key, settings.insight_model, name, axes
+            get_llm(settings), settings.insight_model, name, axes
         )
         if not comment:
             return  # 키 없음·실패 → 캐시하지 않음(다음 조회에서 재시도)
