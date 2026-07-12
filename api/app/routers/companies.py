@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db.session import get_session
-from app.domain import analysis_scoring, technicals
+from app.domain import analysis_scoring, judgment, technicals
 from app.schemas import (
     AnalysisAxis,
     CandlePoint,
@@ -21,6 +21,7 @@ from app.schemas import (
     CompanyGrowth,
     CompanySummary,
     FinancialPeriodOut,
+    JudgmentOut,
     PeerOut,
     StockSearchHit,
     TimelineItem,
@@ -176,6 +177,19 @@ def company_analysis(
     axes = [growth_axis, tech_axis, topdown_axis]
     overall_sc = analysis.overall([growth_sc, tech.trend_score, topdown_sc])
 
+    # 판단 요약(강점·약점·확인 + 신호) — 점수의 규칙 기반 요약(자문 아님, 프론트가 면책 노출).
+    j = judgment.summarize(
+        overall_sc,
+        {"growth": growth_sc, "technical": tech.trend_score, "topdown": topdown_sc},
+    )
+    judgment_out = JudgmentOut(
+        signal=j.signal,
+        signal_label=j.signal_label,
+        strengths=j.strengths,
+        weaknesses=j.weaknesses,
+        checks=j.checks,
+    )
+
     # LLM 종합 코멘트 — 캐시 우선. 미스면 백그라운드 생성(응답은 pending 즉시 반환).
     axes_dump = [a.model_dump() for a in axes]
     comment = None
@@ -194,6 +208,7 @@ def company_analysis(
         overall_score=overall_sc,
         axes=axes,
         topdown=TopDownView(**topdown_view),
+        judgment=judgment_out,
         comment=comment,
         comment_pending=comment_pending,
     )

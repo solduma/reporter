@@ -215,6 +215,16 @@ class SectorChartMeta(BaseModel):
     us_etf: ChartRef | None  # 미국 섹터 추종 ETF
 
 
+class JudgmentOut(BaseModel):
+    """판단 요약 — 점수에서 도출한 사실 요약 + 신호. 투자 자문 아님(표시측 면책 노출)."""
+
+    signal: str  # fit | watch | avoid | insufficient
+    signal_label: str
+    strengths: list[str]
+    weaknesses: list[str]
+    checks: list[str]
+
+
 class CompanyAnalysis(BaseModel):
     stock_code: str
     stock_name: str | None
@@ -222,6 +232,7 @@ class CompanyAnalysis(BaseModel):
     overall_score: float | None  # 3축 종합 0~100
     axes: list[AnalysisAxis]
     topdown: TopDownView | None
+    judgment: JudgmentOut | None = None  # 판단 요약(강점·약점·확인·신호)
     comment: str | None  # LLM 종합 코멘트(캐시 히트 시 값, 키 없으면 None)
     comment_pending: bool = False  # True 면 백그라운드 생성 중 — 프론트가 재조회로 채운다
 

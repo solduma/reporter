@@ -159,3 +159,69 @@
   font-size: 0.78rem;
   color: var(--muted);
 }
+
+/* 판단 요약 카드 — 분석 패널 상단. 강점/약점/확인 + 신호 배지 + 면책. */
+.judgment {
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.judgHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.judgTitle {
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.signal {
+  padding: 3px 12px;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.sig_fit {
+  background: #c02b2b;
+}
+.sig_watch {
+  background: #d98324;
+}
+.sig_avoid {
+  background: #2b6cc0;
+}
+
+.judgCols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.judgColLabel {
+  display: block;
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.judgList {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.disclaimer {
+  margin: 10px 0 0;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
