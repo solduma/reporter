@@ -1,0 +1,102 @@
+.add {
+  border: 1px dashed var(--border);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.add:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+
+.chip:hover {
+  border-color: var(--accent);
+}
+
+.chipHit {
+  border-color: #c02b2b;
+  background: #fbe9e9;
+}
+
+.chipLabel {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.up {
+  color: #c02b2b;
+}
+
+.down {
+  color: #2b6cc0;
+}
+
+.hit {
+  color: #c02b2b;
+  font-weight: 700;
+}
+
+.near {
+  color: #d98324;
+  font-weight: 700;
+}
+
+.editor {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.input {
+  width: 66px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 6px;
+  font-size: 0.8rem;
+}
+
+.save,
+.del,
+.cancel {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  background: var(--surface);
+}
+
+.save {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.del {
+  color: #c02b2b;
+}
+
+.cancel {
+  color: var(--muted);
+}
