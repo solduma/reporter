@@ -1,0 +1,102 @@
+name: CI
+
+# PR 과 main push 에서 3유닛(cli/api/web) lint+test 를 로컬 `make lint`/`make test` 와 동일하게 검증한다.
+# 각 잡은 경로 필터로 관련 변경일 때만 돈다(무관 변경엔 스킵). 테스트는 외부서비스·시크릿 불요
+# (설정 기본값 + 인메모리 SQLite). concurrency 로 같은 브랜치의 이전 실행은 취소한다.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      python: ${{ steps.filter.outputs.python }}
+      web: ${{ steps.filter.outputs.web }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            python:
+              - 'src/**'
+              - 'api/**'
+              - 'tests/**'
+              - 'pyproject.toml'
+              - 'uv.lock'
+              - '.importlinter'
+              - '.github/workflows/ci.yml'
+            web:
+              - 'web/**'
+              - '.github/workflows/ci.yml'
+
+  python:
+    needs: changes
+    if: needs.changes.outputs.python == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Set up Python
+        run: uv python install 3.11
+      # 루트(reporter CLI 코어)와 api(웹 서비스)를 각각 동기화 — api 는 루트를 editable 로 참조.
+      - name: Sync root (cli) deps
+        run: uv sync --dev
+      - name: Sync api deps
+        run: uv sync --dev
+        working-directory: api
+      - name: Lint cli (ruff + import-linter)
+        run: |
+          uv run ruff check src tests
+          uv run lint-imports
+      - name: Lint api (ruff + import-linter)
+        working-directory: api
+        run: |
+          uv run ruff check app tests
+          uv run lint-imports
+      - name: Test cli
+        run: uv run pytest -q
+      - name: Test api
+        working-directory: api
+        run: uv run pytest -q
+
+  web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+      - name: Lint
+        run: pnpm lint
+      - name: Typecheck
+        run: pnpm exec tsc --noEmit
+      - name: Build
+        run: pnpm build

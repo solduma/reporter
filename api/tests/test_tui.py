@@ -13,6 +13,7 @@ import pytest
 
 from app import tui
 from app.services import admin_status
+from app.services.server_control import ServerStatus
 
 
 @dataclass
@@ -39,6 +40,28 @@ def _stub_services(monkeypatch):
     # DB·서비스 호출을 전부 스텁으로 대체(실 자원 미사용)
     monkeypatch.setattr(tui, "init_db", lambda: None)
     monkeypatch.setattr(tui, "SessionLocal", lambda: MagicMock())
+    # ServerControl/ScheduleControl 은 launchctl(macOS 전용)을 호출하므로 스텁으로 대체 —
+    # 이 스모크 테스트는 UI 로직만 검증하고 OS 서비스 관리는 각 컨트롤의 단위 테스트가 맡는다.
+    # (server 버튼 상호작용을 검증하는 테스트는 자체적으로 _FakeControl 을 재주입한다.)
+    class _StubServerControl:
+        def status(self):
+            return [
+                ServerStatus("api", "API", 8010, loaded=True, running=True, pid=111),
+                ServerStatus("web", "WEB", 43000, loaded=True, running=True, pid=222),
+            ]
+
+        def restart(self, key):
+            return f"{key} 재기동 요청됨"
+
+        def build_web(self):
+            return "WEB 빌드 완료"
+
+    class _StubScheduleControl:
+        def jobs(self):
+            return []
+
+    monkeypatch.setattr(tui, "ServerControl", _StubServerControl)
+    monkeypatch.setattr(tui, "ScheduleControl", _StubScheduleControl)
     monkeypatch.setattr(
         tui.admin_status, "table_counts",
         lambda db: {"reports": 49, "universe_snapshot": 4295},
