@@ -122,13 +122,13 @@ def company_analysis(
         g.op_yoy if g else None,
         g.op_turnaround if g else False,
     )
+    # 성장축은 점수 해석만 보여준다 — 원시 YoY 수치는 '성장 지표 스냅샷'이 단일 소유(중복 제거).
     growth_axis = AnalysisAxis(
         key="growth",
         label="성장",
         score=growth_sc,
         metrics=[
-            {"label": "매출 YoY", "value": _pct(g.revenue_yoy) if g else "—"},
-            {"label": "영업이익 YoY", "value": _pct(g.op_yoy) if g else "—"},
+            {"label": "성장 등급", "value": _grade(growth_sc)},
             {"label": "흑자전환", "value": "예" if (g and g.op_turnaround) else "아니오"},
         ],
     )
@@ -199,12 +199,21 @@ def company_analysis(
     )
 
 
-def _pct(v: float | None) -> str:
-    return f"{v * 100:+.0f}%" if v is not None else "—"
-
-
 def _yn(v: bool | None) -> str:
     return "예" if v is True else "아니오" if v is False else "—"
+
+
+def _grade(score: float | None) -> str:
+    """성장 점수(0~100)를 등급 라벨로. 원시 YoY 대신 점수 해석을 보인다."""
+    if score is None:
+        return "데이터 없음"
+    if score >= 70:
+        return "고성장"
+    if score >= 50:
+        return "성장"
+    if score >= 30:
+        return "완만"
+    return "정체·역성장"
 
 
 def _signed(ratio: str, rising: bool | None) -> str:
