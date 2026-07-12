@@ -1,7 +1,7 @@
 "use client";
 
 import { ColorType, CrosshairMode, createChart, LineSeries } from "lightweight-charts";
-import type { LineData, Time } from "lightweight-charts";
+import type { IChartApi, LineData, Time } from "lightweight-charts";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { ChartRange } from "@/components/CandleChart";
@@ -60,8 +60,10 @@ function autoHeight(activeCount: number): number {
 export default function FinancialsLineChart({ data, range = null, onRangeChange }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [active, setActive] = useState<Set<string>>(new Set(["operating_income"]));
-  // 프로그램적으로 설정한 마지막 구간(메아리 식별용). CandleChart 와 동일 패턴.
-  const lastAppliedRef = useRef<{ from: string; to: string } | null>(null);
+  // 차트 재사용 + 프로그램적 구간설정 억제창. CandleChart 와 동일 패턴(재생성·루프 방지).
+  const chartRef = useRef<IChartApi | null>(null);
+  const suppressUntilRef = useRef(0);
+  const SUPPRESS_MS = 250;
   const onRangeChangeRef = useRef(onRangeChange);
   onRangeChangeRef.current = onRangeChange;
 
@@ -119,40 +121,52 @@ export default function FinancialsLineChart({ data, range = null, onRangeChange 
       any = true;
     }
 
-    // 설정한 구간을 기록해 두고 이벤트가 이 값과 같으면(메아리) 콜백을 건너뛴다(CandleChart 와 동일).
+    // 초기 구간(억제창 세움). 이후 range 변경은 아래 별도 effect 가 재생성 없이 처리.
     if (any && range) {
-      lastAppliedRef.current = { from: tsToDate(range.from), to: tsToDate(range.to) };
+      suppressUntilRef.current = Date.now() + SUPPRESS_MS;
       try {
         chart.timeScale().setVisibleRange({ from: range.from, to: range.to });
       } catch {
         chart.timeScale().fitContent();
       }
-    } else {
-      lastAppliedRef.current = null;
-      if (any) {
-        chart.timeScale().fitContent();
-      }
+    } else if (any) {
+      chart.timeScale().fitContent();
     }
 
     const onVisibleRangeChange = (r: { from: Time; to: Time } | null) => {
+      if (Date.now() < suppressUntilRef.current) {
+        return;
+      }
       if (!r || !onRangeChangeRef.current) {
         return;
       }
-      const from = tsToDate(r.from);
-      const to = tsToDate(r.to);
-      const last = lastAppliedRef.current;
-      if (last && last.from === from && last.to === to) {
-        return;
-      }
-      onRangeChangeRef.current(from, to);
+      onRangeChangeRef.current(tsToDate(r.from), tsToDate(r.to));
     };
     chart.timeScale().subscribeVisibleTimeRangeChange(onVisibleRangeChange);
+    chartRef.current = chart;
 
     return () => {
       chart.timeScale().unsubscribeVisibleTimeRangeChange(onVisibleRangeChange);
       chart.remove();
+      chartRef.current = null;
     };
-  }, [seriesData, active, range]);
+    // range 의도적 제외(아래 별도 effect 가 재생성 없이 반영). CandleChart 와 동일.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seriesData, active]);
+
+  // range 변경만 반영(차트 재생성 없이).
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || !range) {
+      return;
+    }
+    suppressUntilRef.current = Date.now() + SUPPRESS_MS;
+    try {
+      chart.timeScale().setVisibleRange({ from: range.from, to: range.to });
+    } catch {
+      /* 범위가 데이터 밖이면 무시 */
+    }
+  }, [range]);
 
   const toggle = (key: string) =>
     setActive((prev) => {
