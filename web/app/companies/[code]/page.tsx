@@ -10,6 +10,7 @@ import CompanyTimeline from "@/components/CompanyTimeline";
 import DateRangeSlider from "@/components/DateRangeSlider";
 import GrowthMetrics from "@/components/GrowthMetrics";
 import HoldingBadge from "@/components/HoldingBadge";
+import InfoDot from "@/components/InfoDot";
 import PeersTable from "@/components/PeersTable";
 import RealtimeQuoteBadge from "@/components/RealtimeQuoteBadge";
 import SectorCharts from "@/components/SectorCharts";
@@ -514,7 +515,10 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
 
       {/* PER · PBR · PSR 분위수 밴드 (자체 date-range 슬라이더로 3개 차트 동시 조작) */}
       <section className={styles.chartCard}>
-        <h2 className={styles.sectionTitle}>밸류에이션 밴드 (PER · PBR · PSR)</h2>
+        <h2 className={styles.sectionTitle}>
+          밸류에이션 밴드 (PER · PBR · PSR)
+          <InfoDot termKey="band" />
+        </h2>
         {financials.status === "ready" && financials.data.length > 0 ? (
           <>
             {valuationRange && valuationAxis.length > 1 ? (

@@ -3,7 +3,9 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 
+import InfoDot from "@/components/InfoDot";
 import { fetchScreener, fetchScreenerSectors } from "@/lib/api";
+import { GLOSSARY } from "@/lib/glossary";
 import { useHeldCodes } from "@/lib/useHeldCodes";
 import type {
   ScreenerEventKind,
@@ -159,31 +161,32 @@ function coverageParams(key: CoverageKey): { coverage?: "has" | "none"; recentBu
 interface Column {
   label: string;
   sort?: ScreenerSort;
+  info?: keyof typeof GLOSSARY; // 초보자 툴팁(용어사전 키)
 }
 
 // 전략별 컬럼 세트. 종목명·시총·현재가·등락률·거래대금은 공통, 나머지는 전략 특화.
 const COLUMNS_BY_STRATEGY: Record<ScreenerStrategy, Column[]> = {
   growth: [
     { label: "종목명" },
-    { label: "성장스코어", sort: "score" },
-    { label: "매출YoY", sort: "rev_yoy" },
-    { label: "영업이익" },
-    { label: "모멘텀", sort: "momentum" },
+    { label: "성장스코어", sort: "score", info: "score" },
+    { label: "매출YoY", sort: "rev_yoy", info: "revenue_yoy" },
+    { label: "영업이익", info: "op_yoy" },
+    { label: "모멘텀", sort: "momentum", info: "momentum" },
     { label: "시가총액", sort: "market_cap" },
     { label: "현재가" },
     { label: "등락률", sort: "change" },
     { label: "거래대금", sort: "trading_value" },
-    { label: "리포트", sort: "coverage" },
+    { label: "리포트", sort: "coverage", info: "coverage" },
     { label: "의견" },
   ],
   value: [
     { label: "종목명" },
-    { label: "가치스코어", sort: "score" },
-    { label: "PER" },
-    { label: "PBR" },
-    { label: "ROE" },
+    { label: "가치스코어", sort: "score", info: "score" },
+    { label: "PER", info: "per" },
+    { label: "PBR", info: "pbr" },
+    { label: "ROE", info: "roe" },
     { label: "배당률" },
-    { label: "EV/EBITDA" },
+    { label: "EV/EBITDA", info: "ev_ebitda" },
     { label: "시가총액", sort: "market_cap" },
     { label: "현재가" },
     { label: "등락률", sort: "change" },
@@ -640,6 +643,7 @@ function ScreenerContent() {
                         }
                       >
                         {col.label}
+                        {col.info ? <InfoDot termKey={col.info} /> : null}
                         {activeSort ? (
                           <span className={styles.sortArrow}> {sortArrow(col.sort as ScreenerSort)}</span>
                         ) : null}
