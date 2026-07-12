@@ -13,6 +13,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -312,6 +313,7 @@ class UniverseSnapshot(Base):
     trading_value: Mapped[int | None] = mapped_column(BigInteger)
     three_month_rate: Mapped[float | None] = mapped_column(Float)  # 네이버 제공(대개 결측)
     momentum_3m: Mapped[float | None] = mapped_column(Float)  # price_candles 로 계산한 3개월 수익률%
+    rs_rating: Mapped[int | None] = mapped_column(SmallInteger)  # IBD RS Rating 1~99(전종목 백분위)
 
 
 class GrowthMetric(Base):

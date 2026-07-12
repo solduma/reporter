@@ -385,6 +385,7 @@ def _to_row(
         market_cap=u.market_cap,
         trading_value=u.trading_value,
         momentum_3m=u.momentum_3m,
+        rs_rating=u.rs_rating,
         revenue_yoy=g.revenue_yoy if g else None,
         op_yoy=g.op_yoy if g else None,
         op_turnaround=bool(g.op_turnaround) if g else False,

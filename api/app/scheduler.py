@@ -117,12 +117,17 @@ def run_nightly_batch(settings: Settings | None = None) -> dict:
 
 
 def run_candle_batch(settings: Settings | None = None) -> dict:
-    """매일 저녁 봉 배치: 유니버스 전 종목 일/주/30분봉 증분 + 주식변동 시 전체 재적재."""
-    from app.services import candle_ingest  # 무거운 의존성 → 지연 임포트
+    """매일 저녁 봉 배치: 유니버스 전 종목 일/주/30분봉 증분 + 주식변동 시 전체 재적재.
+
+    봉 갱신 직후 RS Rating(전종목 가격 모멘텀 백분위)을 최신 종가로 다시 매긴다.
+    """
+    from app.services import candle_ingest, rs_rating_ingest  # 무거운 의존성 → 지연 임포트
 
     session = SessionLocal()
     try:
-        return candle_ingest.run_candle_batch(session, settings)
+        result = candle_ingest.run_candle_batch(session, settings)
+        rs = rs_rating_ingest.run_rs_rating_batch(session)
+        return {**result, "rs_rating": rs}
     finally:
         session.close()
 

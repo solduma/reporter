@@ -64,6 +64,7 @@ class ScreenerRow(BaseModel):
     market_cap: int | None  # 원
     trading_value: int | None
     momentum_3m: float | None  # 3개월 수익률%
+    rs_rating: int | None = None  # IBD RS Rating 1~99(전종목 대비 가격 모멘텀)
     # 성장 전략
     revenue_yoy: float | None  # 매출 YoY (0.28=+28%)
     op_yoy: float | None
@@ -124,7 +125,7 @@ class RelStrengthPoint(BaseModel):
 
 
 class CompanyTrend(BaseModel):
-    """기술적 추세 — 와인스타인 국면(3프레임) + Mansfield 상대강도."""
+    """기술적 추세 — 와인스타인 국면(3프레임) + Mansfield 상대강도 + IBD RS Rating."""
 
     stock_code: str
     benchmark: str  # 벤치마크 지수(KOSPI/KOSDAQ)
@@ -133,6 +134,7 @@ class CompanyTrend(BaseModel):
     rs_series: list[RelStrengthPoint]
     rs_latest: float | None
     rs_outperforming: bool | None
+    rs_rating: int | None = None  # IBD RS Rating 1~99(전종목 대비 백분위, 야간 배치)
 
 
 class CompanySummary(BaseModel):

@@ -155,6 +155,7 @@ def company_analysis(
         score=tech.trend_score,
         metrics=[
             {"label": "와인스타인 국면", "value": mid_stage.label or "—"},
+            {"label": "RS Rating", "value": f"{snap.rs_rating}" if snap and snap.rs_rating else "—"},
             {"label": "52주 고점 근접", "value": f"{tech.near_high_pct}%" if tech.near_high_pct else "—"},
             {"label": "이평 정배열", "value": _yn(tech.ma_aligned)},
             {"label": "거래량비", "value": f"{tech.vol_ratio}x" if tech.vol_ratio else "—"},
@@ -261,6 +262,7 @@ def company_trend(
         rs_series=[RelStrengthPoint(date=p.date, value=p.value) for p in result.rs.series],
         rs_latest=result.rs.latest,
         rs_outperforming=result.rs.outperforming,
+        rs_rating=snap.rs_rating if snap else None,
     )
 
 

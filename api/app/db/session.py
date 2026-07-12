@@ -31,6 +31,8 @@ _COLUMN_MIGRATIONS = (
     # 배당(주당배당금·시가배당률) 컬럼(#172).
     "ALTER TABLE financials ADD COLUMN IF NOT EXISTS dps DOUBLE PRECISION",
     "ALTER TABLE financials ADD COLUMN IF NOT EXISTS div_yield DOUBLE PRECISION",
+    # IBD RS Rating(1~99) — 전 종목 대비 가격 모멘텀 백분위(야간 배치).
+    "ALTER TABLE universe_snapshot ADD COLUMN IF NOT EXISTS rs_rating SMALLINT",
 )
 
 
