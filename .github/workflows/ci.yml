@@ -47,7 +47,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Install uv
-        uses: astral-sh/setup-uv@v8
+        uses: astral-sh/setup-uv@v8.3.2  # setup-uv 는 floating major 태그 미발행 — 정확 버전 핀
         with:
           enable-cache: true
       - name: Set up Python
