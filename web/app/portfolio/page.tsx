@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
-import { deleteHolding, fetchHoldings, saveHolding } from "@/lib/api";
-import type { Holding } from "@/lib/types";
+import { deleteHolding, fetchPortfolio, saveHolding } from "@/lib/api";
+import type { Holding, PortfolioSummary, SectorWeight, StopStatus } from "@/lib/types";
 
 import styles from "./page.module.css";
 
@@ -13,8 +13,28 @@ function isValidCode(code: string): boolean {
   return /^\d{6}$/.test(code.trim());
 }
 
+const WON = (n: number | null | undefined): string =>
+  n === null || n === undefined ? "—" : Math.round(n).toLocaleString();
+const PCT = (n: number | null | undefined): string =>
+  n === null || n === undefined ? "—" : `${n > 0 ? "+" : ""}${n.toFixed(1)}%`;
+
+// 손익 부호 색: 이익 빨강 / 손실 파랑(한국 관례).
+function pnlClass(n: number | null | undefined): string {
+  if (n === null || n === undefined || n === 0) return "";
+  return n > 0 ? styles.up : styles.down;
+}
+
+const STOP_LABEL: Record<StopStatus, string> = {
+  none: "",
+  ok: "",
+  near: "손절 근접",
+  hit: "손절 도달",
+};
+
 export default function PortfolioPage() {
   const [holdings, setHoldings] = useState<Holding[]>([]);
+  const [summary, setSummary] = useState<PortfolioSummary | null>(null);
+  const [sectors, setSectors] = useState<SectorWeight[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -30,7 +50,10 @@ export default function PortfolioPage() {
     setLoading(true);
     setError(null);
     try {
-      setHoldings(await fetchHoldings());
+      const view = await fetchPortfolio();
+      setHoldings(view.holdings);
+      setSummary(view.summary);
+      setSectors(view.sectors);
     } catch (e) {
       setError(e instanceof Error ? e.message : "보유종목을 불러오지 못했습니다");
     } finally {
@@ -135,39 +158,105 @@ export default function PortfolioPage() {
       ) : holdings.length === 0 ? (
         <p className={styles.status}>보유종목이 없습니다. 위에서 추가하세요.</p>
       ) : (
-        <table className={styles.table}>
-          <thead>
-            <tr>
-              <th>종목</th>
-              <th className={styles.num}>수량</th>
-              <th className={styles.num}>평단</th>
-              <th className={styles.num}>손절선</th>
-              <th>메모</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {holdings.map((h) => (
-              <tr key={h.stock_code}>
-                <td>
-                  <Link href={`/companies/${h.stock_code}`} className={styles.stockLink}>
-                    {h.stock_name ?? h.stock_code}
-                  </Link>
-                  <span className={styles.code}>{h.stock_code}</span>
-                </td>
-                <td className={styles.num}>{h.shares.toLocaleString()}</td>
-                <td className={styles.num}>{h.avg_cost.toLocaleString()}</td>
-                <td className={styles.num}>{h.stop_loss ? h.stop_loss.toLocaleString() : "—"}</td>
-                <td className={styles.noteCell}>{h.note ?? ""}</td>
-                <td>
-                  <button className={styles.delBtn} type="button" onClick={() => void onDelete(h.stock_code)}>
-                    삭제
-                  </button>
-                </td>
+        <>
+          {summary ? (
+            <div className={styles.summary}>
+              <div className={styles.summaryItem}>
+                <span className={styles.summaryLabel}>평가액</span>
+                <span className={styles.summaryValue}>{WON(summary.total_value)}</span>
+              </div>
+              <div className={styles.summaryItem}>
+                <span className={styles.summaryLabel}>원가</span>
+                <span className={styles.summaryValue}>{WON(summary.total_cost)}</span>
+              </div>
+              <div className={styles.summaryItem}>
+                <span className={styles.summaryLabel}>평가손익</span>
+                <span className={`${styles.summaryValue} ${pnlClass(summary.total_pnl)}`}>
+                  {WON(summary.total_pnl)} ({PCT(summary.total_pnl_pct)})
+                </span>
+              </div>
+              {summary.stop_hit > 0 || summary.stop_near > 0 ? (
+                <div className={styles.summaryItem}>
+                  <span className={styles.summaryLabel}>손절 경보</span>
+                  <span className={styles.summaryValue}>
+                    {summary.stop_hit > 0 ? (
+                      <span className={styles.stopHit}>도달 {summary.stop_hit}</span>
+                    ) : null}
+                    {summary.stop_near > 0 ? (
+                      <span className={styles.stopNear}> 근접 {summary.stop_near}</span>
+                    ) : null}
+                  </span>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {sectors.length > 0 ? (
+            <div className={styles.sectors}>
+              <span className={styles.sectorsLabel}>섹터 분산</span>
+              <div className={styles.sectorBar}>
+                {sectors.map((s) => (
+                  <span
+                    key={s.sector}
+                    className={styles.sectorSeg}
+                    style={{ width: `${s.weight_pct}%` }}
+                    title={`${s.sector} ${s.weight_pct}%`}
+                  >
+                    {s.weight_pct >= 12 ? `${s.sector} ${s.weight_pct}%` : ""}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th>종목</th>
+                <th className={styles.num}>수량</th>
+                <th className={styles.num}>평단</th>
+                <th className={styles.num}>현재가</th>
+                <th className={styles.num}>평가손익</th>
+                <th className={styles.num}>손절선</th>
+                <th>메모</th>
+                <th />
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {holdings.map((h) => (
+                <tr key={h.stock_code} className={h.stop_status === "hit" ? styles.rowHit : undefined}>
+                  <td>
+                    <Link href={`/companies/${h.stock_code}`} className={styles.stockLink}>
+                      {h.stock_name ?? h.stock_code}
+                    </Link>
+                    <span className={styles.code}>{h.stock_code}</span>
+                  </td>
+                  <td className={styles.num}>{h.shares.toLocaleString()}</td>
+                  <td className={styles.num}>{WON(h.avg_cost)}</td>
+                  <td className={styles.num}>{WON(h.current_price)}</td>
+                  <td className={`${styles.num} ${pnlClass(h.pnl)}`}>
+                    {h.pnl === null ? "—" : `${WON(h.pnl)} (${PCT(h.pnl_pct)})`}
+                  </td>
+                  <td className={styles.num}>
+                    {h.stop_loss ? WON(h.stop_loss) : "—"}
+                    {STOP_LABEL[h.stop_status] ? (
+                      <span className={h.stop_status === "hit" ? styles.stopHit : styles.stopNear}>
+                        {" "}
+                        {STOP_LABEL[h.stop_status]}
+                      </span>
+                    ) : null}
+                  </td>
+                  <td className={styles.noteCell}>{h.note ?? ""}</td>
+                  <td>
+                    <button className={styles.delBtn} type="button" onClick={() => void onDelete(h.stock_code)}>
+                      삭제
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
       )}
     </div>
   );

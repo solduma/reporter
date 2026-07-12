@@ -442,6 +442,8 @@ export interface UsDisclosure {
 }
 
 // 개인 보유종목(단일 사용자). 관심종목(localStorage quickPicks)과 별개.
+export type StopStatus = "none" | "ok" | "near" | "hit";
+
 export interface Holding {
   stock_code: string;
   stock_name: string | null;
@@ -450,6 +452,12 @@ export interface Holding {
   stop_loss: number | null;
   note: string | null;
   updated_at: string | null;
+  current_price: number | null;
+  market_value: number | null;
+  cost_basis: number;
+  pnl: number | null;
+  pnl_pct: number | null;
+  stop_status: StopStatus;
 }
 
 export interface HoldingInput {
@@ -457,4 +465,24 @@ export interface HoldingInput {
   avg_cost: number;
   stop_loss?: number | null;
   note?: string | null;
+}
+
+export interface PortfolioSummary {
+  total_value: number;
+  total_cost: number;
+  total_pnl: number;
+  total_pnl_pct: number | null;
+  stop_hit: number;
+  stop_near: number;
+}
+
+export interface SectorWeight {
+  sector: string;
+  weight_pct: number;
+}
+
+export interface PortfolioView {
+  holdings: Holding[];
+  summary: PortfolioSummary;
+  sectors: SectorWeight[];
 }

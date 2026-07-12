@@ -10,10 +10,16 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.db.session import get_session
-from app.schemas import HoldingIn, HoldingOut
+from app.schemas import HoldingIn, HoldingOut, PortfolioView
 from app.services import portfolio
 
 router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
+
+
+@router.get("", response_model=PortfolioView)
+def get_portfolio(db: Session = Depends(get_session)) -> PortfolioView:
+    """보유목록 + 요약(총손익·손절현황) + 섹터분산. 손익은 최근 종가 기준."""
+    return portfolio.portfolio_view(db)
 
 
 @router.get("/holdings", response_model=list[HoldingOut])
