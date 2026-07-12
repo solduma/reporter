@@ -11,8 +11,14 @@ from sqlalchemy.orm import Session
 from app.adapters.external import universe
 from app.adapters.persistence import SqlUniverseRepository
 from app.db.models import UniverseSnapshot
+from app.ports.repositories import UniverseRepository
 
 logger = logging.getLogger(__name__)
+
+
+# 포트 공급자 seam — 기본은 SqlUniverseRepository, 테스트가 이 훅을 교체해 fake 주입 가능.
+def _universe_repo(db: Session) -> UniverseRepository:
+    return SqlUniverseRepository(db)
 
 
 def latest_snapshot_date(db: Session) -> date | None:
@@ -20,7 +26,7 @@ def latest_snapshot_date(db: Session) -> date | None:
 
     여러 라우터·서비스가 "오늘 기준 유니버스"를 잡을 때 쓰던 중복 쿼리를 이 헬퍼로 통일한다.
     """
-    return SqlUniverseRepository(db).latest_snapshot_date()
+    return _universe_repo(db).latest_snapshot_date()
 
 
 def snapshot_universe(db: Session, snapshot_date: date, markets: tuple[str, ...] = ("KOSDAQ", "KOSPI")) -> int:

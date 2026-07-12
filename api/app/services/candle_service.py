@@ -21,9 +21,20 @@ from app.adapters.market import naver as chart
 from app.adapters.persistence import SqlCandleRepository
 from app.db.models import PriceCandle, PriceCandleIntraday, Timeframe
 from app.db.session import SessionLocal
+from app.ports.market_data import MarketDataPort
+from app.ports.repositories import CandleRepository
 from app.services import intraday
 
 logger = logging.getLogger(__name__)
+
+# 포트 공급자 seam — 기본은 실제 어댑터를 주지만, 테스트가 이 훅을 교체해 fake 를 주입할 수 있다
+# (모든 호출부는 이 두 함수만 거치므로 시그니처 변경 없이 포트 치환이 가능하다).
+def _candle_repo(db: Session) -> CandleRepository:
+    return SqlCandleRepository(db)
+
+
+def _market_data(market: str) -> MarketDataPort:
+    return get_market_data(market)
 
 # tf 별 최초(DB 비었을 때) 조회 범위. 일=2년·주=10년·월=3년(라우터와 통일).
 RANGE_DAYS = {"day": 365 * 10 + 30, "week": 365 * 10 + 30, "month": 365 * 10 + 30}
@@ -55,23 +66,23 @@ def _cooldown_ok(key: str, cooldown: float = _REFRESH_COOLDOWN_S) -> bool:
 
 def read_periodic(db: Session, code: str, tf: str) -> list[PriceCandle]:
     """저장된 일/주/월봉을 날짜 오름차순으로 반환한다(외부 호출 없음)."""
-    return SqlCandleRepository(db).read_periodic(code, tf)
+    return _candle_repo(db).read_periodic(code, tf)
 
 
 def read_intraday(db: Session, code: str, days: int = 14) -> list[PriceCandleIntraday]:
     """저장된 30분봉 최근 days 일치를 시각 오름차순으로 반환한다(외부 호출 없음)."""
-    return SqlCandleRepository(db).read_intraday(code, days)
+    return _candle_repo(db).read_intraday(code, days)
 
 
 def _latest_bar_date(db: Session, code: str, tf: Timeframe):
-    return SqlCandleRepository(db).latest_bar_date(code, tf)
+    return _candle_repo(db).latest_bar_date(code, tf)
 
 
 def batch_upsert_periodic(
     db: Session, code: str, tf: Timeframe, candles: list[chart.Candle]
 ) -> int:
     """봉들을 upsert 한다(영속화는 CandleRepository 에 위임). 반영 건수 반환, 빈 입력이면 0."""
-    return SqlCandleRepository(db).upsert_periodic(code, tf, candles)
+    return _candle_repo(db).upsert_periodic(code, tf, candles)
 
 
 def ensure_periodic(db: Session, code: str, tf: str, market: str = "KR") -> list[PriceCandle]:
@@ -106,7 +117,7 @@ def _fetch_and_store(db: Session, code: str, tf: str, since, market: str = "KR")
         if since
         else end - timedelta(days=RANGE_DAYS[tf])
     )
-    fresh = get_market_data(market).fetch_periodic(code, tf, start, end)
+    fresh = _market_data(market).fetch_periodic(code, tf, start, end)
     return batch_upsert_periodic(db, code, Timeframe(tf), fresh)
 
 
@@ -146,7 +157,7 @@ def read_intraday_or_fetch(db: Session, code: str, days: int = 14) -> list[Price
     rows = read_intraday(db, code, days)
     if rows:
         return rows
-    fresh = get_market_data("KR").fetch_intraday_30min(code)
+    fresh = _market_data("KR").fetch_intraday_30min(code)
     if fresh:
         intraday.upsert_intraday(db, code, fresh)
     return read_intraday(db, code, days)
@@ -164,7 +175,7 @@ def refresh_intraday(code: str) -> None:
     try:
         db = SessionLocal()
         try:
-            fresh = get_market_data("KR").fetch_intraday_30min(code)
+            fresh = _market_data("KR").fetch_intraday_30min(code)
             if fresh:
                 intraday.upsert_intraday(db, code, fresh)
         finally:
