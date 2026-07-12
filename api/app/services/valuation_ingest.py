@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 from app.adapters import dart
 from app.config import Settings
 from app.db.models import CorpCodeMap, Financial, UniverseSnapshot, ValuationSyncState
+from app.domain import financials
 from app.services import universe_ingest
 
 logger = logging.getLogger(__name__)
@@ -77,7 +78,7 @@ def _ttm_revenue(rows: list[Financial], upto_period: str) -> float | None:
         if v is None:
             return None
         total += v
-        cursor = _prev_yq(cursor)
+        cursor = financials.prev_yq(cursor)
     return total  # 억원 단위(quote 저장 단위)
 
 
@@ -114,31 +115,29 @@ def sync_valuation(db: Session, settings: Settings, code: str) -> int:
     market_cap = _latest_market_cap(db, code)
     session = requests.Session()
 
-    # 1차: 분기별 누적(YTD) EBITDA(원)·순차입금 원자료를 DART 에서 받는다.
-    # 한국 DART 는 손익을 **회계연도 누적**으로 보고한다: Q1=3개월·반기=6개월·3Q=9개월·
-    # 사업보고서(Q4)=12개월. 따라서 여기 st.ebitda 는 '해당 분기까지의 누적' 값이다.
+    # 1차: DART fnlttSinglAcntAll 원자료 EBITDA(원)·순차입금 수집. thstrm_amount 는 실측상
+    # **1~3Q 당기 3개월 개별값, 4Q(사업보고서) 연간 누적**이다(financials 도메인 규칙과 동일).
     q_rows = [r for r in rows if not r.is_estimate and _period_to_year_q(r.period)]
     q_rows.sort(key=lambda r: _period_to_year_q(r.period))
-    ytd_ebitda: dict[tuple[int, int], float | None] = {}
+    raw_ebitda: dict[tuple[int, int], float | None] = {}
     for r in q_rows:
         year, quarter = _period_to_year_q(r.period)
         st = dart.fetch_financial_statement(settings.dart_api_key, corp_code, year, quarter, session)
         if st is None:
             continue
-        r.ebitda = st.ebitda  # 누적 EBITDA 원자료(표시·디버깅용 보존)
+        r.ebitda = st.ebitda  # 원자료 보존(표시·디버깅용)
         r.net_debt = st.net_debt
-        ytd_ebitda[(year, quarter)] = st.ebitda
+        raw_ebitda[(year, quarter)] = st.ebitda
 
-    # 2차: 누적 EBITDA 를 분기별 개별값으로 환산(Qn = YTDn - YTD(n-1), Q1은 그대로) 후,
-    # **연속한 4개 분기** 합으로 TTM EBITDA 를 만든다. PSR 은 TTM 매출(억원→원).
-    # EV(원)=시총(원)+순차입(원). 단위는 셋 다 원이라 나눗셈에서 상쇄된다.
+    # 2차: 도메인 규칙(financials.ttm)으로 분기 개별 환산(Q4=연간-Q1..Q3, 1~3Q 그대로) 후
+    # 연속 4분기 합 = TTM EBITDA. PSR 은 TTM 매출(억원→원). EV(원)=시총+순차입, 단위 원끼리 상쇄.
     updated = 0
     for r in q_rows:
         yq = _period_to_year_q(r.period)
         # 연간(.12) 행의 ev_ebitda 는 report_ingest(원문 XML 정밀 D&A)가 소유 → 여기선 안 건드림
         # (방법론 혼재로 값이 튀는 것 방지). 분기(.03/.06/.09)만 여기서 채운다.
         if not r.period.endswith(".12"):
-            ttm_ebitda = _ttm_ebitda(ytd_ebitda, yq)
+            ttm_ebitda = financials.ttm(raw_ebitda, yq)
             ev = (market_cap + r.net_debt) if (market_cap is not None and r.net_debt is not None) else None
             r.ev_ebitda = round(ev / ttm_ebitda, 2) if (ev is not None and ttm_ebitda and ttm_ebitda > 0) else None
         ttm_rev_eok = _ttm_revenue(rows, r.period)  # 억원
@@ -151,31 +150,3 @@ def sync_valuation(db: Session, settings: Settings, code: str) -> int:
     return updated
 
 
-def _prev_yq(yq: tuple[int, int]) -> tuple[int, int]:
-    """직전 분기. Q1 이전은 전년 Q4."""
-    year, q = yq
-    return (year - 1, 4) if q == 1 else (year, q - 1)
-
-
-def _discrete_ebitda(ytd: dict[tuple[int, int], float | None], yq: tuple[int, int]) -> float | None:
-    """누적(YTD) EBITDA 를 해당 분기 단일 값으로 환산. Q1=YTD 그대로, 그 외=YTDn-YTD(n-1)."""
-    cur = ytd.get(yq)
-    if cur is None:
-        return None
-    if yq[1] == 1:
-        return cur
-    prev = ytd.get(_prev_yq(yq))
-    return None if prev is None else cur - prev
-
-
-def _ttm_ebitda(ytd: dict[tuple[int, int], float | None], yq: tuple[int, int]) -> float | None:
-    """yq 를 포함한 **연속 4개 분기** 개별 EBITDA 합(TTM). 하나라도 결측·불연속이면 None."""
-    total = 0.0
-    cursor = yq
-    for _ in range(4):
-        v = _discrete_ebitda(ytd, cursor)
-        if v is None:
-            return None
-        total += v
-        cursor = _prev_yq(cursor)
-    return total
