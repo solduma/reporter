@@ -16,6 +16,7 @@ from app.routers import (
     companies,
     industries,
     market,
+    portfolio,
     realtime,
     screener,
     today,
@@ -59,6 +60,7 @@ app.include_router(screener.router)
 app.include_router(market.router)
 app.include_router(admin.router)
 app.include_router(broadcasts.router)
+app.include_router(portfolio.router)
 app.include_router(realtime.router)
 app.include_router(us.router)
 app.include_router(us.screener_router)

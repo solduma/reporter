@@ -9,6 +9,8 @@ import type {
   CompanySummary,
   FinancialPeriod,
   FlowMarket,
+  Holding,
+  HoldingInput,
   Industry,
   MarketBrief,
   MarketOverview,
@@ -335,4 +337,32 @@ export function fetchBroadcasts(query: BroadcastQuery = {}): Promise<BroadcastRe
 
 export function fetchBroadcast(id: number): Promise<BroadcastDetail> {
   return getJson<BroadcastDetail>(`/api/broadcasts/${id}`);
+}
+
+// ── 보유종목(포트폴리오) ──────────────────────────────────────────────
+export function fetchHoldings(): Promise<Holding[]> {
+  return getJson<Holding[]>("/api/portfolio/holdings");
+}
+
+export async function saveHolding(code: string, body: HoldingInput): Promise<Holding> {
+  const res = await fetch(apiUrl(`/api/portfolio/holdings/${code}`), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new Error(`보유종목 저장 실패 (${res.status})`);
+  }
+  return (await res.json()) as Holding;
+}
+
+export async function deleteHolding(code: string): Promise<void> {
+  const res = await fetch(apiUrl(`/api/portfolio/holdings/${code}`), {
+    method: "DELETE",
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new Error(`보유종목 삭제 실패 (${res.status})`);
+  }
 }

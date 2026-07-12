@@ -12,6 +12,7 @@ const LINKS = [
   { href: "/us-screener", label: "US 스크리너", featured: false },
   { href: "/industries", label: "산업 흐름", featured: false },
   { href: "/companies", label: "기업 분석", featured: false },
+  { href: "/portfolio", label: "내 보유종목", featured: false },
   { href: "/archive", label: "브리핑 아카이브", featured: false },
 ] as const;
 
