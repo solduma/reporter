@@ -77,6 +77,15 @@
   font-size: 0.95rem;
 }
 
+.optHeld {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.66rem;
+  font-weight: 700;
+}
+
 .optCode {
   color: var(--muted);
   font-size: 0.85rem;
