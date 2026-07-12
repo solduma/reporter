@@ -61,6 +61,24 @@
   transition: background 0.15s ease, color 0.15s ease;
 }
 
+/* 손절 경보 건수 — 보유종목 링크에 붙는 빨강 원형 뱃지(화면 안 봐도 인지). */
+.alertBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 17px;
+  height: 17px;
+  margin-left: 5px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #c02b2b;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  vertical-align: middle;
+  line-height: 1;
+}
+
 .link:hover {
   background: var(--accent-soft);
   color: var(--accent);
