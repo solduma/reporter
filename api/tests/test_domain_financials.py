@@ -32,22 +32,8 @@ def test_discrete_q4_none_when_missing_prior():
     assert f.discrete_quarter(raw, (2024, 4)) is None
 
 
-def test_ttm_sums_four_discrete_quarters():
-    # TTM(Q4 기준) = Q1+Q2+Q3 개별 + Q4개별 = 연간값.
+def test_discrete_then_sum_recovers_annual():
+    # 분기 개별값(1~3Q 그대로 + Q4=연간-누적)의 합은 연간값과 같아야 한다(이중계상 방지).
     raw = {(2024, 1): 72.0, (2024, 2): 74.0, (2024, 3): 79.0, (2024, 4): 300.0}
-    assert f.ttm(raw, (2024, 4)) == 300.0  # 72+74+79+75
-
-
-def test_ttm_crosses_year_boundary():
-    # 2025.Q2 기준 TTM = 2025Q2 + 2025Q1 + 2024Q4개별 + 2024Q3.
-    raw = {
-        (2024, 1): 10.0, (2024, 2): 10.0, (2024, 3): 10.0, (2024, 4): 60.0,  # Q4개별=30
-        (2025, 1): 20.0, (2025, 2): 25.0,
-    }
-    # TTM(2025,2) = 25 + 20 + 30(2024Q4개별) + 10(2024Q3) = 85
-    assert f.ttm(raw, (2025, 2)) == 85.0
-
-
-def test_ttm_none_on_gap():
-    raw = {(2025, 1): 100.0, (2025, 3): 170.0, (2025, 4): 600.0}  # Q2 누락
-    assert f.ttm(raw, (2025, 4)) is None
+    discrete = [f.discrete_quarter(raw, (2024, q)) for q in (1, 2, 3, 4)]
+    assert sum(discrete) == 300.0  # 72+74+79+75

@@ -228,11 +228,12 @@ def company_financials(
         rows = company_service.financials_rows(db, code)
     elif not company_service.financials_fresh(db, code):
         bg.add_task(company_service.sync_financials_bg, code)
-    # EV/EBITDA·PSR(DART, 24h TTL)은 valuation_ingest 가 자체 게이트 — 항상 백그라운드 예약.
-    bg.add_task(company_service.sync_valuation_bg, code)
-    # 10년 재무·밸류 백필은 종목당 1회만(야간 배치가 나머지를 채움). 아직이면 백그라운드로.
+    # 10년 재무·밸류(PER/PBR/PSR) 백필·보고서 원문(EV/EBITDA) 백필은 종목당 1회만
+    # (야간 배치가 나머지를 채움). 아직이면 백그라운드로. 역사 시총 기준이라 재조회 불필요.
     if not company_service.financials_10y_done(db, code):
         bg.add_task(company_service.backfill_financials_10y_bg, code)
+    if not company_service.report_10y_done(db, code):
+        bg.add_task(company_service.backfill_reports_bg, code)
 
     return [
         FinancialPeriodOut(

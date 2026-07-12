@@ -135,7 +135,8 @@ class Financial(Base):
     roe: Mapped[float | None] = mapped_column(Float)
     dps: Mapped[float | None] = mapped_column(Float)  # 주당배당금(원)
     div_yield: Mapped[float | None] = mapped_column(Float)  # 시가배당률(배당수익률, %)
-    # DART 재무제표 크롤 산출(EV/EBITDA·PSR). ebitda·net_debt 은 원 단위 원자료.
+    # ev_ebitda 는 report_ingest(원문 XML 정밀 D&A·역사 시총), psr 은 financials_backfill 소유.
+    # ebitda·net_debt(원 단위 원자료)은 구 valuation_ingest 잔재로 현재 미사용(과거 행에만 값 존재).
     ebitda: Mapped[float | None] = mapped_column(Float)
     net_debt: Mapped[float | None] = mapped_column(Float)
     ev_ebitda: Mapped[float | None] = mapped_column(Float)
@@ -218,17 +219,6 @@ class DisclosureSyncState(Base):
     """종목별 DART 마지막 동기화 시각. 공시가 0건이거나 신규가 없어도 재조회를 억제한다."""
 
     __tablename__ = "disclosure_sync_state"
-
-    stock_code: Mapped[str] = mapped_column(String(6), primary_key=True)
-    synced_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
-    )
-
-
-class ValuationSyncState(Base):
-    """종목별 EV/EBITDA·PSR 마지막 산출 시각. 분기 단위라 24h TTL 로 DART 재조회 억제."""
-
-    __tablename__ = "valuation_sync_state"
 
     stock_code: Mapped[str] = mapped_column(String(6), primary_key=True)
     synced_at: Mapped[datetime] = mapped_column(
