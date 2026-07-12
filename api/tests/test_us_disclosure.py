@@ -31,6 +31,23 @@ def db():
     s.close()
 
 
+class _FakeUsDisclosures:
+    """UsDisclosurePort 를 만족하는 fake — 네트워크 없이 정해둔 CIK/filings 반환."""
+
+    def __init__(self, cik, filings):
+        self._cik = cik
+        self._filings = filings
+
+    def resolve_cik(self, ticker, session=None):
+        return self._cik
+
+    def fetch_recent_filings(self, cik, forms=("8-K",), limit=20, session=None):
+        return self._filings
+
+    def describe_8k_items(self, items):
+        return sec.describe_8k_items(items)
+
+
 def test_sync_8k_upserts_and_dedups(db, monkeypatch):
     filings = [
         sec.Filing(accession="0001045810-26-000060", form="8-K", filing_date="2026-07-02",
@@ -38,8 +55,8 @@ def test_sync_8k_upserts_and_dedups(db, monkeypatch):
         sec.Filing(accession="0001045810-26-000056", form="8-K", filing_date="2026-06-30",
                    items="2.02,9.01", primary_doc_url="http://sec/nvda2.htm"),
     ]
-    monkeypatch.setattr(sec, "resolve_cik", lambda s, t, session=None: 1045810)
-    monkeypatch.setattr(sec, "fetch_recent_filings", lambda s, c, forms, limit, session: filings)
+    # 포트 seam 에 fake 주입(치환성) — 네트워크·실 SEC 미접속.
+    monkeypatch.setattr(ing, "_disclosures", lambda settings: _FakeUsDisclosures(1045810, filings))
     settings = Settings()
     n = ing.sync_8k(db, "NVDA", settings, requests.Session())
     assert n == 2
@@ -53,5 +70,5 @@ def test_sync_8k_upserts_and_dedups(db, monkeypatch):
 
 
 def test_sync_8k_unknown_cik_returns_zero(db, monkeypatch):
-    monkeypatch.setattr(sec, "resolve_cik", lambda s, t, session=None: None)
+    monkeypatch.setattr(ing, "_disclosures", lambda settings: _FakeUsDisclosures(None, []))
     assert ing.sync_8k(db, "ZZZZ", Settings(), requests.Session()) == 0
