@@ -121,6 +121,12 @@ export default function CandleChart({
   // "방금 내가 설정했다" 직후 짧은 창 동안의 이벤트를 모두 삼켜 피드백 루프를 끊는다.
   const suppressUntilRef = useRef(0);
   const SUPPRESS_MS = 250;
+  // 드래그 중 이벤트가 프레임마다 쏟아져 상위 리렌더가 폭주하는 걸 막는다: rAF 로 한 프레임에 한 번만
+  // emit. 또 이 차트가 마지막으로 내보낸 구간을 기억해, 그게 range 로 되돌아오면 재적용을 건너뛴다
+  // (드래그 중인 차트는 이미 그 위치라 setVisibleRange 재호출이 곧 버벅임).
+  const emitRafRef = useRef(0);
+  const pendingRef = useRef<{ from: string; to: string } | null>(null);
+  const lastEmittedRef = useRef<{ from: string; to: string } | null>(null);
   const onRangeChangeRef = useRef(onRangeChange);
   onRangeChangeRef.current = onRangeChange;
 
@@ -224,20 +230,32 @@ export default function CandleChart({
     }
 
     // 사용자 스크롤·드래그로 구간이 바뀌면 알린다. 프로그램적 setVisibleRange 직후의 이벤트는
-    // 억제창으로 삼켜(값 비교는 데이터 밀도별 스냅 차이로 실패) 피드백 루프를 끊는다.
+    // 억제창으로 삼키고(피드백 루프 차단), 나머지는 rAF 로 프레임당 1회만 상위에 보고(리렌더 폭주 방지).
     const onVisibleRangeChange = (r: { from: Time; to: Time } | null) => {
-      if (Date.now() < suppressUntilRef.current) {
+      if (Date.now() < suppressUntilRef.current || !r || !onRangeChangeRef.current) {
         return;
       }
-      if (!r || !onRangeChangeRef.current) {
+      pendingRef.current = { from: tsToDate(r.from), to: tsToDate(r.to) };
+      if (emitRafRef.current) {
         return;
       }
-      onRangeChangeRef.current(tsToDate(r.from), tsToDate(r.to));
+      emitRafRef.current = requestAnimationFrame(() => {
+        emitRafRef.current = 0;
+        const p = pendingRef.current;
+        if (p && onRangeChangeRef.current) {
+          lastEmittedRef.current = p;
+          onRangeChangeRef.current(p.from, p.to);
+        }
+      });
     };
     chart.timeScale().subscribeVisibleTimeRangeChange(onVisibleRangeChange);
     chartRef.current = chart;
 
     return () => {
+      if (emitRafRef.current) {
+        cancelAnimationFrame(emitRafRef.current);
+        emitRafRef.current = 0;
+      }
       chart.timeScale().unsubscribeVisibleTimeRangeChange(onVisibleRangeChange);
       chart.remove();
       chartRef.current = null;
@@ -251,6 +269,12 @@ export default function CandleChart({
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart || !range) {
+      return;
+    }
+    // 이 차트가 방금 내보낸 구간이 그대로 되돌아온 것이면 이미 그 위치라 재적용 불필요(자기 메아리).
+    // 드래그 중인 차트에 setVisibleRange 를 다시 걸지 않아 버벅임을 없앤다.
+    const last = lastEmittedRef.current;
+    if (last && last.from === tsToDate(range.from) && last.to === tsToDate(range.to)) {
       return;
     }
     suppressUntilRef.current = Date.now() + SUPPRESS_MS;

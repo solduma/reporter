@@ -60,10 +60,13 @@ function BandChart({
   onRangeChange?: (from: string, to: string) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  // 차트 재사용 + 프로그램적 구간설정 억제창. CandleChart 와 동일 패턴(재생성·루프 방지).
+  // 차트 재사용 + 억제창 + rAF emit 스로틀 + 자기 메아리 skip. CandleChart 와 동일 패턴.
   const chartRef = useRef<IChartApi | null>(null);
   const suppressUntilRef = useRef(0);
   const SUPPRESS_MS = 250;
+  const emitRafRef = useRef(0);
+  const pendingRef = useRef<{ from: string; to: string } | null>(null);
+  const lastEmittedRef = useRef<{ from: string; to: string } | null>(null);
   const onRangeChangeRef = useRef(onRangeChange);
   onRangeChangeRef.current = onRangeChange;
 
@@ -149,20 +152,32 @@ function BandChart({
       chart.timeScale().fitContent();
     }
 
-    // 사용자 스크롤·드래그로 구간이 바뀌면(억제창 밖) 시작·끝 일자를 알린다 → 3개 밴드 연동.
+    // 사용자 스크롤·드래그로 구간이 바뀌면(억제창 밖) rAF 로 프레임당 1회만 알린다 → 3개 밴드 연동.
     const onVisibleRangeChange = (r: { from: Time; to: Time } | null) => {
-      if (Date.now() < suppressUntilRef.current) {
+      if (Date.now() < suppressUntilRef.current || !r || !onRangeChangeRef.current) {
         return;
       }
-      if (!r || !onRangeChangeRef.current) {
+      pendingRef.current = { from: tsToDate(r.from), to: tsToDate(r.to) };
+      if (emitRafRef.current) {
         return;
       }
-      onRangeChangeRef.current(tsToDate(r.from), tsToDate(r.to));
+      emitRafRef.current = requestAnimationFrame(() => {
+        emitRafRef.current = 0;
+        const p = pendingRef.current;
+        if (p && onRangeChangeRef.current) {
+          lastEmittedRef.current = p;
+          onRangeChangeRef.current(p.from, p.to);
+        }
+      });
     };
     chart.timeScale().subscribeVisibleTimeRangeChange(onVisibleRangeChange);
     chartRef.current = chart;
 
     return () => {
+      if (emitRafRef.current) {
+        cancelAnimationFrame(emitRafRef.current);
+        emitRafRef.current = 0;
+      }
       chart.timeScale().unsubscribeVisibleTimeRangeChange(onVisibleRangeChange);
       chart.remove();
       chartRef.current = null;
@@ -171,10 +186,14 @@ function BandChart({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [line, bands]);
 
-  // range 변경만 반영(차트 재생성 없이).
+  // range 변경만 반영(차트 재생성 없이). 자기가 방금 내보낸 구간이면 이미 그 위치라 skip.
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart || !range) {
+      return;
+    }
+    const last = lastEmittedRef.current;
+    if (last && last.from === tsToDate(range.from) && last.to === tsToDate(range.to)) {
       return;
     }
     suppressUntilRef.current = Date.now() + SUPPRESS_MS;
