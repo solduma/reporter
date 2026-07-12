@@ -3,8 +3,13 @@
 ; 신규 위반(예: 서비스가 라우터를 import, worker 가 라우터에 의존)을 githook/CI 에서 차단한다.
 
 [importlinter]
-root_package = app
-; domain·ports 가 외부 IO 패키지(reporter)를 import 하지 않는지 검사하려면 외부 패키지도 그래프에 포함.
+; app 과 reporter 를 함께 root 로 둔다 — reporter 를 external 이 아닌 internal 로 그래프에 올려야
+; reporter 의 서브모듈(reporter.pipeline 등)을 forbidden 대상으로 지정할 수 있다(external 서브패키지는
+; forbidden 불가). 공유 커널 경계(app→CLI전용 금지)·LLM 포트 경계를 계약으로 강제하기 위함.
+root_packages =
+    app
+    reporter
+; domain·ports 가 외부 IO 패키지를 import 하지 않는지 검사하려면 외부 패키지도 그래프에 포함.
 include_external_packages = True
 
 [importlinter:contract:layers]
@@ -117,6 +122,38 @@ allow_indirect_imports = true
 ; db.session(get_session DI)·db.session.SessionLocal 은 프레임워크 배선이라 허용 —
 ; db.models(엔티티·쿼리)만 금지해 라우터가 응용 계층을 우회하지 못하게 한다.
 
-; 주의: LLM(reporter.ollama_client) 은 adapters/llm 한 곳에서만 직접 참조하고 서비스는 LLMPort
-; (app.ports.llm) 에 의존한다. import-linter 는 외부 패키지의 서브모듈(reporter.ollama_client)을
-; forbidden 대상으로 지정할 수 없어(외부 서브패키지 미지원) 이 경계는 계약 대신 코드 격리로 지킨다.
+[importlinter:contract:app-no-cli-only]
+name = app 은 reporter 의 CLI 전용(발송 파이프라인) 모듈을 모른다 — 공유 커널만 사용
+type = forbidden
+source_modules =
+    app
+forbidden_modules =
+    reporter.cli
+    reporter.pipeline
+    reporter.afternoon
+    reporter.telegram
+    reporter.forum
+    reporter.shortener
+    reporter.archive
+    reporter.config
+    reporter.grouping
+    reporter.selector
+; app 이 reporter 에서 쓰는 것은 공유 커널(models·market·sector_etf·fallback·ollama_client·
+; crawler·pdf·news·judal·us_market·analyzer·article)로 한정한다. 텔레그램 발송 CLI 전용 모듈을
+; app 이 직접 부르면 두 제품이 결합되므로 차단(docs/shared-kernel.md). allow_indirect 로 직접만 금지.
+allow_indirect_imports = true
+
+[importlinter:contract:llm-behind-port]
+name = LLM(reporter.ollama_client)은 adapters.llm 뒤에만 — 서비스·라우터는 LLMPort 경유
+type = forbidden
+source_modules =
+    app.services
+    app.routers
+    app.domain
+    app.ports
+forbidden_modules =
+    reporter.ollama_client
+; 유일한 구현(adapters/llm)만 reporter.ollama_client 직접 참조, 나머지는 app.ports.llm(LLMPort)에
+; 의존. root_packages 로 reporter 를 internal 화해 이제 이 서브모듈 경계를 계약으로 강제할 수 있다
+; (이전엔 external 서브패키지라 불가해 코드 격리로만 지켰음). allow_indirect 로 직접 import 만 금지.
+allow_indirect_imports = true
