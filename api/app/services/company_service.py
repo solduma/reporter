@@ -1,7 +1,7 @@
 """종목 상세 페이지 조회·동기화 서비스 — 라우터가 쓰던 데이터 접근·스크랩·백필을 응용 계층으로.
 
 라우터는 이 서비스가 돌려준 ORM/데이터로 DTO(AnalysisAxis·TimelineItem 등)를 조립만 한다.
-외부 스크랩은 quote 서비스(네이버) 위임, PER/PBR/PSR 은 financials_backfill, EV/EBITDA(정밀 D&A)는
+외부 스크랩은 naver_quote 어댑터 위임, PER/PBR/PSR 은 financials_backfill, EV/EBITDA(정밀 D&A)는
 report_ingest 가 각각 단일 소유한다(역사 시총 기준으로 통일).
 """
 
@@ -14,6 +14,7 @@ from sqlalchemy import case, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from app.adapters.market import naver_quote as quote
 from app.config import get_settings
 from app.db.models import (
     Broadcast,
@@ -34,7 +35,6 @@ from app.services import (
     candle_service,
     dart_ingest,
     financials_backfill,
-    quote,
     report_ingest,
     sync_state,
     universe_ingest,
