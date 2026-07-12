@@ -131,8 +131,55 @@ export default function AnalysisPanel({ code, analysis, status, message }: Props
     return <div className={styles.status}>분석 데이터가 없습니다</div>;
   }
 
+  const j = a.judgment;
   return (
     <div className={styles.panel}>
+      {j && j.signal !== "insufficient" ? (
+        <div className={styles.judgment}>
+          <div className={styles.judgHead}>
+            <span className={styles.judgTitle}>한눈에</span>
+            <span className={`${styles.signal} ${styles[`sig_${j.signal}`]}`}>
+              {j.signal_label}
+            </span>
+          </div>
+          <div className={styles.judgCols}>
+            {j.strengths.length > 0 ? (
+              <div className={styles.judgCol}>
+                <span className={styles.judgColLabel}>강점</span>
+                <ul className={styles.judgList}>
+                  {j.strengths.map((s) => (
+                    <li key={s}>{s}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {j.weaknesses.length > 0 ? (
+              <div className={styles.judgCol}>
+                <span className={styles.judgColLabel}>약점</span>
+                <ul className={styles.judgList}>
+                  {j.weaknesses.map((w) => (
+                    <li key={w}>{w}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {j.checks.length > 0 ? (
+              <div className={styles.judgCol}>
+                <span className={styles.judgColLabel}>확인할 점</span>
+                <ul className={styles.judgList}>
+                  {j.checks.map((c) => (
+                    <li key={c}>{c}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </div>
+          <p className={styles.disclaimer}>
+            점수 기반 정보 요약입니다. 투자 판단과 책임은 본인에게 있습니다.
+          </p>
+        </div>
+      ) : null}
+
       <div className={styles.overallRow}>
         <span className={styles.overallLabel}>종합 점수</span>
         <span className={`${styles.overallScore} ${scoreClass(a.overall_score)}`}>

@@ -67,6 +67,16 @@ export interface TopDownView {
   kr_indices: { name: string; change_ratio: string; rising: boolean | null }[];
 }
 
+export type JudgmentSignal = "fit" | "watch" | "avoid" | "insufficient";
+
+export interface Judgment {
+  signal: JudgmentSignal;
+  signal_label: string;
+  strengths: string[];
+  weaknesses: string[];
+  checks: string[];
+}
+
 export interface CompanyAnalysis {
   stock_code: string;
   stock_name: string | null;
@@ -74,6 +84,7 @@ export interface CompanyAnalysis {
   overall_score: number | null;
   axes: AnalysisAxis[];
   topdown: TopDownView | null;
+  judgment?: Judgment | null;
   comment: string | null;
   comment_pending?: boolean; // true면 코멘트 백그라운드 생성 중 — 재조회로 채움
 }
