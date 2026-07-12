@@ -22,6 +22,8 @@ import { tsToDate } from "@/lib/chartTime";
 import type { CandlePoint, Timeframe } from "@/lib/types";
 
 import styles from "./CandleChart.module.css";
+import { StageBands } from "./stageBands";
+import type { StageBand } from "./stageBands";
 import { TimeDividers } from "./timeDividers";
 
 // 한국 시장 관례: 상승 빨강 · 하락 파랑. globals.css 토큰을 SVG/캔버스가 해석하지 못해 직접 값을 둔다.
@@ -29,11 +31,13 @@ const COLOR_UP = "#c02b2b";
 const COLOR_DOWN = "#2b6cc0";
 const COLOR_GRID = "#e4e7eb";
 const COLOR_TEXT = "#1a1d21";
-// 이동평균선(10·20·120). 레전드를 차트 밖(컨트롤 바)에서도 렌더할 수 있게 export.
+// 이동평균선(10·20·120·150). 레전드를 차트 밖(컨트롤 바)에서도 렌더할 수 있게 export.
+// MA150 은 와인스타인 30주 이동평균 등가선 — 국면 판정의 기준선이라 함께 표시한다.
 export const MA_DEFS: { period: number; color: string }[] = [
   { period: 10, color: "#e8a33d" },
   { period: 20, color: "#2ca089" },
   { period: 120, color: "#8b5cf6" },
+  { period: 150, color: "#d946a0" },
 ];
 
 // 차트에 표시할 시간 범위(초 단위 UTC timestamp 또는 날짜 문자열). 지정 시 fitContent 대신
@@ -52,6 +56,7 @@ interface Props {
   // 사용자가 스크롤·드래그로 표시 구간을 바꾸면 그 시작·끝 일자(YYYY-MM-DD)를 알린다.
   // 여러 차트를 한 date-range 로 묶을 때 페이지가 이 콜백으로 공유 구간을 갱신한다.
   onRangeChange?: (from: string, to: string) => void;
+  stageBands?: StageBand[]; // 와인스타인 국면 배경밴드(일봉 전용). 없으면 미표시.
 }
 
 // 30분봉의 t는 타임존 없는 벽시계 시각이라, UTC로 간주해 표기 시각이 그대로 보이도록 한다.
@@ -111,6 +116,7 @@ export default function CandleChart({
   range = null,
   showControls = true,
   onRangeChange,
+  stageBands,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [logScale, setLogScale] = useState(false);
@@ -209,6 +215,16 @@ export default function CandleChart({
       line.setData(movingAverage(data, timeframe, period));
     }
 
+    // 와인스타인 국면 배경밴드(있으면). 캔들 뒤에 칠해 국면 구간을 표시.
+    if (stageBands && stageBands.length > 0) {
+      candleSeries.attachPrimitive(
+        new StageBands(
+          chart,
+          stageBands.map((b) => ({ stage: b.stage, from: b.from, to: b.to })),
+        ),
+      );
+    }
+
     // 시간 구분 수직선(붉은 점선): 30분봉=일 · 일봉=월 · 주봉=연 경계.
     const dividers = dividerTimes(data, timeframe);
     if (dividers.length > 0) {
@@ -263,7 +279,7 @@ export default function CandleChart({
     // range 는 의도적으로 제외 — 아래 별도 effect 가 재생성 없이 반영한다(deps 에 넣으면 매 동기화마다
     // 차트가 파괴·재생성돼 움찔거림). 초기 range 는 최초 마운트 시 위에서 1회 적용된다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, timeframe, logScale]);
+  }, [data, timeframe, logScale, stageBands]);
 
   // range 변경만 반영(차트 재생성 없이). 프로그램적 적용이라 직후 이벤트를 억제창으로 삼킨다.
   useEffect(() => {

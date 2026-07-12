@@ -7,6 +7,7 @@ import type {
   CompanyAnalysis,
   CompanyGrowth,
   CompanySummary,
+  CompanyTrend,
   FinancialPeriod,
   FlowMarket,
   Holding,
@@ -271,6 +272,10 @@ export function fetchCandles(code: string, tf: Timeframe): Promise<CandlePoint[]
   return getJson<CandlePoint[]>(
     `/api/companies/${encodeURIComponent(code)}/candles?tf=${tf}`,
   );
+}
+
+export function fetchCompanyTrend(code: string): Promise<CompanyTrend> {
+  return getJson<CompanyTrend>(`/api/companies/${encodeURIComponent(code)}/trend`);
 }
 
 export function fetchFinancials(code: string): Promise<FinancialPeriod[]> {

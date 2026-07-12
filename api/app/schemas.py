@@ -100,6 +100,41 @@ class CandlePoint(BaseModel):
     v: int
 
 
+class StageFrame(BaseModel):
+    """와인스타인 국면 한 프레임(단기/중기/장기)."""
+
+    frame: str  # short | mid | long
+    period: int  # MA 기간(50/150/200)
+    stage: int | None  # 1~4
+    label: str | None  # '② 상승' 등
+    ma_dir: str | None  # rising | flat | falling
+
+
+class StageSegment(BaseModel):
+    """중기 국면이 이어지는 구간(차트 배경밴드용)."""
+
+    stage: int
+    from_date: str  # YYYY-MM-DD
+    to_date: str
+
+
+class RelStrengthPoint(BaseModel):
+    date: str
+    value: float  # Mansfield MRP (0중심)
+
+
+class CompanyTrend(BaseModel):
+    """기술적 추세 — 와인스타인 국면(3프레임) + Mansfield 상대강도."""
+
+    stock_code: str
+    benchmark: str  # 벤치마크 지수(KOSPI/KOSDAQ)
+    stages: list[StageFrame]
+    stage_segments: list[StageSegment]
+    rs_series: list[RelStrengthPoint]
+    rs_latest: float | None
+    rs_outperforming: bool | None
+
+
 class CompanySummary(BaseModel):
     stock_code: str
     stock_name: str | None
