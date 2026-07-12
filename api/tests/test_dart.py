@@ -181,3 +181,12 @@ def test_extract_ownership_reason_skips_table_labels():
     body = "소 유 주 식 수 (주) 취득/처분단가(원) 비 고 변동전 증감 변동후 장내매도(-) 2026.06.24 보통주"
     assert dart.extract_ownership_reason(body) == "장내매도"
     assert dart.extract_ownership_reason("사유 없는 본문") == ""
+
+
+def test_extract_ownership_reason_skips_sign_legend_before_table():
+    # 표 앞 부호 범례('증감수량의 (+)는 취득...')를 사유로 오인하지 않고, '변동후' 뒤 실제 사유를 잡는다.
+    body = (
+        "※ 증감수량의 (+)는 취득, (-)는 처분을 의미합니다. "
+        "소유주식수 취득/처분단가 비고 변동전 증감 변동후 장내매수(+) 2026.07.01 보통주"
+    )
+    assert dart.extract_ownership_reason(body) == "장내매수"

@@ -343,14 +343,20 @@ def _to_int(raw: str | None) -> int:
 # 표 안내문의 '매매'·'취득/처분' 같은 라벨이 아닌, 실제 변동행의 사유 토큰만 잡는다.
 _OWNERSHIP_REASON = re.compile(r"([가-힣]{2,10})\s*\(\s*([+\-])\s*\)")
 _REASON_LABELS = {"취득", "처분", "취득처분", "매매"}  # 표 헤더·안내문 라벨(사유 아님)
+# 세부변동내역 표는 헤더 마지막 컬럼 '변동후' 뒤에 사유행이 온다. 이 앞의 부호 범례
+# (예 '증감수량의 (+)는 취득...')를 사유로 오인하지 않도록 '변동후' 이후 구간만 훑는다.
+_OWNERSHIP_TABLE_ANCHOR = "변동후"
 
 
 def extract_ownership_reason(document_text: str) -> str:
     """소유상황보고서 원문 텍스트에서 변동사유(장내매수/장내매도/증여 등)를 추출한다.
 
-    표 헤더 라벨('취득/처분')은 제외하고 첫 실제 사유 토큰을 반환한다. 없으면 빈 문자열.
+    세부변동 표 헤더('변동후') 뒤 구간에서 첫 실제 사유 토큰을 반환한다(앞의 부호 범례 회피).
+    앵커가 없으면 전체를 훑는다. 표 헤더 라벨('취득/처분')은 제외한다. 없으면 빈 문자열.
     """
-    for token, _sign in _OWNERSHIP_REASON.findall(document_text):
+    anchor = document_text.rfind(_OWNERSHIP_TABLE_ANCHOR)
+    region = document_text[anchor:] if anchor != -1 else document_text
+    for token, _sign in _OWNERSHIP_REASON.findall(region):
         if token not in _REASON_LABELS:
             return token
     return ""
