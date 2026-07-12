@@ -3,6 +3,7 @@
 import {
   CandlestickSeries,
   ColorType,
+  createSeriesMarkers,
   CrosshairMode,
   createChart,
   HistogramSeries,
@@ -13,13 +14,14 @@ import type {
   HistogramData,
   IChartApi,
   LineData,
+  SeriesMarker,
   Time,
   UTCTimestamp,
 } from "lightweight-charts";
 import { useEffect, useRef, useState } from "react";
 
 import { tsToDate } from "@/lib/chartTime";
-import type { CandlePoint, Timeframe } from "@/lib/types";
+import type { CandlePoint, ElliottView, Timeframe } from "@/lib/types";
 
 import styles from "./CandleChart.module.css";
 import { StageBands } from "./stageBands";
@@ -57,6 +59,7 @@ interface Props {
   // 여러 차트를 한 date-range 로 묶을 때 페이지가 이 콜백으로 공유 구간을 갱신한다.
   onRangeChange?: (from: string, to: string) => void;
   stageBands?: StageBand[]; // 와인스타인 국면 배경밴드(일봉 전용). 없으면 미표시.
+  elliott?: ElliottView | null; // 엘리엇 파동 추정(일봉 전용). 피벗 라인 + 라벨 마커.
 }
 
 // 30분봉의 t는 타임존 없는 벽시계 시각이라, UTC로 간주해 표기 시각이 그대로 보이도록 한다.
@@ -117,6 +120,7 @@ export default function CandleChart({
   showControls = true,
   onRangeChange,
   stageBands,
+  elliott,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [logScale, setLogScale] = useState(false);
@@ -225,6 +229,33 @@ export default function CandleChart({
       );
     }
 
+    // 엘리엇 파동 추정(있으면): 피벗을 잇는 점선 + 라벨된 파동(1~5) 마커. 추정이라 반투명·점선.
+    if (elliott && elliott.pivots.length >= 2) {
+      const waveLine = chart.addSeries(LineSeries, {
+        color: "rgba(139, 92, 246, 0.55)",
+        lineWidth: 1,
+        lineStyle: 2, // dashed — 추정 강조
+        priceLineVisible: false,
+        lastValueVisible: false,
+        crosshairMarkerVisible: false,
+      });
+      waveLine.setData(elliott.pivots.map((p) => ({ time: p.date.slice(0, 10) as Time, value: p.price })));
+      if (elliott.labeled) {
+        const markers: SeriesMarker<Time>[] = elliott.pivots
+          .filter((p) => p.label !== "" && p.label !== "0")
+          .map((p) => ({
+            time: p.date.slice(0, 10) as Time,
+            position: p.kind === "high" ? "aboveBar" : "belowBar",
+            shape: "circle",
+            color: "#8b5cf6",
+            text: p.label,
+          }));
+        if (markers.length > 0) {
+          createSeriesMarkers(candleSeries, markers);
+        }
+      }
+    }
+
     // 시간 구분 수직선(붉은 점선): 30분봉=일 · 일봉=월 · 주봉=연 경계.
     const dividers = dividerTimes(data, timeframe);
     if (dividers.length > 0) {
@@ -279,7 +310,7 @@ export default function CandleChart({
     // range 는 의도적으로 제외 — 아래 별도 effect 가 재생성 없이 반영한다(deps 에 넣으면 매 동기화마다
     // 차트가 파괴·재생성돼 움찔거림). 초기 range 는 최초 마운트 시 위에서 1회 적용된다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, timeframe, logScale, stageBands]);
+  }, [data, timeframe, logScale, stageBands, elliott]);
 
   // range 변경만 반영(차트 재생성 없이). 프로그램적 적용이라 직후 이벤트를 억제창으로 삼킨다.
   useEffect(() => {

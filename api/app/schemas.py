@@ -124,6 +124,22 @@ class RelStrengthPoint(BaseModel):
     value: float  # Mansfield MRP (0중심)
 
 
+class ElliottPivot(BaseModel):
+    date: str  # YYYY-MM-DD
+    price: float
+    kind: str  # high | low
+    label: str  # '0'~'5' 또는 '' (미라벨)
+
+
+class ElliottView(BaseModel):
+    """엘리엇 파동 추정(실험적) — ZigZag 피벗 + 선택적 5파 라벨."""
+
+    pivots: list[ElliottPivot]
+    labeled: bool  # 5파 라벨 노출 여부
+    confidence: float  # 0~1
+    note: str
+
+
 class CompanyTrend(BaseModel):
     """기술적 추세 — 와인스타인 국면(3프레임) + Mansfield 상대강도 + IBD RS Rating."""
 
@@ -135,6 +151,7 @@ class CompanyTrend(BaseModel):
     rs_latest: float | None
     rs_outperforming: bool | None
     rs_rating: int | None = None  # IBD RS Rating 1~99(전종목 대비 백분위, 야간 배치)
+    elliott: ElliottView | None = None  # 엘리엇 파동 추정(실험적)
 
 
 class CompanySummary(BaseModel):

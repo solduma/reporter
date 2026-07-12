@@ -152,3 +152,25 @@
   color: var(--muted);
   font-size: 0.84rem;
 }
+
+/* 엘리엇 파동(추정) */
+.elliottBadge {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #8b5cf6;
+  background: rgba(139, 92, 246, 0.1);
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.elliottBadgeMuted {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.elliottNote {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin: 4px 0 0;
+}
