@@ -8,12 +8,10 @@ from app.adapters.dart import report_parser, throttle
 from app.adapters.dart.client import (
     CorpMapping,
     Disclosure,
-    FinStatement,
     IncomeEquity,
     fetch_corp_mappings,
     fetch_disclosures,
     fetch_document_text,
-    fetch_financial_statement,
     fetch_income_and_equity,
     find_periodic_report,
 )
@@ -22,12 +20,10 @@ from app.adapters.dart.report_parser import fetch_report_zip, parse_cf_depreciat
 __all__ = [
     "CorpMapping",
     "Disclosure",
-    "FinStatement",
     "IncomeEquity",
     "fetch_corp_mappings",
     "fetch_disclosures",
     "fetch_document_text",
-    "fetch_financial_statement",
     "fetch_income_and_equity",
     "fetch_report_zip",
     "find_periodic_report",

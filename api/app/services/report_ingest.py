@@ -150,10 +150,10 @@ def backfill_stock(
 def _recompute_ev_ebitda(
     db: Session, code: str, annual_ev: dict[str, tuple[float, float | None]], shares: int | None
 ) -> None:
-    """연간 EBITDA·순차입으로 EV/EBITDA 를 산출해 financials 에 반영(연간 .12 행만 소유).
+    """연간 EBITDA·순차입으로 EV/EBITDA 를 산출해 financials 에 반영(EV/EBITDA 단일 소유자).
 
-    EV = 시총(분기말 수정종가 x 현재 주식수) + 순차입. 순차입 결측이면 EV≈시총.
-    valuation_ingest 는 .12 행 ev_ebitda 를 건드리지 않아(방법론 통일) 여기가 단일 소유자.
+    EV = 시총(분기말 수정종가 x 현재 주식수) + 순차입. 순차입 결측이면 EV≈시총. 대형사 D&A 는
+    fnlttSinglAcntAll 에 없어(삼성·현대차 CF 에 상각 라인 부재) document.xml 원문 파싱만 정확하다.
     """
     if not annual_ev or not shares:
         return

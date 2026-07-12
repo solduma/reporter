@@ -1,7 +1,8 @@
 """종목 상세 페이지 조회·동기화 서비스 — 라우터가 쓰던 데이터 접근·스크랩·백필을 응용 계층으로.
 
 라우터는 이 서비스가 돌려준 ORM/데이터로 DTO(AnalysisAxis·TimelineItem 등)를 조립만 한다.
-외부 스크랩은 quote 서비스(네이버) 위임, EV/EBITDA·10년 백필은 valuation_ingest/financials_backfill.
+외부 스크랩은 quote 서비스(네이버) 위임, PER/PBR/PSR 은 financials_backfill, EV/EBITDA(정밀 D&A)는
+report_ingest 가 각각 단일 소유한다(역사 시총 기준으로 통일).
 """
 
 from __future__ import annotations
@@ -34,9 +35,9 @@ from app.services import (
     dart_ingest,
     financials_backfill,
     quote,
+    report_ingest,
     sync_state,
     universe_ingest,
-    valuation_ingest,
 )
 
 logger = logging.getLogger(__name__)
@@ -150,6 +151,16 @@ def financials_10y_done(db: Session, code: str) -> bool:
     )
 
 
+def report_10y_done(db: Session, code: str) -> bool:
+    return bool(
+        db.scalar(
+            select(SyncState.id).where(
+                SyncState.domain == "report_10y", SyncState.stock_code == code
+            )
+        )
+    )
+
+
 def sync_financials(db: Session, code: str) -> None:
     """네이버 재무 스크랩 → financials upsert + sync_state 마킹.
 
@@ -190,14 +201,16 @@ def sync_financials_bg(code: str) -> None:
         db.close()
 
 
-def sync_valuation_bg(code: str) -> None:
-    """백그라운드 EV/EBITDA·PSR 산출 — 자체 세션."""
+def backfill_reports_bg(code: str) -> None:
+    """백그라운드 보고서 원문 백필 — EV/EBITDA(정밀 D&A·역사시총) 산출. 종목당 1회. 자체 세션."""
     db = SessionLocal()
     try:
-        valuation_ingest.sync_valuation(db, get_settings(), code)
+        if report_ingest.backfill_stock(db, get_settings(), code):
+            sync_state.mark(db, "report_10y", code)
+            db.commit()
     except Exception as e:
         db.rollback()
-        logger.warning("valuation sync failed %s: %s", code, e)
+        logger.warning("report backfill failed %s: %s", code, e)
     finally:
         db.close()
 
