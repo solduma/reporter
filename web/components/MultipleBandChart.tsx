@@ -5,6 +5,7 @@ import type { LineData, Time } from "lightweight-charts";
 import { useEffect, useMemo, useRef } from "react";
 
 import type { ChartRange } from "@/components/CandleChart";
+import { tsToDate } from "@/lib/chartTime";
 import type { FinancialPeriod } from "@/lib/types";
 
 import styles from "./MultipleBandChart.module.css";
@@ -50,13 +51,19 @@ function BandChart({
   metric,
   range,
   height,
+  onRangeChange,
 }: {
   data: FinancialPeriod[];
   metric: MetricKey;
   range: ChartRange | null;
   height: number;
+  onRangeChange?: (from: string, to: string) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  // 프로그램적으로 설정한 마지막 구간(메아리 식별용). CandleChart 와 동일 패턴.
+  const lastAppliedRef = useRef<{ from: string; to: string } | null>(null);
+  const onRangeChangeRef = useRef(onRangeChange);
+  onRangeChangeRef.current = onRangeChange;
 
   const { line, bands } = useMemo(() => {
     const pts = data
@@ -128,17 +135,36 @@ function BandChart({
     });
     main.setData(line);
 
+    // 설정한 구간을 기록해 두고 이벤트가 이 값과 같으면(메아리) 콜백을 건너뛴다(CandleChart 와 동일).
     if (range) {
+      lastAppliedRef.current = { from: tsToDate(range.from), to: tsToDate(range.to) };
       try {
         chart.timeScale().setVisibleRange({ from: range.from, to: range.to });
       } catch {
         chart.timeScale().fitContent();
       }
     } else {
+      lastAppliedRef.current = null;
       chart.timeScale().fitContent();
     }
 
+    // 사용자 스크롤·드래그로 표시 구간이 바뀌면(메아리 제외) 시작·끝 일자를 알린다 → 3개 밴드 연동.
+    const onVisibleRangeChange = (r: { from: Time; to: Time } | null) => {
+      if (!r || !onRangeChangeRef.current) {
+        return;
+      }
+      const from = tsToDate(r.from);
+      const to = tsToDate(r.to);
+      const last = lastAppliedRef.current;
+      if (last && last.from === from && last.to === to) {
+        return;
+      }
+      onRangeChangeRef.current(from, to);
+    };
+    chart.timeScale().subscribeVisibleTimeRangeChange(onVisibleRangeChange);
+
     return () => {
+      chart.timeScale().unsubscribeVisibleTimeRangeChange(onVisibleRangeChange);
       chart.remove();
     };
   }, [line, bands, range]);
@@ -168,14 +194,23 @@ interface Props {
   data: FinancialPeriod[];
   range?: ChartRange | null;
   height?: number;
+  onRangeChange?: (from: string, to: string) => void; // 밴드 조작 시 공유 구간 갱신(3개 연동)
 }
 
 // PER·PBR·PSR 3분할 밴드 차트. 각 멀티플의 25/50/75% 분위수 밴드로 역사적 위치 비교.
-export default function MultipleBandChart({ data, range = null, height = 220 }: Props) {
+// 셋이 같은 range 를 공유하고, 하나를 스크롤·드래그하면 onRangeChange 로 나머지도 함께 움직인다.
+export default function MultipleBandChart({ data, range = null, height = 220, onRangeChange }: Props) {
   return (
     <div className={styles.row}>
       {METRICS.map((m) => (
-        <BandChart key={m.key} data={data} metric={m.key} range={range} height={height} />
+        <BandChart
+          key={m.key}
+          data={data}
+          metric={m.key}
+          range={range}
+          height={height}
+          onRangeChange={onRangeChange}
+        />
       ))}
     </div>
   );
