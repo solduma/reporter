@@ -9,6 +9,7 @@ import type { ChartRange } from "@/components/CandleChart";
 import CompanyTimeline from "@/components/CompanyTimeline";
 import DateRangeSlider from "@/components/DateRangeSlider";
 import GrowthMetrics from "@/components/GrowthMetrics";
+import HoldingBadge from "@/components/HoldingBadge";
 import PeersTable from "@/components/PeersTable";
 import RealtimeQuoteBadge from "@/components/RealtimeQuoteBadge";
 import SectorCharts from "@/components/SectorCharts";
@@ -401,9 +402,19 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
         <h1 className={styles.title}>{displayName}</h1>
         <span className={styles.code}>{summary?.stock_code ?? code}</span>
         <RealtimeQuoteBadge code={summary?.stock_code ?? code} />
+        <HoldingBadge code={summary?.stock_code ?? code} />
       </header>
 
       {error ? <p className={styles.error}>API 연결 실패: {error}</p> : null}
+
+      {/* 분석 흐름 순: ① 스냅샷 → ② 종합분석 → ③ 탑다운차트 → ④ 밸류밴드 → ⑤ 동일업종 → ⑥ 타임라인(근거) */}
+      <section className={styles.chartCard}>
+        <div className={styles.growthHead}>
+          <h2 className={styles.sectionTitle}>성장 지표</h2>
+          <span className={styles.growthTag}>성장주 스냅샷</span>
+        </div>
+        <GrowthMetrics code={code} />
+      </section>
 
       <section className={styles.chartCard}>
         <div className={styles.growthHead}>
@@ -416,19 +427,6 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
           status={analysis.status}
           message={analysis.message}
         />
-      </section>
-
-      <section className={styles.chartCard}>
-        <div className={styles.growthHead}>
-          <h2 className={styles.sectionTitle}>성장 지표</h2>
-          <span className={styles.growthTag}>성장주 스냅샷</span>
-        </div>
-        <GrowthMetrics code={code} />
-      </section>
-
-      <section className={styles.chartCard}>
-        <h2 className={styles.sectionTitle}>타임라인</h2>
-        <CompanyTimeline code={code} />
       </section>
 
       {/* 탑다운 비교 차트: 지수 → 섹터 → 종목 → 재무. 공용 컨트롤바(분/일/주·기간·MA). */}
@@ -543,6 +541,12 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
       <section className={styles.chartCard}>
         <h2 className={styles.sectionTitle}>동일업종비교</h2>
         {peersArea}
+      </section>
+
+      {/* 타임라인은 근거(리포트·공시·브리핑)라 분석·차트를 본 뒤 맨 끝에 배치. */}
+      <section className={styles.chartCard}>
+        <h2 className={styles.sectionTitle}>타임라인</h2>
+        <CompanyTimeline code={code} />
       </section>
     </div>
   );
