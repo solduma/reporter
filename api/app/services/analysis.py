@@ -81,6 +81,10 @@ class CommentContext:
     report_count: int = 0  # 최근 리포트 수
     buy_count: int = 0  # 그중 BUY 수
     recent_disclosures: list[str] = field(default_factory=list)  # 최근 공시 제목 몇 건
+    # 최근 리서치 정제문(브로커·신호·요약/근거) — 애널리스트가 '실제로 뭐라 했는지'.
+    report_notes: list[str] = field(default_factory=list)
+    # 최근 공시 정제문(제목 + 주가영향 근거).
+    disclosure_notes: list[str] = field(default_factory=list)
 
 
 _PHASE_KO = {"forecast": "개장 전(예상)", "intraday": "장중", "closing": "장 마감 후"}
@@ -110,8 +114,13 @@ def llm_comment(
         lines.append("")
         lines.append("[최근 리서치·공시]")
         lines.append(f"- 최근 리포트 {context.report_count}건 중 BUY {context.buy_count}건")
-        for title in context.recent_disclosures[:3]:
-            lines.append(f"- 공시: {title}")
+        for note in context.report_notes[:4]:
+            lines.append(f"- 리포트: {note}")
+        for note in context.disclosure_notes[:3]:
+            lines.append(f"- 공시: {note}")
+        if not context.report_notes:
+            for title in context.recent_disclosures[:3]:
+                lines.append(f"- 공시: {title}")
     try:
         return llm.chat(model, _COMMENT_SYSTEM, "\n".join(lines), temperature=0.5).strip()
     except Exception as e:

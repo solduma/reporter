@@ -241,20 +241,39 @@ def _grade(score: float | None) -> str:
 
 
 def _comment_context(db: Session, code: str) -> analysis.CommentContext:
-    """LLM 종합 코멘트용 시장 맥락·정성 재료를 모은다(오늘 시황·국면 + 최근 리서치·공시)."""
+    """LLM 종합 코멘트용 시장 맥락·정성 재료를 모은다(오늘 시황·국면 + 최근 리서치·공시 정제문).
+
+    리포트·공시의 요약/근거(이미 저장된 정제문)를 넣어 '애널리스트가 실제로 뭐라 했는지'까지
+    LLM 이 읽게 한다. 최신순 소수만(토큰·프롬프트 통제).
+    """
     from datetime import datetime, timedelta
 
     mi = today_service.market_info(db, None)
     now = datetime.now()
     since = now.date() - timedelta(days=30)
     reports, buys = company_service.coverage_counts(db, code, since)
+
+    rows = company_service.timeline_reports(db, code, since, now.date())
+    rows.sort(key=lambda ra: ra[0].published_date, reverse=True)  # 최신순
+    report_notes = [
+        f"{r.broker} {a.sentiment.value}: {(a.summary or a.rationale or r.title)[:120]}"
+        for r, a in rows[:4]
+    ]
+
     discs = company_service.timeline_disclosures(db, code, since, now.date())
+    discs.sort(key=lambda d: d.rcept_dt, reverse=True)
+    disclosure_notes = [
+        f"{d.report_nm}{(' — ' + d.rationale[:80]) if d.rationale else ''}" for d in discs[:3]
+    ]
+
     return analysis.CommentContext(
         market_phase=(mi.phase or None) if mi else None,
         market_summary=(mi.summary or None) if mi else None,
         report_count=reports,
         buy_count=buys,
         recent_disclosures=[d.report_nm for d in discs[:3]],
+        report_notes=report_notes,
+        disclosure_notes=disclosure_notes,
     )
 
 
