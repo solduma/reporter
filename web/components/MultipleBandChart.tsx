@@ -1,6 +1,6 @@
 "use client";
 
-import { ColorType, createChart, LineSeries } from "lightweight-charts";
+import { AreaSeries, ColorType, createChart, LineSeries } from "lightweight-charts";
 import type { IChartApi, LineData, Time } from "lightweight-charts";
 import { useEffect, useMemo, useRef } from "react";
 
@@ -15,6 +15,7 @@ const COLOR_TEXT = "#1a1d21";
 const COLOR_LINE = "#2b6cc0";
 const COLOR_BAND_MID = "#eb6834"; // 중앙값(50%)
 const COLOR_BAND_EDGE = "#c9a06b"; // 25/75% 분위
+const COLOR_CHEAP_ZONE = "rgba(46, 160, 108, 0.10)"; // 하위 25%(저평가) 음영 — 연한 초록
 
 const QUARTER_END_DAY: Record<string, string> = { "03": "-03-31", "06": "-06-30", "09": "-09-30", "12": "-12-31" };
 
@@ -111,6 +112,21 @@ function BandChart({
 
     // 분위수 밴드: 수평선(첫~마지막 시점 동일 값).
     if (bands) {
+      // 하위 25%(저평가) 영역 음영 — q25 값의 area 는 축 바닥까지 채워져 '25% 이하' 구간을 덮는다.
+      // 밴드 선보다 먼저 그려 선이 위에 오게 한다.
+      const cheapZone = chart.addSeries(AreaSeries, {
+        topColor: COLOR_CHEAP_ZONE,
+        bottomColor: COLOR_CHEAP_ZONE,
+        lineColor: "transparent",
+        lineWidth: 1,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        crosshairMarkerVisible: false,
+      });
+      cheapZone.setData([
+        { time: bands.first, value: bands.q25 },
+        { time: bands.last, value: bands.q25 },
+      ]);
       const bandDefs: { v: number; color: string; dash: boolean }[] = [
         { v: bands.q75, color: COLOR_BAND_EDGE, dash: true },
         { v: bands.q50, color: COLOR_BAND_MID, dash: false },
@@ -210,7 +226,8 @@ function BandChart({
         {METRICS.find((m) => m.key === metric)?.label} (배)
         {bands ? (
           <span className={styles.bandInfo}>
-            25%={bands.q25.toFixed(1)} · 中={bands.q50.toFixed(1)} · 75%={bands.q75.toFixed(1)}
+            <span className={styles.cheapSwatch} aria-hidden />
+            저평가 25%={bands.q25.toFixed(1)} · 中={bands.q50.toFixed(1)} · 75%={bands.q75.toFixed(1)}
           </span>
         ) : null}
       </figcaption>

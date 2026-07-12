@@ -33,6 +33,16 @@
   font-variant-numeric: tabular-nums;
 }
 
+.cheapSwatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 4px;
+  vertical-align: -1px;
+  border-radius: 2px;
+  background: rgba(46, 160, 108, 0.28);
+}
+
 .chart {
   width: 100%;
 }
