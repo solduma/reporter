@@ -4,6 +4,8 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
+import { useStopAlertCount } from "@/lib/useStopAlert";
+
 import styles from "./NavBar.module.css";
 
 const LINKS = [
@@ -21,6 +23,7 @@ export default function NavBar() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const navRef = useRef<HTMLElement>(null);
+  const stopAlerts = useStopAlertCount();
 
   // 경로가 바뀌면(다른 페이지 이동) 모바일 메뉴를 닫는다.
   useEffect(() => {
@@ -100,6 +103,11 @@ export default function NavBar() {
                   onClick={() => setOpen(false)}
                 >
                   {link.label}
+                  {link.href === "/portfolio" && stopAlerts > 0 ? (
+                    <span className={styles.alertBadge} aria-label={`손절 경보 ${stopAlerts}건`}>
+                      {stopAlerts}
+                    </span>
+                  ) : null}
                 </Link>
               </li>
             );
