@@ -98,6 +98,22 @@
   color: var(--sell);
 }
 
+.volatChip {
+  font-size: 0.66rem;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--surface-2, #eef1f4);
+  color: var(--muted);
+}
+
+.lowConf {
+  font-size: 0.62rem;
+  font-weight: 600;
+  color: #b8791f;
+  margin-left: 4px;
+}
+
 .stageHint {
   font-size: 0.72rem;
   color: var(--muted);

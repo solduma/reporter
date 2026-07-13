@@ -151,10 +151,17 @@ def company_analysis(
     candles = company_service.ensure_day_candles(db, code)
     tech = technicals.compute(candles)
     _mid = stage.FRAMES["mid"]
-    _mid_dates = [c.bar_date.isoformat() for c in candles]
-    _rd, _rc = stage.resample_closes(_mid_dates, [c.close for c in candles], _mid.bar)
-    _rv = stage.resample_volumes(_mid_dates, [int(c.volume or 0) for c in candles], _mid.bar)
-    mid_stage = stage.classify(_rc, _mid.ma_period, _mid.slope_lookback, _rv)
+    _mid_b = stage.resample_ohlcv(
+        [c.bar_date.isoformat() for c in candles],
+        [c.high for c in candles],
+        [c.low for c in candles],
+        [c.close for c in candles],
+        [int(c.volume or 0) for c in candles],
+        _mid.bar,
+    )
+    mid_stage = stage.classify(
+        _mid_b.closes, _mid.ma_period, _mid.slope_lookback, _mid_b.volumes, _mid_b.highs, _mid_b.lows
+    )
     tech_axis = AnalysisAxis(
         key="technical",
         label="기술적 추세",
@@ -261,6 +268,8 @@ def company_trend(
                 ma_dir=result.stages[frame].ma_dir,
                 quality=result.stages[frame].quality,
                 volume_signal=result.stages[frame].volume_signal,
+                volatility=result.stages[frame].volatility,
+                low_confidence=result.low_confidence[frame],
             )
             for frame in ("short", "mid", "long")
         ],

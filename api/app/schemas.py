@@ -112,6 +112,8 @@ class StageFrame(BaseModel):
     ma_dir: str | None  # rising | flat | falling
     quality: float | None  # 추세 깨끗함 0~100(shape 신뢰도)
     volume_signal: str | None  # accumulation | distribution | neutral (축적/분산)
+    volatility: str | None  # contraction | expansion | normal (ATR 변동성 레짐)
+    low_confidence: bool = False  # 이력 부족(리샘플 봉 < 최소치)이면 True
 
 
 class StageSegment(BaseModel):

@@ -13,11 +13,16 @@ class _Bar:
     bar_date: date
     close: float
     volume: int = 1000
+    high: float = 0.0
+    low: float = 0.0
 
 
 def _series(n: int, fn) -> list[_Bar]:
     d0 = date(2024, 1, 1)
-    return [_Bar(bar_date=d0 + timedelta(days=i), close=fn(i)) for i in range(n)]
+    return [
+        _Bar(bar_date=d0 + timedelta(days=i), close=fn(i), high=fn(i) * 1.01, low=fn(i) * 0.99)
+        for i in range(n)
+    ]
 
 
 def test_compute_trend_uses_market_benchmark(monkeypatch):
