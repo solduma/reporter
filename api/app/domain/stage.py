@@ -41,6 +41,10 @@ DEEP_BELOW = 0.10
 DEEP_ABOVE = 0.07
 # 구간 방향 교정 임계: 국면과 반대로 이 비율 넘게 움직이면(하락 국면인데 +10%↑ 등) 바로잡는다.
 DIR_TOLERANCE = 0.10
+# 천정(Stg3) 구간이 실제로 이 비율 넘게 '상승'했다면 롤오버가 아니라 아직 상승 중이므로 상승(Stg2)
+# 으로 교정한다(고점이 구간 끝쪽). 강한 상승주의 계단식 마크업이 국지적 되돌림마다 천정으로 잡혀
+# 통째로 Stg3 구간이 되던 문제 보정. 신고가에서 롤오버한 진짜 천정은 순변화가 음(-)이라 안 걸린다.
+STG3_ADVANCE = 0.10
 
 _STAGE_LABELS = {1: "① 바닥", 2: "② 상승", 3: "③ 천정", 4: "④ 하락"}
 
@@ -517,7 +521,7 @@ def _decide(
     # 아니다 — 바닥은 가격이 MA 근처에서 다지는 형태라 이렇게 위로 벌어질 수 없다. 직전 상승 뒤
     # (long_ctx=up)면 상승 막바지 급등이 고점에서 도는 천정(Stg3). 파라볼릭 신고가 스파이크가
     # 바닥 Stg1 으로 잡히던 문제 보정(회귀창이 급등을 아직 양(+)으로 읽어도 MA 가 평탄해졌으면
-    # 상승 국면이 아니다). 직전 하락 뒤면 바닥 탈출 급반등일 수 있어 건드리지 않는다.
+    # 상승 국면이 아니다). 상승 초입 급등이 천정으로 오분류되는 건 방향 교정 후처리에서 걸러낸다.
     if price_pos == "above" and pos_ratio > DEEP_ABOVE and ma_dir != "rising" and long_ctx == "up":
         return 3
     # 레인지·라운딩 → 곡률로 바닥(U자)/천정(역U자). 단 천정(Stg3)은 직전 상승(long_ctx=up)일 때만.
@@ -647,6 +651,15 @@ def _direction_correct(
     if ret is None:
         return [seg]
     stg = seg["stage"]
+    # 천정(Stg3) 인데 구간이 실제로 크게 '상승'했고 고점이 끝쪽이면(=아직 롤오버 안 함) 천정이 아니라
+    # 상승(Stg2). 강한 상승주의 계단식 마크업이 국지적 되돌림마다 천정으로 잡혀 통째 Stg3 가 되던
+    # 문제 보정. 신고가에서 롤오버한 진짜 천정은 순변화가 음(-)이라 여기 안 걸린다.
+    if stg == 3 and ret > STG3_ADVANCE:
+        idxs = [i for i, item in enumerate(raw) if seg["from"] <= item[1] <= seg["to"]]
+        prices = [close_at[raw[i][1]] for i in idxs if raw[i][1] in close_at]
+        if prices and prices.index(max(prices)) >= len(prices) * 0.7:
+            seg["stage"] = 2  # 고점이 뒤쪽 70% 이후 → 상승 지속
+            return [seg]
     # 방향 일치(하락 국면=하락, 상승 국면=상승)거나 추세 국면이 아니면(1·3) 그대로.
     conflict = (stg == 4 and ret > DIR_TOLERANCE) or (stg == 2 and ret < -DIR_TOLERANCE)
     if not conflict:
