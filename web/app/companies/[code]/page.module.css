@@ -157,6 +157,32 @@
   padding: 8px 0;
 }
 
+/* 스크롤로 원본 컨트롤바가 화면 위로 벗어났을 때 상단 고정 플로팅 복제본.
+   NavBar(sticky, 60px, z-index 20) 바로 아래에 붙인다(z-index 는 nav 보다 낮게). */
+.controlBarFloating {
+  position: fixed;
+  top: 60px;
+  left: 0;
+  right: 0;
+  z-index: 15;
+  margin-bottom: 0;
+  padding: 10px 20px;
+  justify-content: center;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  animation: floatDown 0.15s ease-out;
+}
+
+@keyframes floatDown {
+  from {
+    transform: translateY(-100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
 .maLegend {
   display: flex;
   gap: 12px;
