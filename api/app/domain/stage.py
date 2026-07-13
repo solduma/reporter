@@ -588,11 +588,10 @@ def _seg_return(seg: dict, close_at: dict[str, float]) -> float | None:
 
 
 def _reversal_stage(stg: int, ret: float) -> int:
-    """국면과 방향이 어긋난 구간을 방향에 맞는 국면으로. 하락(4)인데 상승→크면 2·완만하면 1,
-    상승(2)인데 하락→크면 4·완만하면 3."""
-    if stg == 4:
-        return 2 if ret > 2 * DIR_TOLERANCE else 1
-    return 4 if ret < -2 * DIR_TOLERANCE else 3
+    """국면과 방향이 어긋난 구간을 전이 국면으로 완화한다. 하락(4)인데 되레 올랐으면 바닥 다지기
+    (Stg1), 상승(2)인데 되레 빠졌으면 천정 분산(Stg3). 본격 상승/하락(Stg2/4)은 가격이 MA 를
+    되찾은 뒤 raw 분류가 별도 구간으로 잡으므로, 여기선 MA 아래 반등/위 눌림을 전이로만 표기한다."""
+    return 1 if stg == 4 else 3
 
 
 def _direction_correct(
