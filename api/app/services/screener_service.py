@@ -1,12 +1,14 @@
-"""종목 스크리너 조회 서비스 — 성장·가치·이벤트드리븐 3전략(읽기 전용 쿼리 엔진).
+"""종목 스크리너 조회 서비스 — 종합·성장·가치·추세·탑다운 5전략(읽기 전용 쿼리 엔진).
 
-공통 유니버스(시총/유동성/시장/섹터) 위에 전략을 얹는다:
-- growth: 매출/영업이익 YoY·모멘텀·흑자전환 (GrowthMetric). 필터 통과 집합 내 백분위 스코어.
-- value: 저PER·저PBR / 고ROE·저PBR / 저EV-EBITDA (Financial 최신 분기). 저평가 백분위 스코어.
-- event: 최근 공시·리포트·급등락·브리핑·뉴스 이벤트. 최신·강도 스코어.
+공통 유니버스(시총/유동성/시장/섹터) 위에 전략을 얹고, 최근 이벤트는 모든 행에 컬럼으로 붙인다:
+- growth: 매출/영업이익 YoY·모멘텀·흑자전환 (GrowthMetric). 집합 내 백분위 스코어.
+- value: 저PER·저PBR·저EV-EBITDA + 고ROE·고배당 (Financial 최신 분기). 저평가 백분위 스코어.
+- trend: 기술적 추세 종합(사전계산 trend_score, 종목분석과 동일 4요소).
+- topdown: 종목이 속한 섹터의 국내/미국 수급 flow(섹터 flow 를 종목에 매핑).
+- overall(종합): 위 계산 가능한 축들의 단순 평균(테크노펀더멘탈 종합과 동일).
 
-라우터는 이 서비스의 screen() 에 쿼리 파라미터만 넘긴다. 스코어링 규칙은 domain.scoring,
-결과는 ScreenerResult 읽기모델(read-model)로 반환한다.
+라우터는 이 서비스의 screen() 에 쿼리 파라미터만 넘긴다. 스코어링 규칙은 domain.scoring/
+analysis_scoring, 결과는 ScreenerResult 읽기모델(read-model)로 반환한다.
 """
 
 from __future__ import annotations
@@ -23,20 +25,19 @@ from app.db.models import (
     GrowthMetric,
     Report,
     ReportAnalysis,
+    SectorTheme,
+    SectorThemeStock,
     Sentiment,
     StockEvent,
     UniverseSnapshot,
 )
-from app.domain import scoring
+from app.domain import analysis_scoring, scoring
 from app.schemas import ScreenerResult, ScreenerRow
-from app.services import sector_ingest, universe_ingest
+from app.services import sector_flow, sector_ingest, universe_ingest
+from reporter import sector_etf
 
 _COVERAGE_DAYS = 90
-_EVENT_DAYS = 14  # 이벤트 전략: 최근 N일 내 이벤트만
-
-_EVENT_KIND_LABEL = {
-    "disclosure": "공시", "report": "리포트", "surge": "급등락", "broadcast": "브리핑", "news": "뉴스",
-}
+_EVENT_DAYS = 14  # 이벤트 컬럼: 최근 N일 내 이벤트만
 
 
 def _latest_date(db: Session) -> date | None:
@@ -104,7 +105,6 @@ def screen(
     pbr_max: float | None,
     roe_min: float | None,
     div_min: float | None,
-    event_kind: str | None,
     market: str | None,
     sector: str | None,
     include_etf: bool,
@@ -171,8 +171,12 @@ def screen(
 
     if strategy == "value":
         return _screen_value(db, base, as_of, per_max, pbr_max, roe_min, div_min, sort, limit, offset)
-    if strategy == "event":
-        return _screen_event(db, base, as_of, event_kind, sort, limit, offset)
+    if strategy == "trend":
+        return _screen_trend(db, base, as_of, sort, limit, offset)
+    if strategy == "topdown":
+        return _screen_topdown(db, base, as_of, sort, limit, offset)
+    if strategy == "overall":
+        return _screen_overall(db, base, as_of, sort, limit, offset)
     return _screen_growth(db, base, as_of, sort, limit, offset)
 
 
@@ -190,7 +194,12 @@ def _screen_growth(db, base, as_of, sort, limit, offset) -> ScreenerResult:
         ]
         scored.sort(key=lambda x: (-x[1], x[0][0].stock_code))
         page = scored[offset : offset + limit]
-        items = [_to_row(r[0], r[1], r[2], r[3], score=score) for r, score in page]
+        ev = _representative_events(db, [r[0].stock_code for r, _ in page], as_of)
+        items = [
+            _to_row(r[0], r[1], r[2], r[3], score=score, growth_score=score,
+                    event=ev.get(r[0].stock_code))
+            for r, score in page
+        ]
     else:
         db_sort = {
             "market_cap": U.market_cap.asc(),
@@ -201,7 +210,11 @@ def _screen_growth(db, base, as_of, sort, limit, offset) -> ScreenerResult:
             "coverage": func.coalesce(base.selected_columns.cov_n, 0).desc(),
         }.get(sort, U.market_cap.asc())
         rows = db.execute(base.order_by(db_sort, U.stock_code).limit(limit).offset(offset)).all()
-        items = [_to_row(r[0], r[1], r[2], r[3], score=None) for r in rows]
+        ev = _representative_events(db, [r[0].stock_code for r in rows], as_of)
+        items = [
+            _to_row(r[0], r[1], r[2], r[3], score=None, event=ev.get(r[0].stock_code))
+            for r in rows
+        ]
     return ScreenerResult(as_of=as_of, total=total, items=items)
 
 
@@ -279,7 +292,12 @@ def _screen_value(
         scored = [(r, f, _value_score(f, per_rank, pbr_rank, ev_rank)) for r, f in kept]
         scored.sort(key=lambda x: (-x[2], x[0][0].stock_code))
         page = scored[offset : offset + limit]
-        items = [_to_row(r[0], r[1], r[2], r[3], fin=f, score=score) for r, f, score in page]
+        ev = _representative_events(db, [r[0].stock_code for r, _, _ in page], as_of)
+        items = [
+            _to_row(r[0], r[1], r[2], r[3], fin=f, score=score, value_score=score,
+                    event=ev.get(r[0].stock_code))
+            for r, f, score in page
+        ]
     else:
         key = {
             "market_cap": lambda rf: (rf[0][0].market_cap or 0),
@@ -288,7 +306,11 @@ def _screen_value(
         }[sort]
         kept.sort(key=lambda rf: (key(rf), rf[0][0].stock_code))
         page = kept[offset : offset + limit]
-        items = [_to_row(r[0], r[1], r[2], r[3], fin=f, score=None) for r, f in page]
+        ev = _representative_events(db, [r[0].stock_code for r, _ in page], as_of)
+        items = [
+            _to_row(r[0], r[1], r[2], r[3], fin=f, score=None, event=ev.get(r[0].stock_code))
+            for r, f in page
+        ]
     return ScreenerResult(as_of=as_of, total=total, items=items)
 
 
@@ -327,44 +349,169 @@ def _recent_events(db, codes: list[str], since: date) -> dict[str, dict[str, dic
     return ev
 
 
-def _screen_event(db, base, as_of, event_kind, sort, limit, offset) -> ScreenerResult:
-    since = datetime.now().date() - timedelta(days=_EVENT_DAYS)
+# ── 추세 전략(사전계산 trend_score) ────────────────────────────────────
+def _screen_trend(db, base, as_of, sort, limit, offset) -> ScreenerResult:
+    """기술적 추세 종합(trend_score) 정렬. trend_score 는 야간 배치가 사전계산(종목분석과 동일)."""
+    U = UniverseSnapshot
+    conds_base = base.where(U.trend_score.is_not(None))
+    total = db.scalar(select(func.count()).select_from(conds_base.subquery())) or 0
+    db_sort = {
+        "score": U.trend_score.desc().nulls_last(),
+        "market_cap": U.market_cap.asc(),
+        "change": U.change_pct.desc().nulls_last(),
+        "trading_value": U.trading_value.desc().nulls_last(),
+    }.get(sort, U.trend_score.desc().nulls_last())
+    rows = db.execute(conds_base.order_by(db_sort, U.stock_code).limit(limit).offset(offset)).all()
+    ev = _representative_events(db, [r[0].stock_code for r in rows], as_of)
+    items = [
+        _to_row(r[0], r[1], r[2], r[3], score=r[0].trend_score, event=ev.get(r[0].stock_code))
+        for r in rows
+    ]
+    return ScreenerResult(as_of=as_of, total=total, items=items)
+
+
+# ── 탑다운 전략(섹터 flow → 종목 매핑) ──────────────────────────────────
+def _stock_sector_map(db, codes: list[str]) -> dict[str, str | None]:
+    """종목 → 대표 국내 섹터. judal 테마명들을 sector_etf.themes_to_kr_sector 로 접어 정한다.
+    종목당 테마를 모아 한 번에 매핑(N+1 회피)."""
+    if not codes:
+        return {}
+    rows = db.execute(
+        select(SectorThemeStock.stock_code, SectorTheme.name)
+        .join(SectorTheme, SectorTheme.judal_idx == SectorThemeStock.judal_idx)
+        .where(SectorThemeStock.stock_code.in_(codes))
+    ).all()
+    themes: dict[str, list[str]] = {}
+    for code, name in rows:
+        themes.setdefault(code, []).append(name)
+    return {code: sector_etf.themes_to_kr_sector(names) for code, names in themes.items()}
+
+
+def _topdown_scores(db) -> dict[str, tuple[float | None, float | None]]:
+    """국내 섹터명 → (국내 flow, 미국 대응섹터 flow). 섹터 flow 는 소수라 1회 계산."""
+    kr_flows = {f.sector: f.flow_score for f in sector_flow.compute_flows("KR")}
+    us_flows = {f.sector: f.flow_score for f in sector_flow.compute_flows("US")}
+    out: dict[str, tuple[float | None, float | None]] = {}
+    for kr_sector in kr_flows:
+        us_sector = sector_etf.kr_sector_to_us(kr_sector)
+        out[kr_sector] = (kr_flows.get(kr_sector), us_flows.get(us_sector) if us_sector else None)
+    return out
+
+
+def _stock_topdown_score(kr_sector: str | None, flows: dict) -> float | None:
+    if kr_sector is None or kr_sector not in flows:
+        return None
+    kr_f, us_f = flows[kr_sector]
+    return analysis_scoring.topdown_flow_score(us_f, kr_f, None)
+
+
+def _screen_topdown(db, base, as_of, sort, limit, offset) -> ScreenerResult:
+    """종목이 속한 섹터의 국내/미국 수급 flow 로 탑다운 점수. 섹터 매핑 실패·flow 없으면 제외."""
     rows = list(db.execute(base).all())
     codes = [r[0].stock_code for r in rows]
-    ev_map = _recent_events(db, codes, since)
-    want_kind = _EVENT_KIND_LABEL.get(event_kind) if event_kind else None
-
-    def _event_of(r) -> dict | None:
-        u = r[0]
-        by_kind = dict(ev_map.get(u.stock_code, {}))
-        if u.change_pct is not None and abs(u.change_pct) >= 7.0:
-            by_kind.setdefault("급등락", {"kind": "급등락", "date": as_of, "summary": f"당일 {u.change_pct:+.1f}%"})
-        if not by_kind:
-            return None
-        if want_kind is not None:
-            return by_kind.get(want_kind)
-        return max(by_kind.values(), key=lambda e: e["date"])
-
-    kept = []
+    sector_map = _stock_sector_map(db, codes)
+    flows = _topdown_scores(db)
+    scored = []
     for r in rows:
-        ev = _event_of(r)
-        if ev is None:
+        kr_sec = sector_map.get(r[0].stock_code)
+        sc = _stock_topdown_score(kr_sec, flows)
+        if sc is None:
             continue
-        kept.append((r, ev))
-    total = len(kept)
-
+        scored.append((r, kr_sec, sc))
+    total = len(scored)
     if sort in ("market_cap", "change", "trading_value"):
         key = {
             "market_cap": lambda x: (x[0][0].market_cap or 0),
             "change": lambda x: -(x[0][0].change_pct or 0),
             "trading_value": lambda x: -(x[0][0].trading_value or 0),
         }[sort]
-        kept.sort(key=lambda x: (key(x), x[0][0].stock_code))
+        scored.sort(key=lambda x: (key(x), x[0][0].stock_code))
     else:
-        kept.sort(key=lambda x: (x[1]["date"], (x[0][0].trading_value or 0)), reverse=True)
-    page = kept[offset : offset + limit]
-    items = [_to_row(r[0], r[1], r[2], r[3], event=ev) for r, ev in page]
+        scored.sort(key=lambda x: (-x[2], x[0][0].stock_code))
+    page = scored[offset : offset + limit]
+    ev = _representative_events(db, [r[0].stock_code for r, _, _ in page], as_of)
+    items = [
+        _to_row(r[0], r[1], r[2], r[3], score=sc, topdown_score=sc, kr_sector=kr_sec,
+                event=ev.get(r[0].stock_code))
+        for r, kr_sec, sc in page
+    ]
     return ScreenerResult(as_of=as_of, total=total, items=items)
+
+
+# ── 종합 전략(계산 가능한 축 평균) ──────────────────────────────────────
+def _screen_overall(db, base, as_of, sort, limit, offset) -> ScreenerResult:
+    """성장·가치·추세·탑다운 중 계산 가능한 축의 단순 평균(테크노펀더멘탈 종합과 동일 규칙).
+
+    유니버스 전체에 4축을 매기려면 성장·가치 백분위 랭커를 필터 통과 집합 전체로 계산해야 하므로
+    한 번에 전 행을 스코어링한 뒤 상위를 페이지네이션한다."""
+    rows = list(db.execute(base).all())
+    codes = [r[0].stock_code for r in rows]
+
+    # 성장 백분위(집합 내)
+    rev_rank = scoring.percentile_ranker([r[1].revenue_yoy for r in rows if r[1]])
+    op_rank = scoring.percentile_ranker([r[1].op_yoy for r in rows if r[1]])
+    mom_rank = scoring.percentile_ranker([r[0].momentum_3m for r in rows])
+    # 가치 백분위(집합 내 저평가)
+    fin_map = _latest_financials(db, codes)
+    div_map = _latest_dividends(db, codes)
+    for c, fin in fin_map.items():
+        dy = div_map.get(c)
+        if dy is not None:
+            fin.div_yield = dy
+    per_rank = scoring.cheap_ranker([f.per for f in fin_map.values()])
+    pbr_rank = scoring.cheap_ranker([f.pbr for f in fin_map.values()])
+    ev_rank = scoring.cheap_ranker([f.ev_ebitda for f in fin_map.values()])
+    # 탑다운(섹터 flow)
+    sector_map = _stock_sector_map(db, codes)
+    flows = _topdown_scores(db)
+
+    scored = []
+    for r in rows:
+        u, g = r[0], r[1]
+        gsc = _growth_score(u, g, r[2], r[3], rev_rank, op_rank, mom_rank)
+        fin = fin_map.get(u.stock_code)
+        vsc = _value_score(fin, per_rank, pbr_rank, ev_rank) if fin else None
+        tsc = u.trend_score
+        kr_sec = sector_map.get(u.stock_code)
+        dsc = _stock_topdown_score(kr_sec, flows)
+        overall = analysis_scoring.overall([gsc, vsc, tsc, dsc])
+        if overall is None:
+            continue
+        scored.append((r, fin, kr_sec, gsc, vsc, tsc, dsc, overall))
+    total = len(scored)
+    if sort in ("market_cap", "change", "trading_value"):
+        key = {
+            "market_cap": lambda x: (x[0][0].market_cap or 0),
+            "change": lambda x: -(x[0][0].change_pct or 0),
+            "trading_value": lambda x: -(x[0][0].trading_value or 0),
+        }[sort]
+        scored.sort(key=lambda x: (key(x), x[0][0].stock_code))
+    else:
+        scored.sort(key=lambda x: (-x[7], x[0][0].stock_code))
+    page = scored[offset : offset + limit]
+    ev = _representative_events(db, [x[0][0].stock_code for x in page], as_of)
+    items = [
+        _to_row(
+            r[0], r[1], r[2], r[3], fin=fin, score=overall, growth_score=gsc, value_score=vsc,
+            trend_score=tsc, topdown_score=dsc, kr_sector=kr_sec, event=ev.get(r[0].stock_code),
+        )
+        for r, fin, kr_sec, gsc, vsc, tsc, dsc, overall in page
+    ]
+    return ScreenerResult(as_of=as_of, total=total, items=items)
+
+
+def _representative_events(db, codes: list[str], as_of: date) -> dict[str, dict]:
+    """종목별 대표(최신) 이벤트 1건 — 모든 전략 행에 컬럼으로 붙일 용도. 없으면 키 없음.
+
+    급등락(당일 |등락|≥7%)은 유니버스 스냅샷에서 이미 알 수 있으나, 여기선 실이벤트(공시·리포트·
+    브리핑·뉴스)만 최신 1건을 고른다(급등락은 등락률 컬럼으로 이미 보임)."""
+    since = as_of - timedelta(days=_EVENT_DAYS)
+    by_kind = _recent_events(db, codes, since)  # {code: {kind: {kind,date,summary}}}
+    rep: dict[str, dict] = {}
+    for code, kinds in by_kind.items():
+        if kinds:
+            rep[code] = max(kinds.values(), key=lambda e: e["date"])
+    return rep
 
 
 def _coverage_label(cov_n: int, buy_n: int) -> str | None:
@@ -374,7 +521,19 @@ def _coverage_label(cov_n: int, buy_n: int) -> str | None:
 
 
 def _to_row(
-    u, g, cov_n: int, buy_n: int, *, fin=None, event=None, score: float | None = None
+    u,
+    g,
+    cov_n: int,
+    buy_n: int,
+    *,
+    fin=None,
+    event=None,
+    score: float | None = None,
+    growth_score: float | None = None,
+    value_score: float | None = None,
+    trend_score: float | None = None,
+    topdown_score: float | None = None,
+    kr_sector: str | None = None,
 ) -> ScreenerRow:
     return ScreenerRow(
         stock_code=u.stock_code,
@@ -391,12 +550,16 @@ def _to_row(
         op_turnaround=bool(g.op_turnaround) if g else False,
         coverage_count=int(cov_n or 0),
         recent_sentiment=_coverage_label(int(cov_n or 0), int(buy_n or 0)),
-        growth_score=score if fin is None and event is None else None,
+        growth_score=growth_score,
+        value_score=value_score,
         per=fin.per if fin else None,
         pbr=fin.pbr if fin else None,
         roe=fin.roe if fin else None,
         ev_ebitda=fin.ev_ebitda if fin else None,
         div_yield=fin.div_yield if fin else None,
+        trend_score=trend_score if trend_score is not None else u.trend_score,
+        topdown_score=topdown_score,
+        kr_sector=kr_sector,
         event_kind=event["kind"] if event else None,
         event_summary=event["summary"] if event else None,
         event_date=event["date"] if event else None,

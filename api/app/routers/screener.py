@@ -1,4 +1,4 @@
-"""종목 스크리너 라우터 — 성장·가치·이벤트드리븐 3전략.
+"""종목 스크리너 라우터 — 종합·성장·가치·추세·탑다운 5전략.
 
 쿼리·전략 엔진은 services/screener_service 에 있고, 여기선 쿼리 파라미터를 받아 위임한다.
 """
@@ -17,7 +17,7 @@ router = APIRouter(prefix="/api/screener", tags=["screener"])
 
 @router.get("", response_model=ScreenerResult)
 def screen(
-    strategy: str = Query(default="growth", pattern="^(growth|value|event)$"),
+    strategy: str = Query(default="overall", pattern="^(overall|growth|value|trend|topdown)$"),
     mktcap_max: int | None = Query(default=None, description="시총 상한(원). None=전체"),
     mktcap_min: int | None = Query(default=None, description="시총 하한(원)"),
     liq_min: int | None = Query(default=100_000_000, description="거래대금 최소(원). 기본 1억"),
@@ -31,10 +31,6 @@ def screen(
     pbr_max: float | None = Query(default=None, description="PBR 상한"),
     roe_min: float | None = Query(default=None, description="ROE 하한(%)"),
     div_min: float | None = Query(default=None, description="시가배당률 하한(%)"),
-    # 이벤트 전략 필터
-    event_kind: str | None = Query(
-        default=None, pattern="^(disclosure|report|surge|broadcast|news)$", description="이벤트 유형"
-    ),
     # 공통
     market: str | None = Query(default=None, pattern="^(KOSPI|KOSDAQ)$"),
     sector: str | None = Query(default=None, description="섹터명(judal 테마 매칭 종목만)"),
@@ -60,7 +56,6 @@ def screen(
         pbr_max=pbr_max,
         roe_min=roe_min,
         div_min=div_min,
-        event_kind=event_kind,
         market=market,
         sector=sector,
         include_etf=include_etf,

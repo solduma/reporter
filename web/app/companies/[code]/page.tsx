@@ -14,6 +14,7 @@ import HoldingBadge from "@/components/HoldingBadge";
 import InfoDot from "@/components/InfoDot";
 import PeersTable from "@/components/PeersTable";
 import RealtimeQuoteBadge from "@/components/RealtimeQuoteBadge";
+import ScoreBreakdown from "@/components/ScoreBreakdown";
 import SectorCharts from "@/components/SectorCharts";
 import { STAGE_LEGEND } from "@/components/stageBands";
 import {
@@ -28,6 +29,7 @@ import { dateToTs, monthsAgoIso } from "@/lib/chartTime";
 import { addQuickPick } from "@/lib/quickPicks";
 import { useAutoTour } from "@/lib/useAutoTour";
 import type {
+  AnalysisAxis,
   CandlePoint,
   ChartTimeframe,
   CompanyAnalysis,
@@ -140,6 +142,14 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
   });
   const krSector = analysis.data?.topdown?.kr_sector ?? null;
   const market = analysis.data?.market ?? null;
+  // 축 key → AnalysisAxis(점수·근거). 각 지표 카드에 해당 축 점수 분해를 얹는다.
+  const axisByKey = useMemo(() => {
+    const map: Record<string, AnalysisAxis> = {};
+    for (const ax of analysis.data?.axes ?? []) {
+      map[ax.key] = ax;
+    }
+    return map;
+  }, [analysis.data]);
 
   const [financials, setFinancials] = useState<SectionState<FinancialPeriod[]>>({
     status: "loading",
@@ -557,19 +567,12 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
 
       {error ? <p className={styles.error}>API 연결 실패: {error}</p> : null}
 
-      {/* 분석 흐름 순: ① 스냅샷 → ② 종합분석 → ③ 탑다운차트 → ④ 밸류밴드 → ⑤ 동일업종 → ⑥ 타임라인(근거) */}
-      <section className={styles.chartCard} data-tour="snapshot">
-        <div className={styles.growthHead}>
-          <h2 className={styles.sectionTitle}>성장 지표</h2>
-          <span className={styles.growthTag}>성장주 스냅샷</span>
-        </div>
-        <GrowthMetrics code={code} />
-      </section>
-
+      {/* 순서: ① 테크노펀더멘탈 종합(최상단) → ② 성장 → ③ 가치 → ④ 추세 → ⑤ 탑다운 → 동일업종 → 타임라인.
+          각 지표 카드에 해당 축의 테크노펀더멘탈 점수 + 계산 근거(요소별 값·기여도)를 얹는다. */}
       <section className={styles.chartCard} data-tour="analysis">
         <div className={styles.growthHead}>
           <h2 className={styles.sectionTitle}>테크노펀더멘탈 분석</h2>
-          <span className={styles.growthTag}>성장·기술·탑다운</span>
+          <span className={styles.growthTag}>성장·가치·추세·탑다운</span>
         </div>
         <AnalysisPanel
           code={code}
@@ -579,23 +582,65 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
         />
       </section>
 
-      {/* 기술적 추세: 와인스타인 국면(단/중/장기) + Mansfield 상대강도. 국면은 아래 차트에 배경밴드로도. */}
+      <section className={styles.chartCard} data-tour="snapshot">
+        <div className={styles.growthHead}>
+          <h2 className={styles.sectionTitle}>성장 지표</h2>
+          <span className={styles.growthTag}>성장주 스냅샷</span>
+        </div>
+        <ScoreBreakdown axis={axisByKey.growth} />
+        <GrowthMetrics code={code} />
+      </section>
+
+      {/* 가치 지표: PER·PBR·PSR 분위수 밴드 (자체 date-range 슬라이더로 3개 차트 동시 조작) */}
+      <section className={styles.chartCard} data-tour="valuation">
+        <h2 className={styles.sectionTitle}>
+          가치 지표
+          <InfoDot termKey="band" />
+        </h2>
+        <ScoreBreakdown axis={axisByKey.value} />
+        {financials.status === "ready" && financials.data.length > 0 ? (
+          <>
+            {valuationRange && valuationAxis.length > 1 ? (
+              <div className={styles.controlBar}>
+                <DateRangeSlider
+                  dates={valuationAxis}
+                  from={valuationRange.from}
+                  to={valuationRange.to}
+                  onChange={(from, to) => setValuationRange({ from, to })}
+                />
+              </div>
+            ) : null}
+            <MultipleBandChart
+              data={financials.data}
+              range={valuationChartRange}
+              onRangeChange={handleValuationRangeChange}
+            />
+          </>
+        ) : (
+          <div className={styles.sectionStatus}>재무 데이터가 없습니다</div>
+        )}
+      </section>
+
+      {/* 추세 지표: 와인스타인 국면(단/중/장기) + Mansfield 상대강도. 국면은 아래 차트에 배경밴드로도. */}
       <section className={styles.chartCard}>
         <div className={styles.growthHead}>
-          <h2 className={styles.sectionTitle}>기술적 추세</h2>
+          <h2 className={styles.sectionTitle}>추세 지표</h2>
           <span className={styles.growthTag}>국면 · 상대강도</span>
         </div>
+        <ScoreBreakdown axis={axisByKey.technical} />
         <TrendPanel trend={trend.data} status={trend.status} message={trend.message} />
       </section>
 
-      {/* 탑다운 비교 차트: 지수 → 섹터 → 종목 → 재무. 공용 컨트롤바(분/일/주·기간·MA). */}
+      {/* 탑다운 지표(비교 차트): 지수 → 섹터 → 종목 → 재무. 공용 컨트롤바(분/일/주·기간·MA). */}
       <section className={styles.chartCard} ref={compareSectionRef}>
         <div className={styles.growthHead}>
           <div>
-            <h2 className={styles.sectionTitle}>탑다운 비교 차트</h2>
+            <h2 className={styles.sectionTitle}>탑다운 지표</h2>
             <p className={styles.compareSub}>지수 · 섹터 · 종목 · 재무를 같은 기간으로 함께 본다</p>
           </div>
         </div>
+
+        <ScoreBreakdown axis={axisByKey.topdown} />
 
         {renderControlBar(false)}
 
@@ -663,35 +708,6 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
             <div className={styles.sectionStatus}>재무 데이터가 없습니다</div>
           )}
         </div>
-      </section>
-
-      {/* PER · PBR · PSR 분위수 밴드 (자체 date-range 슬라이더로 3개 차트 동시 조작) */}
-      <section className={styles.chartCard} data-tour="valuation">
-        <h2 className={styles.sectionTitle}>
-          밸류에이션 밴드 (PER · PBR · PSR)
-          <InfoDot termKey="band" />
-        </h2>
-        {financials.status === "ready" && financials.data.length > 0 ? (
-          <>
-            {valuationRange && valuationAxis.length > 1 ? (
-              <div className={styles.controlBar}>
-                <DateRangeSlider
-                  dates={valuationAxis}
-                  from={valuationRange.from}
-                  to={valuationRange.to}
-                  onChange={(from, to) => setValuationRange({ from, to })}
-                />
-              </div>
-            ) : null}
-            <MultipleBandChart
-              data={financials.data}
-              range={valuationChartRange}
-              onRangeChange={handleValuationRangeChange}
-            />
-          </>
-        ) : (
-          <div className={styles.sectionStatus}>재무 데이터가 없습니다</div>
-        )}
       </section>
 
       <section className={styles.chartCard}>

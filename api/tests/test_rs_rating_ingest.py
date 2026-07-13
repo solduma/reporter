@@ -8,17 +8,24 @@ from app.services import rs_rating_ingest
 
 
 def test_run_rs_rating_batch_rates_and_updates(monkeypatch):
-    # 3종목: 상승·평탄·하락 → rating 이 상승 > 평탄 > 하락 순.
+    # 3종목: 상승·평탄·하락 → rating 이 상승 > 평탄 > 하락 순. OHLCV 봉으로 RS·추세 함께 계산.
     series = {
         "UP": [100.0 * (1.003**i) for i in range(300)],
         "FLAT": [100.0] * 300,
         "DOWN": [300.0 * (0.997**i) for i in range(300)],
     }
+
+    def _bars(db, code):
+        return [
+            rs_rating_ingest._Bar(close=c, high=c * 1.01, low=c * 0.99, volume=1000)
+            for c in series[code]
+        ]
+
     monkeypatch.setattr(
         rs_rating_ingest.universe_ingest, "latest_snapshot_date", lambda db: date(2026, 7, 10)
     )
     monkeypatch.setattr(rs_rating_ingest, "_universe_codes", lambda db, d: list(series))
-    monkeypatch.setattr(rs_rating_ingest, "_recent_closes", lambda db, code: series[code])
+    monkeypatch.setattr(rs_rating_ingest, "_recent_bars", _bars)
 
     updates: dict[str, int] = {}
 

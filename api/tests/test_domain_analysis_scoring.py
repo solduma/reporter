@@ -76,3 +76,19 @@ def test_sentiment_score_mapping():
     assert s.SENTIMENT_SCORE["BUY"] == 1.0
     assert s.SENTIMENT_SCORE["HOLD"] == 0.0
     assert s.SENTIMENT_SCORE["SELL"] == -1.0
+
+
+def test_value_score_absolute_band():
+    # 저PBR·저PER·저EV(백분위 1)+ROE·배당 가점 → 만점 근처. 결측은 재정규화로 흡수.
+    hi = s.value_score(per=5, pbr=0.5, ev_ebitda=3, roe=20, div_yield=6,
+                       per_rank=1.0, pbr_rank=1.0, ev_rank=1.0)
+    lo = s.value_score(per=50, pbr=5, ev_ebitda=30, roe=1, div_yield=0,
+                       per_rank=0.0, pbr_rank=0.0, ev_rank=0.0)
+    assert hi is not None and lo is not None and hi > lo
+    assert hi >= 90  # 저평가 백분위 만점 + 가점
+    # 전부 결측 → None.
+    assert s.value_score(None, None, None, None, None, None, None, None) is None
+    # 일부만 있어도 남은 가중치로 재정규화(PBR 백분위 1 만 있으면 100).
+    only_pbr = s.value_score(per=None, pbr=0.5, ev_ebitda=None, roe=None, div_yield=None,
+                             per_rank=None, pbr_rank=1.0, ev_rank=None)
+    assert only_pbr == 100.0

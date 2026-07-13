@@ -14,6 +14,10 @@ const AXIS_INFO: Record<string, { what: string; guide: string }> = {
     what: "매출·영업이익이 얼마나 빠르게 크는지(성장주 관점).",
     guide: "60↑ 고성장 축, 40↓ 정체. 같은 후보군 내 상대 점수.",
   },
+  value: {
+    what: "저평가 정도(저PER·저PBR·저EV/EBITDA + 고ROE·고배당).",
+    guide: "60↑ 저평가 우위, 40↓ 고평가. 자산·수익가치 기준.",
+  },
   technical: {
     what: "주가 추세·모멘텀(신고가 근접·이평 정배열·거래량).",
     guide: "60↑ 상승 추세 강함(주도주 성격), 40↓ 약함.",
@@ -49,14 +53,15 @@ function scoreText(score: number | null): string {
 }
 
 function AxisCard({ axis }: { axis: AnalysisAxis }) {
+  const info = AXIS_INFO[axis.key];
+  // 계산 방식 설명: 서버 method 우선, 없으면 초보자 축 설명으로 폴백.
+  const methodText = axis.method ?? info?.what;
   return (
     <div className={styles.axis}>
       <div className={styles.axisHead}>
         <span className={styles.axisLabel}>
           {axis.label}
-          {AXIS_INFO[axis.key] ? (
-            <InfoDot what={AXIS_INFO[axis.key].what} guide={AXIS_INFO[axis.key].guide} />
-          ) : null}
+          {info ? <InfoDot what={info.what} guide={info.guide} /> : null}
         </span>
         <span className={`${styles.axisScore} ${scoreClass(axis.score)}`}>
           {scoreText(axis.score)}
@@ -70,6 +75,39 @@ function AxisCard({ axis }: { axis: AnalysisAxis }) {
           </div>
         ))}
       </dl>
+      {axis.factors && axis.factors.length > 0 ? (
+        <div className={styles.factorBlock}>
+          <span className={styles.factorHead}>
+            점수 근거
+            {methodText ? <InfoDot what={`계산 방식: ${methodText}`} /> : null}
+          </span>
+          <ul className={styles.factorList}>
+            {axis.factors.map((f) => {
+              const contrib = f.norm === null ? null : Math.round(f.norm * f.weight * 100);
+              const pct = f.norm === null ? 0 : Math.round(f.norm * 100);
+              return (
+                <li key={f.label} className={styles.factorRow}>
+                  <span className={styles.factorLabel} title={f.label}>
+                    {f.label}
+                  </span>
+                  <span className={styles.factorVal}>{f.value}</span>
+                  <span className={styles.factorBar} aria-hidden>
+                    <span className={styles.factorBarFill} style={{ width: `${pct}%` }} />
+                  </span>
+                  <span
+                    className={styles.factorContrib}
+                    title={`가중치 ${Math.round(f.weight * 100)}% · 기여 ${
+                      contrib === null ? "제외" : `${contrib}점`
+                    }`}
+                  >
+                    {contrib === null ? "—" : `+${contrib}`}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ) : null}
     </div>
   );
 }

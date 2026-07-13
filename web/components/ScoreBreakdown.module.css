@@ -1,0 +1,105 @@
+.wrap {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  background: var(--surface);
+  margin-bottom: 12px;
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.score {
+  font-size: 1.5rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.max {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--muted);
+  margin-left: 2px;
+}
+
+.high {
+  color: var(--buy);
+}
+.mid {
+  color: var(--hold);
+}
+.low {
+  color: var(--sell);
+}
+.na {
+  color: var(--muted);
+}
+
+.factors {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+/* 요소: 라벨 · 값 · 기여도 막대 · 기여 점수. 그리드로 정렬 맞춤. */
+.factor {
+  display: grid;
+  grid-template-columns: minmax(90px, 1.2fr) minmax(48px, auto) minmax(60px, 2fr) 34px;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.78rem;
+}
+
+.fLabel {
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fValue {
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.fBarTrack {
+  height: 6px;
+  background: var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.fBarFill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 999px;
+}
+
+.fBarNa {
+  background: transparent;
+}
+
+.fWeight {
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: var(--accent);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}

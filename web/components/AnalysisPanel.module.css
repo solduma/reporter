@@ -53,11 +53,17 @@
 
 .axes {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 980px) {
+  .axes {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
   .axes {
     grid-template-columns: 1fr;
   }
@@ -129,6 +135,74 @@
   font-size: 0.85rem;
   font-weight: 600;
   color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 점수 근거(요소별 값·기여도 막대) — 각 축 카드 하단. */
+.factorBlock {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
+
+.factorHead {
+  display: block;
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.factorList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.factorRow {
+  display: grid;
+  grid-template-columns: minmax(52px, 1fr) auto minmax(28px, 1.1fr) 26px;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+}
+
+.factorLabel {
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.factorVal {
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.factorBar {
+  height: 5px;
+  background: var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.factorBarFill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 999px;
+}
+
+.factorContrib {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--accent);
+  text-align: right;
   font-variant-numeric: tabular-nums;
 }
 

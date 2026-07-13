@@ -59,29 +59,110 @@
   color: #fff;
 }
 
-/* 이벤트 전략 셀 */
+/* 이벤트 컬럼(모든 전략 공통) — 배지 + 요약을 한 셀에 */
 .eventBadge {
   color: var(--accent);
   background: var(--accent-soft);
 }
 
+.eventCell {
+  max-width: 220px;
+}
+
+.eventWrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+}
+
 .eventSummary {
-  max-width: 260px;
+  max-width: 150px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+/* 종합 탭 축별 미니 점수 셀 */
+.miniScoreCell {
+  text-align: center;
+}
+
+.miniScore {
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 탑다운 섹터명 셀 */
+.sectorCell {
   color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 140px;
 }
 
 .filters {
   display: flex;
   flex-direction: column;
-  gap: 14px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
-  padding: 18px 20px;
+  padding: 12px 16px;
+}
+
+/* 필터 접기/펼치기 토글 — 접힌 상태가 기본이라 상단 공간을 아낀다. */
+.filterToggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  background: transparent;
+  border: none;
+  padding: 2px 0;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.filterToggleLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.filterCount {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.filterToggleHint {
+  font-size: 0.82rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.filterBody {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
 }
 
 .filterGroup {

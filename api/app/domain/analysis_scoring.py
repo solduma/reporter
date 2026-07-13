@@ -54,6 +54,39 @@ def overall(scores: list[float | None]) -> float | None:
     return round(sum(vals) / len(vals), 1) if vals else None
 
 
+# ── 가치 축(종목 분석) ────────────────────────────────────────────────
+def value_score(
+    per: float | None,
+    pbr: float | None,
+    ev_ebitda: float | None,
+    roe: float | None,
+    div_yield: float | None,
+    per_rank: float | None,
+    pbr_rank: float | None,
+    ev_rank: float | None,
+) -> float | None:
+    """가치 점수(0~100). 저PBR·저PER·저EV/EBITDA 저평가 백분위 + 고ROE·고배당 가점.
+
+    per_rank/pbr_rank/ev_rank 는 후보군 내 저평가 백분위(0~1, 낮을수록 1) — 단독 조회 시
+    None 이면 해당 항목 제외. 절대 가점(ROE 15%↑ 만점, 배당 5%↑ 만점)은 밴드 없이 clamp.
+    스크리너의 백분위 value_score(scoring.py)와 규칙·가중치 동일하나 결측을 재정규화로 흡수.
+    """
+    parts: list[tuple[float, float]] = []
+    if pbr_rank is not None:
+        parts.append((pbr_rank, 0.35))
+    if per_rank is not None:
+        parts.append((per_rank, 0.28))
+    if ev_rank is not None:
+        parts.append((ev_rank, 0.17))
+    if roe is not None:
+        parts.append((clamp01(roe / 15.0), 0.12))
+    if div_yield is not None:
+        parts.append((clamp01(div_yield / 5.0), 0.08))
+    if not parts:
+        return None
+    return round(sum(v * w for v, w in parts) / sum(w for _, w in parts) * 100, 1)
+
+
 # ── 탑다운 축(수급 섹터 flow) ─────────────────────────────────────────
 def topdown_flow_score(
     us_flow: float | None, kr_flow: float | None, kr_index_rising: bool | None

@@ -51,11 +51,20 @@ export interface AnalysisMetric {
   value: string;
 }
 
+export interface ScoreFactor {
+  label: string; // 요소명 (예: "매출 YoY")
+  value: string; // 원시값 표시
+  norm: number | null; // 0~1 정규화값 (기여도 = norm*weight)
+  weight: number; // 가중치
+}
+
 export interface AnalysisAxis {
-  key: string; // growth | technical | topdown
+  key: string; // growth | value | technical | topdown
   label: string;
   score: number | null; // 0~100
   metrics: AnalysisMetric[];
+  method?: string | null; // 점수 계산 방식 설명(hover)
+  factors?: ScoreFactor[]; // 점수 요소별 근거(값·정규화·가중치)
 }
 
 export interface TopDownView {
@@ -328,8 +337,8 @@ export interface RealtimeQuote {
 
 export type ScreenerMarket = "KOSPI" | "KOSDAQ";
 
-// 스크리너 전략: growth(성장) · value(가치) · event(이벤트드리븐)
-export type ScreenerStrategy = "growth" | "value" | "event";
+// 스크리너 전략: overall(종합) · growth(성장) · value(가치) · trend(추세) · topdown(탑다운)
+export type ScreenerStrategy = "overall" | "growth" | "value" | "trend" | "topdown";
 
 // score(전략 스코어, 기본) · market_cap · rev_yoy · momentum · trading_value · change · coverage
 export type ScreenerSort =
@@ -360,7 +369,8 @@ export interface ScreenerRow {
   revenue_yoy: number | null; // 매출 YoY 비율 (0.28 = +28%)
   op_yoy: number | null; // 영업이익 YoY 비율
   op_turnaround: boolean; // 흑자전환 여부
-  growth_score: number | null; // 성장 전략 스코어(하위호환)
+  growth_score: number | null; // 성장 스코어
+  value_score: number | null; // 가치 스코어
   coverage_count: number; // 최근 90일 리포트 수, 커버리지 없으면 0
   recent_sentiment: "BUY" | "HOLD" | null; // 커버리지 있으면 BUY/HOLD, 없으면 null
   // 가치 전략(Financial 최신 분기)
@@ -369,8 +379,12 @@ export interface ScreenerRow {
   roe: number | null;
   ev_ebitda: number | null;
   div_yield: number | null; // 시가배당률(%)
-  // 이벤트 전략
-  event_kind: string | null; // 공시|리포트|급등락|브리핑
+  // 추세/탑다운
+  trend_score: number | null; // 기술적 추세 종합 0~100
+  topdown_score: number | null; // 섹터 수급(탑다운) 0~100
+  kr_sector: string | null; // 대표 국내 섹터
+  // 이벤트(모든 행 컬럼)
+  event_kind: string | null; // 공시|리포트|급등락|브리핑|뉴스
   event_summary: string | null;
   event_date: string | null; // YYYY-MM-DD
   // 전략별 스코어(0~100). 어느 전략이든 채워진다.

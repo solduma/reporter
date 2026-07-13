@@ -50,4 +50,4 @@ def test_partial_scores_still_summarize():
     # 일부 축만 계산돼도(대형주 성장 None 등) 나머지로 요약.
     r = j.summarize(65, {"growth": None, "technical": 70, "topdown": 62})
     assert r.signal in {"fit", "watch"}
-    assert any("기술" in s for s in r.strengths)
+    assert any("추세" in s for s in r.strengths)
