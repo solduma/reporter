@@ -221,6 +221,8 @@ export interface StageFrame {
   ma_dir: "rising" | "flat" | "falling" | null;
   quality: number | null; // 추세 깨끗함 0~100(shape 신뢰도)
   volume_signal: "accumulation" | "distribution" | "neutral" | null;
+  volatility: "contraction" | "expansion" | "normal" | null;
+  low_confidence?: boolean; // 이력 부족(장기 프레임 등)이면 true
 }
 
 export interface StageSegment {

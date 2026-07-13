@@ -28,21 +28,26 @@ const VOL_CHIP: Record<string, { label: string; cls: string }> = {
   accumulation: { label: "축적", cls: styles.volAccum },
   distribution: { label: "분산", cls: styles.volDistrib },
 };
+// 변동성 레짐 칩. 수축=베이스 다지기(바닥 성격), 확장=돌파/클라이맥스(천정 성격).
+const VOLATILITY_CHIP: Record<string, string> = { contraction: "수축", expansion: "확장" };
 
 function StageBadge({ f }: { f: StageFrame }) {
   const style = f.stage ? STAGE_STYLE[f.stage] : null;
   const meta = FRAME_META[f.frame];
   const vol = f.volume_signal ? VOL_CHIP[f.volume_signal] : null;
+  const volat = f.volatility ? VOLATILITY_CHIP[f.volatility] : null;
   return (
     <div className={styles.stageItem}>
       <span className={styles.frameLabel}>
         {meta.label} <span className={styles.frameSpan}>{meta.span}</span>
+        {f.low_confidence ? <span className={styles.lowConf}>이력 부족</span> : null}
       </span>
       <span className={styles.stageLine}>
         <span className={`${styles.stageBadge} ${style?.cls ?? styles.stageNa}`}>
           {f.label ?? "—"}
         </span>
         {vol ? <span className={`${styles.volChip} ${vol.cls}`}>{vol.label}</span> : null}
+        {volat ? <span className={styles.volatChip}>{volat}</span> : null}
       </span>
       {style ? <span className={styles.stageHint}>{style.hint}</span> : null}
       <span className={styles.maPeriod}>
@@ -146,7 +151,7 @@ export default function TrendPanel({ trend, status, message }: Props) {
           <span className={styles.blockTitle}>와인스타인 국면</span>
           <InfoDot
             what="주가가 추세상 어느 국면(바닥→상승→천정→하락)에 있는지. 가격·이평 위치·곡선 모양·거래량으로 판별."
-            guide="② 상승이 매수존, ④ 하락은 회피. 단기=일봉·중기=주봉(와인스타인 30주)·장기=월봉. 축적=상승에 거래량 실림(우호), 분산=하락에 거래량 실림(경계)."
+            guide="② 상승이 매수존, ④ 하락은 회피. 단기=일봉·중기=주봉(와인스타인 30주)·장기=월봉. 축적/분산=거래량 방향, 수축=베이스 다지기·확장=돌파/과열. '이력 부족'은 데이터가 짧아 신뢰도 낮음."
           />
         </div>
         <div className={styles.stages}>

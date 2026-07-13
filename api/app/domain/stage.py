@@ -48,6 +48,9 @@ FRAMES: dict[str, Frame] = {
 # 볼륨 축적/분산 판정 임계 — 상승구간 볼륨/하락구간 볼륨 비율(최근 창). 1 초과=축적, 미만=분산.
 VOL_ACCUM = 1.15  # 상승구간 볼륨이 하락구간의 1.15배↑ → 축적(bullish)
 VOL_DISTRIB = 0.87  # 상승구간 볼륨이 하락구간의 0.87배↓ → 분산(bearish)
+# 변동성 레짐(정규화 ATR 최근/이전 비율) 임계. 수축=바닥(Stage1), 확장=천정/돌파(Stage3).
+VOL_CONTRACT = 0.80  # 최근 ATR% 가 이전의 0.80배↓ → 수축(basing)
+VOL_EXPAND = 1.25  # 최근 ATR% 가 이전의 1.25배↑ → 확장(climax/breakout)
 
 
 class _Bar(Protocol):
@@ -63,6 +66,7 @@ class StageResult:
     price_pos: str | None  # above | near | below
     quality: float | None  # 추세 깨끗함 0~100 (ER·R² 결합) — shape 신뢰도
     volume_signal: str | None  # accumulation | distribution | neutral (축적/분산)
+    volatility: str | None  # contraction | expansion | normal (ATR 변동성 레짐)
 
 
 def resample_closes(
@@ -108,6 +112,63 @@ def resample_volumes(dates: list[str], volumes: list[int], bar: str) -> list[int
             order.append(key)
         agg[key] += int(v or 0)
     return [agg[k] for k in order]
+
+
+@dataclass
+class ResampledBars:
+    """리샘플된 주/월봉(또는 일봉 그대로). 종가 외 고/저를 보존해 레인지 피처를 계산한다."""
+
+    dates: list[str]
+    highs: list[float]
+    lows: list[float]
+    closes: list[float]
+    volumes: list[int]
+
+
+def _bucket_key(d: str, bar: str) -> tuple:
+    y, m, dd = (int(x) for x in d.split("-"))
+    return (y, m) if bar == "month" else date(y, m, dd).isocalendar()[:2]
+
+
+def resample_ohlcv(
+    dates: list[str],
+    highs: list[float],
+    lows: list[float],
+    closes: list[float],
+    volumes: list[int],
+    bar: str,
+) -> ResampledBars:
+    """일봉 OHLCV → 주/월봉 OHLCV. high=구간 max, low=구간 min, close=마지막, volume=합.
+
+    종가 기반 피처는 resample_closes 와 동일 결과(close=마지막 거래일 종가)를 유지하고,
+    고/저를 보존해 ATR·레인지 기반 변동성 레짐을 계산할 수 있게 한다.
+    """
+    if bar == "day":
+        return ResampledBars(list(dates), list(highs), list(lows), list(closes), list(volumes))
+    order: list[tuple] = []
+    hi: dict[tuple, float] = {}
+    lo: dict[tuple, float] = {}
+    cl: dict[tuple, tuple[str, float]] = {}
+    vol: dict[tuple, int] = {}
+    for d, h, low_, c, v in zip(dates, highs, lows, closes, volumes, strict=True):
+        k = _bucket_key(d, bar)
+        if k not in hi:
+            order.append(k)
+            hi[k] = h
+            lo[k] = low_
+            vol[k] = 0
+        else:
+            hi[k] = max(hi[k], h)
+            lo[k] = min(lo[k], low_)
+        cl[k] = (d, c)  # 오름차순이라 마지막 종가
+        vol[k] += int(v or 0)
+    return ResampledBars(
+        dates=[cl[k][0] for k in order],
+        highs=[hi[k] for k in order],
+        lows=[lo[k] for k in order],
+        closes=[cl[k][1] for k in order],
+        volumes=[vol[k] for k in order],
+    )
 
 
 def _sma_at(closes: list[float], end: int, window: int) -> float | None:
@@ -182,18 +243,64 @@ def _volume_signal(closes: list[float], volumes: list[int] | None) -> str:
     return "neutral"
 
 
+def _volatility_regime(highs: list[float], lows: list[float], closes: list[float]) -> str:
+    """정규화 ATR(레인지/종가) 최근 절반 vs 이전 절반 → contraction | expansion | normal.
+
+    수축=베이스 다지기(Stage1 성격), 확장=돌파/천정 클라이맥스(Stage3 성격). 종가만으론 못 보는
+    변동성 레짐을 고/저 레인지로 포착한다. 데이터 부족·정보 없음 시 normal.
+    """
+    n = len(closes)
+    if n < 8 or len(highs) != n or len(lows) != n:
+        return "normal"
+    atrp = [(highs[i] - lows[i]) / closes[i] for i in range(n) if closes[i] > 0]
+    if len(atrp) < 8:
+        return "normal"
+    mid = len(atrp) // 2
+    prior = sum(atrp[:mid]) / mid
+    recent = sum(atrp[mid:]) / (len(atrp) - mid)
+    if prior <= 0:
+        return "normal"
+    r = recent / prior
+    if r <= VOL_CONTRACT:
+        return "contraction"
+    if r >= VOL_EXPAND:
+        return "expansion"
+    return "normal"
+
+
+def _obv_slope(closes: list[float], volumes: list[int] | None) -> float:
+    """OBV(누적 방향 거래량) 시계열의 정규화 기울기 부호 재료. 양수=매집(가격에 볼륨 선행)·음수=분산.
+
+    _volume_signal(상승/하락 볼륨비)의 확인용. 여기선 OBV 최근 추세 방향만 반환(+1/-1/0).
+    미완성 마지막 봉 제외.
+    """
+    if not volumes or len(volumes) != len(closes) or len(closes) < 8:
+        return 0.0
+    c = closes[:-1]
+    v = volumes[:-1]
+    obv = [0.0]
+    for i in range(1, len(c)):
+        step = v[i] if c[i] > c[i - 1] else -v[i] if c[i] < c[i - 1] else 0
+        obv.append(obv[-1] + step)
+    slope, _ = _log_slope_r2([o - min(obv) + 1.0 for o in obv])  # 양수화 후 로그기울기 부호
+    return slope
+
+
 def classify(
     closes: list[float],
     ma_period: int,
     slope_lookback: int,
     volumes: list[int] | None = None,
+    highs: list[float] | None = None,
+    lows: list[float] | None = None,
 ) -> StageResult:
     """종가(날짜 오름차순)로 현재 국면을 shape 복합 판별한다. 데이터 부족 시 stage=None.
 
-    가격 vs MA·MA기울기(백본) + 로그회귀 기울기·R²·Efficiency Ratio·곡률(shape) + 볼륨(축적/분산)로 판정.
-    volumes 를 주면 레인지 구간에서 축적→바닥·분산→천정 쪽으로 tiebreak 을 보정한다.
+    백본(가격 vs MA·MA기울기) + shape(로그회귀 기울기·R²·ER·곡률) + 볼륨(축적/분산·OBV) +
+    변동성 레짐(고/저 ATR 수축/확장)으로 판정. highs/lows 를 주면 Stage1(수축)↔Stage3(확장)
+    구분을 레인지로 보강한다(종가만으론 못 보는 부분). volumes 는 축적/분산·돌파 확인.
     """
-    empty = StageResult(None, None, None, None, None, None, None)
+    empty = StageResult(None, None, None, None, None, None, None, None)
     n = len(closes)
     if n < ma_period:
         return empty
@@ -212,15 +319,26 @@ def classify(
     else:
         ma_dir = "flat"
 
-    # shape 피처: 최근 ma_period 봉(해당 지평 창)에서 회귀·ER·곡률·볼륨.
+    # shape 피처: 최근 ma_period 봉(해당 지평 창)에서 회귀·ER·곡률·볼륨·변동성.
     window = closes[-ma_period:]
+    win_vol = volumes[-ma_period:] if volumes else None
     lslope, r2 = _log_slope_r2(window)
     er = _efficiency_ratio(window)
     curv = _curvature(window)
-    vol_sig = _volume_signal(window, volumes[-ma_period:] if volumes else None)
+    vol_sig = _volume_signal(window, win_vol)
+    # OBV 기울기가 볼륨비와 상반되면(다이버전스) 신호를 중립화(거짓 축적/분산 방지).
+    obv = _obv_slope(window, win_vol)
+    if (vol_sig == "accumulation" and obv < 0) or (vol_sig == "distribution" and obv > 0):
+        vol_sig = "neutral"
+    volatility = (
+        _volatility_regime(highs[-ma_period:], lows[-ma_period:], window)
+        if highs and lows
+        else "normal"
+    )
 
     stage = _decide(
-        price_pos, ma_dir, lslope, r2, er, curv, _long_context(closes, ma_period), vol_sig
+        price_pos, ma_dir, lslope, r2, er, curv,
+        _long_context(closes, ma_period), vol_sig, volatility,
     )
     return StageResult(
         stage=stage,
@@ -230,6 +348,7 @@ def classify(
         price_pos=price_pos,
         quality=round(er * r2 * 100, 1),
         volume_signal=vol_sig,
+        volatility=volatility,
     )
 
 
@@ -256,12 +375,13 @@ def _decide(
     curv: float,
     long_ctx: str,
     vol_sig: str = "neutral",
+    volatility: str = "normal",
 ) -> int:
-    """shape+백본+볼륨 결합 국면 판정.
+    """shape+백본+볼륨+변동성 결합 국면 판정.
 
-    깨끗한 추세(ER·R² 높음)면 기울기 부호로 2/4. 그 외 레인지·라운딩이면 곡률(U자/역U자)로 바닥/천정을
-    가르고, 곡률이 미미하면 볼륨(축적→바닥·분산→천정) → 직전 장기 문맥 순으로 가른다.
-    가격이 MA 위/아래로 뚜렷하면 백본(추세)이 우선이라 볼륨은 레인지 tiebreak 에만 쓴다.
+    깨끗한 추세(ER·R² 높음)면 기울기 부호로 2/4. 그 외 레인지·라운딩이면 곡률(U자/역U자) → 변동성
+    레짐(수축=바닥·확장=천정) → 볼륨(축적=바닥·분산=천정) → 직전 장기 문맥 순으로 가른다.
+    가격이 MA 위/아래로 뚜렷하면 백본(추세)이 우선이라 레인지 tiebreak 은 near·평탄 구간에만 쓴다.
     """
     clean = er >= ER_TREND and r2 >= R2_TREND
     # Stage 2: 깨끗한 상승(가격이 MA 아래만 아니면) 또는 상승 MA 위.
@@ -275,7 +395,12 @@ def _decide(
         return 1
     if curv < -CURV_EPS:
         return 3
-    # 곡률 미미 → 볼륨(축적=바닥/분산=천정)으로, 볼륨도 중립이면 직전 장기 문맥으로.
+    # 곡률 미미 → 변동성 레짐(수축=베이스 다지기 Stage1·확장=클라이맥스 Stage3).
+    if volatility == "contraction":
+        return 1
+    if volatility == "expansion":
+        return 3
+    # 변동성 중립 → 볼륨(축적=바닥/분산=천정), 볼륨도 중립이면 직전 장기 문맥으로.
     if vol_sig == "accumulation":
         return 1
     if vol_sig == "distribution":

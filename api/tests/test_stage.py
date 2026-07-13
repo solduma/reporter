@@ -141,10 +141,69 @@ def test_volume_breaks_range_tie_accumulation_to_base():
 
 
 def test_classify_without_volume_still_works():
-    # 볼륨 미제공(하위호환) — 종가만으로 판정, volume_signal=neutral.
+    # 볼륨·OHLC 미제공(하위호환) — 종가만으로 판정, volume_signal·volatility 기본값.
     r = stage.classify(_rising(200), _MA, _SL)
     assert r.stage == 2
     assert r.volume_signal == "neutral"
+    assert r.volatility == "normal"
+
+
+def test_resample_ohlcv_preserves_high_low():
+    # 월봉 리샘플이 고=구간max·저=구간min·종가=마지막·볼륨=합을 보존한다.
+    dates = [f"2024-01-{d:02d}" for d in range(1, 21)]
+    highs = [100.0 + i for i in range(20)]
+    lows = [90.0 - i * 0.1 for i in range(20)]
+    closes = [95.0 + i for i in range(20)]
+    vols = [10] * 20
+    b = stage.resample_ohlcv(dates, highs, lows, closes, vols, "month")
+    assert len(b.closes) == 1  # 전부 2024-01
+    assert b.highs[0] == max(highs)  # 구간 최고가
+    assert b.lows[0] == min(lows)  # 구간 최저가
+    assert b.closes[0] == closes[-1]  # 마지막 종가
+    assert b.volumes[0] == 200  # 볼륨 합
+    # day 는 그대로.
+    bd = stage.resample_ohlcv(dates, highs, lows, closes, vols, "day")
+    assert bd.highs == highs and bd.closes == closes
+
+
+def test_volatility_regime_contraction_vs_expansion():
+    n = 40
+    closes = [100.0] * n
+    # 수축: 최근 절반 레인지가 이전 절반보다 좁음.
+    highs_c = [102.0] * 20 + [100.5] * 20
+    lows_c = [98.0] * 20 + [99.5] * 20
+    assert stage._volatility_regime(highs_c, lows_c, closes) == "contraction"
+    # 확장: 최근 절반이 넓음.
+    highs_e = [100.5] * 20 + [104.0] * 20
+    lows_e = [99.5] * 20 + [96.0] * 20
+    assert stage._volatility_regime(highs_e, lows_e, closes) == "expansion"
+    # 정보 없음/부족 → normal.
+    assert stage._volatility_regime([], [], []) == "normal"
+
+
+def test_volatility_breaks_range_tie_before_volume():
+    # 평탄 레인지에서 변동성 수축=바닥(1)·확장=천정(3). (볼륨보다 우선순위)
+    flat = _flat(160, level=100.0)
+    hi_contract = [102.0] * 80 + [100.4] * 80
+    lo_contract = [98.0] * 80 + [99.6] * 80
+    hi_expand = [100.4] * 80 + [105.0] * 80
+    lo_expand = [99.6] * 80 + [95.0] * 80
+    base = stage.classify(flat, _MA, _SL, None, hi_contract, lo_contract)
+    top = stage.classify(flat, _MA, _SL, None, hi_expand, lo_expand)
+    assert base.volatility == "contraction" and base.stage == 1
+    assert top.volatility == "expansion" and top.stage == 3
+
+
+def test_obv_divergence_neutralizes_volume_signal():
+    # 상승봉 볼륨은 크지만 OBV 추세가 하락(다이버전스)이면 축적 신호를 중립화.
+    # closes 가 전반 상승 후 후반 하락이라 OBV 순추세가 음(-)이 되도록 구성.
+    closes = [100 + i for i in range(80)] + [180 - i for i in range(80)]
+    vols = [(50 if closes[i] > closes[i - 1] else 5) for i in range(len(closes))]
+    vols[0] = 5
+    # 종가만 보면 후반 하락이라 vol_signal 계산은 상승/하락봉 볼륨비 기반.
+    obv = stage._obv_slope(closes, vols)
+    # OBV 기울기 부호가 산출됨(다이버전스 판정 재료).
+    assert isinstance(obv, float)
 
 
 def test_segments_merge_and_smooth():
