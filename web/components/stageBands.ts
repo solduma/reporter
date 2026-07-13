@@ -12,13 +12,21 @@ import type {
 // 반투명 색으로 캔들 뒤(zOrder bottom)에 칠해 "지금 어느 국면 구간인지"를 한눈에 보인다.
 // timeDividers.ts 와 동일한 primitive 구조.
 
-// 국면별 색(반투명). 2=상승(빨강계)·4=하락(파랑계)·1=바닥(회색)·3=천정(노랑).
+// 국면별 배경밴드 색(반투명). 2=상승(빨강계)·4=하락(파랑계)·1=바닥(회색)·3=천정(노랑).
 const STAGE_COLOR: Record<number, string> = {
   1: "rgba(120, 130, 140, 0.06)",
   2: "rgba(192, 43, 43, 0.08)",
   3: "rgba(232, 163, 61, 0.10)",
   4: "rgba(43, 108, 192, 0.09)",
 };
+
+// 레전드용 국면 스와치(배경밴드보다 진한 대표색) + 라벨. 배경밴드 색과 톤을 맞춘 단일 소스.
+export const STAGE_LEGEND: { stage: number; label: string; swatch: string }[] = [
+  { stage: 1, label: "① 바닥", swatch: "rgba(120, 130, 140, 0.45)" },
+  { stage: 2, label: "② 상승", swatch: "rgba(192, 43, 43, 0.45)" },
+  { stage: 3, label: "③ 천정", swatch: "rgba(232, 163, 61, 0.55)" },
+  { stage: 4, label: "④ 하락", swatch: "rgba(43, 108, 192, 0.45)" },
+];
 
 export interface StageBand {
   stage: number;
