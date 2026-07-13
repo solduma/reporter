@@ -328,6 +328,7 @@ class GrowthMetric(Base):
     revenue_yoy: Mapped[float | None] = mapped_column(Float)
     op_yoy: Mapped[float | None] = mapped_column(Float)
     op_turnaround: Mapped[bool] = mapped_column(default=False)
+    op_status: Mapped[str | None] = mapped_column(String(8))  # 흑자전환|흑자지속|적자전환|적자지속
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

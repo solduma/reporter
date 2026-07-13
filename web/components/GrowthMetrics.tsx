@@ -60,6 +60,17 @@ function growthClass(value: number | null): string {
   return value > 0 ? styles.gpos : styles.gneg;
 }
 
+// 영업손익 4상태 배지: 흑자전환은 강조(turnaround), 흑자지속은 초록, 적자전환/적자지속은 빨강.
+function opStatusClass(status: string): string {
+  if (status === "흑자전환") {
+    return styles.turnaround;
+  }
+  if (status === "흑자지속") {
+    return `${styles.statusBadge} ${styles.statusPos}`;
+  }
+  return `${styles.statusBadge} ${styles.statusNeg}`;
+}
+
 export default function GrowthMetrics({ code }: { code: string }) {
   const [state, setState] = useState<State>({ status: "loading", data: null });
 
@@ -154,21 +165,18 @@ export default function GrowthMetrics({ code }: { code: string }) {
 
       <div className={styles.tile}>
         <span className={styles.label}>영업이익 YoY</span>
-        {g.op_turnaround ? (
-          <span className={styles.value}>
-            <span className={styles.turnaround}>흑자전환</span>
-          </span>
-        ) : (
-          <span
-            className={
-              g.op_yoy === null
-                ? `${styles.value} ${styles.muted}`
-                : `${styles.value} ${growthClass(g.op_yoy)}`
-            }
-          >
-            {formatYoy(g.op_yoy)}
-          </span>
-        )}
+        <span
+          className={
+            g.op_yoy === null
+              ? `${styles.value} ${styles.muted}`
+              : `${styles.value} ${growthClass(g.op_yoy)}`
+          }
+        >
+          {formatYoy(g.op_yoy)}
+        </span>
+        {g.op_status ? (
+          <span className={opStatusClass(g.op_status)}>{g.op_status}</span>
+        ) : null}
         {periodLabel ? <span className={styles.sub}>{periodLabel}</span> : null}
       </div>
 

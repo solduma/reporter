@@ -196,7 +196,8 @@ export interface CompanyGrowth {
   momentum_3m: number | null; // 3개월 수익률 %
   revenue_yoy: number | null; // 매출 YoY 비율 (0.25 = +25%)
   op_yoy: number | null; // 영업이익 YoY 비율
-  op_turnaround: boolean; // 흑자전환 여부
+  op_turnaround: boolean; // 흑자전환 여부(적자→흑자)
+  op_status: string | null; // 흑자전환|흑자지속|적자전환|적자지속
   period: string | null; // 기준 분기 "YYYY.MM"
   coverage_count: number; // 최근 90일 리포트 수
   buy_ratio: number | null; // 최근 90일 BUY 비율 0~1
