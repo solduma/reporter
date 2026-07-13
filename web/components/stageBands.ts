@@ -72,16 +72,61 @@ class StagePaneView implements IPrimitivePaneView {
   constructor(
     private readonly chart: IChartApi,
     private readonly bands: StageBand[],
+    // 차트 축에 실제로 존재하는 캔들 시각(오름차순). 밴드 경계를 이 축에 스냅하는 데 쓴다.
+    private readonly axisTimes: number[],
   ) {}
 
-  update(): void {
+  // 밴드 경계(임의의 일봉 날짜)를 차트 축 좌표로. 축에 정확히 없는 시각(주봉·분봉)이면
+  // timeToCoordinate 가 null 을 주므로, 축 캔들 시각 중 가장 가까운 것으로 스냅한 뒤 좌표화한다.
+  private coord(time: Time): number | null {
     const ts = this.chart.timeScale();
+    const direct = ts.timeToCoordinate(time);
+    if (direct !== null) {
+      return direct as number;
+    }
+    if (this.axisTimes.length === 0) {
+      return null;
+    }
+    const target = toEpoch(time);
+    // 가장 가까운 축 시각 이진 탐색.
+    let lo = 0;
+    let hi = this.axisTimes.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (this.axisTimes[mid] < target) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
+    }
+    // lo 는 target 이상 첫 인덱스. 이웃과 비교해 더 가까운 쪽 선택.
+    const cand = [this.axisTimes[lo]];
+    if (lo > 0) {
+      cand.push(this.axisTimes[lo - 1]);
+    }
+    let best: number | null = null;
+    let bestDist = Infinity;
+    for (const c of cand) {
+      const x = ts.timeToCoordinate(epochToTime(c, time));
+      if (x === null) {
+        continue;
+      }
+      const dist = Math.abs(c - target);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = x as number;
+      }
+    }
+    return best;
+  }
+
+  update(): void {
     const rects: { x1: number; x2: number; color: string }[] = [];
     for (const b of this.bands) {
-      const x1 = ts.timeToCoordinate(b.from);
-      const x2 = ts.timeToCoordinate(b.to);
-      if (x1 !== null && x2 !== null) {
-        rects.push({ x1: x1 as number, x2: x2 as number, color: STAGE_COLOR[b.stage] ?? "transparent" });
+      const x1 = this.coord(b.from);
+      const x2 = this.coord(b.to);
+      if (x1 !== null && x2 !== null && x2 > x1) {
+        rects.push({ x1, x2, color: STAGE_COLOR[b.stage] ?? "transparent" });
       }
     }
     this.rects = rects;
@@ -97,12 +142,33 @@ class StagePaneView implements IPrimitivePaneView {
   }
 }
 
+// Time(YYYY-MM-DD 문자열 또는 UTCTimestamp 초) → epoch 초. 스냅 거리 비교용.
+function toEpoch(time: Time): number {
+  if (typeof time === "number") {
+    return time;
+  }
+  if (typeof time === "string") {
+    return Date.parse(`${time}T00:00:00Z`) / 1000;
+  }
+  // BusinessDay 객체.
+  const d = time as { year: number; month: number; day: number };
+  return Date.UTC(d.year, d.month - 1, d.day) / 1000;
+}
+
+// epoch 초 → 원본 Time 과 같은 표현(문자열축이면 YYYY-MM-DD, 숫자축이면 초)으로 되돌린다.
+function epochToTime(epoch: number, sample: Time): Time {
+  if (typeof sample === "number") {
+    return epoch as Time;
+  }
+  return new Date(epoch * 1000).toISOString().slice(0, 10) as Time;
+}
+
 // 국면 구간 목록을 받아 배경밴드를 그리는 series primitive.
 export class StageBands implements ISeriesPrimitive<Time> {
   private readonly views: StagePaneView[];
 
-  constructor(chart: IChartApi, bands: StageBand[]) {
-    this.views = [new StagePaneView(chart, bands)];
+  constructor(chart: IChartApi, bands: StageBand[], axisTimes: number[] = []) {
+    this.views = [new StagePaneView(chart, bands, axisTimes)];
   }
 
   attached(_param: SeriesAttachedParameter<Time, SeriesType>): void {}

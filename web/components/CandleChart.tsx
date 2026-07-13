@@ -220,11 +220,17 @@ export default function CandleChart({
     }
 
     // 와인스타인 국면 배경밴드(있으면). 캔들 뒤에 칠해 국면 구간을 표시.
+    // 밴드 경계는 일봉 날짜라 주봉·분봉 축엔 정확히 없다 → 축 캔들 시각(epoch 초)을 넘겨
+    // 가까운 봉으로 스냅해 칠하게 한다(일봉이 아니어도 오버레이 적용).
     if (stageBands && stageBands.length > 0) {
+      const axisEpochs = data.map((p) =>
+        timeframe === "30m" ? Date.parse(`${p.t}Z`) / 1000 : Date.parse(`${p.t.slice(0, 10)}T00:00:00Z`) / 1000,
+      );
       candleSeries.attachPrimitive(
         new StageBands(
           chart,
           stageBands.map((b) => ({ stage: b.stage, from: b.from, to: b.to })),
+          axisEpochs,
         ),
       );
     }
