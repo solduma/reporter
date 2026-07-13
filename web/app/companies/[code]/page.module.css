@@ -183,3 +183,32 @@
   font-weight: 600;
   color: var(--text);
 }
+
+/* 종목 차트 배경밴드(국면) 범례 */
+.stageLegend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.stageLegendCaption {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.stageLegendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+
+.stageLegendDot {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+}

@@ -14,6 +14,7 @@ import InfoDot from "@/components/InfoDot";
 import PeersTable from "@/components/PeersTable";
 import RealtimeQuoteBadge from "@/components/RealtimeQuoteBadge";
 import SectorCharts from "@/components/SectorCharts";
+import { STAGE_LEGEND } from "@/components/stageBands";
 import {
   fetchCandles,
   fetchCompanyAnalysis,
@@ -560,6 +561,17 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
         {/* 종목 */}
         <div className={styles.compareStock}>
           <h3 className={styles.subHead}>{displayName} (종목)</h3>
+          {stageBands && stageBands.length > 0 ? (
+            <div className={styles.stageLegend} aria-label="차트 배경색 국면 범례">
+              <span className={styles.stageLegendCaption}>배경색 = 중기 국면</span>
+              {STAGE_LEGEND.map((s) => (
+                <span key={s.stage} className={styles.stageLegendItem}>
+                  <span className={styles.stageLegendDot} style={{ background: s.swatch }} />
+                  {s.label}
+                </span>
+              ))}
+            </div>
+          ) : null}
           {stockChart}
         </div>
 
