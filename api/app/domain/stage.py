@@ -479,9 +479,12 @@ def _decide(
     if price_pos == "below":
         if basing:
             return 1
-        # 하락(Stg4): 가파른 하락 or (하락세 slope<0 이면서 가속 하락 or 매도 클라이맥스).
-        declining = slope <= -STEEP_SLOPE or (
-            slope < 0 and (curv < -CURV_EPS or volatility == "expansion")
+        # 하락(Stg4): 가파른 하락 or (하락세 slope<0 이면서 가속 하락 or 매도 클라이맥스)
+        #             or (가격이 하락 중인 MA 아래에 머무름 — 완만해도 하락 국면 지속).
+        declining = (
+            slope <= -STEEP_SLOPE
+            or (slope < 0 and (curv < -CURV_EPS or volatility == "expansion"))
+            or (ma_dir == "falling" and slope < 0)
         )
         if declining:
             return 4
