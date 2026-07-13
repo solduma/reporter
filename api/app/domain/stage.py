@@ -566,11 +566,18 @@ def segments(
             cand_from = d
             cand_len = 1
         if cand_stage != committed_stage:
-            # 강한 전환: 추세 반전(2↔4) 또는 가격 위치가 확정 국면 대비 반대편(above↔below).
-            strong = {committed_stage, cand_stage} == {2, 4} or (
-                committed_pos in ("above", "below")
-                and pos in ("above", "below")
-                and pos != committed_pos
+            # 강한 전환(빠른 확정): 추세 반전(2↔4), 가격 위치가 확정 국면 대비 반대편(above↔below),
+            # 또는 MA 하향 이탈 하락(4·below)·상향 돌파 상승(2·above)으로의 진입. 바닥에서의 급락이나
+            # 급반등이 min_run 문턱에 걸려 흡수되던 문제 방지(예: 코로나 급락은 바닥에서 진입).
+            strong = (
+                {committed_stage, cand_stage} == {2, 4}
+                or (
+                    committed_pos in ("above", "below")
+                    and pos in ("above", "below")
+                    and pos != committed_pos
+                )
+                or (cand_stage == 4 and pos == "below")
+                or (cand_stage == 2 and pos == "above")
             )
             need = reversal_run if strong else min_run
             if cand_len >= need:
@@ -586,7 +593,8 @@ def segments(
     close_at = dict(zip(dates, closes, strict=True))
     corrected: list[dict] = []
     for seg in out:
-        corrected.extend(_direction_correct(seg, close_at, raw))
+        for piece in _direction_correct(seg, close_at, raw):
+            corrected.extend(_tail_correct(piece, raw))
     return _merge_adjacent(corrected)
 
 
@@ -640,6 +648,39 @@ def _direction_correct(
     # (진짜 상승/하락으로 발전하면 raw 분류가 별도 Stg2/Stg4 구간을 이미 만들었을 것)
     tail_stage = 1 if stg == 4 else 3
     tail = {"stage": tail_stage, "from": prices[piv + 1][0], "to": seg["to"]}
+    return [front, tail]
+
+
+_TAIL_MIN_BARS = 4  # 꼬리로 인정할 최소 연속 봉수(이보다 짧으면 MA 지연으로 보고 무시)
+_TAIL_MIN_FRAC = 0.25  # 구간 대비 꼬리 비율 하한(이보다 짧으면 전환 아님)
+
+
+def _tail_correct(seg: dict, raw: list[tuple[int, str, str]]) -> list[dict]:
+    """방향 교정으로도 남는 '꼬리 전환'을 분리한다. 하락(4) 구간 끝이 MA 를 되찾은 반등으로
+    길게 이어지거나(=바닥 진입), 상승(2) 구간 끝이 MA 아래로 길게 눌리면(=천정 진입) 그 꼬리를
+    전이 국면(1/3)으로 잘라낸다. V자 급락 후 급반등이 통째로 파랑(Stg4)으로 칠해지던 문제 방지."""
+    stg = seg["stage"]
+    if stg not in (2, 4):
+        return [seg]
+    pos = [item[2] for item in raw if seg["from"] <= item[1] <= seg["to"]]
+    n = len(pos)
+    if n < _TAIL_MIN_BARS * 2:
+        return [seg]
+    reclaimed = "below" if stg == 4 else "above"  # 국면 정의상 계속돼야 할 위치(4=below, 2=above)
+    # 끝쪽에서 그 위치를 벗어나 MA 를 되찾은(near 이상) 연속 봉 = 반등/눌림 꼬리.
+    # 깨끗한 추세는 끝까지 reclaimed 쪽(4는 below, 2는 above)이라 run=0 → 자르지 않는다.
+    run = 0
+    for p in reversed(pos):
+        if p == reclaimed:
+            break
+        run += 1
+    if run < _TAIL_MIN_BARS or run < n * _TAIL_MIN_FRAC:
+        return [seg]
+    # 꼬리 시작 봉의 날짜.
+    seg_dates = [item[1] for item in raw if seg["from"] <= item[1] <= seg["to"]]
+    tail_from = seg_dates[n - run]
+    front = {"stage": stg, "from": seg["from"], "to": _prev_day(raw, tail_from)}
+    tail = {"stage": 1 if stg == 4 else 3, "from": tail_from, "to": seg["to"]}
     return [front, tail]
 
 
