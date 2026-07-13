@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import AnalysisPanel from "@/components/AnalysisPanel";
 import { MA_DEFS } from "@/components/CandleChart";
@@ -121,6 +121,10 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
   const [timeframe, setTimeframe] = useState<Timeframe>("day");
   // 배경밴드로 볼 국면 프레임(단기 일봉 / 중기 주봉 / 장기 월봉). 기본 중기.
   const [stageFrame, setStageFrame] = useState<"short" | "mid" | "long">("mid");
+  // 탑다운 컨트롤바(봉전환·기간 슬라이더)가 스크롤로 화면 위로 벗어나면 플로팅으로 띄운다.
+  const controlBarRef = useRef<HTMLDivElement>(null); // 원본 컨트롤바(가시성 기준)
+  const compareSectionRef = useRef<HTMLElement>(null); // 탑다운 섹션(하단 노출 판단용)
+  const [floatControls, setFloatControls] = useState(false);
   const [candlesByTf, setCandlesByTf] = useState<Partial<Record<Timeframe, CandlePoint[]>>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -372,6 +376,32 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
     setDateRange((prev) => (prev && prev.from === from && prev.to === to ? prev : { from, to }));
   }, []);
 
+  // 플로팅 컨트롤바 표시 판정: (1) 원본 컨트롤바가 sticky NavBar(60px) 아래로 가려졌고,
+  // (2) 탑다운 섹션 하단이 화면 절반보다 아래로 노출돼 있을 때만 띄운다. 스크롤 업으로 원본이
+  // 다시 나타나거나, 섹션 하단이 화면 절반 이하로 올라오면 숨긴다.
+  useEffect(() => {
+    const NAV_H = 60; // sticky NavBar 높이 — 원본이 이 아래로 가리면 '벗어남'으로 본다
+    const onScroll = () => {
+      const bar = controlBarRef.current;
+      const section = compareSectionRef.current;
+      if (!bar || !section) {
+        return;
+      }
+      const mid = window.innerHeight / 2;
+      const barBottom = bar.getBoundingClientRect().bottom;
+      const sectionBottom = section.getBoundingClientRect().bottom;
+      // 원본이 nav 아래로 가려짐 & 섹션 하단이 화면 중앙보다 아래(아직 절반 이상 노출).
+      setFloatControls(barBottom <= NAV_H && sectionBottom > mid);
+    };
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll);
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+    };
+  }, []);
+
   // 밸류에이션 밴드 슬라이더의 날짜축 — 재무 분기말 'YYYY-MM-DD' 오름차순(중복 제거).
   const valuationAxis = useMemo(() => {
     const isos = financials.data
@@ -461,8 +491,52 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
     return <PeersTable peers={peers.data} baseCode={code} />;
   }, [peers, code]);
 
+  // 공용 컨트롤바(봉 전환·기간 슬라이더·MA 레전드). floating=true 면 화면 상단 고정 플로팅.
+  // 원본에는 ref 를 달아 가시성을 추적하고, 플로팅은 원본이 벗어났을 때만 렌더한다.
+  const renderControlBar = (floating: boolean) => (
+    <div
+      ref={floating ? undefined : controlBarRef}
+      className={floating ? `${styles.controlBar} ${styles.controlBarFloating}` : styles.controlBar}
+    >
+      <div className={styles.tabs} role="tablist" aria-label="봉 종류">
+        {VIEWS.map((v) => {
+          const on = v.id === timeframe;
+          return (
+            <button
+              key={v.id}
+              type="button"
+              role="tab"
+              aria-selected={on}
+              className={on ? `${styles.tab} ${styles.active}` : styles.tab}
+              onClick={() => setTimeframe(v.id)}
+            >
+              {v.label}
+            </button>
+          );
+        })}
+      </div>
+      {dateRange && dateAxis.length > 1 ? (
+        <DateRangeSlider
+          dates={dateAxis}
+          from={dateRange.from}
+          to={dateRange.to}
+          onChange={(from, to) => setDateRange({ from, to })}
+        />
+      ) : null}
+      <div className={styles.maLegend} aria-label="이동평균선">
+        {MA_DEFS.map((m) => (
+          <span key={m.period} className={styles.maItem}>
+            <span className={styles.maDot} style={{ background: m.color }} />
+            MA{m.period}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+
   return (
     <div className={styles.page}>
+      {floatControls ? renderControlBar(true) : null}
       <header className={styles.head}>
         <h1 className={styles.title}>{displayName}</h1>
         <span className={styles.code}>{summary?.stock_code ?? code}</span>
@@ -506,7 +580,7 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
       </section>
 
       {/* 탑다운 비교 차트: 지수 → 섹터 → 종목 → 재무. 공용 컨트롤바(분/일/주·기간·MA). */}
-      <section className={styles.chartCard}>
+      <section className={styles.chartCard} ref={compareSectionRef}>
         <div className={styles.growthHead}>
           <div>
             <h2 className={styles.sectionTitle}>탑다운 비교 차트</h2>
@@ -514,41 +588,7 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
           </div>
         </div>
 
-        <div className={styles.controlBar}>
-          <div className={styles.tabs} role="tablist" aria-label="봉 종류">
-            {VIEWS.map((v) => {
-              const on = v.id === timeframe;
-              return (
-                <button
-                  key={v.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={on}
-                  className={on ? `${styles.tab} ${styles.active}` : styles.tab}
-                  onClick={() => setTimeframe(v.id)}
-                >
-                  {v.label}
-                </button>
-              );
-            })}
-          </div>
-          {dateRange && dateAxis.length > 1 ? (
-            <DateRangeSlider
-              dates={dateAxis}
-              from={dateRange.from}
-              to={dateRange.to}
-              onChange={(from, to) => setDateRange({ from, to })}
-            />
-          ) : null}
-          <div className={styles.maLegend} aria-label="이동평균선">
-            {MA_DEFS.map((m) => (
-              <span key={m.period} className={styles.maItem}>
-                <span className={styles.maDot} style={{ background: m.color }} />
-                MA{m.period}
-              </span>
-            ))}
-          </div>
-        </div>
+        {renderControlBar(false)}
 
         {/* 지수 → 섹터 (2열 국장|미장) */}
         {krSector ? (
