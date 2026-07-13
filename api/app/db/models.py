@@ -314,6 +314,7 @@ class UniverseSnapshot(Base):
     three_month_rate: Mapped[float | None] = mapped_column(Float)  # 네이버 제공(대개 결측)
     momentum_3m: Mapped[float | None] = mapped_column(Float)  # price_candles 로 계산한 3개월 수익률%
     rs_rating: Mapped[int | None] = mapped_column(SmallInteger)  # IBD RS Rating 1~99(전종목 백분위)
+    trend_score: Mapped[float | None] = mapped_column(Float)  # 기술적 추세 종합 0~100(야간 배치, 종목분석과 동일)
 
 
 class GrowthMetric(Base):

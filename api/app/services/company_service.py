@@ -137,6 +137,35 @@ def financials_rows(db: Session, code: str) -> list[Financial]:
     )
 
 
+def latest_valuation(db: Session, code: str) -> Financial | None:
+    """가치 축용 최신 밸류에이션 Financial(비추정). per/pbr 있는 행을 최신순 우선(반쪽 연간행
+    이 최신으로 잡혀 누락되는 것 방지). 결산분기 배당(div_yield)을 in-memory 로 보정해 붙인다."""
+    has_value = case((or_(Financial.per.is_not(None), Financial.pbr.is_not(None)), 0), else_=1)
+    fin = db.scalars(
+        select(Financial)
+        .where(Financial.stock_code == code, Financial.is_estimate.is_(False))
+        .order_by(has_value.asc(), Financial.period.desc())
+        .limit(1)
+    ).first()
+    if fin is None:
+        return None
+    if fin.div_yield is None:  # 배당은 결산분기(.12)에만 있어 별도로 최신값을 끌어온다
+        dy = db.scalar(
+            select(Financial.div_yield)
+            .where(
+                Financial.stock_code == code,
+                Financial.is_estimate.is_(False),
+                Financial.div_yield.is_not(None),
+                Financial.period.like("%.12"),
+            )
+            .order_by(Financial.period.desc())
+            .limit(1)
+        )
+        if dy is not None:
+            fin.div_yield = dy  # 읽기 전용 보정(커밋 안 함)
+    return fin
+
+
 def financials_fresh(db: Session, code: str) -> bool:
     return sync_state.is_fresh(db, "financials", code, _FINANCIALS_TTL)
 

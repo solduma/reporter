@@ -121,12 +121,3 @@ def test_value_score_dividend_bonus():
     hi = screener._value_score(_F(per=10.0, pbr=10.0, div_yield=5.0), per_rank, pbr_rank, ev_rank)
     lo = screener._value_score(_F(per=10.0, pbr=10.0, div_yield=0.0), per_rank, pbr_rank, ev_rank)
     assert hi > lo
-
-
-# ── 이벤트 전략 ────────────────────────────────────────────────────────
-def test_event_kind_label_map():
-    # event_kind 쿼리 파라미터 → 표시 라벨 매핑.
-    assert screener._EVENT_KIND_LABEL["disclosure"] == "공시"
-    assert screener._EVENT_KIND_LABEL["surge"] == "급등락"
-    assert screener._EVENT_KIND_LABEL["broadcast"] == "브리핑"
-    assert screener._EVENT_KIND_LABEL["report"] == "리포트"

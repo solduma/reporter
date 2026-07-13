@@ -1,25 +1,38 @@
-"""IBD RS Rating 배치 — 전 유니버스의 가격 모멘텀 강도지수를 백분위(1~99)로 적재.
+"""IBD RS Rating + 기술적 추세 배치 — 전 유니버스의 가격지표를 price_candles 로 사전계산.
 
-price_candles(백필 완료)만 읽어 계산하므로 외부 fetch 가 없다. 종목별 강도지수를 구한 뒤
-전 종목 횡단면 백분위로 rs_rating 을 매겨 universe_snapshot 에 UPDATE 한다(야간 배치).
+price_candles(백필 완료)만 읽어 계산하므로 외부 fetch 가 없다(야간 배치). 종목별로:
+- RS Rating: 강도지수를 구해 전 종목 횡단면 백분위(1~99)로 매긴다.
+- trend_score: 종목분석과 동일한 4요소(신고가 근접·이평 정배열·거래량비·3개월 수익률) 종합 0~100.
+둘 다 같은 OHLCV 를 한 번 읽어 계산하고 universe_snapshot 에 UPDATE 한다.
 """
 
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from datetime import date
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import PriceCandle, Timeframe, UniverseSnapshot
-from app.domain import rs_rating
+from app.domain import rs_rating, technicals
 from app.services import universe_ingest
 
 logger = logging.getLogger(__name__)
 
-# 강도지수 계산에 필요한 최소 봉 수(1년치)보다 여유롭게 최근분만 읽어 메모리·시간 절약.
+# 강도지수(1년)·이평 정배열(120일) 계산에 필요한 봉보다 여유롭게 최근분만 읽어 메모리·시간 절약.
 _LOOKBACK_BARS = 300
+
+
+@dataclass
+class _Bar:
+    """technicals.compute 가 요구하는 봉 인터페이스(close/high/low/volume)."""
+
+    close: float
+    high: float
+    low: float
+    volume: int
 
 
 def _universe_codes(db: Session, snap_date: date) -> list[str]:
@@ -31,46 +44,63 @@ def _universe_codes(db: Session, snap_date: date) -> list[str]:
     return list(db.scalars(stmt).all())
 
 
-def _recent_closes(db: Session, code: str) -> list[float]:
-    """종목의 최근 일봉 종가(오름차순). 강도지수 계산에 필요한 만큼만 읽는다."""
-    rows = db.scalars(
-        select(PriceCandle.close)
+def _recent_bars(db: Session, code: str) -> list[_Bar]:
+    """종목의 최근 일봉 OHLCV(오름차순). RS·추세 계산에 필요한 만큼만 읽는다."""
+    rows = db.execute(
+        select(PriceCandle.close, PriceCandle.high, PriceCandle.low, PriceCandle.volume)
         .where(PriceCandle.stock_code == code, PriceCandle.timeframe == Timeframe.DAY)
         .order_by(PriceCandle.bar_date.desc())
         .limit(_LOOKBACK_BARS)
     ).all()
-    return list(reversed(rows))  # desc 로 읽었으니 뒤집어 오름차순
+    return [_Bar(r[0], r[1], r[2], int(r[3] or 0)) for r in reversed(rows)]
 
 
 def run_rs_rating_batch(db: Session) -> dict:
-    """전 유니버스의 RS Rating(1~99)을 계산·적재한다. 처리 종목 수를 반환한다."""
+    """전 유니버스의 RS Rating(1~99)·추세 점수(0~100)를 계산·적재한다. 처리 종목 수를 반환한다."""
     snap_date = universe_ingest.latest_snapshot_date(db)
     if not snap_date:
         return {"rated": 0, "total": 0}
 
     codes = _universe_codes(db, snap_date)
-    # 1) 종목별 강도지수 계산(외부 fetch 없음, price_candles read).
+    # 1) 종목별 OHLCV 1회 read → 강도지수 + 추세 점수 계산(외부 fetch 없음).
     factors: dict[str, float] = {}
+    trend_scores: dict[str, float] = {}
     for code in codes:
-        sf = rs_rating.strength_factor(_recent_closes(db, code))
+        bars = _recent_bars(db, code)
+        closes = [b.close for b in bars]
+        sf = rs_rating.strength_factor(closes)
         if sf is not None:
             factors[code] = sf
+        ts = technicals.compute(bars).trend_score
+        if ts is not None:
+            trend_scores[code] = ts
 
-    # 2) 전 종목 횡단면 백분위 → 1~99.
+    # 2) 전 종목 횡단면 백분위 → RS 1~99. 추세 점수는 절대값이라 그대로 적재.
     sorted_factors = sorted(factors.values())
     rated = 0
-    for code, sf in factors.items():
-        rating = rs_rating.to_rating(sf, sorted_factors)
-        if rating is not None:
-            db.execute(
-                UniverseSnapshot.__table__.update()
-                .where(
-                    UniverseSnapshot.snapshot_date == snap_date,
-                    UniverseSnapshot.stock_code == code,
-                )
-                .values(rs_rating=rating)
+    for code in codes:
+        values: dict = {}
+        sf = factors.get(code)
+        if sf is not None:
+            rating = rs_rating.to_rating(sf, sorted_factors)
+            if rating is not None:
+                values["rs_rating"] = rating
+        if code in trend_scores:
+            values["trend_score"] = trend_scores[code]
+        if not values:
+            continue
+        db.execute(
+            UniverseSnapshot.__table__.update()
+            .where(
+                UniverseSnapshot.snapshot_date == snap_date,
+                UniverseSnapshot.stock_code == code,
             )
-            rated += 1
+            .values(**values)
+        )
+        rated += 1
     db.commit()
-    logger.info("rs rating batch: %d/%d rated (%s)", rated, len(codes), snap_date)
-    return {"rated": rated, "total": len(codes)}
+    logger.info(
+        "rs+trend batch: %d/%d updated (rs=%d trend=%d) (%s)",
+        rated, len(codes), len(factors), len(trend_scores), snap_date,
+    )
+    return {"rated": rated, "total": len(codes), "trend": len(trend_scores)}

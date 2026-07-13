@@ -72,14 +72,19 @@ class ScreenerRow(BaseModel):
     coverage_count: int  # 최근 90일 리포트 수
     recent_sentiment: str | None  # 최근 리포트 센티먼트 BUY/SELL/HOLD
     growth_score: float | None  # 0~100
+    value_score: float | None = None  # 0~100
     # 가치 전략(Financial 최신 분기)
     per: float | None = None
     pbr: float | None = None
     roe: float | None = None
     ev_ebitda: float | None = None
     div_yield: float | None = None  # 시가배당률(%)
-    # 이벤트 전략(최근 이벤트 요약)
-    event_kind: str | None = None  # 대표 이벤트 유형(공시|리포트|급등락|브리핑)
+    # 추세/탑다운 전략(사전계산·섹터 flow)
+    trend_score: float | None = None  # 0~100 기술적 추세 종합
+    topdown_score: float | None = None  # 0~100 섹터 수급(탑다운)
+    kr_sector: str | None = None  # 대표 국내 섹터(탑다운 표시)
+    # 이벤트(최근 이벤트 요약) — 모든 행에 컬럼으로 표시(별도 탭 제거)
+    event_kind: str | None = None  # 대표 이벤트 유형(공시|리포트|급등락|브리핑|뉴스)
     event_summary: str | None = None  # 한 줄 요약
     event_date: date | None = None  # 이벤트 발생일
     # 전략별 스코어(0~100). 어느 전략이든 이 필드에 담아 정렬한다.
@@ -243,13 +248,24 @@ class CompanyGrowth(BaseModel):
     buy_ratio: float | None  # 최근 90일 BUY 비율
 
 
-class AnalysisAxis(BaseModel):
-    """분석 한 축(성장/기술/탑다운)의 점수와 근거 지표."""
+class ScoreFactor(BaseModel):
+    """축 점수 한 요소의 계산 근거 — hover 팝업으로 '어떻게 계산됐는지' 노출."""
 
-    key: str  # growth | technical | topdown
+    label: str  # 요소명 (예: "매출 YoY")
+    value: str  # 원시값 표시 (예: "+32%")
+    norm: float | None  # 0~1 정규화값 (기여도 = norm*weight)
+    weight: float  # 가중치
+
+
+class AnalysisAxis(BaseModel):
+    """분석 한 축(성장/가치/추세/탑다운)의 점수와 근거 지표."""
+
+    key: str  # growth | value | technical | topdown
     label: str  # 성장 등 표시명
     score: float | None  # 0~100 (계산 불가 시 None)
     metrics: list[dict]  # [{label, value}] 표시용 지표
+    method: str | None = None  # 점수 계산 방식 설명(hover)
+    factors: list[ScoreFactor] = []  # 점수 요소별 근거(값·정규화·가중치)
 
 
 class TopDownView(BaseModel):

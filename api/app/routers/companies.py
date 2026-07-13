@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db.session import get_session
-from app.domain import analysis_scoring, judgment, stage, technicals
+from app.domain import analysis_scoring, judgment, score_factors, stage, technicals
 from app.schemas import (
     AnalysisAxis,
     CandlePoint,
@@ -27,6 +27,7 @@ from app.schemas import (
     JudgmentOut,
     PeerOut,
     RelStrengthPoint,
+    ScoreFactor,
     SecularView,
     StageFrame,
     StageSegment,
@@ -146,6 +147,42 @@ def company_analysis(
             {"label": "성장 등급", "value": _grade(growth_sc)},
             {"label": "영업손익", "value": (g.op_status if g and g.op_status else "—")},
         ],
+        method=score_factors.GROWTH_METHOD,
+        factors=_factors(
+            score_factors.growth_factors(
+                g.revenue_yoy if g else None,
+                g.op_yoy if g else None,
+                bool(g and g.op_turnaround),
+            )
+        ),
+    )
+
+    # 가치 축 — 최신 밸류에이션(저PER·저PBR·저EV/EBITDA + 고ROE·고배당). 단독 조회라 백분위 랭커
+    # 없이 절대 밴드로 근사(cheap_ranker 대신 저평가 절대 구간). 데이터 없으면 score None.
+    fin = company_service.latest_valuation(db, code)
+    per = fin.per if fin else None
+    pbr = fin.pbr if fin else None
+    ev = fin.ev_ebitda if fin else None
+    roe = fin.roe if fin else None
+    dy = fin.div_yield if fin else None
+    per_r = _cheap_norm(per, 5, 40)  # 저PER: 5배↓ 만점, 40배↑ 0
+    pbr_r = _cheap_norm(pbr, 0.5, 3.0)  # 저PBR: 0.5배↓ 만점, 3배↑ 0
+    ev_r = _cheap_norm(ev, 3, 20)  # 저EV/EBITDA: 3배↓ 만점, 20배↑ 0
+    value_sc = analysis_scoring.value_score(per, pbr, ev, roe, dy, per_r, pbr_r, ev_r)
+    value_axis = AnalysisAxis(
+        key="value",
+        label="가치",
+        score=value_sc,
+        metrics=[
+            {"label": "PER", "value": f"{per:.1f}배" if per else "—"},
+            {"label": "PBR", "value": f"{pbr:.2f}배" if pbr else "—"},
+            {"label": "ROE", "value": f"{roe:.1f}%" if roe is not None else "—"},
+            {"label": "배당수익률", "value": f"{dy:.1f}%" if dy is not None else "—"},
+        ],
+        method=score_factors.VALUE_METHOD,
+        factors=_factors(
+            score_factors.value_factors(per, pbr, ev, roe, dy, per_r, pbr_r, ev_r)
+        ),
     )
 
     # 기술 축 — 일봉 지표 + 와인스타인 중기 국면(주봉 30주).
@@ -165,7 +202,7 @@ def company_analysis(
     )
     tech_axis = AnalysisAxis(
         key="technical",
-        label="기술적 추세",
+        label="추세",
         score=tech.trend_score,
         metrics=[
             {"label": "와인스타인 국면", "value": mid_stage.label or "—"},
@@ -175,6 +212,16 @@ def company_analysis(
             {"label": "거래량비", "value": f"{tech.vol_ratio}x" if tech.vol_ratio else "—"},
             {"label": "3개월 수익률", "value": f"{tech.return_3m}%" if tech.return_3m is not None else "—"},
         ],
+        method=score_factors.TREND_METHOD,
+        factors=_factors(
+            score_factors.trend_factors(
+                tech.near_high_pct,
+                tech.ma_aligned,
+                tech.above_ma120,
+                tech.vol_ratio,
+                tech.return_3m,
+            )
+        ),
     )
 
     # 탑다운 축 — 종목이 속한 섹터의 국내/미국 수급 flow(미국 선행) + 국내 지수.
@@ -182,6 +229,8 @@ def company_analysis(
     topdown_view, topdown_sc = analysis.build_topdown(theme_names, market)
     kr_sec = topdown_view["kr_sector"]
     us_sec = topdown_view["us_sector"]
+    kr_rising = next((k["rising"] for k in topdown_view["kr_indices"]
+                      if k["name"] == ("코스닥" if market == "KOSDAQ" else "코스피")), None)
     topdown_axis = AnalysisAxis(
         key="topdown",
         label="탑다운",
@@ -200,15 +249,28 @@ def company_analysis(
             {"label": k["name"], "value": _signed(k["change_ratio"], k["rising"])}
             for k in topdown_view["kr_indices"]
         ],
+        method=score_factors.TOPDOWN_METHOD,
+        factors=_factors(
+            score_factors.topdown_factors(
+                topdown_view["us_sector_flow"],
+                topdown_view["kr_sector_flow"],
+                kr_rising,
+            )
+        ),
     )
 
-    axes = [growth_axis, tech_axis, topdown_axis]
-    overall_sc = analysis.overall([growth_sc, tech.trend_score, topdown_sc])
+    axes = [growth_axis, value_axis, tech_axis, topdown_axis]
+    overall_sc = analysis.overall([growth_sc, value_sc, tech.trend_score, topdown_sc])
 
     # 판단 요약(강점·약점·확인 + 신호) — 점수의 규칙 기반 요약(자문 아님, 프론트가 면책 노출).
     j = judgment.summarize(
         overall_sc,
-        {"growth": growth_sc, "technical": tech.trend_score, "topdown": topdown_sc},
+        {
+            "growth": growth_sc,
+            "value": value_sc,
+            "technical": tech.trend_score,
+            "topdown": topdown_sc,
+        },
     )
     judgment_out = JudgmentOut(
         signal=j.signal,
@@ -311,6 +373,19 @@ def company_trend(
 
 def _yn(v: bool | None) -> str:
     return "예" if v is True else "아니오" if v is False else "—"
+
+
+def _factors(factors: list[score_factors.Factor]) -> list[ScoreFactor]:
+    """도메인 Factor → 스키마 ScoreFactor(직렬화)."""
+    return [ScoreFactor(**f.as_dict()) for f in factors]
+
+
+def _cheap_norm(value: float | None, best: float, worst: float) -> float | None:
+    """저평가 절대 정규화(작을수록 1). best↓=1.0, worst↑=0.0. 단독 종목엔 후보군 백분위 대신
+    절대 구간을 쓴다(양수만 유효 — 적자 PER 등 0/음수는 None). 밴드가 역방향이라 직접 계산."""
+    if value is None or value <= 0:
+        return None
+    return analysis_scoring.clamp01((worst - value) / (worst - best))
 
 
 def _grade(score: float | None) -> str:
