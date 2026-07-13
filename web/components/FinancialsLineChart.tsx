@@ -25,20 +25,38 @@ function periodToDate(period: string): string | null {
   return tail ? `${m[1]}${tail}` : null;
 }
 
-// 토글 가능한 지표(억원/원/배/% 혼재라 지표별 별도 price scale). key=FinancialPeriod 필드.
+// 토글 가능한 지표. 단위(unit)가 같은 지표끼리는 한 축을 공유해 비교 가능하게 한다.
+// unit: won=억원(매출·이익), krw=원(EPS), pct=%(ROE), mult=배(EV/EBITDA).
+type Unit = "won" | "krw" | "pct" | "mult";
 interface Metric {
   key: keyof FinancialPeriod;
   label: string;
   color: string;
+  unit: Unit;
 }
 const METRICS: Metric[] = [
-  { key: "operating_income", label: "영업이익", color: "#128a4d" },
-  { key: "revenue", label: "매출", color: "#2b6cc0" },
-  { key: "net_income", label: "당기순이익", color: "#eb6834" },
-  { key: "ev_ebitda", label: "EV/EBITDA", color: "#8b5cf6" },
-  { key: "roe", label: "ROE", color: "#d4a017" },
-  { key: "eps", label: "EPS", color: "#7b4b2a" },
+  { key: "operating_income", label: "영업이익", color: "#128a4d", unit: "won" },
+  { key: "revenue", label: "매출", color: "#2b6cc0", unit: "won" },
+  { key: "net_income", label: "당기순이익", color: "#eb6834", unit: "won" },
+  { key: "ev_ebitda", label: "EV/EBITDA", color: "#8b5cf6", unit: "mult" },
+  { key: "roe", label: "ROE", color: "#d4a017", unit: "pct" },
+  { key: "eps", label: "EPS", color: "#7b4b2a", unit: "krw" },
 ];
+
+// 축 눈금 포맷터(단위별). 재무 원값은 억원 단위 → 1만억(=1조) 이상은 '조', 그 미만은 '억'.
+function formatWon(v: number): string {
+  const abs = Math.abs(v);
+  if (abs >= 10000) {
+    return `${(v / 10000).toFixed(abs >= 100000 ? 0 : 1)}조`;
+  }
+  return `${Math.round(v).toLocaleString("ko-KR")}억`;
+}
+const UNIT_FORMAT: Record<Unit, { formatter: (v: number) => string; minMove: number }> = {
+  won: { formatter: formatWon, minMove: 1 },
+  krw: { formatter: (v) => `${Math.round(v).toLocaleString("ko-KR")}원`, minMove: 1 },
+  pct: { formatter: (v) => `${v.toFixed(1)}%`, minMove: 0.01 },
+  mult: { formatter: (v) => `${v.toFixed(1)}배`, minMove: 0.01 },
+};
 
 interface Props {
   data: FinancialPeriod[];
@@ -96,30 +114,47 @@ export default function FinancialsLineChart({ data, range = null, onRangeChange 
     if (!container) {
       return;
     }
+    // 그려질 지표들의 단위 집합 → 등장 순서대로 축 배정. 같은 단위는 한 축을 공유(비교 가능),
+    // 앞의 두 단위는 오른쪽·왼쪽 실제 축(눈금·단위 레이블 표시), 나머지는 숨김 오버레이(형태만).
+    const renderMetrics = METRICS.filter(
+      (m) => active.has(m.key) && seriesData[m.key].length > 0,
+    );
+    const units: Unit[] = [];
+    for (const m of renderMetrics) {
+      if (!units.includes(m.unit)) {
+        units.push(m.unit);
+      }
+    }
+    // 단위 → priceScaleId. 첫째="right", 둘째="left", 그 외=단위명(숨김 오버레이).
+    const scaleOf = (u: Unit): string => (u === units[0] ? "right" : u === units[1] ? "left" : u);
+
     const chart = createChart(container, {
       autoSize: true,
       layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: COLOR_TEXT, fontFamily: "inherit" },
       grid: { vertLines: { color: COLOR_GRID }, horzLines: { color: COLOR_GRID } },
-      rightPriceScale: { borderColor: COLOR_GRID },
+      rightPriceScale: { borderColor: COLOR_GRID, visible: units.length > 0 },
+      leftPriceScale: { borderColor: COLOR_GRID, visible: units.length > 1 },
       timeScale: { borderColor: COLOR_GRID },
       crosshair: { mode: CrosshairMode.Normal },
       localization: { locale: "ko-KR" },
     });
 
     let any = false;
-    for (const m of METRICS) {
-      if (!active.has(m.key) || seriesData[m.key].length === 0) {
-        continue;
-      }
+    for (const m of renderMetrics) {
+      const scaleId = scaleOf(m.unit);
+      const fmt = UNIT_FORMAT[m.unit];
       const line = chart.addSeries(LineSeries, {
         color: m.color,
         lineWidth: 2,
         priceLineVisible: false,
         lastValueVisible: false,
-        // 단위가 제각각이라 지표마다 독립 스케일(왼쪽 숨김)로 형태만 비교.
-        priceScaleId: m.key,
+        priceScaleId: scaleId,
+        priceFormat: { type: "custom", formatter: fmt.formatter, minMove: fmt.minMove },
       });
-      chart.priceScale(m.key).applyOptions({ visible: false });
+      // 숨김 오버레이(3번째 이후 단위)만 축을 감춘다. right/left 는 눈금이 보이게 둔다.
+      if (scaleId !== "right" && scaleId !== "left") {
+        chart.priceScale(scaleId).applyOptions({ visible: false });
+      }
       line.setData(seriesData[m.key]);
       any = true;
     }
