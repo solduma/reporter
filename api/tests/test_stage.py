@@ -115,8 +115,8 @@ def test_curvature_separates_base_from_top_in_range():
     # 같은 '레인지'라도 곡률(U자 가속 vs 역U자 감속)이 바닥/천정을 가른다.
     # 하락 감속 후 바닥 다지며 반등 시작(U자).
     base = _falling(120, start=300.0, step=1.0) + _rising(120, start=180.0, step=0.3)
-    # 상승 감속 후 천정에서 롤오버(역U자).
-    top = _rising(120, start=100.0, step=1.0) + _falling(120, start=220.0, step=0.3)
+    # 상승 후 천정에서 뚜렷한 롤오버(역U자, 완만한 표류가 아니라 실제 하락).
+    top = _rising(120, start=100.0, step=1.0) + _falling(120, start=220.0, step=1.0)
     assert stage.classify(base, _MA, _SL).stage in (1, 2)  # 바닥/상승초입
     assert stage.classify(top, _MA, _SL).stage in (3, 4)  # 천정/하락초입
 

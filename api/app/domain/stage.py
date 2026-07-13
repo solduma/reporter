@@ -25,6 +25,9 @@ CURV_EPS = 0.0005  # 전·후반 로그기울기 차의 절대값이 이 값 초
 # 봉당 로그기울기 크기가 이 값 이상이면 '가파른' 추세로 본다(완만한 바닥 다지기와 급락 구분).
 # 예: 주봉 -0.005 ≈ 주당 -0.5% 이상 하락이면 여전히 하락 국면, 그보다 완만하면 바닥 후보.
 STEEP_SLOPE = 0.005
+# 봉당 로그기울기가 이 값보다 완만하면(거의 0) 추세가 아니라 횡보/바닥으로 본다(near-flat 하락
+# 오탐 방지). 하락(Stg4) 판정은 slope 가 이보다 뚜렷이 음(-)일 때만.
+MILD_SLOPE = 0.0015
 # 구간 방향 교정 임계: 국면과 반대로 이 비율 넘게 움직이면(하락 국면인데 +10%↑ 등) 바로잡는다.
 DIR_TOLERANCE = 0.10
 
@@ -479,12 +482,13 @@ def _decide(
     if price_pos == "below":
         if basing:
             return 1
-        # 하락(Stg4): 가파른 하락 or (하락세 slope<0 이면서 가속 하락 or 매도 클라이맥스)
-        #             or (가격이 하락 중인 MA 아래에 머무름 — 완만해도 하락 국면 지속).
+        # 하락(Stg4): 가파른 하락 or (뚜렷한 하락세 slope 이면서 가속 하락 or 매도 클라이맥스)
+        #             or (가격이 하락 중인 MA 아래에 머무름). 기울기가 거의 0(near-flat)이면
+        #             하락이 아니라 바닥 다지기이므로 MILD_SLOPE 이상 음(-)일 때만 하락으로 본다.
         declining = (
             slope <= -STEEP_SLOPE
-            or (slope < 0 and (curv < -CURV_EPS or volatility == "expansion"))
-            or (ma_dir == "falling" and slope < 0)
+            or (slope < -MILD_SLOPE and (curv < -CURV_EPS or volatility == "expansion"))
+            or (ma_dir == "falling" and slope < -MILD_SLOPE)
         )
         if declining:
             return 4
