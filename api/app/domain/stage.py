@@ -268,11 +268,28 @@ def _volatility_regime(highs: list[float], lows: list[float], closes: list[float
     return "normal"
 
 
-def _obv_slope(closes: list[float], volumes: list[int] | None) -> float:
-    """OBV(누적 방향 거래량) 시계열의 정규화 기울기 부호 재료. 양수=매집(가격에 볼륨 선행)·음수=분산.
+def _lin_slope(values: list[float]) -> float:
+    """일반 선형 OLS 기울기(로그 아님). OBV 처럼 0을 넘나드는 가산 시계열의 방향 부호용.
 
-    _volume_signal(상승/하락 볼륨비)의 확인용. 여기선 OBV 최근 추세 방향만 반환(+1/-1/0).
-    미완성 마지막 봉 제외.
+    로그 회귀는 상수 이동에 부호가 안정하지 않아(비선형) OBV 추세 판정에 부적합 → 선형 기울기 사용.
+    기울기 부호는 상수 이동에 불변이다. 데이터 부족 시 0.
+    """
+    n = len(values)
+    if n < 2:
+        return 0.0
+    mx = (n - 1) / 2
+    my = sum(values) / n
+    sxx = sum((i - mx) ** 2 for i in range(n))
+    if sxx == 0:
+        return 0.0
+    return sum((i - mx) * (values[i] - my) for i in range(n)) / sxx
+
+
+def _obv_slope(closes: list[float], volumes: list[int] | None) -> float:
+    """OBV(누적 방향 거래량) 시계열의 추세 방향(기울기). 양수=매집(가격에 볼륨 선행)·음수=분산.
+
+    _volume_signal(상승/하락 볼륨비)의 확인용(다이버전스 게이트). 미완성 마지막 봉 제외.
+    OBV 는 0을 넘나드는 가산 시계열이라 선형 OLS 기울기로 부호를 낸다(로그는 부호 불안정).
     """
     if not volumes or len(volumes) != len(closes) or len(closes) < 8:
         return 0.0
@@ -282,8 +299,7 @@ def _obv_slope(closes: list[float], volumes: list[int] | None) -> float:
     for i in range(1, len(c)):
         step = v[i] if c[i] > c[i - 1] else -v[i] if c[i] < c[i - 1] else 0
         obv.append(obv[-1] + step)
-    slope, _ = _log_slope_r2([o - min(obv) + 1.0 for o in obv])  # 양수화 후 로그기울기 부호
-    return slope
+    return _lin_slope(obv)
 
 
 def classify(

@@ -194,15 +194,25 @@ def test_volatility_breaks_range_tie_before_volume():
     assert top.volatility == "expansion" and top.stage == 3
 
 
+def test_obv_slope_sign_matches_true_obv_trend():
+    # 회귀: OBV 는 0을 넘나드는 가산 시계열 → 선형 기울기 부호가 실제 OBV 추세와 일치해야 한다
+    # (로그 기울기는 상수 이동에 부호가 뒤집혀 오분류하던 버그).
+    # 리서치가 제시한 실패 케이스: 순증(+7614)인데 로그 기울기는 음수였던 OBV.
+    obv = [0, 0, -492, -492, -492, -890, -890, -4156, -3619, -3619, -1767, 1148, 5337, 7614]
+    assert stage._lin_slope([float(x) for x in obv]) > 0  # 순상승 OBV → 양수 기울기
+    # 순하락 OBV → 음수.
+    assert stage._lin_slope([float(-x) for x in obv]) < 0
+    # 부호는 상수 이동에 불변(로그와 달리).
+    shifted = [float(x) + 1e6 for x in obv]
+    assert (stage._lin_slope([float(x) for x in obv]) > 0) == (stage._lin_slope(shifted) > 0)
+
+
 def test_obv_divergence_neutralizes_volume_signal():
     # 상승봉 볼륨은 크지만 OBV 추세가 하락(다이버전스)이면 축적 신호를 중립화.
-    # closes 가 전반 상승 후 후반 하락이라 OBV 순추세가 음(-)이 되도록 구성.
     closes = [100 + i for i in range(80)] + [180 - i for i in range(80)]
     vols = [(50 if closes[i] > closes[i - 1] else 5) for i in range(len(closes))]
     vols[0] = 5
-    # 종가만 보면 후반 하락이라 vol_signal 계산은 상승/하락봉 볼륨비 기반.
     obv = stage._obv_slope(closes, vols)
-    # OBV 기울기 부호가 산출됨(다이버전스 판정 재료).
     assert isinstance(obv, float)
 
 
