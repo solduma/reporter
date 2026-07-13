@@ -22,6 +22,9 @@ PRICE_BAND = 0.03  # |종가/MA - 1| 이 이 값 이내면 가격이 MA "근처"
 ER_TREND = 0.30  # Efficiency Ratio 가 이 값 이상이어야 "깨끗한 추세"(미만=횡보)
 R2_TREND = 0.50  # 로그가격 회귀 R² 가 이 값 이상이어야 "깨끗한 추세"
 CURV_EPS = 0.0005  # 전·후반 로그기울기 차의 절대값이 이 값 초과면 곡률 유의(U자/역U자)
+# 봉당 로그기울기 크기가 이 값 이상이면 '가파른' 추세로 본다(완만한 바닥 다지기와 급락 구분).
+# 예: 주봉 -0.005 ≈ 주당 -0.5% 이상 하락이면 여전히 하락 국면, 그보다 완만하면 바닥 후보.
+STEEP_SLOPE = 0.005
 
 _STAGE_LABELS = {1: "① 바닥", 2: "② 상승", 3: "③ 천정", 4: "④ 하락"}
 
@@ -456,17 +459,23 @@ def _decide(
         or (breakout == "up" and price_pos != "below")
     ):
         return 2
-    # Stage 4: 깨끗한 하락 / 하락 MA 아래 / 신저가 이탈.
+    # 바닥 다지기 판정: 하락이 멈춰가는가? 하락세가 완만(|slope|<STEEP)하고 곡률이 바닥형
+    # (curv>0, 하락 감속/반등 시작)이면 아직 내려가도 Stage 4 가 아니라 Stage 1(바닥).
+    basing = slope > -STEEP_SLOPE and curv > CURV_EPS
+
+    # Stage 4: 깨끗한 하락 / (가파른) 하락 MA 아래 / 신저가 이탈. 바닥 다지기면 4 에서 제외.
     if (
         (clean and slope < 0 and price_pos != "above")
-        or (price_pos == "below" and ma_dir == "falling")
+        or (price_pos == "below" and ma_dir == "falling" and not basing)
         or (breakout == "down" and price_pos != "above")
     ):
         return 4
-    # 가격이 상승/평탄 MA 를 하향 이탈 → Stg2 즉시 종료. 하락세(로그기울기 음)면 Stg4, 아니면
-    # 천정 이탈 직후로 보고 Stg3. (MA 기울기가 아직 안 꺾여도 이탈 자체가 전환 신호)
+    # 가격이 상승/평탄 MA 를 하향 이탈 → Stg2 즉시 종료. 바닥 다지기(완만+바닥형 곡률)면 Stg1,
+    # 가파른 하락세면 Stg4, 그 외(완만하나 곡률 불명확)는 천정 이탈 직후로 보고 Stg3.
     if price_pos == "below":
-        return 4 if slope < 0 else 3
+        if basing:
+            return 1
+        return 4 if slope <= -STEEP_SLOPE else 3
     # 대칭: 가격이 하락 MA 위로 회복하면 바닥 탈출 시도 → 상승세면 Stg2 는 위에서 처리됨, 아니면 Stg1.
     if price_pos == "above" and ma_dir == "falling" and slope <= 0:
         return 3
