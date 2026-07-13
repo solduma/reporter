@@ -57,6 +57,13 @@ class _Bar(Protocol):
     close: float
 
 
+# Donchian 채널 위치 임계 — 레인지 내 상단/하단 비율(0~1). 고점권=저항 근접, 저점권=지지 근접.
+DONCHIAN_HIGH = 0.80  # 채널 상위 20% = 신고가권(Stage2 저항 돌파 성격)
+DONCHIAN_LOW = 0.20  # 채널 하위 20% = 신저가권(Stage4 지지 이탈 성격)
+# 돌파 확인 볼륨 배수 — 신 N기간 고가 돌파봉 볼륨이 평균의 이 배수↑면 '확정 돌파'.
+BREAKOUT_VOL_MULT = 1.5
+
+
 @dataclass
 class StageResult:
     stage: int | None  # 1~4, 판정 불가 시 None
@@ -67,6 +74,8 @@ class StageResult:
     quality: float | None  # 추세 깨끗함 0~100 (ER·R² 결합) — shape 신뢰도
     volume_signal: str | None  # accumulation | distribution | neutral (축적/분산)
     volatility: str | None  # contraction | expansion | normal (ATR 변동성 레짐)
+    channel_pos: float | None = None  # Donchian 채널 내 위치 0~100 (고점권=100, 저점권=0)
+    breakout: str | None = None  # up | down | none (신 N기간 고/저 돌파 + 볼륨 확인)
 
 
 def resample_closes(
@@ -268,6 +277,36 @@ def _volatility_regime(highs: list[float], lows: list[float], closes: list[float
     return "normal"
 
 
+def _donchian(
+    highs: list[float], lows: list[float], closes: list[float], volumes: list[int] | None
+) -> tuple[float | None, str]:
+    """Donchian 채널 내 종가 위치(0~100)와 돌파 신호. Weinstein 저항/지지 프록시.
+
+    채널 = 최근 N-1봉(마지막 제외)의 [최저저, 최고고]. 종가가 그 채널 어디에 있는지 0~100 으로.
+    직전 채널 상단(최고고)을 종가가 넘고 그 봉 볼륨이 평균의 BREAKOUT_VOL_MULT 배↑면 up 돌파
+    (하단 이탈은 down). 데이터 부족 시 (None, "none").
+    """
+    n = len(closes)
+    if n < 10 or len(highs) != n or len(lows) != n:
+        return None, "none"
+    prior_high = max(highs[:-1])  # 직전까지의 저항(마지막 봉 제외)
+    prior_low = min(lows[:-1])  # 직전까지의 지지
+    last = closes[-1]
+    span = prior_high - prior_low
+    pos = 50.0 if span <= 0 else max(0.0, min(100.0, (last - prior_low) / span * 100))
+
+    breakout = "none"
+    vol_ok = True
+    if volumes and len(volumes) == n:
+        base = sum(volumes[:-1]) / (n - 1)
+        vol_ok = base > 0 and volumes[-1] >= base * BREAKOUT_VOL_MULT
+    if last > prior_high and vol_ok:
+        breakout = "up"
+    elif last < prior_low and vol_ok:
+        breakout = "down"
+    return round(pos, 1), breakout
+
+
 def _lin_slope(values: list[float]) -> float:
     """일반 선형 OLS 기울기(로그 아님). OBV 처럼 0을 넘나드는 가산 시계열의 방향 부호용.
 
@@ -316,7 +355,7 @@ def classify(
     변동성 레짐(고/저 ATR 수축/확장)으로 판정. highs/lows 를 주면 Stage1(수축)↔Stage3(확장)
     구분을 레인지로 보강한다(종가만으론 못 보는 부분). volumes 는 축적/분산·돌파 확인.
     """
-    empty = StageResult(None, None, None, None, None, None, None, None)
+    empty = StageResult(None, None, None, None, None, None, None, None, None, None)
     n = len(closes)
     if n < ma_period:
         return empty
@@ -351,10 +390,15 @@ def classify(
         if highs and lows
         else "normal"
     )
+    # Donchian 채널 위치·돌파(저항/지지 프록시). 고/저 있을 때만.
+    if highs and lows:
+        channel_pos, breakout = _donchian(highs[-ma_period:], lows[-ma_period:], window, win_vol)
+    else:
+        channel_pos, breakout = None, "none"
 
     stage = _decide(
         price_pos, ma_dir, lslope, r2, er, curv,
-        _long_context(closes, ma_period), vol_sig, volatility,
+        _long_context(closes, ma_period), vol_sig, volatility, breakout,
     )
     return StageResult(
         stage=stage,
@@ -365,6 +409,8 @@ def classify(
         quality=round(er * r2 * 100, 1),
         volume_signal=vol_sig,
         volatility=volatility,
+        channel_pos=channel_pos,
+        breakout=breakout,
     )
 
 
@@ -392,19 +438,28 @@ def _decide(
     long_ctx: str,
     vol_sig: str = "neutral",
     volatility: str = "normal",
+    breakout: str = "none",
 ) -> int:
-    """shape+백본+볼륨+변동성 결합 국면 판정.
+    """shape+백본+볼륨+변동성+돌파 결합 국면 판정.
 
-    깨끗한 추세(ER·R² 높음)면 기울기 부호로 2/4. 그 외 레인지·라운딩이면 곡률(U자/역U자) → 변동성
-    레짐(수축=바닥·확장=천정) → 볼륨(축적=바닥·분산=천정) → 직전 장기 문맥 순으로 가른다.
-    가격이 MA 위/아래로 뚜렷하면 백본(추세)이 우선이라 레인지 tiebreak 은 near·평탄 구간에만 쓴다.
+    깨끗한 추세(ER·R² 높음)·상승MA위면 2, 반대면 4. 볼륨 확인된 신고가 돌파(up)는 가격이 MA
+    아래만 아니면 Stage2 로 승격(와인스타인 저항 돌파 트리거), 신저가 이탈(down)은 Stage4.
+    그 외 레인지·라운딩이면 곡률 → 변동성 → 볼륨 → 직전 문맥 순 tiebreak.
     """
     clean = er >= ER_TREND and r2 >= R2_TREND
-    # Stage 2: 깨끗한 상승(가격이 MA 아래만 아니면) 또는 상승 MA 위.
-    if (clean and slope > 0 and price_pos != "below") or (price_pos == "above" and ma_dir == "rising"):
+    # Stage 2: 깨끗한 상승 / 상승 MA 위 / 볼륨 확인된 신고가 돌파(저항 돌파 트리거).
+    if (
+        (clean and slope > 0 and price_pos != "below")
+        or (price_pos == "above" and ma_dir == "rising")
+        or (breakout == "up" and price_pos != "below")
+    ):
         return 2
-    # Stage 4: 깨끗한 하락(가격이 MA 위만 아니면) 또는 하락 MA 아래.
-    if (clean and slope < 0 and price_pos != "above") or (price_pos == "below" and ma_dir == "falling"):
+    # Stage 4: 깨끗한 하락 / 하락 MA 아래 / 신저가 이탈.
+    if (
+        (clean and slope < 0 and price_pos != "above")
+        or (price_pos == "below" and ma_dir == "falling")
+        or (breakout == "down" and price_pos != "above")
+    ):
         return 4
     # 레인지·라운딩 → 곡률로 바닥(U자)/천정(역U자).
     if curv > CURV_EPS:
@@ -470,3 +525,51 @@ def segments(
         prev = d
     out.append({"stage": cur_stage, "from": start, "to": prev})
     return out
+
+
+# secular(장기 평균) 오버레이 파라미터 — 월봉 기준. 데이터가 허락하는 최장 MA(clamp)를 쓴다.
+SECULAR_MIN = 40  # 최소 40개월(3.3년) — 이 미만이면 secular 판단 불가
+SECULAR_MAX = 120  # 최대 120개월(10년) — 백필 상한. 이력 늘면 이 안에서 자동 확장
+SECULAR_SLOPE = 12  # secular MA 기울기 측정창(개월)
+
+
+@dataclass
+class SecularContext:
+    """장기 평균(secular) 대비 위치 — 전환 탐지용 장기 프레임과 직교한 '진짜 5년 평균' 맥락.
+
+    데이터가 허락하는 최장 월봉 MA(clamp SECULAR_MIN~MAX)를 써서, 백필이 깊어지면 자동 확장한다.
+    """
+
+    ma_months: int | None  # 실제 사용한 MA 개월수(데이터 부족 시 None)
+    position: str | None  # above | near | below (secular MA 대비 종가)
+    ma_dir: str | None  # rising | flat | falling
+    ratio: float | None  # 종가/secular MA - 1 (백분율 전 소수)
+
+
+def secular_context(monthly_closes: list[float]) -> SecularContext:
+    """월봉 종가로 secular(장기 평균) 맥락을 계산한다. 데이터가 허락하는 최장 MA 사용.
+
+    전환 탐지용 40개월 프레임과 별개로 '장기 평균 대비 어디인가'만 본다(전환 프레임 오염 없음).
+    최소 SECULAR_MIN 개월 + 기울기창이 없으면 판단 불가(None).
+    """
+    n = len(monthly_closes)
+    empty = SecularContext(None, None, None, None)
+    if n < SECULAR_MIN + SECULAR_SLOPE:
+        return empty
+    # 사용 가능한 최장 MA: 기울기창을 확보하고 clamp 안에서.
+    ma_months = max(SECULAR_MIN, min(SECULAR_MAX, n - SECULAR_SLOPE))
+    ma_now = _sma_at(monthly_closes, n - 1, ma_months)
+    ma_prev = _sma_at(monthly_closes, n - 1 - SECULAR_SLOPE, ma_months)
+    if ma_now is None:
+        return empty
+    last = monthly_closes[-1]
+    ratio = last / ma_now - 1
+    position = "above" if ratio > PRICE_BAND else "below" if ratio < -PRICE_BAND else "near"
+    if ma_prev is not None and ma_prev > 0:
+        s = ma_now / ma_prev - 1
+        ma_dir = "rising" if s > FLAT_BAND else "falling" if s < -FLAT_BAND else "flat"
+    else:
+        ma_dir = "flat"
+    return SecularContext(
+        ma_months=ma_months, position=position, ma_dir=ma_dir, ratio=round(ratio, 4)
+    )

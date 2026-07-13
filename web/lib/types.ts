@@ -223,6 +223,15 @@ export interface StageFrame {
   volume_signal: "accumulation" | "distribution" | "neutral" | null;
   volatility: "contraction" | "expansion" | "normal" | null;
   low_confidence?: boolean; // 이력 부족(장기 프레임 등)이면 true
+  channel_pos?: number | null; // Donchian 채널 내 위치 0~100(고점권=100)
+  breakout?: "up" | "down" | "none" | null; // 신 N기간 고/저 돌파 + 볼륨 확인
+}
+
+export interface SecularView {
+  ma_months: number | null; // 실제 사용한 MA 개월수
+  position: "above" | "near" | "below" | null;
+  ma_dir: "rising" | "flat" | "falling" | null;
+  ratio: number | null; // 종가/secular MA - 1
 }
 
 export interface StageSegment {
@@ -246,6 +255,7 @@ export interface CompanyTrend {
   rs_outperforming: boolean | null;
   rs_rating?: number | null; // IBD RS Rating 1~99
   elliott?: ElliottView | null; // 엘리엇 파동 추정(실험적)
+  secular?: SecularView | null; // 장기 평균 대비 위치
 }
 
 export interface ElliottPivot {

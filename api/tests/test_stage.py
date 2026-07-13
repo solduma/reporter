@@ -103,6 +103,60 @@ def test_frames_have_expected_bars():
     assert stage.FRAMES["long"].slope_lookback == 10  # 장기 기울기창 확장(5→10개월)
 
 
+def test_donchian_position_and_breakout():
+    n = 30
+    closes = [100.0] * (n - 1) + [130.0]  # 마지막이 신고가
+    highs = [105.0] * (n - 1) + [131.0]
+    lows = [95.0] * (n - 1) + [129.0]
+    vols = [100] * (n - 1) + [300]  # 마지막 볼륨 3배(확인)
+    pos, brk = stage._donchian(highs, lows, closes, vols)
+    assert pos == 100.0  # 종가가 직전 채널 최고고(105) 위 → 상단 클램프
+    assert brk == "up"  # 신고가 + 볼륨 확인
+    # 볼륨 부족이면 돌파 미확정.
+    _, brk2 = stage._donchian(highs, lows, closes, [100] * n)
+    assert brk2 == "none"
+    # 신저가 이탈.
+    closes_d = [100.0] * (n - 1) + [80.0]
+    lows_d = [95.0] * (n - 1) + [79.0]
+    _, brk3 = stage._donchian([105.0] * n, lows_d, closes_d, [100] * (n - 1) + [300])
+    assert brk3 == "down"
+
+
+def test_breakout_promotes_to_stage2():
+    # 볼륨 확인된 신고가 돌파는 (MA 아래만 아니면) Stage2 로 승격.
+    # near 가격 + 평탄 MA 지만 up 돌파면 2.
+    flat = _flat(60, level=100.0)
+    highs = [101.0] * 59 + [115.0]
+    lows = [99.0] * 59 + [113.0]
+    vols = [100] * 59 + [400]
+    # ma_period=50 로 near 만들되 마지막 신고가 돌파.
+    closes = [*flat[:-1], 114.0]
+    r = stage.classify(closes, 50, 10, vols, highs, lows)
+    assert r.breakout == "up"
+    assert r.stage == 2
+
+
+def test_secular_context_adaptive_length():
+    # 120개월(10년) 상승 월봉 → secular MA 는 clamp 최대(120이 아니라 n-slope=108) 근처, 위·상승.
+    closes = [100.0 * (1.01**i) for i in range(120)]
+    sc = stage.secular_context(closes)
+    assert sc.ma_months is not None
+    assert stage.SECULAR_MIN <= sc.ma_months <= stage.SECULAR_MAX
+    assert sc.position == "above"  # 상승세라 종가가 장기평균 위
+    assert sc.ma_dir == "rising"
+    # 짧은 이력(40개월 미만+slope) → 판단 불가.
+    assert stage.secular_context([100.0] * 30).ma_months is None
+
+
+def test_secular_length_grows_with_data():
+    # 이력이 늘면 secular MA 길이가 자동 확장(clamp 내), 백필 깊어질수록 더 긴 평균.
+    short_hist = stage.secular_context([100.0 + i for i in range(60)])
+    long_hist = stage.secular_context([100.0 + i for i in range(150)])
+    assert short_hist.ma_months is not None and long_hist.ma_months is not None
+    assert long_hist.ma_months > short_hist.ma_months
+    assert long_hist.ma_months <= stage.SECULAR_MAX  # 상한 클램프
+
+
 def test_resample_volumes_sums_per_bucket():
     dates = [f"2024-01-{d:02d}" for d in range(1, 21)]  # 2024-01, 여러 ISO 주
     vols = [10] * 20

@@ -37,6 +37,7 @@ class TrendResult:
     rs: relative_strength.RelativeStrength
     benchmark: str  # 사용한 벤치마크 지수
     elliott: elliott.ElliottResult  # 엘리엇 파동 추정(실험적)
+    secular: stage.SecularContext  # 장기 평균(secular) 대비 위치 — 전환 프레임과 직교
 
 
 def compute_trend(db: Session, code: str, market: str | None) -> TrendResult:
@@ -51,6 +52,7 @@ def compute_trend(db: Session, code: str, market: str | None) -> TrendResult:
     stages: dict[str, stage.StageResult] = {}
     low_confidence: dict[str, bool] = {}
     stage_segments: list[dict] = []
+    secular = stage.SecularContext(None, None, None, None)
     for name, frame in stage.FRAMES.items():
         b = stage.resample_ohlcv(dates, highs, lows, closes, volumes, frame.bar)
         stages[name] = stage.classify(
@@ -61,6 +63,9 @@ def compute_trend(db: Session, code: str, market: str | None) -> TrendResult:
             stage_segments = stage.segments(
                 b.closes, b.dates, frame.ma_period, frame.slope_lookback, frame.min_run
             )
+        if name == "long":
+            # secular 오버레이 — 장기 프레임의 월봉 종가로 데이터 허락 최장 MA 대비 위치.
+            secular = stage.secular_context(b.closes)
 
     benchmark = _BENCHMARK.get(market or "", _DEFAULT_BENCHMARK)
     bench_rows = candle_service.ensure_periodic(db, benchmark, "day")
@@ -78,4 +83,5 @@ def compute_trend(db: Session, code: str, market: str | None) -> TrendResult:
         rs=rs,
         benchmark=benchmark,
         elliott=wave,
+        secular=secular,
     )
