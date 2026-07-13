@@ -214,10 +214,12 @@ export interface CandlePoint {
 
 export interface StageFrame {
   frame: "short" | "mid" | "long";
-  period: number; // 50 | 150 | 200
+  bar: "day" | "week" | "month"; // 프레임 봉단위
+  period: number; // 네이티브 봉 기준 MA기간(일50/주30/월40)
   stage: number | null; // 1~4
   label: string | null; // '② 상승' 등
   ma_dir: "rising" | "flat" | "falling" | null;
+  quality: number | null; // 추세 깨끗함 0~100(shape 신뢰도)
 }
 
 export interface StageSegment {

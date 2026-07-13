@@ -147,10 +147,13 @@ def company_analysis(
         ],
     )
 
-    # 기술 축 — 일봉 지표 + 와인스타인 중기 국면.
+    # 기술 축 — 일봉 지표 + 와인스타인 중기 국면(주봉 30주).
     candles = company_service.ensure_day_candles(db, code)
     tech = technicals.compute(candles)
-    mid_stage = stage.classify([c.close for c in candles], stage.FRAME_PERIODS["mid"])
+    _mid = stage.FRAMES["mid"]
+    _mid_dates = [c.bar_date.isoformat() for c in candles]
+    _rd, _rc = stage.resample_closes(_mid_dates, [c.close for c in candles], _mid.bar)
+    mid_stage = stage.classify(_rc, _mid.ma_period, _mid.slope_lookback)
     tech_axis = AnalysisAxis(
         key="technical",
         label="기술적 추세",
@@ -250,10 +253,12 @@ def company_trend(
         stages=[
             StageFrame(
                 frame=frame,
-                period=stage.FRAME_PERIODS[frame],
+                bar=stage.FRAMES[frame].bar,
+                period=stage.FRAMES[frame].ma_period,
                 stage=result.stages[frame].stage,
                 label=result.stages[frame].label,
                 ma_dir=result.stages[frame].ma_dir,
+                quality=result.stages[frame].quality,
             )
             for frame in ("short", "mid", "long")
         ],
