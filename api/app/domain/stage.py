@@ -570,19 +570,67 @@ def segments(
     out.append({"stage": committed_stage, "from": committed_from, "to": last_date})
 
     # 방향 교정 후처리: 구간의 실제 가격 방향이 국면과 정면으로 어긋나면(하락 국면인데 크게 오름,
-    # 상승 국면인데 크게 빠짐 — MA 지연 반전 구간의 오분류) 방향에 맞는 국면으로 바로잡고 재병합한다.
+    # 상승 국면인데 크게 빠짐) 교정한다. 단, 구간 내부에서 방향이 뒤집힌 경우(예: 하락→바닥→반등이
+    # 한 구간으로 뭉친 경우)엔 전체를 뭉뚱그려 라벨하지 않고, 방향이 바뀌는 지점에서 분할한다.
     close_at = dict(zip(dates, closes, strict=True))
+    corrected: list[dict] = []
     for seg in out:
-        c0 = close_at.get(seg["from"])
-        c1 = close_at.get(seg["to"])
-        if not c0 or not c1:
-            continue
-        ret = c1 / c0 - 1
-        if seg["stage"] == 4 and ret > DIR_TOLERANCE:
-            seg["stage"] = 2 if ret > DIR_TOLERANCE * 2 else 1  # 크게 올랐으면 상승, 완만하면 바닥
-        elif seg["stage"] == 2 and ret < -DIR_TOLERANCE:
-            seg["stage"] = 4 if ret < -DIR_TOLERANCE * 2 else 3  # 크게 빠졌으면 하락, 완만하면 천정
-    return _merge_adjacent(out)
+        corrected.extend(_direction_correct(seg, close_at, raw))
+    return _merge_adjacent(corrected)
+
+
+def _seg_return(seg: dict, close_at: dict[str, float]) -> float | None:
+    c0 = close_at.get(seg["from"])
+    c1 = close_at.get(seg["to"])
+    if not c0 or not c1:
+        return None
+    return c1 / c0 - 1
+
+
+def _reversal_stage(stg: int, ret: float) -> int:
+    """국면과 방향이 어긋난 구간을 방향에 맞는 국면으로. 하락(4)인데 상승→크면 2·완만하면 1,
+    상승(2)인데 하락→크면 4·완만하면 3."""
+    if stg == 4:
+        return 2 if ret > 2 * DIR_TOLERANCE else 1
+    return 4 if ret < -2 * DIR_TOLERANCE else 3
+
+
+def _direction_correct(
+    seg: dict, close_at: dict[str, float], raw: list[tuple[int, str, str]]
+) -> list[dict]:
+    """구간의 실제 가격 방향과 국면이 어긋나면 교정. 내부에서 방향이 반전되면 그 지점에서 분할한다."""
+    ret = _seg_return(seg, close_at)
+    if ret is None:
+        return [seg]
+    stg = seg["stage"]
+    # 방향 일치(하락 국면=하락, 상승 국면=상승)거나 추세 국면이 아니면(1·3) 그대로.
+    conflict = (stg == 4 and ret > DIR_TOLERANCE) or (stg == 2 and ret < -DIR_TOLERANCE)
+    if not conflict:
+        return [seg]
+    # 구간 내부에서 저점(Stg4 인데 오름) 또는 고점(Stg2 인데 빠짐)을 찾아 분할.
+    idxs = [i for i, item in enumerate(raw) if seg["from"] <= item[1] <= seg["to"]]
+    if len(idxs) < 4:
+        seg["stage"] = _reversal_stage(stg, ret)  # 짧으면 방향에 맞게 통째 재라벨
+        return [seg]
+    prices = [(raw[i][1], close_at.get(raw[i][1])) for i in idxs]
+    prices = [(d, p) for d, p in prices if p]
+    if stg == 4:  # 하락 국면: 최저점에서 분할 — 앞=하락(4), 뒤=반등(오르면 2, 완만하면 1)
+        piv = min(range(len(prices)), key=lambda k: prices[k][1])
+    else:  # 상승 국면(2): 최고점에서 분할 — 앞=상승(2), 뒤=하락(빠지면 4, 완만하면 3)
+        piv = max(range(len(prices)), key=lambda k: prices[k][1])
+    if piv <= 0:
+        # 극점이 맨 앞 → 앞에 붙일 추세 없음. 구간 전체가 반전(하락 국면인데 저점서 시작해 반등,
+        # 상승 국면인데 고점서 시작해 하락)이므로 방향에 맞게 통째 재라벨.
+        seg["stage"] = _reversal_stage(stg, ret)
+        return [seg]
+    if piv >= len(prices) - 1:
+        return [seg]  # 극점이 맨 뒤 → 분할 의미 없음(추세가 아직 유효)
+    front = {"stage": stg, "from": seg["from"], "to": prices[piv][0]}
+    # 저점/고점 이후 꼬리는 보수적으로: 하락 후 반등=바닥(Stg1), 상승 후 하락=천정(Stg3).
+    # (진짜 상승/하락으로 발전하면 raw 분류가 별도 Stg2/Stg4 구간을 이미 만들었을 것)
+    tail_stage = 1 if stg == 4 else 3
+    tail = {"stage": tail_stage, "from": prices[piv + 1][0], "to": seg["to"]}
+    return [front, tail]
 
 
 def _merge_adjacent(segs: list[dict]) -> list[dict]:
