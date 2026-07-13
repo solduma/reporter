@@ -545,8 +545,12 @@ def segments(
     for i in range(ma_period - 1, len(closes)):
         r = classify(closes[: i + 1], ma_period, slope_lookback)
         st = r.stage
-        # 히스테리시스: 애매한 경계(가격 near + MA flat)에선 직전 국면 유지(전환 관성).
-        if prev_stage is not None and r.price_pos == "near" and r.ma_dir == "flat":
+        # 히스테리시스: 애매한 경계(가격 near + MA flat)에선 직전 국면 유지(전환 관성). 단 직전이
+        # 추세 국면(상승2·하락4)일 때는 유지하지 않는다 — 추세가 MA 근처로 돌아와 평탄해졌다는 건
+        # 추세가 소진돼 바닥/천정(1·3)으로 넘어갔다는 뜻이라, 유지하면 지나간 하락/상승을 질질 끈다
+        # (예: 급락 후 MA 로 복귀한 바닥 다지기를 계속 파랑으로 칠하던 문제). 추세 내 잠깐의 눌림·
+        # 되돌림은 min_run 디바운스가 이미 흡수하므로 여기서 추세를 붙들 필요가 없다.
+        if prev_stage in (1, 3) and r.price_pos == "near" and r.ma_dir == "flat":
             st = prev_stage
         if st is not None:
             raw.append((st, dates[i], r.price_pos or "near"))
