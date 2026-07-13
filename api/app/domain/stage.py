@@ -491,9 +491,10 @@ def _decide(
         # 하락 아님(반등·완만). 천정(Stg3)은 '직전 상승'이 있어야 성립 — 직전이 하락세(long_ctx=down)면
         # MA 아래 curl-down 은 천정이 아니라 바닥 다지기 연장(Stg1)이다.
         return 3 if long_ctx == "up" else 1
-    # 대칭: 가격이 하락 MA 위로 회복하면 바닥 탈출 시도 → 상승세면 Stg2 는 위에서 처리됨, 아니면 Stg1.
+    # 가격이 하락 MA 위에 있으나 상승세 아님: 직전 상승이면 천정 롤오버(Stg3), 직전 하락이면
+    # 바닥 탈출 시도(Stg1) — 하락 뒤 MA 위 반등을 '천정'으로 오인하지 않는다.
     if price_pos == "above" and ma_dir == "falling" and slope <= 0:
-        return 3
+        return 3 if long_ctx == "up" else 1
     # 레인지·라운딩 → 곡률로 바닥(U자)/천정(역U자). 단 천정(Stg3)은 직전 상승(long_ctx=up)일 때만.
     if curv > CURV_EPS:
         return 1
