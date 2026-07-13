@@ -53,8 +53,8 @@ def test_llm_comment_none_without_llm():
     assert analysis.llm_comment(None, "m", "삼성전자", []) is None
 
 
-def test_build_topdown_none_when_sector_unclassified(monkeypatch):
-    # 섹터를 특정 못 하면(테마 매칭 실패) 지수 방향만으로 0점 매기지 말고 None(종합서 제외).
+def test_build_topdown_index_only_when_sector_unclassified(monkeypatch):
+    # 섹터를 특정 못 해도 지수 방향은 항상 반영 — 지수만으로 점수 산출(가중치 재정규화).
     monkeypatch.setattr(analysis.sector_etf, "themes_to_kr_sector", lambda names: None)
     monkeypatch.setattr(analysis.sector_etf, "kr_sector_to_us", lambda s: None)
     monkeypatch.setattr(analysis.sector_flow, "compute_flows", lambda market, session=None: [])
@@ -66,5 +66,9 @@ def test_build_topdown_none_when_sector_unclassified(monkeypatch):
 
     monkeypatch.setattr(analysis.us_market, "fetch_kr_indices", lambda session=None: [_Q()])
     view, score = analysis.build_topdown([], "KOSDAQ")
-    assert score is None  # 섹터 미분류 → 점수 없음(0 아님)
+    assert score == 100.0  # 섹터 flow 없음 → 지수 방향(상승)에 가중치 100% 재정규화
     assert view["kr_sector"] is None
+    # 지수 하락이면 0.
+    _Q.rising = False
+    _, score_down = analysis.build_topdown([], "KOSDAQ")
+    assert score_down == 0.0
