@@ -157,18 +157,15 @@ def company_analysis(
         ),
     )
 
-    # 가치 축 — 최신 밸류에이션(저PER·저PBR·저EV/EBITDA + 고ROE·고배당). 단독 조회라 백분위 랭커
-    # 없이 절대 밴드로 근사(cheap_ranker 대신 저평가 절대 구간). 데이터 없으면 score None.
+    # 가치 축 — 최신 밸류에이션(저PER·저PBR·저EV/EBITDA + 고ROE·고배당). 절대 밴드(value_score_abs)로
+    # 계산해 스크리너와 동일 점수를 낸다(집합 무관). 데이터 없으면 score None.
     fin = company_service.latest_valuation(db, code)
     per = fin.per if fin else None
     pbr = fin.pbr if fin else None
     ev = fin.ev_ebitda if fin else None
     roe = fin.roe if fin else None
     dy = fin.div_yield if fin else None
-    per_r = _cheap_norm(per, 5, 40)  # 저PER: 5배↓ 만점, 40배↑ 0
-    pbr_r = _cheap_norm(pbr, 0.5, 3.0)  # 저PBR: 0.5배↓ 만점, 3배↑ 0
-    ev_r = _cheap_norm(ev, 3, 20)  # 저EV/EBITDA: 3배↓ 만점, 20배↑ 0
-    value_sc = analysis_scoring.value_score(per, pbr, ev, roe, dy, per_r, pbr_r, ev_r)
+    value_sc, (per_r, pbr_r, ev_r) = analysis_scoring.value_score_abs(per, pbr, ev, roe, dy)
     value_axis = AnalysisAxis(
         key="value",
         label="가치",
@@ -378,14 +375,6 @@ def _yn(v: bool | None) -> str:
 def _factors(factors: list[score_factors.Factor]) -> list[ScoreFactor]:
     """도메인 Factor → 스키마 ScoreFactor(직렬화)."""
     return [ScoreFactor(**f.as_dict()) for f in factors]
-
-
-def _cheap_norm(value: float | None, best: float, worst: float) -> float | None:
-    """저평가 절대 정규화(작을수록 1). best↓=1.0, worst↑=0.0. 단독 종목엔 후보군 백분위 대신
-    절대 구간을 쓴다(양수만 유효 — 적자 PER 등 0/음수는 None). 밴드가 역방향이라 직접 계산."""
-    if value is None or value <= 0:
-        return None
-    return analysis_scoring.clamp01((worst - value) / (worst - best))
 
 
 def _grade(score: float | None) -> str:
