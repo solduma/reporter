@@ -145,15 +145,15 @@ def trend_factors(
 
 # ── 탑다운 축 분해 (analysis_scoring.topdown_flow_score 와 동일 규칙) ──────
 TOPDOWN_METHOD = (
-    "미국 동일섹터 수급 flow(선행, 0.45)·국내 동일섹터 flow(0.40)·국내 지수 방향(0.15)을 "
-    "가중 평균. 섹터 flow 자체가 섹터 ETF 의 추세·신고가·거래량·외국인 수급 종합 0~100 점수."
+    "미국 동일섹터 수급 flow(선행, 0.45)·국내 동일섹터 flow(0.40)·국내 지수 수급(0.15)을 "
+    "가중 평균. 세 항 모두 추세·신고가·거래량(+외국인) 종합 0~100 수급 점수(지수도 방향이 아니라 "
+    "지수 일봉 flow 점수)."
 )
 
 
 def topdown_factors(
-    us_flow: float | None, kr_flow: float | None, kr_index_rising: bool | None
+    us_flow: float | None, kr_flow: float | None, kr_index_flow: float | None
 ) -> list[Factor]:
-    idx_norm = None if kr_index_rising is None else (1.0 if kr_index_rising else 0.0)
     return [
         Factor(
             "미국 섹터 수급(선행)",
@@ -168,9 +168,9 @@ def topdown_factors(
             0.40,
         ),
         Factor(
-            "국내 지수 방향",
-            "상승" if kr_index_rising else "하락" if kr_index_rising is False else "—",
-            idx_norm,
+            "국내 지수 수급",
+            _num(kr_index_flow, "점"),
+            None if kr_index_flow is None else kr_index_flow / 100,
             0.15,
         ),
     ]

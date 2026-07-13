@@ -29,8 +29,8 @@ def test_overall_average():
 
 
 def test_topdown_flow_us_weighted_higher_than_kr():
-    high_us = s.topdown_flow_score(us_flow=100.0, kr_flow=0.0, kr_index_rising=None)
-    high_kr = s.topdown_flow_score(us_flow=0.0, kr_flow=100.0, kr_index_rising=None)
+    high_us = s.topdown_flow_score(us_flow=100.0, kr_flow=0.0, kr_index_flow=None)
+    high_kr = s.topdown_flow_score(us_flow=0.0, kr_flow=100.0, kr_index_flow=None)
     assert high_us > high_kr  # 미국 선행 가중(0.45>0.40)
     assert s.topdown_flow_score(None, None, None) is None
 

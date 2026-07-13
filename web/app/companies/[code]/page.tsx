@@ -25,7 +25,7 @@ import {
   fetchFinancials,
   fetchPeers,
 } from "@/lib/api";
-import { dateToTs, monthsAgoIso } from "@/lib/chartTime";
+import { agoIso, dateToTs, monthsAgoIso } from "@/lib/chartTime";
 import { addQuickPick } from "@/lib/quickPicks";
 import { useAutoTour } from "@/lib/useAutoTour";
 import type {
@@ -77,6 +77,16 @@ const STAGE_FRAMES: { id: "short" | "mid" | "long"; label: string }[] = [
   { id: "short", label: "단기" },
   { id: "mid", label: "중기" },
   { id: "long", label: "장기" },
+];
+
+// 데이트레인지 퀵 프리셋 — 마지막 봉 기준 최근 기간. day 축 기준으로 만든 시작일을 축에 스냅한다.
+const RANGE_PRESETS: { label: string; unit: "day" | "month" | "year"; amount: number }[] = [
+  { label: "1주", unit: "day", amount: 7 },
+  { label: "1개월", unit: "month", amount: 1 },
+  { label: "3개월", unit: "month", amount: 3 },
+  { label: "1년", unit: "year", amount: 1 },
+  { label: "3년", unit: "year", amount: 3 },
+  { label: "10년", unit: "year", amount: 10 },
 ];
 
 // 비교 차트(지수·섹터)용 timeframe: 30m 은 없으므로 day 로 폴백.
@@ -541,6 +551,33 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
     return <PeersTable peers={peers.data} baseCode={code} />;
   }, [peers, code]);
 
+  // 데이트레인지 퀵 프리셋 적용 — 마지막 봉 기준 최근 기간. 계산한 시작일이 축(dateAxis)에 없으면
+  // (거래일·주봉 경계 불일치) 그 이상인 첫 봉으로 스냅한다. 데이터보다 이전이면 첫 봉으로 클램프.
+  const applyRangePreset = (unit: "day" | "month" | "year", amount: number) => {
+    if (dateAxis.length < 2) {
+      return;
+    }
+    const last = dateAxis[dateAxis.length - 1];
+    const target = agoIso(new Date(`${last}T00:00:00Z`), unit, amount);
+    const from = dateAxis.find((d) => d >= target) ?? dateAxis[0];
+    setDateRange({ from, to: last });
+  };
+
+  const rangePresetButtons = dateAxis.length > 1 ? (
+    <div className={styles.rangePresets} role="group" aria-label="기간 프리셋">
+      {RANGE_PRESETS.map((p) => (
+        <button
+          key={p.label}
+          type="button"
+          className={styles.rangePreset}
+          onClick={() => applyRangePreset(p.unit, p.amount)}
+        >
+          {p.label}
+        </button>
+      ))}
+    </div>
+  ) : null;
+
   // 공용 컨트롤바(봉 전환·기간 슬라이더·MA 레전드). floating=true 면 화면 상단 고정 플로팅.
   // 플로팅 가시성 기준 ref 는 탑다운 섹션의 원본 하나에만 단다(withRef). 추세 섹션 사본은 상태만
   // 공유하고 ref 는 달지 않아 가시성 추적이 어긋나지 않게 한다.
@@ -574,6 +611,7 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
           onChange={(from, to) => setDateRange({ from, to })}
         />
       ) : null}
+      {rangePresetButtons}
       <div className={styles.maLegend} aria-label="이동평균선">
         {MA_DEFS.map((m) => (
           <span key={m.period} className={styles.maItem}>

@@ -73,6 +73,10 @@ _NEWS_EVENTS_CRON = CronTrigger(hour=7, minute=0, timezone=_TZ)
 # US 배치는 미국 장 마감(16시 ET ≈ 06시 KST) 후. 유니버스 스냅샷 → 8-K 순.
 _US_UNIVERSE_CRON = CronTrigger(hour=6, minute=10, timezone=_TZ)
 _US_DISCLOSURE_CRON = CronTrigger(hour=6, minute=40, timezone=_TZ)
+# 국내 공시 순환 정기 배치: 매일 07:40. 유니버스를 오래된 순으로 per_run 개씩 최근 창 동기화
+# (몇 밤에 걸쳐 전수 순환). DART 콜이라 재무·리포트 백필(03:30·05:00)과 시차를 두고, 뉴스(07:00)
+# 뒤에 둔다. 온디맨드 타임라인 조회와 같은 DisclosureSyncState 캐시를 공유(중복 조회 방지).
+_DISCLOSURE_CRON = CronTrigger(hour=7, minute=40, timezone=_TZ)
 
 
 def run_ingest_cycle(settings: Settings | None = None) -> dict:
@@ -176,6 +180,17 @@ def run_news_events(settings: Settings | None = None) -> dict:
         session.close()
 
 
+def run_disclosure_batch(settings: Settings | None = None) -> dict:
+    """국내 공시 순환 정기 동기화 1회분(오래된 순 per_run 개, 최근 창). 여러 밤에 걸쳐 전수 순환."""
+    from app.services import dart_ingest
+
+    session = SessionLocal()
+    try:
+        return dart_ingest.run_disclosure_batch(session, settings or get_settings())
+    finally:
+        session.close()
+
+
 def run_us_universe_batch(settings: Settings | None = None) -> dict:
     """US 유니버스 스냅샷(S&P500+보충 네이버 시세). US 스크리너 소스."""
     from app.services import us_universe_ingest
@@ -270,6 +285,14 @@ def build_scheduler(settings: Settings | None = None) -> BlockingScheduler:
         _logged("us_disclosure", run_us_disclosure_batch),
         trigger=_US_DISCLOSURE_CRON,
         id="us_disclosure",
+        max_instances=1,
+        coalesce=True,
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        _logged("disclosures", run_disclosure_batch),
+        trigger=_DISCLOSURE_CRON,
+        id="disclosures",
         max_instances=1,
         coalesce=True,
         replace_existing=True,

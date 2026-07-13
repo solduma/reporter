@@ -54,6 +54,35 @@ def flow_score(tech: Technicals, foreign_delta: float | None) -> float | None:
 # 외국인 보유율 변화는 순수 계산 그대로 도메인 함수를 재노출.
 foreign_delta = domain_scoring.foreign_delta
 
+# 지수 flow 도 섹터 flow 와 같은 5분 TTL 캐시(지수명 → (계산시각, score)).
+_index_cache: dict[str, tuple[float, float | None]] = {}
+
+
+def index_flow_score(index_name: str, session: requests.Session | None = None) -> float | None:
+    """국내 지수(KOSPI|KOSDAQ)의 자금유입 스코어(0~100). 섹터 ETF 와 동일한 flow_score 규칙을
+    지수 일봉(price_candles 의 stock_code=지수명)에 적용한다. 지수엔 외국인비율이 없어 foreign_delta
+    는 None(가중치 0.10 자동 재정규화). 방향(bool)만 쓰던 탑다운 지수 항을 수급 점수로 승격."""
+    now = time.monotonic()
+    with _flow_lock:
+        cached = _index_cache.get(index_name)
+        if cached and now - cached[0] < _FLOW_TTL_S:
+            return cached[1]
+
+    from app.db.session import SessionLocal
+    from app.services import candle_service
+
+    db = SessionLocal()
+    try:
+        candles = candle_service.ensure_periodic(db, index_name, "day")
+    finally:
+        db.close()
+    if not candles:
+        return None
+    score = flow_score(technicals.compute(candles), None)
+    with _flow_lock:
+        _index_cache[index_name] = (time.monotonic(), score)
+    return score
+
 
 def compute_flows(market: str, session: requests.Session | None = None) -> list[SectorFlow]:
     """시장(KR|US)의 모든 섹터 ETF flow 를 계산해 flow_score 내림차순으로 반환한다.

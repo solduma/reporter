@@ -27,20 +27,21 @@ def test_growth_score_turnaround_only():
 
 
 def test_topdown_flow_score_us_leads_weighting():
-    # 미국 섹터 flow(가중 0.45)가 국내(0.40)보다 커서 미국 강세가 더 반영.
-    high_us = analysis.topdown_flow_score(us_flow=100.0, kr_flow=0.0, kr_index_rising=None)
-    high_kr = analysis.topdown_flow_score(us_flow=0.0, kr_flow=100.0, kr_index_rising=None)
+    # 미국 섹터 flow(가중 0.45)가 국내(0.40)보다 커서 미국 강세가 더 반영. 지수도 0~100 수급 점수.
+    high_us = analysis.topdown_flow_score(us_flow=100.0, kr_flow=0.0, kr_index_flow=None)
+    high_kr = analysis.topdown_flow_score(us_flow=0.0, kr_flow=100.0, kr_index_flow=None)
     assert high_us > high_kr
     # 모두 최대 → 100.
-    assert analysis.topdown_flow_score(100.0, 100.0, True) == 100.0
+    assert analysis.topdown_flow_score(100.0, 100.0, 100.0) == 100.0
     # 전부 불명 → None.
     assert analysis.topdown_flow_score(None, None, None) is None
 
 
 def test_topdown_flow_score_index_fallback():
-    # 섹터 flow 를 못 구해도 지수 방향만으로 폴백 산출.
-    assert analysis.topdown_flow_score(None, None, True) == 100.0
-    assert analysis.topdown_flow_score(None, None, False) == 0.0
+    # 섹터 flow 를 못 구해도 지수 수급 점수만으로 폴백 산출(가중치 재정규화).
+    assert analysis.topdown_flow_score(None, None, 100.0) == 100.0
+    assert analysis.topdown_flow_score(None, None, 0.0) == 0.0
+    assert analysis.topdown_flow_score(None, None, 55.0) == 55.0
 
 
 def test_overall_averages_present_scores():
@@ -54,21 +55,14 @@ def test_llm_comment_none_without_llm():
 
 
 def test_build_topdown_index_only_when_sector_unclassified(monkeypatch):
-    # 섹터를 특정 못 해도 지수 방향은 항상 반영 — 지수만으로 점수 산출(가중치 재정규화).
+    # 섹터를 특정 못 해도 지수 수급은 항상 반영 — 지수 점수만으로 산출(가중치 100% 재정규화).
     monkeypatch.setattr(analysis.sector_etf, "themes_to_kr_sector", lambda names: None)
     monkeypatch.setattr(analysis.sector_etf, "kr_sector_to_us", lambda s: None)
     monkeypatch.setattr(analysis.sector_flow, "compute_flows", lambda market, session=None: [])
+    monkeypatch.setattr(analysis.us_market, "fetch_kr_indices", lambda session=None: [])
+    monkeypatch.setattr(analysis.sector_flow, "index_flow_score", lambda name, session=None: 72.0)
 
-    class _Q:
-        name = "코스닥"
-        change_ratio = "+1.0%"
-        rising = True
-
-    monkeypatch.setattr(analysis.us_market, "fetch_kr_indices", lambda session=None: [_Q()])
     view, score = analysis.build_topdown([], "KOSDAQ")
-    assert score == 100.0  # 섹터 flow 없음 → 지수 방향(상승)에 가중치 100% 재정규화
+    assert score == 72.0  # 섹터 flow 없음 → 지수 수급(72)에 가중치 100% 재정규화
     assert view["kr_sector"] is None
-    # 지수 하락이면 0.
-    _Q.rising = False
-    _, score_down = analysis.build_topdown([], "KOSDAQ")
-    assert score_down == 0.0
+    assert view["kr_index_flow"] == 72.0

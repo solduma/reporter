@@ -150,3 +150,73 @@ def _mark_synced(db: Session, stock_code: str) -> None:
     )
     db.execute(stmt)
     db.commit()
+
+
+# 공시 정기 배치: 유니버스를 몇 밤에 걸쳐 순환 동기화한다. 종목당 DART 콜(목록+본문)이 많아
+# 한 번에 다 돌리면 IP 밴·일일한도에 걸리므로, '가장 오래 전에 동기화된' 순으로 per_run 개만
+# 최근 창(_BATCH_WINDOW_DAYS)으로 갱신한다. DisclosureSyncState 를 순환 커서로 재사용
+# (synced_at 오래된 것 먼저) — 온디맨드 타임라인 조회와 같은 캐시를 공유해 중복 조회를 피한다.
+_BATCH_PER_RUN = 300  # 하룻밤 처리 종목 수(≈ 콜 여유). 유니버스 ~2.7천 → 약 9일 주기 전수 순환.
+_BATCH_WINDOW_DAYS = 14  # 각 종목 최근 N일 공시만 조회(신규 공시 포착엔 충분).
+
+
+def _batch_universe_codes(db: Session) -> list[str]:
+    """정기 공시 배치 대상 — 최신 스냅샷의 상장 보통주(우선주 제외). financials 백필과 동일 필터."""
+    from app.db.models import UniverseSnapshot
+    from app.services import universe_ingest
+
+    as_of = universe_ingest.latest_snapshot_date(db)
+    if as_of is None:
+        return []
+    return list(
+        db.scalars(
+            select(UniverseSnapshot.stock_code).where(
+                UniverseSnapshot.snapshot_date == as_of,
+                UniverseSnapshot.stock_type == "stock",
+                ~UniverseSnapshot.stock_name.op("~")(r"우[A-C]?$"),
+            )
+        ).all()
+    )
+
+
+def run_disclosure_batch(
+    db: Session, settings: Settings, per_run: int = _BATCH_PER_RUN
+) -> dict:
+    """유니버스 공시를 순환 정기 동기화한다(하룻밤 per_run 개, 오래된 것 먼저).
+
+    반환: {synced, new, remaining}. synced=조회한 종목 수, new=신규 저장 공시 수,
+    remaining=아직 이번 주기에 동기화 안 된(또는 _SYNC_TTL 지난) 종목 수.
+    """
+    if not settings.dart_api_key:
+        logger.warning("no DART key; skip disclosure batch")
+        return {"synced": 0, "new": 0, "remaining": 0}
+    codes = _batch_universe_codes(db)
+    if not codes:
+        return {"synced": 0, "new": 0, "remaining": 0}
+
+    # 종목별 마지막 동기화 시각 → 오래된(또는 미동기화) 순 정렬. _SYNC_TTL 안에 동기화된 건 제외.
+    synced_at = dict(
+        db.execute(
+            select(DisclosureSyncState.stock_code, DisclosureSyncState.synced_at)
+        ).all()
+    )
+    fresh_cut = datetime.now(UTC) - _SYNC_TTL
+    pending = [c for c in codes if not (synced_at.get(c) and synced_at[c] >= fresh_cut)]
+    # 미동기화(None)를 최우선, 그다음 오래된 순.
+    pending.sort(key=lambda c: synced_at.get(c) or datetime.min.replace(tzinfo=UTC))
+    batch = pending[:per_run]
+
+    end = date.today()
+    begin = end - timedelta(days=_BATCH_WINDOW_DAYS)
+    synced = new = 0
+    for code in batch:
+        try:
+            new += sync_disclosures(db, settings, code, begin, end)
+            synced += 1
+        except Exception as e:  # 한 종목 실패가 배치를 막지 않도록
+            db.rollback()
+            logger.warning("disclosure batch failed for %s: %s", code, e)
+
+    remaining = len(pending) - synced
+    logger.info("disclosure batch: synced=%d new=%d remaining=%d", synced, new, remaining)
+    return {"synced": synced, "new": new, "remaining": remaining}
