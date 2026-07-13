@@ -25,6 +25,8 @@ CURV_EPS = 0.0005  # 전·후반 로그기울기 차의 절대값이 이 값 초
 # 봉당 로그기울기 크기가 이 값 이상이면 '가파른' 추세로 본다(완만한 바닥 다지기와 급락 구분).
 # 예: 주봉 -0.005 ≈ 주당 -0.5% 이상 하락이면 여전히 하락 국면, 그보다 완만하면 바닥 후보.
 STEEP_SLOPE = 0.005
+# 구간 방향 교정 임계: 국면과 반대로 이 비율 넘게 움직이면(하락 국면인데 +10%↑ 등) 바로잡는다.
+DIR_TOLERANCE = 0.10
 
 _STAGE_LABELS = {1: "① 바닥", 2: "② 상승", 3: "③ 천정", 4: "④ 하락"}
 
@@ -43,7 +45,7 @@ class Frame:
 # 중·장기 모두 주봉을 쓰되 MA 길이로 지평을 구분(중기 30주·장기 40주). 월봉은 데이터가 얕고
 # (오래된 종목도 ~122개월) 노이즈 대비 이득이 적어 제외 — 주봉 기반이 데이터 풍부·일봉 축 정렬 용이.
 FRAMES: dict[str, Frame] = {
-    "short": Frame(bar="day", ma_period=50, slope_lookback=10, min_run=10),
+    "short": Frame(bar="day", ma_period=50, slope_lookback=10, min_run=20),
     "mid": Frame(bar="week", ma_period=30, slope_lookback=5, min_run=8),
     "long": Frame(bar="week", ma_period=40, slope_lookback=8, min_run=8),
 }
@@ -470,12 +472,19 @@ def _decide(
         or (breakout == "down" and price_pos != "above")
     ):
         return 4
-    # 가격이 상승/평탄 MA 를 하향 이탈 → Stg2 즉시 종료. 바닥 다지기(완만+바닥형 곡률)면 Stg1,
-    # 가파른 하락세면 Stg4, 그 외(완만하나 곡률 불명확)는 천정 이탈 직후로 보고 Stg3.
+    # 가격이 상승/평탄 MA 를 하향 이탈 → Stg2 즉시 종료. 이후 바닥/하락/천정 구분:
+    #  - 바닥 다지기(완만+바닥형 곡률 curv>0) → Stg1
+    #  - 하락(가파른 기울기 or 가속 하락 curv<0 or 변동성 확장=매도 클라이맥스) → Stg4
+    #  - 그 외(천정 직후 완만한 롤오버) → Stg3
     if price_pos == "below":
         if basing:
             return 1
-        return 4 if slope <= -STEEP_SLOPE else 3
+        # 하락(Stg4): 가파른 하락 or (하락세 slope<0 이면서 가속 하락 or 매도 클라이맥스).
+        # 가격이 MA 아래여도 slope 가 양(상승 반등 중)이면 하락이 아니다 → 천정 롤오버(Stg3)로 본다.
+        declining = slope <= -STEEP_SLOPE or (
+            slope < 0 and (curv < -CURV_EPS or volatility == "expansion")
+        )
+        return 4 if declining else 3
     # 대칭: 가격이 하락 MA 위로 회복하면 바닥 탈출 시도 → 상승세면 Stg2 는 위에서 처리됨, 아니면 Stg1.
     if price_pos == "above" and ma_dir == "falling" and slope <= 0:
         return 3
@@ -511,7 +520,7 @@ def segments(
     if len(closes) != len(dates) or len(closes) < ma_period:
         return []
 
-    raw: list[tuple[int, str]] = []
+    raw: list[tuple[int, str, str]] = []  # (stage, date, price_pos)
     prev_stage: int | None = None
     for i in range(ma_period - 1, len(closes)):
         r = classify(closes[: i + 1], ma_period, slope_lookback)
@@ -520,23 +529,24 @@ def segments(
         if prev_stage is not None and r.price_pos == "near" and r.ma_dir == "flat":
             st = prev_stage
         if st is not None:
-            raw.append((st, dates[i]))
+            raw.append((st, dates[i], r.price_pos or "near"))
             prev_stage = st
     if not raw:
         return []
 
-    # 디바운스: 새 국면이 min_run 봉 연속 이어져야 '확정'하되, 확정되면 그 국면이 실제로
-    # 시작된 시점으로 소급 표기한다(확정 지연만큼 전환을 늦게 칠하지 않음 — 하락 전환이 뒤늦게
-    # 잡히던 문제 해결). min_run 미만으로 반짝인 국면은 직전 확정 국면에 흡수한다.
+    # 디바운스: 새 국면이 필요 봉수만큼 연속 이어져야 '확정'하되, 확정되면 실제 시작 시점으로 소급.
+    # 필요 봉수는 전환의 강도에 따라 다르다:
+    #  - 추세 반전(상승 Stg2 ↔ 하락 Stg4)이나 가격이 MA 반대편으로 뚜렷이 이동(above↔below)한
+    #    '강한 전환'은 REVERSAL_RUN(짧게)로 빨리 확정 — 급락·급반등이 뒤늦게 잡히던 문제 방지.
+    #  - 그 외(바닥↔천정 같은 미묘한 전환)는 min_run(길게)로 노이즈 억제.
+    reversal_run = max(2, min_run // 2)
     out: list[dict] = []
-    committed_stage = raw[0][0]  # 현재 확정 국면
-    committed_from = raw[0][1]  # 그 확정 국면의 시작일
-    cand_stage = raw[0][0]  # 후보(연속 관찰 중) 국면
-    cand_from = raw[0][1]  # 후보가 시작된 일
+    committed_stage, committed_from, committed_pos = raw[0]
+    cand_stage, cand_from = raw[0][0], raw[0][1]
     cand_len = 1
     last_date = raw[0][1]
 
-    for st, d in raw[1:]:
+    for st, d, pos in raw[1:]:
         last_date = d
         if st == cand_stage:
             cand_len += 1
@@ -544,20 +554,55 @@ def segments(
             cand_stage = st
             cand_from = d
             cand_len = 1
-        # 후보가 min_run 이상 이어졌고 확정 국면과 다르면 → 전환 확정(시작 시점으로 소급).
-        if cand_stage != committed_stage and cand_len >= min_run:
-            out.append({"stage": committed_stage, "from": committed_from, "to": _prev_day(raw, cand_from)})
-            committed_stage = cand_stage
-            committed_from = cand_from
+        if cand_stage != committed_stage:
+            # 강한 전환: 추세 반전(2↔4) 또는 가격 위치가 확정 국면 대비 반대편(above↔below).
+            strong = {committed_stage, cand_stage} == {2, 4} or (
+                committed_pos in ("above", "below")
+                and pos in ("above", "below")
+                and pos != committed_pos
+            )
+            need = reversal_run if strong else min_run
+            if cand_len >= need:
+                out.append(
+                    {"stage": committed_stage, "from": committed_from, "to": _prev_day(raw, cand_from)}
+                )
+                committed_stage, committed_from, committed_pos = cand_stage, cand_from, pos
     out.append({"stage": committed_stage, "from": committed_from, "to": last_date})
-    return out
+
+    # 방향 교정 후처리: 구간의 실제 가격 방향이 국면과 정면으로 어긋나면(하락 국면인데 크게 오름,
+    # 상승 국면인데 크게 빠짐 — MA 지연 반전 구간의 오분류) 방향에 맞는 국면으로 바로잡고 재병합한다.
+    close_at = dict(zip(dates, closes, strict=True))
+    for seg in out:
+        c0 = close_at.get(seg["from"])
+        c1 = close_at.get(seg["to"])
+        if not c0 or not c1:
+            continue
+        ret = c1 / c0 - 1
+        if seg["stage"] == 4 and ret > DIR_TOLERANCE:
+            seg["stage"] = 2 if ret > DIR_TOLERANCE * 2 else 1  # 크게 올랐으면 상승, 완만하면 바닥
+        elif seg["stage"] == 2 and ret < -DIR_TOLERANCE:
+            seg["stage"] = 4 if ret < -DIR_TOLERANCE * 2 else 3  # 크게 빠졌으면 하락, 완만하면 천정
+    return _merge_adjacent(out)
 
 
-def _prev_day(raw: list[tuple[int, str]], date_str: str) -> str:
+def _merge_adjacent(segs: list[dict]) -> list[dict]:
+    """방향 교정 후 인접한 동일 국면 구간을 병합한다."""
+    if not segs:
+        return segs
+    merged = [dict(segs[0])]
+    for s in segs[1:]:
+        if s["stage"] == merged[-1]["stage"]:
+            merged[-1]["to"] = s["to"]
+        else:
+            merged.append(dict(s))
+    return merged
+
+
+def _prev_day(raw: list[tuple[int, str, str]], date_str: str) -> str:
     """raw 시퀀스에서 date_str 바로 앞 봉의 날짜(구간 끝을 전환 직전 봉으로). 없으면 그대로."""
-    for idx, (_, d) in enumerate(raw):
-        if d == date_str:
-            return raw[idx - 1][1] if idx > 0 else d
+    for idx, item in enumerate(raw):
+        if item[1] == date_str:
+            return raw[idx - 1][1] if idx > 0 else date_str
     return date_str
 
 
