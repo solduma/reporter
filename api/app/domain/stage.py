@@ -38,7 +38,7 @@ DEEP_BELOW = 0.10
 # 깨끗한 상승(clean&slope>0)·상승 MA 위는 이미 위에서 Stg2 로 걸러지므로, 여기 걸리는 건
 # MA 가 더는 안 오르는데 가격만 크게 벌어진 경우다. 초입 급등(코로나 반등)은 곧이어 clean 상승이
 # 따라와 디바운스가 Stg2 로 유지하므로 순간적으로 걸려도 구간은 상승으로 남는다.
-DEEP_ABOVE = 0.10
+DEEP_ABOVE = 0.07
 # 구간 방향 교정 임계: 국면과 반대로 이 비율 넘게 움직이면(하락 국면인데 +10%↑ 등) 바로잡는다.
 DIR_TOLERANCE = 0.10
 
@@ -443,8 +443,10 @@ def _long_context(closes: list[float], ma_period: int) -> str:
     ma_past = _sma_at(closes, n - 1 - ma_period, ma_period)
     if ma_now is not None and ma_past is not None:
         return "up" if ma_now >= ma_past else "down"
-    slope, _ = _log_slope_r2(closes[-ma_period:])
-    return "up" if slope >= 0 else "down"
+    # 과거 MA 를 못 구할 만큼 이력이 짧으면(대개 시계열 맨 앞) '직전 상승 있었음(up)'을 단정할 수
+    # 없다 — 최근 기울기가 상승이어도 그건 '직전 장기 추세'가 아니라 지금 오르는 중일 뿐이다.
+    # 천정(Stg3)은 확실한 선행 상승이 있을 때만 성립하므로 보수적으로 down(선행 상승 미확인)으로 본다.
+    return "down"
 
 
 def _decide(

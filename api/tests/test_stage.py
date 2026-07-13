@@ -298,11 +298,16 @@ def test_volatility_regime_contraction_vs_expansion():
 
 def test_volatility_breaks_range_tie_before_volume():
     # 평탄 레인지에서 변동성 수축=바닥(1)·확장=천정(3). (볼륨보다 우선순위)
-    flat = _flat(160, level=100.0)
-    hi_contract = [102.0] * 80 + [100.4] * 80
-    lo_contract = [98.0] * 80 + [99.6] * 80
-    hi_expand = [100.4] * 80 + [105.0] * 80
-    lo_expand = [99.6] * 80 + [95.0] * 80
+    # 천정(Stg3)은 '직전 상승'이 있어야 성립하므로 선행 상승(ma_past 계산 가능) 후 평탄 레인지로 구성.
+    lead = _rising(160, start=40.0, step=0.375)  # 40→~100, 상승 문맥 확보
+    level = lead[-1]
+    flat = lead + _flat(160, level=level)
+    pad_hi = [x + 0.4 for x in lead]
+    pad_lo = [x - 0.4 for x in lead]
+    hi_contract = pad_hi + [level + 2.0] * 80 + [level + 0.4] * 80
+    lo_contract = pad_lo + [level - 2.0] * 80 + [level - 0.4] * 80
+    hi_expand = pad_hi + [level + 0.4] * 80 + [level + 5.0] * 80
+    lo_expand = pad_lo + [level - 0.4] * 80 + [level - 5.0] * 80
     base = stage.classify(flat, _MA, _SL, None, hi_contract, lo_contract)
     top = stage.classify(flat, _MA, _SL, None, hi_expand, lo_expand)
     assert base.volatility == "contraction" and base.stage == 1
