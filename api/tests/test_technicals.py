@@ -55,3 +55,15 @@ def test_volume_spike_detected():
     bars[-1].volume = 5000  # 마지막 날 거래량 급증
     t = technicals.compute(bars)
     assert t.vol_ratio is not None and t.vol_ratio > 3
+
+
+def test_weinstein_stage_shifts_trend_score():
+    # 같은 시계열이라도 와인스타인 국면(주봉)을 보조 가중으로 반영하면 점수가 이동한다.
+    bars = _series([100 + i * 0.1 for i in range(130)])  # 완만한 상승
+    base = technicals.compute(bars).trend_score
+    up = technicals.compute(bars, stage=2).trend_score  # 상승 국면 → 가점
+    down = technicals.compute(bars, stage=4).trend_score  # 하락 국면 → 감점
+    assert base is not None and up is not None and down is not None
+    assert up > base > down  # Stg2 > (국면 없음) > Stg4
+    # 국면 가중은 보조(15%)라 이동폭이 과하지 않다.
+    assert abs(up - base) <= 20

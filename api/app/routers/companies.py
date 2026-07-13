@@ -182,9 +182,8 @@ def company_analysis(
         ),
     )
 
-    # 기술 축 — 일봉 지표 + 와인스타인 중기 국면(주봉 30주).
+    # 기술 축 — 일봉 지표 + 와인스타인 중기 국면(주봉 30주). 국면은 추세 점수에 보조 가중 반영.
     candles = company_service.ensure_day_candles(db, code)
-    tech = technicals.compute(candles)
     _mid = stage.FRAMES["mid"]
     _mid_b = stage.resample_ohlcv(
         [c.bar_date.isoformat() for c in candles],
@@ -197,6 +196,7 @@ def company_analysis(
     mid_stage = stage.classify(
         _mid_b.closes, _mid.ma_period, _mid.slope_lookback, _mid_b.volumes, _mid_b.highs, _mid_b.lows
     )
+    tech = technicals.compute(candles, stage=mid_stage.stage)
     tech_axis = AnalysisAxis(
         key="technical",
         label="추세",
@@ -217,6 +217,7 @@ def company_analysis(
                 tech.above_ma120,
                 tech.vol_ratio,
                 tech.return_3m,
+                mid_stage.stage,
             )
         ),
     )

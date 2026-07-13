@@ -51,3 +51,20 @@ def test_overall_averages_present_scores():
 def test_llm_comment_none_without_llm():
     # LLM 없으면(None) 네트워크 호출 없이 즉시 None.
     assert analysis.llm_comment(None, "m", "삼성전자", []) is None
+
+
+def test_build_topdown_none_when_sector_unclassified(monkeypatch):
+    # 섹터를 특정 못 하면(테마 매칭 실패) 지수 방향만으로 0점 매기지 말고 None(종합서 제외).
+    monkeypatch.setattr(analysis.sector_etf, "themes_to_kr_sector", lambda names: None)
+    monkeypatch.setattr(analysis.sector_etf, "kr_sector_to_us", lambda s: None)
+    monkeypatch.setattr(analysis.sector_flow, "compute_flows", lambda market, session=None: [])
+
+    class _Q:
+        name = "코스닥"
+        change_ratio = "+1.0%"
+        rising = True
+
+    monkeypatch.setattr(analysis.us_market, "fetch_kr_indices", lambda session=None: [_Q()])
+    view, score = analysis.build_topdown([], "KOSDAQ")
+    assert score is None  # 섹터 미분류 → 점수 없음(0 아님)
+    assert view["kr_sector"] is None

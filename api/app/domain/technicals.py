@@ -40,8 +40,11 @@ def _sma(values: list[float], window: int) -> float | None:
     return sum(values[-window:]) / window
 
 
-def compute(bars: list[_Bar]) -> Technicals:
-    """일봉 리스트(날짜 오름차순)에서 기술 지표를 계산한다."""
+def compute(bars: list[_Bar], stage: int | None = None) -> Technicals:
+    """일봉 리스트(날짜 오름차순)에서 기술 지표를 계산한다.
+
+    stage(와인스타인 중기 국면 1~4, 선택)를 주면 추세 종합 점수에 보조 가중으로 반영한다.
+    """
     empty = Technicals(None, None, None, None, None, None, None, None, None, None, None)
     if not bars:
         return empty
@@ -79,7 +82,7 @@ def compute(bars: list[_Bar]) -> Technicals:
         if past > 0:
             return_3m = round((last / past - 1) * 100, 1)
 
-    trend = _trend_score(near_high, ma_aligned, above_ma120, vol_ratio, return_3m)
+    trend = _trend_score(near_high, ma_aligned, above_ma120, vol_ratio, return_3m, stage)
     return Technicals(
         last_close=round(last, 2),
         high_52w=round(high_52w, 2) if high_52w else None,
@@ -95,14 +98,25 @@ def compute(bars: list[_Bar]) -> Technicals:
     )
 
 
+# 와인스타인 중기 국면 → 추세 정규화값(0~1). Stg2 상승=만점, Stg1 바닥=중립, Stg3 천정=약,
+# Stg4 하락=0. 추세 점수에 보조 가중(WEINSTEIN_WEIGHT)으로 반영한다.
+_STAGE_NORM = {2: 1.0, 1: 0.5, 3: 0.3, 4: 0.0}
+WEINSTEIN_WEIGHT = 0.15
+
+
 def _trend_score(
     near_high: float | None,
     ma_aligned: bool | None,
     above_ma120: bool | None,
     vol_ratio: float | None,
     return_3m: float | None,
+    stage: int | None = None,
 ) -> float | None:
-    """기술 지표를 0~100 점수로 종합. 계산 가능한 항목만 가중 평균한다."""
+    """기술 지표를 0~100 점수로 종합. 계산 가능한 항목만 가중 평균한다.
+
+    stage(와인스타인 중기 국면 1~4)가 주어지면 보조 가중(15%)으로 반영 — 나머지 4요소는
+    합쳐서 85%로 재정규화된다(가중치는 상대적이므로 계산 가능한 항목 합으로 자동 재정규화).
+    """
     parts: list[tuple[float, float]] = []  # (0~1 값, 가중치)
     if near_high is not None:
         # 0.7(고점 대비 -30%)~1.0(신고가) 구간을 0~1로. 리터럴 0.3 나눗셈 유지(band 의
@@ -114,6 +128,8 @@ def _trend_score(
         parts.append((band(vol_ratio, 0.5, 2.0), 0.15))  # 거래량 0.5배=0, 2배↑=1
     if return_3m is not None:
         parts.append((band(return_3m, -20, 40), 0.20))  # -20%~+40% → 0~1
+    if stage in _STAGE_NORM:
+        parts.append((_STAGE_NORM[stage], WEINSTEIN_WEIGHT))
     if not parts:
         return None
     total_w = sum(w for _, w in parts)
