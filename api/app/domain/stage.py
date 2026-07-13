@@ -28,6 +28,10 @@ STEEP_SLOPE = 0.005
 # 봉당 로그기울기가 이 값보다 완만하면(거의 0) 추세가 아니라 횡보/바닥으로 본다(near-flat 하락
 # 오탐 방지). 하락(Stg4) 판정은 slope 가 이보다 뚜렷이 음(-)일 때만.
 MILD_SLOPE = 0.0015
+# 가격이 MA 를 이 비율 넘게 하회하면 '깊은 이탈'로 본다. 천정(Stg3) 롤오버는 MA 근처에서
+# 완만히 도는 형태이므로, MA 를 이만큼 크게 벗어나 있으면(회귀·MA기울기가 긴 창 탓에 급락을
+# 아직 못 따라잡아도) 롤오버가 아니라 하락(Stg4)이다(코로나 주봉 급락 보정).
+DEEP_BELOW = 0.10
 # 구간 방향 교정 임계: 국면과 반대로 이 비율 넘게 움직이면(하락 국면인데 +10%↑ 등) 바로잡는다.
 DIR_TOLERANCE = 0.10
 
@@ -406,7 +410,7 @@ def classify(
 
     stage = _decide(
         price_pos, ma_dir, lslope, r2, er, curv,
-        _long_context(closes, ma_period), vol_sig, volatility, breakout,
+        _long_context(closes, ma_period), vol_sig, volatility, breakout, pos_ratio,
     )
     return StageResult(
         stage=stage,
@@ -447,6 +451,7 @@ def _decide(
     vol_sig: str = "neutral",
     volatility: str = "normal",
     breakout: str = "none",
+    pos_ratio: float = 0.0,
 ) -> int:
     """shape+백본+볼륨+변동성+돌파 결합 국면 판정.
 
@@ -480,6 +485,10 @@ def _decide(
     #  - 하락(가파른 기울기 or 가속 하락 curv<0 or 변동성 확장=매도 클라이맥스) → Stg4
     #  - 그 외(천정 직후 완만한 롤오버) → Stg3
     if price_pos == "below":
+        # MA 를 깊게 하회(> DEEP_BELOW) = 급락. 천정 롤오버는 MA 근처에서 도는 형태이므로,
+        # 회귀·MA기울기가 긴 창 탓에 아직 평탄해도 깊은 이탈이면 하락(Stg4)으로 본다.
+        if pos_ratio < -DEEP_BELOW:
+            return 4
         if basing:
             return 1
         # 하락(Stg4): 가파른 하락 or (뚜렷한 하락세 slope 이면서 가속 하락 or 매도 클라이맥스)
@@ -567,8 +576,10 @@ def segments(
             cand_len = 1
         if cand_stage != committed_stage:
             # 강한 전환(빠른 확정): 추세 반전(2↔4), 가격 위치가 확정 국면 대비 반대편(above↔below),
-            # 또는 MA 하향 이탈 하락(4·below)·상향 돌파 상승(2·above)으로의 진입. 바닥에서의 급락이나
-            # 급반등이 min_run 문턱에 걸려 흡수되던 문제 방지(예: 코로나 급락은 바닥에서 진입).
+            # 또는 MA 하향 이탈 하락(4·below)으로의 진입. 바닥에서의 급락이 min_run 문턱에 걸려
+            # 바닥밴드로 흡수되던 문제 방지(예: 코로나 급락은 바닥에서 시작). 상방 돌파(Stg2 진입)는
+            # 거짓 돌파가 잦아 빠른 확정에서 제외 — 와인스타인식으로 확인(정상 min_run)을 요구한다
+            # (하향 이탈은 즉시 대응, 상향 돌파는 확인 후 대응이라는 비대칭).
             strong = (
                 {committed_stage, cand_stage} == {2, 4}
                 or (
@@ -577,7 +588,6 @@ def segments(
                     and pos != committed_pos
                 )
                 or (cand_stage == 4 and pos == "below")
-                or (cand_stage == 2 and pos == "above")
             )
             need = reversal_run if strong else min_run
             if cand_len >= need:
