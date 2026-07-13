@@ -356,8 +356,8 @@ def _screen_trend(db, base, as_of, sort, limit, offset) -> ScreenerResult:
 
 # ── 탑다운 전략(섹터 flow → 종목 매핑) ──────────────────────────────────
 def _stock_sector_map(db, codes: list[str]) -> dict[str, str | None]:
-    """종목 → 대표 국내 섹터. judal 테마명들을 sector_etf.themes_to_kr_sector 로 접어 정한다.
-    종목당 테마를 모아 한 번에 매핑(N+1 회피)."""
+    """종목 → 대표 국내 섹터. 수동 오버라이드(코드) 우선, 없으면 judal 테마 키워드로 접는다.
+    종목당 테마를 모아 한 번에 매핑(N+1 회피). 테마가 없어도 오버라이드가 있으면 잡힌다."""
     if not codes:
         return {}
     rows = db.execute(
@@ -368,7 +368,7 @@ def _stock_sector_map(db, codes: list[str]) -> dict[str, str | None]:
     themes: dict[str, list[str]] = {}
     for code, name in rows:
         themes.setdefault(code, []).append(name)
-    return {code: sector_etf.themes_to_kr_sector(names) for code, names in themes.items()}
+    return {code: sector_etf.stock_kr_sector(code, themes.get(code, [])) for code in codes}
 
 
 def _topdown_scores(db) -> dict[str, tuple[float | None, float | None]]:
@@ -396,18 +396,14 @@ def _index_rising(market: str | None) -> bool | None:
 def _stock_topdown_score(
     kr_sector: str | None, flows: dict, index_rising: bool | None
 ) -> float | None:
-    if kr_sector is None or kr_sector not in flows:
-        return None
-    kr_f, us_f = flows[kr_sector]
-    # 섹터 flow 를 하나도 못 구하면 지수 방향만으로 점수 내지 않고 None(종합서 제외) — 종목분석 일치.
-    if kr_f is None and us_f is None:
-        return None
-    # 종목분석과 동일하게 지수 방향(0.15 가중)까지 포함해 점수를 일치시킨다.
+    """섹터 flow(있으면) + 지수 방향으로 탑다운 점수. 지수는 항상 반영 — 섹터 미분류·flow 부재면
+    지수 방향만으로 점수를 낸다(가중치 재정규화). 종목분석 build_topdown 과 동일 규칙."""
+    kr_f, us_f = flows.get(kr_sector, (None, None)) if kr_sector else (None, None)
     return analysis_scoring.topdown_flow_score(us_f, kr_f, index_rising)
 
 
 def _screen_topdown(db, base, as_of, sort, limit, offset) -> ScreenerResult:
-    """종목이 속한 섹터의 국내/미국 수급 flow 로 탑다운 점수. 섹터 매핑 실패·flow 없으면 제외."""
+    """종목이 속한 섹터의 국내/미국 수급 flow + 지수 방향으로 탑다운 점수(지수는 항상 반영)."""
     rows = list(db.execute(base).all())
     codes = [r[0].stock_code for r in rows]
     sector_map = _stock_sector_map(db, codes)

@@ -224,7 +224,7 @@ def company_analysis(
 
     # 탑다운 축 — 종목이 속한 섹터의 국내/미국 수급 flow(미국 선행) + 국내 지수.
     theme_names = company_service.theme_names(db, code)
-    topdown_view, topdown_sc = analysis.build_topdown(theme_names, market)
+    topdown_view, topdown_sc = analysis.build_topdown(theme_names, market, code=code)
     kr_sec = topdown_view["kr_sector"]
     us_sec = topdown_view["us_sector"]
     kr_rising = next((k["rising"] for k in topdown_view["kr_indices"]

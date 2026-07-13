@@ -28,16 +28,15 @@ def _index_dir(quotes, name: str) -> bool | None:
 
 
 def build_topdown(
-    theme_names: list[str], market: str | None, session=None
+    theme_names: list[str], market: str | None, session=None, code: str | None = None
 ) -> tuple[dict, float | None]:
     """종목 테마 → 국내/미국 섹터 flow(수급) + 국내 지수로 탑다운 뷰·점수를 만든다.
 
     theme_names 로 대표 국내 섹터를 고르고, 그 섹터의 국내 ETF flow 와 대응 미국
-    ETF flow(선행)를 조합한다. 섹터를 특정 못 하면(테마 매칭 실패) 지수 방향만 남는데, 그건
-    종목 고유의 탑다운 신호가 아니라 시장 노이즈이므로 점수를 None(종합 평균에서 제외)으로 둔다
-    — 섹터 미분류 종목이 지수 방향 탓에 0점이 매겨져 종합이 눌리던 문제 방지(스크리너와 일치).
+    ETF flow(선행)를 조합한다. 섹터를 특정 못 하면 지수 방향만으로 점수를 낸다(지수는 항상
+    반영 — 섹터 flow 가 없을 땐 가중치가 지수 방향에 100% 재정규화된다).
     """
-    kr_sector = sector_etf.themes_to_kr_sector(theme_names)
+    kr_sector = sector_etf.stock_kr_sector(code, theme_names)
     us_sector = sector_etf.kr_sector_to_us(kr_sector)
 
     kr_flows = {f.sector: f for f in sector_flow.compute_flows("KR", session)}
@@ -47,15 +46,12 @@ def build_topdown(
 
     kr_idx = us_market.fetch_kr_indices(session)
     kr_ref = "코스닥" if market == "KOSDAQ" else "코스피"
-    # 섹터 flow 를 하나도 못 구하면(섹터 미분류) 지수 방향만으로 점수 내지 않고 None → 종합서 제외.
-    if kr_f is None and us_f is None:
-        score = None
-    else:
-        score = topdown_flow_score(
-            us_f.flow_score if us_f else None,
-            kr_f.flow_score if kr_f else None,
-            _index_dir(kr_idx, kr_ref),
-        )
+    # 지수 방향은 항상 반영. 섹터 flow 를 못 구하면 지수 방향만으로(가중치 재정규화) 점수를 낸다.
+    score = topdown_flow_score(
+        us_f.flow_score if us_f else None,
+        kr_f.flow_score if kr_f else None,
+        _index_dir(kr_idx, kr_ref),
+    )
     view = {
         "kr_sector": kr_sector,
         "kr_sector_flow": kr_f.flow_score if kr_f else None,
