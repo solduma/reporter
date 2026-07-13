@@ -1,26 +1,47 @@
-"""와인스타인 4국면(Stage Analysis) — 순수 규칙 분류.
+"""와인스타인 4국면(Stage Analysis) — 지평별 봉단위 + shape 복합 판별. 순수(I/O 없음).
 
-Stan Weinstein 의 30주 이동평균 기반 국면을 일봉 시계열에서 결정론적으로 분류한다.
-1=바닥/매집, 2=상승/마크업(매수존), 3=천정/분산, 4=하락/마크다운(회피). 정통 기준은
-주봉 30주 MA ≈ 일봉 150일 MA. 단기(50)·중기(150)·장기(200) 프레임에 같은 규칙을 얹는다.
-
-가격 vs MA 위치와 MA 기울기만으론 1(바닥)과 3(천정)이 동일(둘 다 flat+near)하므로,
-직전 장기 추세 문맥(최근 MA 가 올랐나 내렸나)으로 가른다. I/O 없음(순수).
+리서치 결론(축1+축2):
+- 축1 지평별 봉단위: 단기=일봉 50, 중기=주봉 30(와인스타인 정통 30주선), 장기=월봉 40개월.
+  MA 기간과 기울기창을 프레임의 네이티브 봉 기준으로 스케일한다(일봉 20일 고정의 잠복 버그 제거).
+  일봉 종가를 도메인에서 주/월봉으로 리샘플해 쓴다(월봉 DB 백필 불필요).
+- 축2 shape 복합: 가격 vs MA 위치·MA 기울기(백본)에 더해 로그가격 회귀 기울기+R²(방향·깨끗함),
+  Efficiency Ratio(추세/레인지 게이트), 곡률(전·후반 기울기 → 바닥U자 vs 천장역U자)로 판별을 보강한다.
+  방향·강도 지표는 Stage 1(바닥)과 3(천정)을 못 나누므로 곡률·직전 문맥으로 가른다.
 """
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
+from datetime import date
 from typing import Protocol
 
-# 튜너블 파라미터. 기울기·평탄 밴드는 노이즈와 균형을 맞춘 초기값(백테스트로 조정 가능).
-SLOPE_LOOKBACK = 20  # MA 기울기 측정 구간(거래일)
-FLAT_BAND = 0.02  # |20봉 MA 변화율| 이 이 값 이내면 "평평"
-PRICE_BAND = 0.03  # |종가/MA - 1| 이 이 값 이내면 "MA 근처"
+# --- 튜너블 파라미터(백테스트로 조정 가능) ---
+FLAT_BAND = 0.02  # |기울기창 동안 MA 변화율| 이 이 값 이내면 MA "평평"
+PRICE_BAND = 0.03  # |종가/MA - 1| 이 이 값 이내면 가격이 MA "근처"
+ER_TREND = 0.30  # Efficiency Ratio 가 이 값 이상이어야 "깨끗한 추세"(미만=횡보)
+R2_TREND = 0.50  # 로그가격 회귀 R² 가 이 값 이상이어야 "깨끗한 추세"
+CURV_EPS = 0.0005  # 전·후반 로그기울기 차의 절대값이 이 값 초과면 곡률 유의(U자/역U자)
 
 _STAGE_LABELS = {1: "① 바닥", 2: "② 상승", 3: "③ 천정", 4: "④ 하락"}
-# 프레임별 대표 MA 기간(단기·중기(정통 Weinstein)·장기).
-FRAME_PERIODS = {"short": 50, "mid": 150, "long": 200}
+
+
+@dataclass(frozen=True)
+class Frame:
+    """지평 프레임: 봉단위 + 네이티브 봉 기준 MA기간·기울기창."""
+
+    bar: str  # day | week | month
+    ma_period: int  # 네이티브 봉 개수
+    slope_lookback: int  # 네이티브 봉 개수
+    min_run: int  # 국면 구간 병합 시 깜빡임 흡수 최소 연속 봉
+
+
+# 지평 → 프레임. 단기 일봉50(≈10주)·중기 주봉30(와인스타인 정통)·장기 월봉40(≈3.3년 Kitchin 순환).
+FRAMES: dict[str, Frame] = {
+    "short": Frame(bar="day", ma_period=50, slope_lookback=10, min_run=10),
+    "mid": Frame(bar="week", ma_period=30, slope_lookback=5, min_run=4),
+    "long": Frame(bar="month", ma_period=40, slope_lookback=5, min_run=2),
+}
 
 
 class _Bar(Protocol):
@@ -34,6 +55,33 @@ class StageResult:
     ma: float | None  # 해당 프레임 MA 최신값
     ma_dir: str | None  # rising | flat | falling
     price_pos: str | None  # above | near | below
+    quality: float | None  # 추세 깨끗함 0~100 (ER·R² 결합) — shape 신뢰도
+
+
+def resample_closes(
+    dates: list[str], closes: list[float], bar: str
+) -> tuple[list[str], list[float]]:
+    """일봉 (날짜 오름차순, 종가) → 주/월봉 종가로 리샘플한다. 각 주/월의 마지막 거래일 종가.
+
+    dates 는 'YYYY-MM-DD'. bar='day' 면 그대로. 주=ISO 주, 월=역월 기준으로 묶는다.
+    """
+    if bar == "day":
+        return dates, closes
+    order: list[tuple] = []
+    last: dict[tuple, tuple[str, float]] = {}
+    for d, c in zip(dates, closes, strict=True):
+        y, m, dd = (int(x) for x in d.split("-"))
+        if bar == "month":
+            key: tuple = (y, m)
+        else:  # week
+            iso = date(y, m, dd).isocalendar()
+            key = (iso[0], iso[1])
+        if key not in last:
+            order.append(key)
+        last[key] = (d, c)  # 날짜 오름차순이라 마지막 값이 그 주/월의 종가
+    rd = [last[k][0] for k in order]
+    rc = [last[k][1] for k in order]
+    return rd, rc
 
 
 def _sma_at(closes: list[float], end: int, window: int) -> float | None:
@@ -43,16 +91,57 @@ def _sma_at(closes: list[float], end: int, window: int) -> float | None:
     return sum(closes[end + 1 - window : end + 1]) / window
 
 
-def classify(closes: list[float], ma_period: int) -> StageResult:
-    """종가(날짜 오름차순)와 MA 기간으로 현재 와인스타인 국면을 분류한다.
+def _log_slope_r2(values: list[float]) -> tuple[float, float]:
+    """로그가격 OLS 회귀 → (봉당 로그기울기, R²). 방향+추세 깨끗함. 양수 종가 필요.
 
-    데이터가 MA 기간 + 기울기 측정 구간만큼 없으면 stage=None.
+    로그가격은 시간에 선형이면 기울기가 복리 성장률/봉이라 scale-free 하다. R²=추세가
+    설명하는 분산 비율(직선에 가까울수록 1). 데이터·분산 부족 시 (0, 0).
     """
-    empty = StageResult(None, None, None, None, None)
+    n = len(values)
+    if n < 3 or any(v <= 0 for v in values):
+        return 0.0, 0.0
+    ys = [math.log(v) for v in values]
+    mx = (n - 1) / 2  # x = 0..n-1 의 평균
+    my = sum(ys) / n
+    sxx = sum((i - mx) ** 2 for i in range(n))
+    sxy = sum((i - mx) * (ys[i] - my) for i in range(n))
+    syy = sum((y - my) ** 2 for y in ys)
+    if sxx == 0 or syy == 0:
+        return 0.0, 0.0
+    slope = sxy / sxx
+    r2 = (sxy * sxy) / (sxx * syy)
+    return slope, max(0.0, min(1.0, r2))
+
+
+def _efficiency_ratio(values: list[float]) -> float:
+    """Kaufman Efficiency Ratio = |순변화| / 경로합 ∈ 0~1. 1=직선 이동, 0=조밀 노이즈."""
+    if len(values) < 2:
+        return 0.0
+    net = abs(values[-1] - values[0])
+    path = sum(abs(values[i] - values[i - 1]) for i in range(1, len(values)))
+    return net / path if path > 0 else 0.0
+
+
+def _curvature(values: list[float]) -> float:
+    """전반부 대비 후반부 로그기울기 변화(가속/감속). >0 볼록(U자·바닥), <0 오목(역U자·천정)."""
+    n = len(values)
+    if n < 6:
+        return 0.0
+    mid = n // 2
+    s1, _ = _log_slope_r2(values[: mid + 1])
+    s2, _ = _log_slope_r2(values[mid:])
+    return s2 - s1
+
+
+def classify(closes: list[float], ma_period: int, slope_lookback: int) -> StageResult:
+    """종가(날짜 오름차순)로 현재 국면을 shape 복합 판별한다. 데이터 부족 시 stage=None.
+
+    가격 vs MA·MA기울기(백본) + 로그회귀 기울기·R²·Efficiency Ratio·곡률(shape)로 판정.
+    """
+    empty = StageResult(None, None, None, None, None, None)
     n = len(closes)
     if n < ma_period:
         return empty
-
     ma_now = _sma_at(closes, n - 1, ma_period)
     if ma_now is None:
         return empty
@@ -61,78 +150,87 @@ def classify(closes: list[float], ma_period: int) -> StageResult:
     pos_ratio = last / ma_now - 1
     price_pos = "above" if pos_ratio > PRICE_BAND else "below" if pos_ratio < -PRICE_BAND else "near"
 
-    # MA 기울기: SLOPE_LOOKBACK 봉 전 MA 대비 변화율. 그만큼의 과거 MA 가 없으면 flat 로 본다.
-    ma_prev = _sma_at(closes, n - 1 - SLOPE_LOOKBACK, ma_period)
+    ma_prev = _sma_at(closes, n - 1 - slope_lookback, ma_period)
     if ma_prev is not None and ma_prev > 0:
         slope = ma_now / ma_prev - 1
         ma_dir = "rising" if slope > FLAT_BAND else "falling" if slope < -FLAT_BAND else "flat"
     else:
         ma_dir = "flat"
 
-    stage = _stage_from(price_pos, ma_dir, _long_context(closes, ma_period))
+    # shape 피처: 최근 ma_period 봉(해당 지평 창)에서 회귀·ER·곡률.
+    window = closes[-ma_period:]
+    lslope, r2 = _log_slope_r2(window)
+    er = _efficiency_ratio(window)
+    curv = _curvature(window)
+
+    stage = _decide(price_pos, ma_dir, lslope, r2, er, curv, _long_context(closes, ma_period))
     return StageResult(
         stage=stage,
         label=_STAGE_LABELS.get(stage) if stage else None,
         ma=round(ma_now, 2),
         ma_dir=ma_dir,
         price_pos=price_pos,
+        quality=round(er * r2 * 100, 1),
     )
 
 
 def _long_context(closes: list[float], ma_period: int) -> str:
     """직전 장기 추세: 현재 MA 가 ma_period 전 MA 보다 높으면 'up' 아니면 'down'.
 
-    1(하락 후 바닥)과 3(상승 후 천정)을 구분하는 문맥. 과거 MA 가 없으면 최근 MA 기울기로 폴백.
+    1(하락 후 바닥)과 3(상승 후 천정)을 가르는 문맥. 과거 MA 없으면 최근 기울기 부호로 폴백.
     """
     n = len(closes)
     ma_now = _sma_at(closes, n - 1, ma_period)
     ma_past = _sma_at(closes, n - 1 - ma_period, ma_period)
     if ma_now is not None and ma_past is not None:
         return "up" if ma_now >= ma_past else "down"
-    # 폴백: SLOPE_LOOKBACK 기울기 부호.
-    ma_prev = _sma_at(closes, n - 1 - SLOPE_LOOKBACK, ma_period)
-    if ma_now is not None and ma_prev is not None:
-        return "up" if ma_now >= ma_prev else "down"
-    return "up"
+    slope, _ = _log_slope_r2(closes[-ma_period:])
+    return "up" if slope >= 0 else "down"
 
 
-def _stage_from(price_pos: str, ma_dir: str, long_ctx: str) -> int:
-    """가격 위치·MA 방향·장기 문맥에서 국면 판정.
+def _decide(
+    price_pos: str, ma_dir: str, slope: float, r2: float, er: float, curv: float, long_ctx: str
+) -> int:
+    """shape+백본 결합 국면 판정.
 
-    2(상승)=MA 위+상승/평탄, 4(하락)=MA 아래+하락/평탄. 경계(near)는 장기 문맥으로 1/3 구분.
+    깨끗한 추세(ER·R² 높음)면 기울기 부호로 2/4. 그 외 레인지·라운딩이면 곡률(U자/역U자)로 바닥/천정을
+    가르고, 곡률이 미미하면 직전 장기 문맥으로 가른다. 가격이 MA 위/아래로 뚜렷하면 백본이 우선.
     """
-    if price_pos == "above" and ma_dir in ("rising", "flat"):
+    clean = er >= ER_TREND and r2 >= R2_TREND
+    # Stage 2: 깨끗한 상승(가격이 MA 아래만 아니면) 또는 상승 MA 위.
+    if (clean and slope > 0 and price_pos != "below") or (price_pos == "above" and ma_dir == "rising"):
         return 2
-    if price_pos == "below" and ma_dir in ("falling", "flat"):
+    # Stage 4: 깨끗한 하락(가격이 MA 위만 아니면) 또는 하락 MA 아래.
+    if (clean and slope < 0 and price_pos != "above") or (price_pos == "below" and ma_dir == "falling"):
         return 4
-    if price_pos == "above":  # 가격은 위인데 MA 하락 → 상승 후 꺾임 = 천정
-        return 3
-    if price_pos == "below":  # 가격은 아래인데 MA 상승 → 하락 후 반등 시도 = 바닥
+    # 레인지·라운딩 → 곡률로 바닥(U자)/천정(역U자), 미미하면 직전 문맥.
+    if curv > CURV_EPS:
         return 1
-    # near: MA 근처 횡보 → 직전이 상승세였으면 천정(3), 하락세였으면 바닥(1).
+    if curv < -CURV_EPS:
+        return 3
     return 3 if long_ctx == "up" else 1
 
 
-def segments(closes: list[float], dates: list[str], ma_period: int, min_run: int = 10) -> list[dict]:
+def segments(
+    closes: list[float], dates: list[str], ma_period: int, slope_lookback: int, min_run: int
+) -> list[dict]:
     """각 봉의 국면을 시계열로 계산해 연속 구간으로 병합한다(차트 배경밴드용).
 
-    min_run 미만으로 잠깐 바뀌는 국면은 깜빡임이라 직전 확정 국면으로 흡수한다. 와인스타인
-    국면은 주(週) 단위로 느리게 바뀌므로 기본 10봉(≈2주)으로 경계 노이즈를 눌러 배경을 읽기 쉽게 한다.
+    min_run 미만으로 잠깐 바뀌는 국면은 깜빡임이라 직전 확정 국면으로 흡수한다.
     반환: [{stage, from(date), to(date)}], MA 를 못 구하는 앞 구간은 건너뛴다.
     """
     if len(closes) != len(dates) or len(closes) < ma_period:
         return []
 
-    raw: list[tuple[int, str]] = []  # (stage, date) — MA 계산 가능한 지점부터
+    raw: list[tuple[int, str]] = []
     for i in range(ma_period - 1, len(closes)):
-        window = closes[: i + 1]
-        r = classify(window, ma_period)
+        r = classify(closes[: i + 1], ma_period, slope_lookback)
         if r.stage is not None:
             raw.append((r.stage, dates[i]))
     if not raw:
         return []
 
-    # 짧은 깜빡임(min_run 미만 연속) 흡수: 직전 확정 국면을 유지한다.
+    # 짧은 깜빡임(min_run 미만 연속) 흡수: 직전 확정 국면 유지.
     smoothed: list[tuple[int, str]] = []
     run_stage = raw[0][0]
     run_len = 0
@@ -147,7 +245,6 @@ def segments(closes: list[float], dates: list[str], ma_period: int, min_run: int
             stable = run_stage
         smoothed.append((stable, d))
 
-    # 연속 동일 국면을 구간으로 병합.
     out: list[dict] = []
     cur_stage = smoothed[0][0]
     start = smoothed[0][1]

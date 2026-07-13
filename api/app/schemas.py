@@ -102,13 +102,15 @@ class CandlePoint(BaseModel):
 
 
 class StageFrame(BaseModel):
-    """와인스타인 국면 한 프레임(단기/중기/장기)."""
+    """와인스타인 국면 한 프레임(단기/중기/장기). 지평별 봉단위·MA기간이 다르다."""
 
     frame: str  # short | mid | long
-    period: int  # MA 기간(50/150/200)
+    bar: str  # day | week | month (프레임의 봉단위)
+    period: int  # 네이티브 봉 기준 MA 기간(일50/주30/월40)
     stage: int | None  # 1~4
     label: str | None  # '② 상승' 등
     ma_dir: str | None  # rising | flat | falling
+    quality: float | None  # 추세 깨끗함 0~100(shape 신뢰도)
 
 
 class StageSegment(BaseModel):

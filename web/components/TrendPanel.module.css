@@ -57,6 +57,12 @@
   color: var(--text);
 }
 
+.frameSpan {
+  font-size: 0.68rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+
 .maPeriod {
   font-size: 0.68rem;
   font-weight: 500;

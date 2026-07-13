@@ -9,7 +9,13 @@ import type { CompanyTrend, RelStrengthPoint, StageFrame } from "@/lib/types";
 
 import styles from "./TrendPanel.module.css";
 
-const FRAME_LABEL: Record<string, string> = { short: "단기", mid: "중기", long: "장기" };
+// 프레임별 표시: 지평명 + 의도 기간 + 봉단위·MA. 사용자가 각 국면이 어느 시간축인지 알게 한다.
+const FRAME_META: Record<string, { label: string; span: string }> = {
+  short: { label: "단기", span: "6개월 이내" },
+  mid: { label: "중기", span: "6개월~2년" },
+  long: { label: "장기", span: "2~10년" },
+};
+const BAR_LABEL: Record<string, string> = { day: "일봉", week: "주봉", month: "월봉" };
 // 국면별 표시 스타일(배지 색). 2=매수존, 4=회피.
 const STAGE_STYLE: Record<number, { cls: string; hint: string }> = {
   1: { cls: styles.stage1, hint: "매집·관망" },
@@ -20,15 +26,20 @@ const STAGE_STYLE: Record<number, { cls: string; hint: string }> = {
 
 function StageBadge({ f }: { f: StageFrame }) {
   const style = f.stage ? STAGE_STYLE[f.stage] : null;
+  const meta = FRAME_META[f.frame];
   return (
     <div className={styles.stageItem}>
       <span className={styles.frameLabel}>
-        {FRAME_LABEL[f.frame]} <span className={styles.maPeriod}>MA{f.period}</span>
+        {meta.label} <span className={styles.frameSpan}>{meta.span}</span>
       </span>
       <span className={`${styles.stageBadge} ${style?.cls ?? styles.stageNa}`}>
         {f.label ?? "—"}
       </span>
       {style ? <span className={styles.stageHint}>{style.hint}</span> : null}
+      <span className={styles.maPeriod}>
+        {BAR_LABEL[f.bar]} MA{f.period}
+        {f.quality !== null ? ` · 신뢰 ${Math.round(f.quality)}` : ""}
+      </span>
     </div>
   );
 }
@@ -125,8 +136,8 @@ export default function TrendPanel({ trend, status, message }: Props) {
         <div className={styles.blockHead}>
           <span className={styles.blockTitle}>와인스타인 국면</span>
           <InfoDot
-            what="주가가 30주 이동평균 대비 어느 국면(바닥→상승→천정→하락)에 있는지."
-            guide="② 상승이 매수존, ④ 하락은 회피. 단·중·장기(MA50/150/200)로 함께 본다."
+            what="주가가 추세상 어느 국면(바닥→상승→천정→하락)에 있는지. 가격·이평 위치와 곡선 모양으로 판별."
+            guide="② 상승이 매수존, ④ 하락은 회피. 단기=일봉·중기=주봉(와인스타인 30주)·장기=월봉으로 각 시간지평을 본다."
           />
         </div>
         <div className={styles.stages}>
