@@ -33,11 +33,16 @@ def _min_bars(frame: stage.Frame) -> int:
 class TrendResult:
     stages: dict[str, stage.StageResult]  # frame(short/mid/long) → 국면
     low_confidence: dict[str, bool]  # frame → 이력 부족(리샘플 봉 < 최소치)이면 True
-    stage_segments: list[dict]  # 대표 프레임 국면 구간 [{stage, from, to}] — 차트 배경밴드용
+    segments_by_frame: dict[str, list[dict]]  # frame → 국면 구간 [{stage, from, to}] (배경밴드)
     rs: relative_strength.RelativeStrength
     benchmark: str  # 사용한 벤치마크 지수
     elliott: elliott.ElliottResult  # 엘리엇 파동 추정(실험적)
     secular: stage.SecularContext  # 장기 평균(secular) 대비 위치 — 전환 프레임과 직교
+
+    @property
+    def stage_segments(self) -> list[dict]:
+        """하위호환: 대표 프레임(중기) 국면 구간."""
+        return self.segments_by_frame.get(_SEGMENT_FRAME, [])
 
 
 def compute_trend(db: Session, code: str, market: str | None) -> TrendResult:
@@ -51,7 +56,7 @@ def compute_trend(db: Session, code: str, market: str | None) -> TrendResult:
 
     stages: dict[str, stage.StageResult] = {}
     low_confidence: dict[str, bool] = {}
-    stage_segments: list[dict] = []
+    segments_by_frame: dict[str, list[dict]] = {}
     secular = stage.SecularContext(None, None, None, None)
     for name, frame in stage.FRAMES.items():
         b = stage.resample_ohlcv(dates, highs, lows, closes, volumes, frame.bar)
@@ -59,10 +64,9 @@ def compute_trend(db: Session, code: str, market: str | None) -> TrendResult:
             b.closes, frame.ma_period, frame.slope_lookback, b.volumes, b.highs, b.lows
         )
         low_confidence[name] = len(b.closes) < _min_bars(frame)
-        if name == _SEGMENT_FRAME:
-            stage_segments = stage.segments(
-                b.closes, b.dates, frame.ma_period, frame.slope_lookback, frame.min_run
-            )
+        segments_by_frame[name] = stage.segments(
+            b.closes, b.dates, frame.ma_period, frame.slope_lookback, frame.min_run
+        )
         if name == "long":
             # secular 오버레이 — 장기 프레임의 월봉 종가로 데이터 허락 최장 MA 대비 위치.
             secular = stage.secular_context(b.closes)
@@ -79,7 +83,7 @@ def compute_trend(db: Session, code: str, market: str | None) -> TrendResult:
     return TrendResult(
         stages=stages,
         low_confidence=low_confidence,
-        stage_segments=stage_segments,
+        segments_by_frame=segments_by_frame,
         rs=rs,
         benchmark=benchmark,
         elliott=wave,
