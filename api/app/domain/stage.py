@@ -444,7 +444,9 @@ def _decide(
 
     깨끗한 추세(ER·R² 높음)·상승MA위면 2, 반대면 4. 볼륨 확인된 신고가 돌파(up)는 가격이 MA
     아래만 아니면 Stage2 로 승격(와인스타인 저항 돌파 트리거), 신저가 이탈(down)은 Stage4.
-    그 외 레인지·라운딩이면 곡률 → 변동성 → 볼륨 → 직전 문맥 순 tiebreak.
+    가격이 MA 를 하향 이탈(below)하면 MA 기울기가 아직 안 꺾였어도 상승(Stg2)에서 즉시 벗어난다
+    (Weinstein: 상승 MA 하향이탈 = Stg2 종료 신호). 그 외 레인지·라운딩이면 곡률 → 변동성 →
+    볼륨 → 직전 문맥 순 tiebreak.
     """
     clean = er >= ER_TREND and r2 >= R2_TREND
     # Stage 2: 깨끗한 상승 / 상승 MA 위 / 볼륨 확인된 신고가 돌파(저항 돌파 트리거).
@@ -461,6 +463,13 @@ def _decide(
         or (breakout == "down" and price_pos != "above")
     ):
         return 4
+    # 가격이 상승/평탄 MA 를 하향 이탈 → Stg2 즉시 종료. 하락세(로그기울기 음)면 Stg4, 아니면
+    # 천정 이탈 직후로 보고 Stg3. (MA 기울기가 아직 안 꺾여도 이탈 자체가 전환 신호)
+    if price_pos == "below":
+        return 4 if slope < 0 else 3
+    # 대칭: 가격이 하락 MA 위로 회복하면 바닥 탈출 시도 → 상승세면 Stg2 는 위에서 처리됨, 아니면 Stg1.
+    if price_pos == "above" and ma_dir == "falling" and slope <= 0:
+        return 3
     # 레인지·라운딩 → 곡률로 바닥(U자)/천정(역U자).
     if curv > CURV_EPS:
         return 1
@@ -507,33 +516,40 @@ def segments(
     if not raw:
         return []
 
-    # 짧은 깜빡임(min_run 미만 연속) 흡수: 직전 확정 국면 유지.
-    smoothed: list[tuple[int, str]] = []
-    run_stage = raw[0][0]
-    run_len = 0
-    stable = run_stage
-    for stage, d in raw:
-        if stage == run_stage:
-            run_len += 1
-        else:
-            run_stage = stage
-            run_len = 1
-        if run_len >= min_run:
-            stable = run_stage
-        smoothed.append((stable, d))
-
+    # 디바운스: 새 국면이 min_run 봉 연속 이어져야 '확정'하되, 확정되면 그 국면이 실제로
+    # 시작된 시점으로 소급 표기한다(확정 지연만큼 전환을 늦게 칠하지 않음 — 하락 전환이 뒤늦게
+    # 잡히던 문제 해결). min_run 미만으로 반짝인 국면은 직전 확정 국면에 흡수한다.
     out: list[dict] = []
-    cur_stage = smoothed[0][0]
-    start = smoothed[0][1]
-    prev = smoothed[0][1]
-    for stage, d in smoothed[1:]:
-        if stage != cur_stage:
-            out.append({"stage": cur_stage, "from": start, "to": prev})
-            cur_stage = stage
-            start = d
-        prev = d
-    out.append({"stage": cur_stage, "from": start, "to": prev})
+    committed_stage = raw[0][0]  # 현재 확정 국면
+    committed_from = raw[0][1]  # 그 확정 국면의 시작일
+    cand_stage = raw[0][0]  # 후보(연속 관찰 중) 국면
+    cand_from = raw[0][1]  # 후보가 시작된 일
+    cand_len = 1
+    last_date = raw[0][1]
+
+    for st, d in raw[1:]:
+        last_date = d
+        if st == cand_stage:
+            cand_len += 1
+        else:
+            cand_stage = st
+            cand_from = d
+            cand_len = 1
+        # 후보가 min_run 이상 이어졌고 확정 국면과 다르면 → 전환 확정(시작 시점으로 소급).
+        if cand_stage != committed_stage and cand_len >= min_run:
+            out.append({"stage": committed_stage, "from": committed_from, "to": _prev_day(raw, cand_from)})
+            committed_stage = cand_stage
+            committed_from = cand_from
+    out.append({"stage": committed_stage, "from": committed_from, "to": last_date})
     return out
+
+
+def _prev_day(raw: list[tuple[int, str]], date_str: str) -> str:
+    """raw 시퀀스에서 date_str 바로 앞 봉의 날짜(구간 끝을 전환 직전 봉으로). 없으면 그대로."""
+    for idx, (_, d) in enumerate(raw):
+        if d == date_str:
+            return raw[idx - 1][1] if idx > 0 else d
+    return date_str
 
 
 # secular(장기 평균) 오버레이 파라미터 — 월봉 기준. 데이터가 허락하는 최장 MA(clamp)를 쓴다.

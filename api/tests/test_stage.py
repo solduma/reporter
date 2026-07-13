@@ -45,6 +45,47 @@ def test_stage3_top_rounding_over_after_uptrend():
     assert r.stage == 3
 
 
+def test_price_below_rising_ma_exits_stage2():
+    # 회귀(화신정공): 급락으로 가격이 아직 상승 중인 MA 를 하향 이탈하면 Stg2 에서 즉시 벗어난다.
+    # 오래 오른 뒤 급락 → MA 는 아직 rising 이지만 가격은 below → Stg2 아님(천정/하락).
+    closes = _rising(180) + _falling(30, start=280.0, step=4.0)
+    r = _classify(closes)
+    assert r.price_pos == "below"
+    assert r.stage != 2  # 상승(Stg2)에 눌러앉지 않음
+    assert r.stage in (3, 4)  # 천정 이탈 또는 하락
+
+
+def test_segments_backdates_confirmed_transition():
+    # 전환이 확정되면 확정 지연(min_run)만큼 늦게 칠하지 않고 '실제 시작 시점'으로 소급한다.
+    # 검증: 디바운스 구간 시작이, 그 국면이 raw 에서 연속으로 시작된 지점과 일치(확정점이 아님).
+    closes = _rising(210) + _falling(80, start=310.0, step=3.0)
+    dates = [f"2024-{1 + i // 28:02d}-{1 + i % 28:02d}" for i in range(len(closes))]
+    segs = stage.segments(closes, dates, _MA, _SL, min_run=8)
+    assert len(segs) >= 2
+
+    # raw 국면 시계열 재구성(히스테리시스 포함, segments 내부와 동일 규칙).
+    raw = []
+    prev = None
+    for i in range(_MA - 1, len(closes)):
+        r = stage.classify(closes[: i + 1], _MA, _SL)
+        st = r.stage
+        if prev is not None and r.price_pos == "near" and r.ma_dir == "flat":
+            st = prev
+        if st is not None:
+            raw.append((st, dates[i]))
+            prev = st
+
+    # 마지막 확정 구간의 시작일이 raw 에서 그 국면이 '연속으로 시작된' 첫 날과 같아야(소급).
+    last = segs[-1]
+    run_start = None
+    for k in range(len(raw) - 1, -1, -1):
+        if raw[k][0] == last["stage"]:
+            run_start = raw[k][1]
+        else:
+            break
+    assert last["from"] == run_start  # 확정점(+min_run)이 아니라 런 시작으로 소급됨
+
+
 def test_stage1_base_rounding_up_after_downtrend():
     r = _classify(_falling(180, start=300.0) + _flat(220, level=120.0))
     assert r.stage == 1
