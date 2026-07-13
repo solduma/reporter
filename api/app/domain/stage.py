@@ -25,6 +25,26 @@ CURV_EPS = 0.0005  # 전·후반 로그기울기 차의 절대값이 이 값 초
 # 봉당 로그기울기 크기가 이 값 이상이면 '가파른' 추세로 본다(완만한 바닥 다지기와 급락 구분).
 # 예: 주봉 -0.005 ≈ 주당 -0.5% 이상 하락이면 여전히 하락 국면, 그보다 완만하면 바닥 후보.
 STEEP_SLOPE = 0.005
+# 봉당 로그기울기가 이 값보다 완만하면(거의 0) 추세가 아니라 횡보/바닥으로 본다(near-flat 하락
+# 오탐 방지). 하락(Stg4) 판정은 slope 가 이보다 뚜렷이 음(-)일 때만.
+MILD_SLOPE = 0.0015
+# 가격이 MA 를 이 비율 넘게 하회하면 '깊은 이탈'로 본다. 천정(Stg3) 롤오버는 MA 근처에서
+# 완만히 도는 형태이므로, MA 를 이만큼 크게 벗어나 있으면(회귀·MA기울기가 긴 창 탓에 급락을
+# 아직 못 따라잡아도) 롤오버가 아니라 하락(Stg4)이다(코로나 주봉 급락 보정).
+DEEP_BELOW = 0.10
+# 가격이 MA 를 이 비율 넘게 상회하면 '깊은 상회'. 바닥(Stg1)은 가격이 MA 근처(±수%)에서 다지는
+# 형태라 이만큼 위로 벌어질 수 없다 — 직전 상승 뒤(long_ctx=up) 이 정도로 뻗었으면 바닥이 아니라
+# 상승 막바지 급등이 도는 천정(Stg3)이다(파라볼릭 신고가 스파이크가 바닥으로 잡히던 문제 보정).
+# 깨끗한 상승(clean&slope>0)·상승 MA 위는 이미 위에서 Stg2 로 걸러지므로, 여기 걸리는 건
+# MA 가 더는 안 오르는데 가격만 크게 벌어진 경우다. 초입 급등(코로나 반등)은 곧이어 clean 상승이
+# 따라와 디바운스가 Stg2 로 유지하므로 순간적으로 걸려도 구간은 상승으로 남는다.
+DEEP_ABOVE = 0.07
+# 구간 방향 교정 임계: 국면과 반대로 이 비율 넘게 움직이면(하락 국면인데 +10%↑ 등) 바로잡는다.
+DIR_TOLERANCE = 0.10
+# 천정(Stg3) 구간이 실제로 이 비율 넘게 '상승'했다면 롤오버가 아니라 아직 상승 중이므로 상승(Stg2)
+# 으로 교정한다(고점이 구간 끝쪽). 강한 상승주의 계단식 마크업이 국지적 되돌림마다 천정으로 잡혀
+# 통째로 Stg3 구간이 되던 문제 보정. 신고가에서 롤오버한 진짜 천정은 순변화가 음(-)이라 안 걸린다.
+STG3_ADVANCE = 0.10
 
 _STAGE_LABELS = {1: "① 바닥", 2: "② 상승", 3: "③ 천정", 4: "④ 하락"}
 
@@ -39,13 +59,13 @@ class Frame:
     min_run: int  # 국면 구간 병합 시 깜빡임 흡수 최소 연속 봉
 
 
-# 지평 → 프레임. 단기 일봉50(≈10주)·중기 주봉30(와인스타인 정통)·장기 월봉40(≈3.3년 Kitchin 순환).
-# 장기는 MA 40개월 유지하되 기울기창을 10개월로 넓혀(월봉 데이터 122개월 한계 내) 추세 방향을
-# 더 긴 창으로 본다 → 2~10년 지평에 근접(MA 확장은 데이터 부족으로 불가).
+# 지평 → 프레임. 단기=일봉 50(≈10주)·중기=주봉 30(와인스타인 정통 30주)·장기=주봉 40(≈40주, 장기 추세).
+# 중·장기 모두 주봉을 쓰되 MA 길이로 지평을 구분(중기 30주·장기 40주). 월봉은 데이터가 얕고
+# (오래된 종목도 ~122개월) 노이즈 대비 이득이 적어 제외 — 주봉 기반이 데이터 풍부·일봉 축 정렬 용이.
 FRAMES: dict[str, Frame] = {
-    "short": Frame(bar="day", ma_period=50, slope_lookback=10, min_run=10),
+    "short": Frame(bar="day", ma_period=50, slope_lookback=10, min_run=20),
     "mid": Frame(bar="week", ma_period=30, slope_lookback=5, min_run=8),
-    "long": Frame(bar="month", ma_period=40, slope_lookback=10, min_run=2),
+    "long": Frame(bar="week", ma_period=40, slope_lookback=8, min_run=8),
 }
 
 # 볼륨 축적/분산 판정 임계 — 상승구간 볼륨/하락구간 볼륨 비율(최근 창). 1 초과=축적, 미만=분산.
@@ -401,7 +421,7 @@ def classify(
 
     stage = _decide(
         price_pos, ma_dir, lslope, r2, er, curv,
-        _long_context(closes, ma_period), vol_sig, volatility, breakout,
+        _long_context(closes, ma_period), vol_sig, volatility, breakout, pos_ratio,
     )
     return StageResult(
         stage=stage,
@@ -427,8 +447,10 @@ def _long_context(closes: list[float], ma_period: int) -> str:
     ma_past = _sma_at(closes, n - 1 - ma_period, ma_period)
     if ma_now is not None and ma_past is not None:
         return "up" if ma_now >= ma_past else "down"
-    slope, _ = _log_slope_r2(closes[-ma_period:])
-    return "up" if slope >= 0 else "down"
+    # 과거 MA 를 못 구할 만큼 이력이 짧으면(대개 시계열 맨 앞) '직전 상승 있었음(up)'을 단정할 수
+    # 없다 — 최근 기울기가 상승이어도 그건 '직전 장기 추세'가 아니라 지금 오르는 중일 뿐이다.
+    # 천정(Stg3)은 확실한 선행 상승이 있을 때만 성립하므로 보수적으로 down(선행 상승 미확인)으로 본다.
+    return "down"
 
 
 def _decide(
@@ -442,6 +464,7 @@ def _decide(
     vol_sig: str = "neutral",
     volatility: str = "normal",
     breakout: str = "none",
+    pos_ratio: float = 0.0,
 ) -> int:
     """shape+백본+볼륨+변동성+돌파 결합 국면 판정.
 
@@ -470,25 +493,47 @@ def _decide(
         or (breakout == "down" and price_pos != "above")
     ):
         return 4
-    # 가격이 상승/평탄 MA 를 하향 이탈 → Stg2 즉시 종료. 바닥 다지기(완만+바닥형 곡률)면 Stg1,
-    # 가파른 하락세면 Stg4, 그 외(완만하나 곡률 불명확)는 천정 이탈 직후로 보고 Stg3.
+    # 가격이 상승/평탄 MA 를 하향 이탈 → Stg2 즉시 종료. 이후 바닥/하락/천정 구분:
+    #  - 바닥 다지기(완만+바닥형 곡률 curv>0) → Stg1
+    #  - 하락(가파른 기울기 or 가속 하락 curv<0 or 변동성 확장=매도 클라이맥스) → Stg4
+    #  - 그 외(천정 직후 완만한 롤오버) → Stg3
     if price_pos == "below":
+        # MA 를 깊게 하회(> DEEP_BELOW) = 급락. 천정 롤오버는 MA 근처에서 도는 형태이므로,
+        # 회귀·MA기울기가 긴 창 탓에 아직 평탄해도 깊은 이탈이면 하락(Stg4)으로 본다.
+        if pos_ratio < -DEEP_BELOW:
+            return 4
         if basing:
             return 1
-        return 4 if slope <= -STEEP_SLOPE else 3
-    # 대칭: 가격이 하락 MA 위로 회복하면 바닥 탈출 시도 → 상승세면 Stg2 는 위에서 처리됨, 아니면 Stg1.
-    if price_pos == "above" and ma_dir == "falling" and slope <= 0:
+        # 하락(Stg4): 가파른 하락 or (뚜렷한 하락세 slope 이면서 가속 하락 or 매도 클라이맥스)
+        #             or (가격이 하락 중인 MA 아래에 머무름). 기울기가 거의 0(near-flat)이면
+        #             하락이 아니라 바닥 다지기이므로 MILD_SLOPE 이상 음(-)일 때만 하락으로 본다.
+        declining = (
+            slope <= -STEEP_SLOPE
+            or (slope < -MILD_SLOPE and (curv < -CURV_EPS or volatility == "expansion"))
+            or (ma_dir == "falling" and slope < -MILD_SLOPE)
+        )
+        if declining:
+            return 4
+        # 하락 아님(반등·완만). 천정(Stg3)은 '직전 상승'이 있어야 성립 — 직전이 하락세(long_ctx=down)면
+        # MA 아래 curl-down 은 천정이 아니라 바닥 다지기 연장(Stg1)이다.
+        return 3 if long_ctx == "up" else 1
+    # 가격이 MA 를 깊게 상회(> DEEP_ABOVE)하는데 MA 가 더는 상승하지 않으면(평탄·하락) 바닥 다지기가
+    # 아니다 — 바닥은 가격이 MA 근처에서 다지는 형태라 이렇게 위로 벌어질 수 없다. 직전 상승 뒤
+    # (long_ctx=up)면 상승 막바지 급등이 고점에서 도는 천정(Stg3). 파라볼릭 신고가 스파이크가
+    # 바닥 Stg1 으로 잡히던 문제 보정(회귀창이 급등을 아직 양(+)으로 읽어도 MA 가 평탄해졌으면
+    # 상승 국면이 아니다). 상승 초입 급등이 천정으로 오분류되는 건 방향 교정 후처리에서 걸러낸다.
+    if price_pos == "above" and pos_ratio > DEEP_ABOVE and ma_dir != "rising" and long_ctx == "up":
         return 3
-    # 레인지·라운딩 → 곡률로 바닥(U자)/천정(역U자).
+    # 레인지·라운딩 → 곡률로 바닥(U자)/천정(역U자). 단 천정(Stg3)은 직전 상승(long_ctx=up)일 때만.
     if curv > CURV_EPS:
         return 1
     if curv < -CURV_EPS:
-        return 3
+        return 3 if long_ctx == "up" else 1
     # 곡률 미미 → 변동성 레짐(수축=베이스 다지기 Stage1·확장=클라이맥스 Stage3).
     if volatility == "contraction":
         return 1
     if volatility == "expansion":
-        return 3
+        return 3 if long_ctx == "up" else 4
     # 변동성 중립 → 볼륨(축적=바닥/분산=천정), 볼륨도 중립이면 직전 장기 문맥으로.
     if vol_sig == "accumulation":
         return 1
@@ -511,32 +556,37 @@ def segments(
     if len(closes) != len(dates) or len(closes) < ma_period:
         return []
 
-    raw: list[tuple[int, str]] = []
+    raw: list[tuple[int, str, str]] = []  # (stage, date, price_pos)
     prev_stage: int | None = None
     for i in range(ma_period - 1, len(closes)):
         r = classify(closes[: i + 1], ma_period, slope_lookback)
         st = r.stage
-        # 히스테리시스: 애매한 경계(가격 near + MA flat)에선 직전 국면 유지(전환 관성).
-        if prev_stage is not None and r.price_pos == "near" and r.ma_dir == "flat":
+        # 히스테리시스: 애매한 경계(가격 near + MA flat)에선 직전 국면 유지(전환 관성). 단 직전이
+        # 추세 국면(상승2·하락4)일 때는 유지하지 않는다 — 추세가 MA 근처로 돌아와 평탄해졌다는 건
+        # 추세가 소진돼 바닥/천정(1·3)으로 넘어갔다는 뜻이라, 유지하면 지나간 하락/상승을 질질 끈다
+        # (예: 급락 후 MA 로 복귀한 바닥 다지기를 계속 파랑으로 칠하던 문제). 추세 내 잠깐의 눌림·
+        # 되돌림은 min_run 디바운스가 이미 흡수하므로 여기서 추세를 붙들 필요가 없다.
+        if prev_stage in (1, 3) and r.price_pos == "near" and r.ma_dir == "flat":
             st = prev_stage
         if st is not None:
-            raw.append((st, dates[i]))
+            raw.append((st, dates[i], r.price_pos or "near"))
             prev_stage = st
     if not raw:
         return []
 
-    # 디바운스: 새 국면이 min_run 봉 연속 이어져야 '확정'하되, 확정되면 그 국면이 실제로
-    # 시작된 시점으로 소급 표기한다(확정 지연만큼 전환을 늦게 칠하지 않음 — 하락 전환이 뒤늦게
-    # 잡히던 문제 해결). min_run 미만으로 반짝인 국면은 직전 확정 국면에 흡수한다.
+    # 디바운스: 새 국면이 필요 봉수만큼 연속 이어져야 '확정'하되, 확정되면 실제 시작 시점으로 소급.
+    # 필요 봉수는 전환의 강도에 따라 다르다:
+    #  - 추세 반전(상승 Stg2 ↔ 하락 Stg4)이나 가격이 MA 반대편으로 뚜렷이 이동(above↔below)한
+    #    '강한 전환'은 REVERSAL_RUN(짧게)로 빨리 확정 — 급락·급반등이 뒤늦게 잡히던 문제 방지.
+    #  - 그 외(바닥↔천정 같은 미묘한 전환)는 min_run(길게)로 노이즈 억제.
+    reversal_run = max(2, min_run // 2)
     out: list[dict] = []
-    committed_stage = raw[0][0]  # 현재 확정 국면
-    committed_from = raw[0][1]  # 그 확정 국면의 시작일
-    cand_stage = raw[0][0]  # 후보(연속 관찰 중) 국면
-    cand_from = raw[0][1]  # 후보가 시작된 일
+    committed_stage, committed_from, committed_pos = raw[0]
+    cand_stage, cand_from = raw[0][0], raw[0][1]
     cand_len = 1
     last_date = raw[0][1]
 
-    for st, d in raw[1:]:
+    for st, d, pos in raw[1:]:
         last_date = d
         if st == cand_stage:
             cand_len += 1
@@ -544,20 +594,161 @@ def segments(
             cand_stage = st
             cand_from = d
             cand_len = 1
-        # 후보가 min_run 이상 이어졌고 확정 국면과 다르면 → 전환 확정(시작 시점으로 소급).
-        if cand_stage != committed_stage and cand_len >= min_run:
-            out.append({"stage": committed_stage, "from": committed_from, "to": _prev_day(raw, cand_from)})
-            committed_stage = cand_stage
-            committed_from = cand_from
+        if cand_stage != committed_stage:
+            # 강한 전환(빠른 확정): 추세 반전(2↔4), 가격 위치가 확정 국면 대비 반대편(above↔below),
+            # 또는 MA 하향 이탈 하락(4·below)으로의 진입. 바닥에서의 급락이 min_run 문턱에 걸려
+            # 바닥밴드로 흡수되던 문제 방지(예: 코로나 급락은 바닥에서 시작). 상방 돌파(Stg2 진입)는
+            # 거짓 돌파가 잦아 빠른 확정에서 제외 — 와인스타인식으로 확인(정상 min_run)을 요구한다
+            # (하향 이탈은 즉시 대응, 상향 돌파는 확인 후 대응이라는 비대칭).
+            strong = (
+                {committed_stage, cand_stage} == {2, 4}
+                or (
+                    committed_pos in ("above", "below")
+                    and pos in ("above", "below")
+                    and pos != committed_pos
+                )
+                or (cand_stage == 4 and pos == "below")
+            )
+            need = reversal_run if strong else min_run
+            if cand_len >= need:
+                out.append(
+                    {"stage": committed_stage, "from": committed_from, "to": _prev_day(raw, cand_from)}
+                )
+                committed_stage, committed_from, committed_pos = cand_stage, cand_from, pos
     out.append({"stage": committed_stage, "from": committed_from, "to": last_date})
-    return out
+
+    # 방향 교정 후처리: 구간의 실제 가격 방향이 국면과 정면으로 어긋나면(하락 국면인데 크게 오름,
+    # 상승 국면인데 크게 빠짐) 교정한다. 단, 구간 내부에서 방향이 뒤집힌 경우(예: 하락→바닥→반등이
+    # 한 구간으로 뭉친 경우)엔 전체를 뭉뚱그려 라벨하지 않고, 방향이 바뀌는 지점에서 분할한다.
+    close_at = dict(zip(dates, closes, strict=True))
+    corrected: list[dict] = []
+    for seg in out:
+        for piece in _direction_correct(seg, close_at, raw):
+            corrected.extend(_tail_correct(piece, raw))
+    return _merge_adjacent(corrected)
 
 
-def _prev_day(raw: list[tuple[int, str]], date_str: str) -> str:
+def _seg_return(seg: dict, close_at: dict[str, float]) -> float | None:
+    c0 = close_at.get(seg["from"])
+    c1 = close_at.get(seg["to"])
+    if not c0 or not c1:
+        return None
+    return c1 / c0 - 1
+
+
+def _reversal_stage(stg: int, ret: float) -> int:
+    """국면과 방향이 어긋난 구간을 전이 국면으로 완화한다. 하락(4)인데 되레 올랐으면 바닥 다지기
+    (Stg1), 상승(2)인데 되레 빠졌으면 천정 분산(Stg3). 본격 상승/하락(Stg2/4)은 가격이 MA 를
+    되찾은 뒤 raw 분류가 별도 구간으로 잡으므로, 여기선 MA 아래 반등/위 눌림을 전이로만 표기한다."""
+    return 1 if stg == 4 else 3
+
+
+def _direction_correct(
+    seg: dict, close_at: dict[str, float], raw: list[tuple[int, str, str]]
+) -> list[dict]:
+    """구간의 실제 가격 방향과 국면이 어긋나면 교정. 내부에서 방향이 반전되면 그 지점에서 분할한다."""
+    ret = _seg_return(seg, close_at)
+    if ret is None:
+        return [seg]
+    stg = seg["stage"]
+    # 천정(Stg3) 인데 구간이 실제로 크게 '상승'했고 고점이 끝쪽이면(=아직 롤오버 안 함) 천정이 아니라
+    # 상승(Stg2). 강한 상승주의 계단식 마크업이 국지적 되돌림마다 천정으로 잡혀 통째 Stg3 가 되던
+    # 문제 보정. 신고가에서 롤오버한 진짜 천정은 순변화가 음(-)이라 여기 안 걸린다.
+    if stg == 3 and ret > STG3_ADVANCE:
+        items = [item for item in raw if seg["from"] <= item[1] <= seg["to"]]
+        prices = [close_at[d] for _, d, _ in items if d in close_at]
+        if prices and prices.index(max(prices)) >= len(prices) * 0.7:
+            # 상승 재개(가격이 MA 를 되찾아 above 로 확정된) 지점에서 분할: 앞=바닥 다지기(Stg1),
+            # 뒤=상승(Stg2). MA 아래에서 다지던 앞 구간까지 상승으로 칠하지 않도록(돌파 전 base 보존).
+            brk = next((k for k, it in enumerate(items) if it[2] == "above"), None)
+            if brk is not None and 0 < brk < len(items) - 1:
+                return [
+                    {"stage": 1, "from": seg["from"], "to": _prev_day(raw, items[brk][1])},
+                    {"stage": 2, "from": items[brk][1], "to": seg["to"]},
+                ]
+            seg["stage"] = 2  # 처음부터 MA 위 → 통째 상승
+            return [seg]
+    # 방향 일치(하락 국면=하락, 상승 국면=상승)거나 추세 국면이 아니면(1·3) 그대로.
+    conflict = (stg == 4 and ret > DIR_TOLERANCE) or (stg == 2 and ret < -DIR_TOLERANCE)
+    if not conflict:
+        return [seg]
+    # 구간 내부에서 저점(Stg4 인데 오름) 또는 고점(Stg2 인데 빠짐)을 찾아 분할.
+    idxs = [i for i, item in enumerate(raw) if seg["from"] <= item[1] <= seg["to"]]
+    if len(idxs) < 4:
+        seg["stage"] = _reversal_stage(stg, ret)  # 짧으면 방향에 맞게 통째 재라벨
+        return [seg]
+    prices = [(raw[i][1], close_at.get(raw[i][1])) for i in idxs]
+    prices = [(d, p) for d, p in prices if p]
+    if stg == 4:  # 하락 국면: 최저점에서 분할 — 앞=하락(4), 뒤=반등(오르면 2, 완만하면 1)
+        piv = min(range(len(prices)), key=lambda k: prices[k][1])
+    else:  # 상승 국면(2): 최고점에서 분할 — 앞=상승(2), 뒤=하락(빠지면 4, 완만하면 3)
+        piv = max(range(len(prices)), key=lambda k: prices[k][1])
+    if piv <= 0:
+        # 극점이 맨 앞 → 앞에 붙일 추세 없음. 구간 전체가 반전(하락 국면인데 저점서 시작해 반등,
+        # 상승 국면인데 고점서 시작해 하락)이므로 방향에 맞게 통째 재라벨.
+        seg["stage"] = _reversal_stage(stg, ret)
+        return [seg]
+    if piv >= len(prices) - 1:
+        return [seg]  # 극점이 맨 뒤 → 분할 의미 없음(추세가 아직 유효)
+    front = {"stage": stg, "from": seg["from"], "to": prices[piv][0]}
+    # 저점/고점 이후 꼬리는 보수적으로: 하락 후 반등=바닥(Stg1), 상승 후 하락=천정(Stg3).
+    # (진짜 상승/하락으로 발전하면 raw 분류가 별도 Stg2/Stg4 구간을 이미 만들었을 것)
+    tail_stage = 1 if stg == 4 else 3
+    tail = {"stage": tail_stage, "from": prices[piv + 1][0], "to": seg["to"]}
+    return [front, tail]
+
+
+_TAIL_MIN_BARS = 4  # 꼬리로 인정할 최소 연속 봉수(이보다 짧으면 MA 지연으로 보고 무시)
+_TAIL_MIN_FRAC = 0.25  # 구간 대비 꼬리 비율 하한(이보다 짧으면 전환 아님)
+
+
+def _tail_correct(seg: dict, raw: list[tuple[int, str, str]]) -> list[dict]:
+    """방향 교정으로도 남는 '꼬리 전환'을 분리한다. 하락(4) 구간 끝이 MA 를 되찾은 반등으로
+    길게 이어지거나(=바닥 진입), 상승(2) 구간 끝이 MA 아래로 길게 눌리면(=천정 진입) 그 꼬리를
+    전이 국면(1/3)으로 잘라낸다. V자 급락 후 급반등이 통째로 파랑(Stg4)으로 칠해지던 문제 방지."""
+    stg = seg["stage"]
+    if stg not in (2, 4):
+        return [seg]
+    pos = [item[2] for item in raw if seg["from"] <= item[1] <= seg["to"]]
+    n = len(pos)
+    if n < _TAIL_MIN_BARS * 2:
+        return [seg]
+    reclaimed = "below" if stg == 4 else "above"  # 국면 정의상 계속돼야 할 위치(4=below, 2=above)
+    # 끝쪽에서 그 위치를 벗어나 MA 를 되찾은(near 이상) 연속 봉 = 반등/눌림 꼬리.
+    # 깨끗한 추세는 끝까지 reclaimed 쪽(4는 below, 2는 above)이라 run=0 → 자르지 않는다.
+    run = 0
+    for p in reversed(pos):
+        if p == reclaimed:
+            break
+        run += 1
+    if run < _TAIL_MIN_BARS or run < n * _TAIL_MIN_FRAC:
+        return [seg]
+    # 꼬리 시작 봉의 날짜.
+    seg_dates = [item[1] for item in raw if seg["from"] <= item[1] <= seg["to"]]
+    tail_from = seg_dates[n - run]
+    front = {"stage": stg, "from": seg["from"], "to": _prev_day(raw, tail_from)}
+    tail = {"stage": 1 if stg == 4 else 3, "from": tail_from, "to": seg["to"]}
+    return [front, tail]
+
+
+def _merge_adjacent(segs: list[dict]) -> list[dict]:
+    """방향 교정 후 인접한 동일 국면 구간을 병합한다."""
+    if not segs:
+        return segs
+    merged = [dict(segs[0])]
+    for s in segs[1:]:
+        if s["stage"] == merged[-1]["stage"]:
+            merged[-1]["to"] = s["to"]
+        else:
+            merged.append(dict(s))
+    return merged
+
+
+def _prev_day(raw: list[tuple[int, str, str]], date_str: str) -> str:
     """raw 시퀀스에서 date_str 바로 앞 봉의 날짜(구간 끝을 전환 직전 봉으로). 없으면 그대로."""
-    for idx, (_, d) in enumerate(raw):
-        if d == date_str:
-            return raw[idx - 1][1] if idx > 0 else d
+    for idx, item in enumerate(raw):
+        if item[1] == date_str:
+            return raw[idx - 1][1] if idx > 0 else date_str
     return date_str
 
 

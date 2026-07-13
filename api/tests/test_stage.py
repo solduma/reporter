@@ -115,8 +115,8 @@ def test_curvature_separates_base_from_top_in_range():
     # 같은 '레인지'라도 곡률(U자 가속 vs 역U자 감속)이 바닥/천정을 가른다.
     # 하락 감속 후 바닥 다지며 반등 시작(U자).
     base = _falling(120, start=300.0, step=1.0) + _rising(120, start=180.0, step=0.3)
-    # 상승 감속 후 천정에서 롤오버(역U자).
-    top = _rising(120, start=100.0, step=1.0) + _falling(120, start=220.0, step=0.3)
+    # 상승 후 천정에서 뚜렷한 롤오버(역U자, 완만한 표류가 아니라 실제 하락).
+    top = _rising(120, start=100.0, step=1.0) + _falling(120, start=220.0, step=1.0)
     assert stage.classify(base, _MA, _SL).stage in (1, 2)  # 바닥/상승초입
     assert stage.classify(top, _MA, _SL).stage in (3, 4)  # 천정/하락초입
 
@@ -158,10 +158,10 @@ def test_resample_closes_weekly_monthly():
 
 
 def test_frames_have_expected_bars():
+    # 단기=일봉50, 중기=주봉30(와인스타인), 장기=주봉40(월봉 제외, 주봉 MA 길이로 지평 구분).
     assert stage.FRAMES["short"].bar == "day" and stage.FRAMES["short"].ma_period == 50
     assert stage.FRAMES["mid"].bar == "week" and stage.FRAMES["mid"].ma_period == 30
-    assert stage.FRAMES["long"].bar == "month" and stage.FRAMES["long"].ma_period == 40
-    assert stage.FRAMES["long"].slope_lookback == 10  # 장기 기울기창 확장(5→10개월)
+    assert stage.FRAMES["long"].bar == "week" and stage.FRAMES["long"].ma_period == 40
 
 
 def test_donchian_position_and_breakout():
@@ -298,11 +298,16 @@ def test_volatility_regime_contraction_vs_expansion():
 
 def test_volatility_breaks_range_tie_before_volume():
     # 평탄 레인지에서 변동성 수축=바닥(1)·확장=천정(3). (볼륨보다 우선순위)
-    flat = _flat(160, level=100.0)
-    hi_contract = [102.0] * 80 + [100.4] * 80
-    lo_contract = [98.0] * 80 + [99.6] * 80
-    hi_expand = [100.4] * 80 + [105.0] * 80
-    lo_expand = [99.6] * 80 + [95.0] * 80
+    # 천정(Stg3)은 '직전 상승'이 있어야 성립하므로 선행 상승(ma_past 계산 가능) 후 평탄 레인지로 구성.
+    lead = _rising(160, start=40.0, step=0.375)  # 40→~100, 상승 문맥 확보
+    level = lead[-1]
+    flat = lead + _flat(160, level=level)
+    pad_hi = [x + 0.4 for x in lead]
+    pad_lo = [x - 0.4 for x in lead]
+    hi_contract = pad_hi + [level + 2.0] * 80 + [level + 0.4] * 80
+    lo_contract = pad_lo + [level - 2.0] * 80 + [level - 0.4] * 80
+    hi_expand = pad_hi + [level + 0.4] * 80 + [level + 5.0] * 80
+    lo_expand = pad_lo + [level - 0.4] * 80 + [level - 5.0] * 80
     base = stage.classify(flat, _MA, _SL, None, hi_contract, lo_contract)
     top = stage.classify(flat, _MA, _SL, None, hi_expand, lo_expand)
     assert base.volatility == "contraction" and base.stage == 1

@@ -1,5 +1,6 @@
 "use client";
 
+import type { Time } from "lightweight-charts";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -445,17 +446,25 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
     }
   }, [summary, code]);
 
-  // 국면 배경밴드는 선택한 프레임(단/중/장) 국면을 일봉에 얹는다. 일봉일 때만(축이 달라 제외).
-  // 프레임 구간의 시작·끝 날짜는 실제 일봉 거래일이라 일봉 축에 그대로 얹힌다.
+  // 국면 배경밴드는 선택한 프레임(단/중/장) 국면을 봉 차트에 얹는다. 분/일/주 모두 적용.
+  // 구간 날짜(YYYY-MM-DD)는 일·주봉 축(날짜 문자열)엔 그대로, 30분봉 축(UTC timestamp)엔
+  // 자정 UTC 초로 변환해 얹는다. (30분봉은 최근 ~2주만 보여 최근 국면만 노출됨)
   const stageBands = useMemo(() => {
-    if (timeframe !== "day" || !trend.data) {
+    if (!trend.data) {
       return undefined;
     }
     const segs = trend.data.segments_by_frame?.[stageFrame] ?? trend.data.stage_segments;
-    return segs.map((s) => ({ stage: s.stage, from: s.from_date, to: s.to_date }));
+    // 30분봉 축은 UTC timestamp(초), 일·주봉 축은 YYYY-MM-DD 문자열. Time 으로 캐스팅.
+    const toTime = (d: string): Time =>
+      (timeframe === "30m" ? Date.parse(`${d}T00:00:00Z`) / 1000 : d) as Time;
+    return segs.map((s) => ({
+      stage: s.stage,
+      from: toTime(s.from_date),
+      to: toTime(s.to_date),
+    }));
   }, [timeframe, trend.data, stageFrame]);
 
-  // 엘리엇 파동 오버레이도 일봉 전용(피벗 날짜 축이 일봉과 맞음).
+  // 엘리엇 파동 오버레이는 일봉 전용(피벗 날짜 축이 일봉과 맞음).
   const elliott = timeframe === "day" ? (trend.data?.elliott ?? null) : null;
 
   const stockChart = useMemo(() => {
