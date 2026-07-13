@@ -100,9 +100,14 @@ def value_factors(
 
 # ── 추세 축 분해 (technicals._trend_score 와 동일 규칙) ────────────────────
 TREND_METHOD = (
-    "52주 신고가 근접(70~100%)·이평 정배열·거래량비(0.5~2배)·3개월 수익률(-20~+40%)을 "
-    "0~1 정규화해 가중 평균(신고가 0.35·정배열 0.30·수익률 0.20·거래량 0.15)."
+    "52주 신고가 근접(70~100%)·이평 정배열·3개월 수익률(-20~+40%)·거래량비(0.5~2배)·"
+    "와인스타인 국면을 0~1 정규화해 가중 평균(신고가 0.35·정배열 0.30·수익률 0.20·거래량 0.15·"
+    "국면 0.15, 계산 가능한 항목 합으로 재정규화). 국면: 상승1.0·바닥0.5·천정0.3·하락0."
 )
+
+
+_STAGE_LABEL = {1: "① 바닥", 2: "② 상승", 3: "③ 천정", 4: "④ 하락"}
+_STAGE_NORM = {2: 1.0, 1: 0.5, 3: 0.3, 4: 0.0}
 
 
 def trend_factors(
@@ -111,6 +116,7 @@ def trend_factors(
     above_ma120: bool | None,
     vol_ratio: float | None,
     return_3m: float | None,
+    stage: int | None = None,
 ) -> list[Factor]:
     near_norm = (
         None if near_high_pct is None else clamp01((near_high_pct / 100 - 0.7) / 0.3)
@@ -124,12 +130,17 @@ def trend_factors(
         align_norm, align_val = 1.0, "MA120 위"
     else:
         align_norm, align_val = 0.0, "역배열"
-    return [
+    factors = [
         Factor("52주 신고가 근접", _num(near_high_pct, "%"), near_norm, 0.35),
         Factor("이평 정배열", align_val, align_norm, 0.30),
         Factor("3개월 수익률", _num(return_3m, "%"), band(return_3m, -20, 40), 0.20),
         Factor("거래량비", _num(vol_ratio, "x", 2), band(vol_ratio, 0.5, 2.0), 0.15),
     ]
+    if stage is not None:
+        factors.append(
+            Factor("와인스타인 국면", _STAGE_LABEL.get(stage, "—"), _STAGE_NORM.get(stage), 0.15)
+        )
+    return factors
 
 
 # ── 탑다운 축 분해 (analysis_scoring.topdown_flow_score 와 동일 규칙) ──────

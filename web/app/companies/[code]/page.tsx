@@ -497,6 +497,37 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
     );
   }, [loading, stockCandles, timeframe, chartRange, handleChartRangeChange, stageBands, elliott]);
 
+  // 국면 기간 토글 + 배경색 범례(종목 차트 위). 추세·탑다운 섹션에서 공용으로 얹는다.
+  const stageLegendBar =
+    stageBands && stageBands.length > 0 ? (
+      <div className={styles.stageLegend} aria-label="차트 배경색 국면 범례">
+        <span className={styles.stageLegendCaption}>배경색 = 국면</span>
+        <div className={styles.stageFrameTabs} role="group" aria-label="국면 기간 선택">
+          {STAGE_FRAMES.map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              className={
+                f.id === stageFrame
+                  ? `${styles.stageFrameTab} ${styles.stageFrameTabOn}`
+                  : styles.stageFrameTab
+              }
+              onClick={() => setStageFrame(f.id)}
+              aria-pressed={f.id === stageFrame}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+        {STAGE_LEGEND.map((s) => (
+          <span key={s.stage} className={styles.stageLegendItem}>
+            <span className={styles.stageLegendDot} style={{ background: s.swatch }} />
+            {s.label}
+          </span>
+        ))}
+      </div>
+    ) : null;
+
   const peersArea = useMemo(() => {
     if (peers.status === "loading") {
       return <div className={styles.sectionStatus}>불러오는 중…</div>;
@@ -511,10 +542,11 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
   }, [peers, code]);
 
   // 공용 컨트롤바(봉 전환·기간 슬라이더·MA 레전드). floating=true 면 화면 상단 고정 플로팅.
-  // 원본에는 ref 를 달아 가시성을 추적하고, 플로팅은 원본이 벗어났을 때만 렌더한다.
-  const renderControlBar = (floating: boolean) => (
+  // 플로팅 가시성 기준 ref 는 탑다운 섹션의 원본 하나에만 단다(withRef). 추세 섹션 사본은 상태만
+  // 공유하고 ref 는 달지 않아 가시성 추적이 어긋나지 않게 한다.
+  const renderControlBar = (floating: boolean, withRef = true) => (
     <div
-      ref={floating ? undefined : controlBarRef}
+      ref={!floating && withRef ? controlBarRef : undefined}
       className={floating ? `${styles.controlBar} ${styles.controlBarFloating}` : styles.controlBar}
     >
       <div className={styles.tabs} role="tablist" aria-label="봉 종류">
@@ -621,7 +653,7 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
         )}
       </section>
 
-      {/* 추세 지표: 와인스타인 국면(단/중/장기) + Mansfield 상대강도. 국면은 아래 차트에 배경밴드로도. */}
+      {/* 추세 지표: 와인스타인 국면(단/중/장기) + Mansfield 상대강도 + 국면 배경밴드 종목차트. */}
       <section className={styles.chartCard}>
         <div className={styles.growthHead}>
           <h2 className={styles.sectionTitle}>추세 지표</h2>
@@ -629,6 +661,14 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
         </div>
         <ScoreBreakdown axis={axisByKey.technical} />
         <TrendPanel trend={trend.data} status={trend.status} message={trend.message} />
+        {/* 국면 배경밴드를 얹은 종목 차트 — 추세를 바로 눈으로 확인(탑다운 섹션과 동일 차트·상태 공유).
+            ref 없는 사본 컨트롤바(withRef=false)라 플로팅 가시성 추적은 탑다운 원본만 담당한다. */}
+        <div className={styles.compareStock}>
+          <h3 className={styles.subHead}>국면 차트</h3>
+          {renderControlBar(false, false)}
+          {stageLegendBar}
+          {stockChart}
+        </div>
       </section>
 
       {/* 탑다운 지표(비교 차트): 지수 → 섹터 → 종목 → 재무. 공용 컨트롤바(분/일/주·기간·MA). */}
@@ -662,34 +702,7 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
         {/* 종목 */}
         <div className={styles.compareStock}>
           <h3 className={styles.subHead}>{displayName} (종목)</h3>
-          {stageBands && stageBands.length > 0 ? (
-            <div className={styles.stageLegend} aria-label="차트 배경색 국면 범례">
-              <span className={styles.stageLegendCaption}>배경색 = 국면</span>
-              <div className={styles.stageFrameTabs} role="group" aria-label="국면 기간 선택">
-                {STAGE_FRAMES.map((f) => (
-                  <button
-                    key={f.id}
-                    type="button"
-                    className={
-                      f.id === stageFrame
-                        ? `${styles.stageFrameTab} ${styles.stageFrameTabOn}`
-                        : styles.stageFrameTab
-                    }
-                    onClick={() => setStageFrame(f.id)}
-                    aria-pressed={f.id === stageFrame}
-                  >
-                    {f.label}
-                  </button>
-                ))}
-              </div>
-              {STAGE_LEGEND.map((s) => (
-                <span key={s.stage} className={styles.stageLegendItem}>
-                  <span className={styles.stageLegendDot} style={{ background: s.swatch }} />
-                  {s.label}
-                </span>
-              ))}
-            </div>
-          ) : null}
+          {stageLegendBar}
           {stockChart}
         </div>
 

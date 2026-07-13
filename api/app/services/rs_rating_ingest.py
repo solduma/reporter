@@ -16,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import PriceCandle, Timeframe, UniverseSnapshot
-from app.domain import rs_rating, technicals
+from app.domain import rs_rating, stage, technicals
 from app.services import universe_ingest
 
 logger = logging.getLogger(__name__)
@@ -27,12 +27,33 @@ _LOOKBACK_BARS = 300
 
 @dataclass
 class _Bar:
-    """technicals.compute 가 요구하는 봉 인터페이스(close/high/low/volume)."""
+    """technicals.compute 가 요구하는 봉 인터페이스(close/high/low/volume) + 리샘플용 날짜."""
 
     close: float
     high: float
     low: float
     volume: int
+    bar_date: str = ""
+
+
+def _mid_stage(bars: list[_Bar]) -> int | None:
+    """일봉 → 주봉 리샘플 후 와인스타인 중기 국면(주봉 MA30) 판정. 추세 점수 보조 가중용."""
+    if not bars or not bars[0].bar_date:
+        return None
+    fr = stage.FRAMES["mid"]
+    b = stage.resample_ohlcv(
+        [x.bar_date for x in bars],
+        [x.high for x in bars],
+        [x.low for x in bars],
+        [x.close for x in bars],
+        [x.volume for x in bars],
+        fr.bar,
+    )
+    if len(b.closes) < fr.ma_period:
+        return None
+    return stage.classify(
+        b.closes, fr.ma_period, fr.slope_lookback, b.volumes, b.highs, b.lows
+    ).stage
 
 
 def _universe_codes(db: Session, snap_date: date) -> list[str]:
@@ -47,12 +68,15 @@ def _universe_codes(db: Session, snap_date: date) -> list[str]:
 def _recent_bars(db: Session, code: str) -> list[_Bar]:
     """종목의 최근 일봉 OHLCV(오름차순). RS·추세 계산에 필요한 만큼만 읽는다."""
     rows = db.execute(
-        select(PriceCandle.close, PriceCandle.high, PriceCandle.low, PriceCandle.volume)
+        select(
+            PriceCandle.close, PriceCandle.high, PriceCandle.low,
+            PriceCandle.volume, PriceCandle.bar_date,
+        )
         .where(PriceCandle.stock_code == code, PriceCandle.timeframe == Timeframe.DAY)
         .order_by(PriceCandle.bar_date.desc())
         .limit(_LOOKBACK_BARS)
     ).all()
-    return [_Bar(r[0], r[1], r[2], int(r[3] or 0)) for r in reversed(rows)]
+    return [_Bar(r[0], r[1], r[2], int(r[3] or 0), r[4].isoformat()) for r in reversed(rows)]
 
 
 def run_rs_rating_batch(db: Session) -> dict:
@@ -71,7 +95,8 @@ def run_rs_rating_batch(db: Session) -> dict:
         sf = rs_rating.strength_factor(closes)
         if sf is not None:
             factors[code] = sf
-        ts = technicals.compute(bars).trend_score
+        # 추세 점수에 와인스타인 중기 국면(주봉)을 보조 가중으로 반영 — 종목분석과 동일.
+        ts = technicals.compute(bars, stage=_mid_stage(bars)).trend_score
         if ts is not None:
             trend_scores[code] = ts
 

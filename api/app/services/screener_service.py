@@ -399,6 +399,9 @@ def _stock_topdown_score(
     if kr_sector is None or kr_sector not in flows:
         return None
     kr_f, us_f = flows[kr_sector]
+    # 섹터 flow 를 하나도 못 구하면 지수 방향만으로 점수 내지 않고 None(종합서 제외) — 종목분석 일치.
+    if kr_f is None and us_f is None:
+        return None
     # 종목분석과 동일하게 지수 방향(0.15 가중)까지 포함해 점수를 일치시킨다.
     return analysis_scoring.topdown_flow_score(us_f, kr_f, index_rising)
 
