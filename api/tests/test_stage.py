@@ -282,3 +282,23 @@ def test_segments_merge_and_smooth():
 
 def test_segments_empty_when_short():
     assert stage.segments(_rising(100), ["2025-01-01"] * 100, _MA, _SL, 10) == []
+
+
+def test_segments_hysteresis_reduces_flicker_in_sideways():
+    # 노이즈 있는 횡보 → 히스테리시스+min_run 으로 국면 구간이 촘촘히 쪼개지지 않는다.
+    import random
+
+    rng = random.Random(42)
+    # MA 근처를 오가는 잔파동(추세 없음): 국면이 자주 near/flat 경계에 걸린다.
+    closes = [100.0 + 3.0 * rng.uniform(-1, 1) for _ in range(400)]
+    dates = [f"2024-{1 + i // 28:02d}-{1 + i % 28:02d}" for i in range(400)]
+    segs = stage.segments(closes, dates, _MA, _SL, min_run=8)
+    # 히스테리시스+min_run 으로 400봉 횡보가 소수 구간으로 병합(과민반응 방지).
+    assert len(segs) <= 8
+    for s in segs:
+        assert s["from"] <= s["to"]
+
+
+def test_mid_frame_min_run_raised():
+    # 배경밴드 안정화를 위해 중기 min_run 을 8주로 상향.
+    assert stage.FRAMES["mid"].min_run == 8

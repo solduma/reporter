@@ -22,10 +22,10 @@ const STAGE_COLOR: Record<number, string> = {
 
 // 레전드용 국면 스와치(배경밴드보다 진한 대표색) + 라벨. 배경밴드 색과 톤을 맞춘 단일 소스.
 export const STAGE_LEGEND: { stage: number; label: string; swatch: string }[] = [
-  { stage: 1, label: "① 바닥", swatch: "rgba(120, 130, 140, 0.45)" },
-  { stage: 2, label: "② 상승", swatch: "rgba(192, 43, 43, 0.45)" },
-  { stage: 3, label: "③ 천정", swatch: "rgba(232, 163, 61, 0.55)" },
-  { stage: 4, label: "④ 하락", swatch: "rgba(43, 108, 192, 0.45)" },
+  { stage: 1, label: "Stg 1", swatch: "rgba(120, 130, 140, 0.45)" },
+  { stage: 2, label: "Stg 2", swatch: "rgba(192, 43, 43, 0.45)" },
+  { stage: 3, label: "Stg 3", swatch: "rgba(232, 163, 61, 0.55)" },
+  { stage: 4, label: "Stg 4", swatch: "rgba(43, 108, 192, 0.45)" },
 ];
 
 export interface StageBand {

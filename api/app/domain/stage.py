@@ -41,7 +41,7 @@ class Frame:
 # 더 긴 창으로 본다 → 2~10년 지평에 근접(MA 확장은 데이터 부족으로 불가).
 FRAMES: dict[str, Frame] = {
     "short": Frame(bar="day", ma_period=50, slope_lookback=10, min_run=10),
-    "mid": Frame(bar="week", ma_period=30, slope_lookback=5, min_run=4),
+    "mid": Frame(bar="week", ma_period=30, slope_lookback=5, min_run=8),
     "long": Frame(bar="month", ma_period=40, slope_lookback=10, min_run=2),
 }
 
@@ -484,17 +484,26 @@ def segments(
 ) -> list[dict]:
     """각 봉의 국면을 시계열로 계산해 연속 구간으로 병합한다(차트 배경밴드용).
 
-    min_run 미만으로 잠깐 바뀌는 국면은 깜빡임이라 직전 확정 국면으로 흡수한다.
+    두 겹 안정화로 노이즈 과민반응을 줄인다:
+    1) 히스테리시스(전환 관성) — 가격이 MA 근처(near)+MA 평탄(flat)인 애매 구간에선 새 국면으로
+       바꾸지 않고 직전 확정 국면을 유지한다(횡보 등락에 국면이 촘촘히 바뀌는 얼룩덜룩 방지).
+    2) min_run 미만으로 잠깐 바뀌는 국면은 깜빡임이라 직전 확정 국면으로 흡수한다.
     반환: [{stage, from(date), to(date)}], MA 를 못 구하는 앞 구간은 건너뛴다.
     """
     if len(closes) != len(dates) or len(closes) < ma_period:
         return []
 
     raw: list[tuple[int, str]] = []
+    prev_stage: int | None = None
     for i in range(ma_period - 1, len(closes)):
         r = classify(closes[: i + 1], ma_period, slope_lookback)
-        if r.stage is not None:
-            raw.append((r.stage, dates[i]))
+        st = r.stage
+        # 히스테리시스: 애매한 경계(가격 near + MA flat)에선 직전 국면 유지(전환 관성).
+        if prev_stage is not None and r.price_pos == "near" and r.ma_dir == "flat":
+            st = prev_stage
+        if st is not None:
+            raw.append((st, dates[i]))
+            prev_stage = st
     if not raw:
         return []
 
