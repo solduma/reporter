@@ -67,9 +67,10 @@ def compute_trend(db: Session, code: str, market: str | None) -> TrendResult:
         segments_by_frame[name] = stage.segments(
             b.closes, b.dates, frame.ma_period, frame.slope_lookback, frame.min_run
         )
-        if name == "long":
-            # secular 오버레이 — 장기 프레임의 월봉 종가로 데이터 허락 최장 MA 대비 위치.
-            secular = stage.secular_context(b.closes)
+
+    # secular 오버레이 — 데이터 허락 최장 월봉 MA 대비 위치(프레임과 별개, 항상 월봉 기준).
+    monthly = stage.resample_ohlcv(dates, highs, lows, closes, volumes, "month")
+    secular = stage.secular_context(monthly.closes)
 
     benchmark = _BENCHMARK.get(market or "", _DEFAULT_BENCHMARK)
     bench_rows = candle_service.ensure_periodic(db, benchmark, "day")

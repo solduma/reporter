@@ -39,13 +39,13 @@ class Frame:
     min_run: int  # 국면 구간 병합 시 깜빡임 흡수 최소 연속 봉
 
 
-# 지평 → 프레임. 단기 일봉50(≈10주)·중기 주봉30(와인스타인 정통)·장기 월봉40(≈3.3년 Kitchin 순환).
-# 장기는 MA 40개월 유지하되 기울기창을 10개월로 넓혀(월봉 데이터 122개월 한계 내) 추세 방향을
-# 더 긴 창으로 본다 → 2~10년 지평에 근접(MA 확장은 데이터 부족으로 불가).
+# 지평 → 프레임. 단기=일봉 50(≈10주)·중기=주봉 30(와인스타인 정통 30주)·장기=주봉 40(≈40주, 장기 추세).
+# 중·장기 모두 주봉을 쓰되 MA 길이로 지평을 구분(중기 30주·장기 40주). 월봉은 데이터가 얕고
+# (오래된 종목도 ~122개월) 노이즈 대비 이득이 적어 제외 — 주봉 기반이 데이터 풍부·일봉 축 정렬 용이.
 FRAMES: dict[str, Frame] = {
     "short": Frame(bar="day", ma_period=50, slope_lookback=10, min_run=10),
     "mid": Frame(bar="week", ma_period=30, slope_lookback=5, min_run=8),
-    "long": Frame(bar="month", ma_period=40, slope_lookback=10, min_run=2),
+    "long": Frame(bar="week", ma_period=40, slope_lookback=8, min_run=8),
 }
 
 # 볼륨 축적/분산 판정 임계 — 상승구간 볼륨/하락구간 볼륨 비율(최근 창). 1 초과=축적, 미만=분산.

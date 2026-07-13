@@ -158,10 +158,10 @@ def test_resample_closes_weekly_monthly():
 
 
 def test_frames_have_expected_bars():
+    # 단기=일봉50, 중기=주봉30(와인스타인), 장기=주봉40(월봉 제외, 주봉 MA 길이로 지평 구분).
     assert stage.FRAMES["short"].bar == "day" and stage.FRAMES["short"].ma_period == 50
     assert stage.FRAMES["mid"].bar == "week" and stage.FRAMES["mid"].ma_period == 30
-    assert stage.FRAMES["long"].bar == "month" and stage.FRAMES["long"].ma_period == 40
-    assert stage.FRAMES["long"].slope_lookback == 10  # 장기 기울기창 확장(5→10개월)
+    assert stage.FRAMES["long"].bar == "week" and stage.FRAMES["long"].ma_period == 40
 
 
 def test_donchian_position_and_breakout():
