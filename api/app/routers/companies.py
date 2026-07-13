@@ -153,7 +153,8 @@ def company_analysis(
     _mid = stage.FRAMES["mid"]
     _mid_dates = [c.bar_date.isoformat() for c in candles]
     _rd, _rc = stage.resample_closes(_mid_dates, [c.close for c in candles], _mid.bar)
-    mid_stage = stage.classify(_rc, _mid.ma_period, _mid.slope_lookback)
+    _rv = stage.resample_volumes(_mid_dates, [int(c.volume or 0) for c in candles], _mid.bar)
+    mid_stage = stage.classify(_rc, _mid.ma_period, _mid.slope_lookback, _rv)
     tech_axis = AnalysisAxis(
         key="technical",
         label="기술적 추세",
@@ -259,6 +260,7 @@ def company_trend(
                 label=result.stages[frame].label,
                 ma_dir=result.stages[frame].ma_dir,
                 quality=result.stages[frame].quality,
+                volume_signal=result.stages[frame].volume_signal,
             )
             for frame in ("short", "mid", "long")
         ],

@@ -37,11 +37,17 @@ class Frame:
 
 
 # 지평 → 프레임. 단기 일봉50(≈10주)·중기 주봉30(와인스타인 정통)·장기 월봉40(≈3.3년 Kitchin 순환).
+# 장기는 MA 40개월 유지하되 기울기창을 10개월로 넓혀(월봉 데이터 122개월 한계 내) 추세 방향을
+# 더 긴 창으로 본다 → 2~10년 지평에 근접(MA 확장은 데이터 부족으로 불가).
 FRAMES: dict[str, Frame] = {
     "short": Frame(bar="day", ma_period=50, slope_lookback=10, min_run=10),
     "mid": Frame(bar="week", ma_period=30, slope_lookback=5, min_run=4),
-    "long": Frame(bar="month", ma_period=40, slope_lookback=5, min_run=2),
+    "long": Frame(bar="month", ma_period=40, slope_lookback=10, min_run=2),
 }
+
+# 볼륨 축적/분산 판정 임계 — 상승구간 볼륨/하락구간 볼륨 비율(최근 창). 1 초과=축적, 미만=분산.
+VOL_ACCUM = 1.15  # 상승구간 볼륨이 하락구간의 1.15배↑ → 축적(bullish)
+VOL_DISTRIB = 0.87  # 상승구간 볼륨이 하락구간의 0.87배↓ → 분산(bearish)
 
 
 class _Bar(Protocol):
@@ -56,6 +62,7 @@ class StageResult:
     ma_dir: str | None  # rising | flat | falling
     price_pos: str | None  # above | near | below
     quality: float | None  # 추세 깨끗함 0~100 (ER·R² 결합) — shape 신뢰도
+    volume_signal: str | None  # accumulation | distribution | neutral (축적/분산)
 
 
 def resample_closes(
@@ -82,6 +89,25 @@ def resample_closes(
     rd = [last[k][0] for k in order]
     rc = [last[k][1] for k in order]
     return rd, rc
+
+
+def resample_volumes(dates: list[str], volumes: list[int], bar: str) -> list[int]:
+    """일봉 (날짜 오름차순, 거래량) → 주/월봉 거래량 합으로 리샘플한다. resample_closes 와 정렬 일치.
+
+    주/월봉 거래량은 그 구간의 일봉 거래량 합이다. bar='day' 면 그대로.
+    """
+    if bar == "day":
+        return list(volumes)
+    order: list[tuple] = []
+    agg: dict[tuple, int] = {}
+    for d, v in zip(dates, volumes, strict=True):
+        y, m, dd = (int(x) for x in d.split("-"))
+        key: tuple = (y, m) if bar == "month" else date(y, m, dd).isocalendar()[:2]
+        if key not in agg:
+            agg[key] = 0
+            order.append(key)
+        agg[key] += int(v or 0)
+    return [agg[k] for k in order]
 
 
 def _sma_at(closes: list[float], end: int, window: int) -> float | None:
@@ -133,12 +159,41 @@ def _curvature(values: list[float]) -> float:
     return s2 - s1
 
 
-def classify(closes: list[float], ma_period: int, slope_lookback: int) -> StageResult:
+def _volume_signal(closes: list[float], volumes: list[int] | None) -> str:
+    """축적/분산 판정 — 상승봉 볼륨 vs 하락봉 볼륨 비율(최근 창). 미완성 최신 봉은 제외.
+
+    상승봉 볼륨 우세=축적(bullish), 하락봉 볼륨 우세=분산(bearish). 볼륨 없거나 표본 부족이면 neutral.
+    미완성 마지막 봉(부분집계로 볼륨이 비정상적으로 작음)을 빼고 완성 봉만 비교한다.
+    """
+    if not volumes or len(volumes) != len(closes) or len(closes) < 7:
+        return "neutral"
+    # 마지막 봉 제외(미완성 가능). 직전까지의 완성 봉 종가·볼륨으로 비교.
+    c = closes[:-1]
+    v = volumes[:-1]
+    up = sum(v[i] for i in range(1, len(c)) if c[i] > c[i - 1])
+    dn = sum(v[i] for i in range(1, len(c)) if c[i] < c[i - 1])
+    if dn <= 0 or up <= 0:
+        return "neutral"
+    ratio = up / dn
+    if ratio >= VOL_ACCUM:
+        return "accumulation"
+    if ratio <= VOL_DISTRIB:
+        return "distribution"
+    return "neutral"
+
+
+def classify(
+    closes: list[float],
+    ma_period: int,
+    slope_lookback: int,
+    volumes: list[int] | None = None,
+) -> StageResult:
     """종가(날짜 오름차순)로 현재 국면을 shape 복합 판별한다. 데이터 부족 시 stage=None.
 
-    가격 vs MA·MA기울기(백본) + 로그회귀 기울기·R²·Efficiency Ratio·곡률(shape)로 판정.
+    가격 vs MA·MA기울기(백본) + 로그회귀 기울기·R²·Efficiency Ratio·곡률(shape) + 볼륨(축적/분산)로 판정.
+    volumes 를 주면 레인지 구간에서 축적→바닥·분산→천정 쪽으로 tiebreak 을 보정한다.
     """
-    empty = StageResult(None, None, None, None, None, None)
+    empty = StageResult(None, None, None, None, None, None, None)
     n = len(closes)
     if n < ma_period:
         return empty
@@ -157,13 +212,16 @@ def classify(closes: list[float], ma_period: int, slope_lookback: int) -> StageR
     else:
         ma_dir = "flat"
 
-    # shape 피처: 최근 ma_period 봉(해당 지평 창)에서 회귀·ER·곡률.
+    # shape 피처: 최근 ma_period 봉(해당 지평 창)에서 회귀·ER·곡률·볼륨.
     window = closes[-ma_period:]
     lslope, r2 = _log_slope_r2(window)
     er = _efficiency_ratio(window)
     curv = _curvature(window)
+    vol_sig = _volume_signal(window, volumes[-ma_period:] if volumes else None)
 
-    stage = _decide(price_pos, ma_dir, lslope, r2, er, curv, _long_context(closes, ma_period))
+    stage = _decide(
+        price_pos, ma_dir, lslope, r2, er, curv, _long_context(closes, ma_period), vol_sig
+    )
     return StageResult(
         stage=stage,
         label=_STAGE_LABELS.get(stage) if stage else None,
@@ -171,6 +229,7 @@ def classify(closes: list[float], ma_period: int, slope_lookback: int) -> StageR
         ma_dir=ma_dir,
         price_pos=price_pos,
         quality=round(er * r2 * 100, 1),
+        volume_signal=vol_sig,
     )
 
 
@@ -189,12 +248,20 @@ def _long_context(closes: list[float], ma_period: int) -> str:
 
 
 def _decide(
-    price_pos: str, ma_dir: str, slope: float, r2: float, er: float, curv: float, long_ctx: str
+    price_pos: str,
+    ma_dir: str,
+    slope: float,
+    r2: float,
+    er: float,
+    curv: float,
+    long_ctx: str,
+    vol_sig: str = "neutral",
 ) -> int:
-    """shape+백본 결합 국면 판정.
+    """shape+백본+볼륨 결합 국면 판정.
 
     깨끗한 추세(ER·R² 높음)면 기울기 부호로 2/4. 그 외 레인지·라운딩이면 곡률(U자/역U자)로 바닥/천정을
-    가르고, 곡률이 미미하면 직전 장기 문맥으로 가른다. 가격이 MA 위/아래로 뚜렷하면 백본이 우선.
+    가르고, 곡률이 미미하면 볼륨(축적→바닥·분산→천정) → 직전 장기 문맥 순으로 가른다.
+    가격이 MA 위/아래로 뚜렷하면 백본(추세)이 우선이라 볼륨은 레인지 tiebreak 에만 쓴다.
     """
     clean = er >= ER_TREND and r2 >= R2_TREND
     # Stage 2: 깨끗한 상승(가격이 MA 아래만 아니면) 또는 상승 MA 위.
@@ -203,10 +270,15 @@ def _decide(
     # Stage 4: 깨끗한 하락(가격이 MA 위만 아니면) 또는 하락 MA 아래.
     if (clean and slope < 0 and price_pos != "above") or (price_pos == "below" and ma_dir == "falling"):
         return 4
-    # 레인지·라운딩 → 곡률로 바닥(U자)/천정(역U자), 미미하면 직전 문맥.
+    # 레인지·라운딩 → 곡률로 바닥(U자)/천정(역U자).
     if curv > CURV_EPS:
         return 1
     if curv < -CURV_EPS:
+        return 3
+    # 곡률 미미 → 볼륨(축적=바닥/분산=천정)으로, 볼륨도 중립이면 직전 장기 문맥으로.
+    if vol_sig == "accumulation":
+        return 1
+    if vol_sig == "distribution":
         return 3
     return 3 if long_ctx == "up" else 1
 

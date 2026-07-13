@@ -220,6 +220,7 @@ export interface StageFrame {
   label: string | null; // '② 상승' 등
   ma_dir: "rising" | "flat" | "falling" | null;
   quality: number | null; // 추세 깨끗함 0~100(shape 신뢰도)
+  volume_signal: "accumulation" | "distribution" | "neutral" | null;
 }
 
 export interface StageSegment {
