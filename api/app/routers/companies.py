@@ -27,6 +27,7 @@ from app.schemas import (
     JudgmentOut,
     PeerOut,
     RelStrengthPoint,
+    SecularView,
     StageFrame,
     StageSegment,
     StockSearchHit,
@@ -270,6 +271,8 @@ def company_trend(
                 volume_signal=result.stages[frame].volume_signal,
                 volatility=result.stages[frame].volatility,
                 low_confidence=result.low_confidence[frame],
+                channel_pos=result.stages[frame].channel_pos,
+                breakout=result.stages[frame].breakout,
             )
             for frame in ("short", "mid", "long")
         ],
@@ -289,6 +292,12 @@ def company_trend(
             labeled=result.elliott.labeled,
             confidence=result.elliott.confidence,
             note=result.elliott.note,
+        ),
+        secular=SecularView(
+            ma_months=result.secular.ma_months,
+            position=result.secular.position,
+            ma_dir=result.secular.ma_dir,
+            ratio=result.secular.ratio,
         ),
     )
 

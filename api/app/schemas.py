@@ -114,6 +114,8 @@ class StageFrame(BaseModel):
     volume_signal: str | None  # accumulation | distribution | neutral (축적/분산)
     volatility: str | None  # contraction | expansion | normal (ATR 변동성 레짐)
     low_confidence: bool = False  # 이력 부족(리샘플 봉 < 최소치)이면 True
+    channel_pos: float | None = None  # Donchian 채널 내 위치 0~100(고점권=100)
+    breakout: str | None = None  # up | down | none (신 N기간 고/저 돌파 + 볼륨 확인)
 
 
 class StageSegment(BaseModel):
@@ -145,6 +147,15 @@ class ElliottView(BaseModel):
     note: str
 
 
+class SecularView(BaseModel):
+    """장기 평균(secular) 대비 위치 — 데이터 허락 최장 월봉 MA. 전환 프레임과 직교한 맥락."""
+
+    ma_months: int | None  # 실제 사용한 MA 개월수
+    position: str | None  # above | near | below
+    ma_dir: str | None  # rising | flat | falling
+    ratio: float | None  # 종가/secular MA - 1
+
+
 class CompanyTrend(BaseModel):
     """기술적 추세 — 와인스타인 국면(3프레임) + Mansfield 상대강도 + IBD RS Rating."""
 
@@ -157,6 +168,7 @@ class CompanyTrend(BaseModel):
     rs_outperforming: bool | None
     rs_rating: int | None = None  # IBD RS Rating 1~99(전종목 대비 백분위, 야간 배치)
     elliott: ElliottView | None = None  # 엘리엇 파동 추정(실험적)
+    secular: SecularView | None = None  # 장기 평균 대비 위치
 
 
 class CompanySummary(BaseModel):

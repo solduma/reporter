@@ -114,6 +114,30 @@
   margin-left: 4px;
 }
 
+/* Donchian 채널 위치 바(레인지 내 종가 위치 0~100%) */
+.channelBar {
+  display: block;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border, #e4e7eb);
+  overflow: hidden;
+}
+
+.channelFill {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, #2b6cc0 0%, #b8791f 55%, #c02b2b 100%);
+}
+
+/* 장기 평균(secular) 맥락 */
+.secular {
+  font-size: 0.76rem;
+  color: var(--muted);
+  margin: 8px 0 0;
+  font-variant-numeric: tabular-nums;
+}
+
 .stageHint {
   font-size: 0.72rem;
   color: var(--muted);

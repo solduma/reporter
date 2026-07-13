@@ -30,12 +30,18 @@ const VOL_CHIP: Record<string, { label: string; cls: string }> = {
 };
 // 변동성 레짐 칩. 수축=베이스 다지기(바닥 성격), 확장=돌파/클라이맥스(천정 성격).
 const VOLATILITY_CHIP: Record<string, string> = { contraction: "수축", expansion: "확장" };
+// 돌파 칩 — 볼륨 확인된 신 N기간 고/저 돌파(Weinstein 저항/지지 트리거).
+const BREAKOUT_CHIP: Record<string, { label: string; cls: string }> = {
+  up: { label: "↑돌파", cls: styles.volAccum },
+  down: { label: "↓이탈", cls: styles.volDistrib },
+};
 
 function StageBadge({ f }: { f: StageFrame }) {
   const style = f.stage ? STAGE_STYLE[f.stage] : null;
   const meta = FRAME_META[f.frame];
   const vol = f.volume_signal ? VOL_CHIP[f.volume_signal] : null;
   const volat = f.volatility ? VOLATILITY_CHIP[f.volatility] : null;
+  const brk = f.breakout ? BREAKOUT_CHIP[f.breakout] : null;
   return (
     <div className={styles.stageItem}>
       <span className={styles.frameLabel}>
@@ -48,8 +54,14 @@ function StageBadge({ f }: { f: StageFrame }) {
         </span>
         {vol ? <span className={`${styles.volChip} ${vol.cls}`}>{vol.label}</span> : null}
         {volat ? <span className={styles.volatChip}>{volat}</span> : null}
+        {brk ? <span className={`${styles.volChip} ${brk.cls}`}>{brk.label}</span> : null}
       </span>
       {style ? <span className={styles.stageHint}>{style.hint}</span> : null}
+      {typeof f.channel_pos === "number" ? (
+        <span className={styles.channelBar} title={`레인지 내 위치 ${Math.round(f.channel_pos)}%`}>
+          <span className={styles.channelFill} style={{ width: `${f.channel_pos}%` }} />
+        </span>
+      ) : null}
       <span className={styles.maPeriod}>
         {BAR_LABEL[f.bar]} MA{f.period}
         {f.quality !== null ? ` · 신뢰 ${Math.round(f.quality)}` : ""}
@@ -151,7 +163,7 @@ export default function TrendPanel({ trend, status, message }: Props) {
           <span className={styles.blockTitle}>와인스타인 국면</span>
           <InfoDot
             what="주가가 추세상 어느 국면(바닥→상승→천정→하락)에 있는지. 가격·이평 위치·곡선 모양·거래량으로 판별."
-            guide="② 상승이 매수존, ④ 하락은 회피. 단기=일봉·중기=주봉(와인스타인 30주)·장기=월봉. 축적/분산=거래량 방향, 수축=베이스 다지기·확장=돌파/과열. '이력 부족'은 데이터가 짧아 신뢰도 낮음."
+            guide="② 상승이 매수존, ④ 하락은 회피. 단기=일봉·중기=주봉(와인스타인 30주)·장기=월봉. 축적/분산=거래량 방향, 수축/확장=변동성, ↑돌파=볼륨 실린 신고가 돌파. 아래 바=기간 레인지 내 위치(우측=고점권). '이력 부족'은 데이터 짧아 신뢰도 낮음."
           />
         </div>
         <div className={styles.stages}>
@@ -159,6 +171,28 @@ export default function TrendPanel({ trend, status, message }: Props) {
             <StageBadge key={f.frame} f={f} />
           ))}
         </div>
+        {trend.secular && trend.secular.ma_months && trend.secular.ratio !== null ? (
+          <p className={styles.secular}>
+            장기 평균({trend.secular.ma_months}개월) 대비{" "}
+            <span
+              className={
+                trend.secular.position === "above"
+                  ? styles.rsPos
+                  : trend.secular.position === "below"
+                    ? styles.rsNeg
+                    : undefined
+              }
+            >
+              {trend.secular.ratio >= 0 ? "+" : ""}
+              {(trend.secular.ratio * 100).toFixed(0)}%
+            </span>
+            {trend.secular.ma_dir === "rising"
+              ? " · 장기 상승"
+              : trend.secular.ma_dir === "falling"
+                ? " · 장기 하락"
+                : " · 장기 횡보"}
+          </p>
+        ) : null}
       </div>
 
       <div className={styles.rsRow}>
