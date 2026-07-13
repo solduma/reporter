@@ -55,6 +55,26 @@ def test_price_below_rising_ma_exits_stage2():
     assert r.stage in (3, 4)  # 천정 이탈 또는 하락
 
 
+def test_gentle_decline_flattening_is_base_not_stage4():
+    # 회귀(화신정공 25.7~10월): 하락이 멈춰가는 완만한 바닥 다지기(가격 MA 아래여도
+    # 하락세 완만 + 곡률 바닥형 curv>0)는 Stg4(하락)가 아니라 Stg1(바닥)이어야 한다.
+    # 가파른 하락(150봉) 뒤 완만한 횡보 반등(120봉, 하락 감속→바닥형 곡률).
+    closes = _falling(150, start=300.0, step=1.0) + [
+        152.0 + 4.0 * (i / 120) ** 2 for i in range(120)  # 완만 상향 볼록(U자 바닥)
+    ]
+    r = _classify(closes)
+    # 하락 감속 + 바닥형 곡률 → 아직 MA 근처/아래여도 Stg4(하락) 아닌 Stg1(바닥).
+    assert r.stage == 1
+
+
+def test_steep_decline_below_ma_stays_stage4():
+    # 대칭 회귀: 가파른 하락(급락)은 MA 아래에서 여전히 Stg4 로 잡혀야 한다(바닥 오판 금지).
+    closes = _rising(160) + _falling(60, start=260.0, step=5.0)  # 가파른 급락
+    r = _classify(closes)
+    assert r.price_pos == "below"
+    assert r.stage == 4
+
+
 def test_segments_backdates_confirmed_transition():
     # 전환이 확정되면 확정 지연(min_run)만큼 늦게 칠하지 않고 '실제 시작 시점'으로 소급한다.
     # 검증: 디바운스 구간 시작이, 그 국면이 raw 에서 연속으로 시작된 지점과 일치(확정점이 아님).
