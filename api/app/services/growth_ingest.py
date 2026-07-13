@@ -95,6 +95,7 @@ def _ingest_one(db: Session, code: str, snap_date: date, session: requests.Sessi
             revenue_yoy=metric.revenue_yoy,
             op_yoy=metric.op_yoy,
             op_turnaround=metric.op_turnaround,
+            op_status=metric.op_status,
         )
         stmt = stmt.on_conflict_do_update(
             constraint="uq_growth_stock",
@@ -103,6 +104,7 @@ def _ingest_one(db: Session, code: str, snap_date: date, session: requests.Sessi
                 "revenue_yoy": stmt.excluded.revenue_yoy,
                 "op_yoy": stmt.excluded.op_yoy,
                 "op_turnaround": stmt.excluded.op_turnaround,
+                "op_status": stmt.excluded.op_status,
                 "updated_at": func.now(),  # onupdate 는 on_conflict 에 안 걸려 명시
             },
         )

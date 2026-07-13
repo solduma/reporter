@@ -143,7 +143,7 @@ def company_analysis(
         score=growth_sc,
         metrics=[
             {"label": "성장 등급", "value": _grade(growth_sc)},
-            {"label": "흑자전환", "value": "예" if (g and g.op_turnaround) else "아니오"},
+            {"label": "영업손익", "value": (g.op_status if g and g.op_status else "—")},
         ],
     )
 
@@ -479,6 +479,7 @@ def company_growth(code: str, db: Session = Depends(get_session)) -> CompanyGrow
         revenue_yoy=g.revenue_yoy if g else None,
         op_yoy=g.op_yoy if g else None,
         op_turnaround=bool(g.op_turnaround) if g else False,
+        op_status=g.op_status if g else None,
         period=g.period if g else None,
         coverage_count=cov_count,
         buy_ratio=round(buy_count / cov_count, 2) if cov_count else None,

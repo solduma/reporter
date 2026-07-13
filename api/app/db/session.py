@@ -33,6 +33,8 @@ _COLUMN_MIGRATIONS = (
     "ALTER TABLE financials ADD COLUMN IF NOT EXISTS div_yield DOUBLE PRECISION",
     # IBD RS Rating(1~99) — 전 종목 대비 가격 모멘텀 백분위(야간 배치).
     "ALTER TABLE universe_snapshot ADD COLUMN IF NOT EXISTS rs_rating SMALLINT",
+    # 영업이익 손익 4상태(흑자전환/흑자지속/적자전환/적자지속) — 이진 흑자전환의 표시 손실 보완.
+    "ALTER TABLE growth_metric ADD COLUMN IF NOT EXISTS op_status VARCHAR(8)",
 )
 
 

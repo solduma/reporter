@@ -47,7 +47,33 @@ def test_turnaround_flag():
     fins = [_Fin("2025.03", 100.0, -5.0), _Fin("2026.03", 120.0, 8.0)]
     m = growth.compute_growth("A", fins)
     assert m.op_turnaround is True
+    assert m.op_status == "흑자전환"
     assert m.op_yoy is None  # 직전이 음수라 비율은 None
+
+
+def test_op_status_four_states():
+    # 4가지 손익 상태가 정확히 구분되어야 한다(이진 흑자전환이 나머지 셋을 뭉개던 문제).
+    def status(prior_op, latest_op):
+        m = growth.compute_growth("A", [_Fin("2025.03", 100.0, prior_op), _Fin("2026.03", 100.0, latest_op)])
+        return m.op_status, m.op_turnaround
+
+    assert status(-5.0, 8.0) == ("흑자전환", True)  # 적자→흑자
+    assert status(10.0, 20.0) == ("흑자지속", False)  # 흑자→흑자
+    assert status(10.0, -3.0) == ("적자전환", False)  # 흑자→적자
+    assert status(-5.0, -2.0) == ("적자지속", False)  # 적자→적자
+
+
+def test_op_status_none_without_prior():
+    # 1년 전 동분기가 없으면 손익 상태 판단 불가.
+    m = growth.compute_growth("A", [_Fin("2026.03", 150.0, 20.0)])
+    assert m.op_status is None
+    assert m.op_turnaround is False
+
+
+def test_op_status_zero_prior_treated_as_loss():
+    # 직전 영업이익 0 은 비흑자로 본다 → 당기 흑자면 흑자전환.
+    m = growth.compute_growth("A", [_Fin("2025.03", 100.0, 0.0), _Fin("2026.03", 100.0, 5.0)])
+    assert m.op_status == "흑자전환"
 
 
 def test_no_prior_year_yields_none_yoy():

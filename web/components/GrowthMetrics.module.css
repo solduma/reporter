@@ -73,6 +73,25 @@
   color: var(--buy);
 }
 
+/* 영업손익 상태 배지(흑자지속/적자전환/적자지속) — 흑자전환 배지보다 작게, 색으로 구분 */
+.statusBadge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 5px;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.statusPos {
+  background: var(--buy-bg);
+  color: var(--buy);
+}
+
+.statusNeg {
+  background: var(--sell-bg);
+  color: var(--sell);
+}
+
 /* BUY 비율 태그 — 커버리지 강조 */
 .buyTag {
   color: var(--buy);

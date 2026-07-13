@@ -20,6 +20,7 @@ class GrowthMetric:
     revenue_yoy: float | None  # 매출 YoY (0.28 = +28%)
     op_yoy: float | None  # 영업이익 YoY
     op_turnaround: bool  # 직전 동기 적자 → 당기 흑자
+    op_status: str | None  # 흑자전환|흑자지속|적자전환|적자지속 (직전 대비 손익 상태)
 
 
 def _key(period: str) -> tuple[int, int] | None:
@@ -55,12 +56,11 @@ def compute_growth(stock_code: str, periods: list) -> GrowthMetric | None:
     ly, lm = _key(latest.period)
     prior = next((p for p in actuals if _key(p.period) == (ly - 1, lm)), None)
 
-    op_turnaround = bool(
-        prior
-        and prior.operating_income is not None
-        and latest.operating_income is not None
-        and prior.operating_income <= 0 < latest.operating_income
+    op_status = _op_status(
+        prior.operating_income if prior else None,
+        latest.operating_income,
     )
+    op_turnaround = op_status == "흑자전환"
 
     return GrowthMetric(
         stock_code=stock_code,
@@ -68,4 +68,24 @@ def compute_growth(stock_code: str, periods: list) -> GrowthMetric | None:
         revenue_yoy=_yoy(latest.revenue, prior.revenue) if prior else None,
         op_yoy=_yoy(latest.operating_income, prior.operating_income) if prior else None,
         op_turnaround=op_turnaround,
+        op_status=op_status,
     )
+
+
+def _op_status(prior_op: float | None, latest_op: float | None) -> str | None:
+    """직전 동기 대비 영업이익 손익 상태. 0 은 적자(비흑자)로 본다. 결측이면 None.
+
+    흑자전환(적자→흑자)·흑자지속·적자전환(흑자→적자)·적자지속 4상태로 나눠, '흑자전환 아님'이
+    계속흑자·적자전환·계속적자를 뭉개던 표시 손실을 없앤다.
+    """
+    if prior_op is None or latest_op is None:
+        return None
+    prior_pos = prior_op > 0
+    latest_pos = latest_op > 0
+    if prior_pos and latest_pos:
+        return "흑자지속"
+    if not prior_pos and latest_pos:
+        return "흑자전환"
+    if prior_pos and not latest_pos:
+        return "적자전환"
+    return "적자지속"

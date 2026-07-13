@@ -219,6 +219,7 @@ class CompanyGrowth(BaseModel):
     revenue_yoy: float | None
     op_yoy: float | None
     op_turnaround: bool
+    op_status: str | None  # 흑자전환|흑자지속|적자전환|적자지속
     period: str | None
     coverage_count: int
     buy_ratio: float | None  # 최근 90일 BUY 비율
