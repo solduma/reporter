@@ -69,6 +69,13 @@ const VIEWS: ViewDef[] = [
   { id: "week", label: "주" },
 ];
 
+// 배경밴드 국면 프레임 선택 탭(단기 일봉 / 중기 주봉 / 장기 월봉).
+const STAGE_FRAMES: { id: "short" | "mid" | "long"; label: string }[] = [
+  { id: "short", label: "단기" },
+  { id: "mid", label: "중기" },
+  { id: "long", label: "장기" },
+];
+
 // 비교 차트(지수·섹터)용 timeframe: 30m 은 없으므로 day 로 폴백.
 function compareTf(tf: Timeframe): ChartTimeframe {
   return tf === "30m" ? "day" : tf;
@@ -112,6 +119,8 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
   const [summary, setSummary] = useState<CompanySummary | null>(null);
   // 비교 차트 전체가 공유하는 봉 종류(분/일/주)와 표시 날짜 범위(date-range).
   const [timeframe, setTimeframe] = useState<Timeframe>("day");
+  // 배경밴드로 볼 국면 프레임(단기 일봉 / 중기 주봉 / 장기 월봉). 기본 중기.
+  const [stageFrame, setStageFrame] = useState<"short" | "mid" | "long">("mid");
   const [candlesByTf, setCandlesByTf] = useState<Partial<Record<Timeframe, CandlePoint[]>>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -406,17 +415,15 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
     }
   }, [summary, code]);
 
-  // 국면 배경밴드는 중기(150일) 국면을 일봉에 얹는다. 일봉일 때만(주/월/30분봉은 축이 달라 제외).
+  // 국면 배경밴드는 선택한 프레임(단/중/장) 국면을 일봉에 얹는다. 일봉일 때만(축이 달라 제외).
+  // 프레임 구간의 시작·끝 날짜는 실제 일봉 거래일이라 일봉 축에 그대로 얹힌다.
   const stageBands = useMemo(() => {
     if (timeframe !== "day" || !trend.data) {
       return undefined;
     }
-    return trend.data.stage_segments.map((s) => ({
-      stage: s.stage,
-      from: s.from_date,
-      to: s.to_date,
-    }));
-  }, [timeframe, trend.data]);
+    const segs = trend.data.segments_by_frame?.[stageFrame] ?? trend.data.stage_segments;
+    return segs.map((s) => ({ stage: s.stage, from: s.from_date, to: s.to_date }));
+  }, [timeframe, trend.data, stageFrame]);
 
   // 엘리엇 파동 오버레이도 일봉 전용(피벗 날짜 축이 일봉과 맞음).
   const elliott = timeframe === "day" ? (trend.data?.elliott ?? null) : null;
@@ -563,7 +570,24 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
           <h3 className={styles.subHead}>{displayName} (종목)</h3>
           {stageBands && stageBands.length > 0 ? (
             <div className={styles.stageLegend} aria-label="차트 배경색 국면 범례">
-              <span className={styles.stageLegendCaption}>배경색 = 중기 국면</span>
+              <span className={styles.stageLegendCaption}>배경색 = 국면</span>
+              <div className={styles.stageFrameTabs} role="group" aria-label="국면 기간 선택">
+                {STAGE_FRAMES.map((f) => (
+                  <button
+                    key={f.id}
+                    type="button"
+                    className={
+                      f.id === stageFrame
+                        ? `${styles.stageFrameTab} ${styles.stageFrameTabOn}`
+                        : styles.stageFrameTab
+                    }
+                    onClick={() => setStageFrame(f.id)}
+                    aria-pressed={f.id === stageFrame}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
               {STAGE_LEGEND.map((s) => (
                 <span key={s.stage} className={styles.stageLegendItem}>
                   <span className={styles.stageLegendDot} style={{ background: s.swatch }} />

@@ -249,7 +249,8 @@ export interface CompanyTrend {
   stock_code: string;
   benchmark: string; // KOSPI | KOSDAQ
   stages: StageFrame[];
-  stage_segments: StageSegment[];
+  stage_segments: StageSegment[]; // 하위호환(중기)
+  segments_by_frame: Record<string, StageSegment[]>; // short/mid/long → 국면 구간
   rs_series: RelStrengthPoint[];
   rs_latest: number | null;
   rs_outperforming: boolean | null;

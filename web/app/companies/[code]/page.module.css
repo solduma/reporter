@@ -212,3 +212,33 @@
   height: 12px;
   border-radius: 3px;
 }
+
+/* 국면 프레임(단/중/장) 선택 탭 — 범례 안 컴팩트 버전 */
+.stageFrameTabs {
+  display: inline-flex;
+  gap: 3px;
+  padding: 2px;
+  border-radius: 999px;
+  background: var(--bg);
+}
+
+.stageFrameTab {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  padding: 3px 12px;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.stageFrameTab:hover {
+  color: var(--text);
+}
+
+.stageFrameTabOn {
+  background: var(--accent);
+  color: #fff;
+}

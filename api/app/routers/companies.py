@@ -280,6 +280,13 @@ def company_trend(
             StageSegment(stage=s["stage"], from_date=s["from"], to_date=s["to"])
             for s in result.stage_segments
         ],
+        segments_by_frame={
+            frame: [
+                StageSegment(stage=s["stage"], from_date=s["from"], to_date=s["to"])
+                for s in segs
+            ]
+            for frame, segs in result.segments_by_frame.items()
+        },
         rs_series=[RelStrengthPoint(date=p.date, value=p.value) for p in result.rs.series],
         rs_latest=result.rs.latest,
         rs_outperforming=result.rs.outperforming,

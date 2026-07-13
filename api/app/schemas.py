@@ -162,7 +162,8 @@ class CompanyTrend(BaseModel):
     stock_code: str
     benchmark: str  # 벤치마크 지수(KOSPI/KOSDAQ)
     stages: list[StageFrame]
-    stage_segments: list[StageSegment]
+    stage_segments: list[StageSegment]  # 하위호환: 중기 국면 구간
+    segments_by_frame: dict[str, list[StageSegment]]  # frame(short/mid/long) → 국면 구간
     rs_series: list[RelStrengthPoint]
     rs_latest: float | None
     rs_outperforming: bool | None
