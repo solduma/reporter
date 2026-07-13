@@ -54,7 +54,23 @@ def overall(scores: list[float | None]) -> float | None:
     return round(sum(vals) / len(vals), 1) if vals else None
 
 
-# ── 가치 축(종목 분석) ────────────────────────────────────────────────
+# ── 가치 축(종목 분석·스크리너 공용) ─────────────────────────────────
+# 저평가 절대 정규화 밴드(작을수록 1). 종목분석·스크리너가 동일 점수를 내도록 한 곳에서 소유한다.
+# (best↓ = 만점 1.0, worst↑ = 0.0). PER/PBR/EV-EBITDA 모두 낮을수록 저평가.
+VALUE_BANDS = {"per": (5.0, 40.0), "pbr": (0.5, 3.0), "ev_ebitda": (3.0, 20.0)}
+
+
+def cheap_band(value: float | None, best: float, worst: float) -> float | None:
+    """저평가 절대 정규화(작을수록 1). 양수만 유효(적자 PER 등 0·음수는 None → 기여 제외).
+
+    후보군 백분위(scoring.cheap_ranker)와 달리 집합에 무관한 절대 구간이라, 어느 화면에서
+    보든·필터를 바꿔도 같은 값을 낸다(스크리너 ↔ 종목분석 점수 일치의 핵심).
+    """
+    if value is None or value <= 0:
+        return None
+    return clamp01((worst - value) / (worst - best))
+
+
 def value_score(
     per: float | None,
     pbr: float | None,
@@ -65,11 +81,11 @@ def value_score(
     pbr_rank: float | None,
     ev_rank: float | None,
 ) -> float | None:
-    """가치 점수(0~100). 저PBR·저PER·저EV/EBITDA 저평가 백분위 + 고ROE·고배당 가점.
+    """가치 점수(0~100). 저PBR·저PER·저EV/EBITDA 저평가 정규화 + 고ROE·고배당 가점.
 
-    per_rank/pbr_rank/ev_rank 는 후보군 내 저평가 백분위(0~1, 낮을수록 1) — 단독 조회 시
-    None 이면 해당 항목 제외. 절대 가점(ROE 15%↑ 만점, 배당 5%↑ 만점)은 밴드 없이 clamp.
-    스크리너의 백분위 value_score(scoring.py)와 규칙·가중치 동일하나 결측을 재정규화로 흡수.
+    per_rank/pbr_rank/ev_rank 는 저평가 정규화값(0~1, 낮을수록 1) — 호출측이 절대 밴드
+    (cheap_band, 화면 간 일치) 또는 백분위로 넘긴다. None 이면 해당 항목 제외.
+    절대 가점(ROE 15%↑ 만점, 배당 5%↑ 만점)은 밴드 없이 clamp. 결측은 재정규화로 흡수.
     """
     parts: list[tuple[float, float]] = []
     if pbr_rank is not None:
@@ -85,6 +101,24 @@ def value_score(
     if not parts:
         return None
     return round(sum(v * w for v, w in parts) / sum(w for _, w in parts) * 100, 1)
+
+
+def value_score_abs(
+    per: float | None,
+    pbr: float | None,
+    ev_ebitda: float | None,
+    roe: float | None,
+    div_yield: float | None,
+) -> tuple[float | None, tuple[float | None, float | None, float | None]]:
+    """절대 밴드 기반 가치 점수 + (per_norm, pbr_norm, ev_norm). 종목분석·스크리너 공용 진입점.
+
+    반환한 norm 3튜플은 score_factors 분해에 그대로 넘겨 점수와 근거가 어긋나지 않게 한다.
+    """
+    per_r = cheap_band(per, *VALUE_BANDS["per"])
+    pbr_r = cheap_band(pbr, *VALUE_BANDS["pbr"])
+    ev_r = cheap_band(ev_ebitda, *VALUE_BANDS["ev_ebitda"])
+    score = value_score(per, pbr, ev_ebitda, roe, div_yield, per_r, pbr_r, ev_r)
+    return score, (per_r, pbr_r, ev_r)
 
 
 # ── 탑다운 축(수급 섹터 flow) ─────────────────────────────────────────

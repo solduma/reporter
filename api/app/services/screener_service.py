@@ -31,7 +31,7 @@ from app.db.models import (
     StockEvent,
     UniverseSnapshot,
 )
-from app.domain import analysis_scoring, scoring
+from app.domain import analysis_scoring
 from app.schemas import ScreenerResult, ScreenerRow
 from app.services import sector_flow, sector_ingest, universe_ingest
 from reporter import sector_etf
@@ -59,35 +59,26 @@ def _coverage_subquery(since: date):
     )
 
 
-def _growth_score(u, g, cov_count, buy_count, rev_rank, op_rank, mom_rank) -> float:
-    """성장스코어 — 도메인 규칙(scoring.growth_score)에 ORM 행에서 뽑은 값을 넘긴다."""
-    return scoring.growth_score(
-        revenue_yoy=g.revenue_yoy if g else None,
-        op_yoy=g.op_yoy if g else None,
-        momentum_3m=u.momentum_3m,
-        op_turnaround=bool(g and g.op_turnaround),
-        coverage_count=cov_count,
-        buy_count=buy_count,
-        rev_rank=rev_rank,
-        op_rank=op_rank,
-        mom_rank=mom_rank,
+def _growth_score(u, g) -> float | None:
+    """성장스코어 — 종목분석과 동일한 절대 밴드(analysis_scoring.growth_score).
+
+    스크리너 순위는 정렬이 이미 제공하므로, 점수는 집합 무관 절대값으로 통일해 종목분석과 일치시킨다
+    (필터를 바꿔도·상세로 넘어가도 같은 숫자). 모멘텀·커버리지 factor 는 정렬 축이라 점수에서 제외."""
+    return analysis_scoring.growth_score(
+        g.revenue_yoy if g else None,
+        g.op_yoy if g else None,
+        bool(g and g.op_turnaround),
     )
 
 
-def _value_score(fin, per_rank, pbr_rank, ev_rank) -> float:
-    """가치스코어 — 도메인 규칙(scoring.value_score)에 ORM 행에서 뽑은 값을 넘긴다."""
+def _value_score(fin) -> float | None:
+    """가치스코어 — 종목분석과 동일한 절대 밴드(analysis_scoring.value_score_abs)."""
     if fin is None:
-        return 0.0
-    return scoring.value_score(
-        per=fin.per,
-        pbr=fin.pbr,
-        ev_ebitda=fin.ev_ebitda,
-        roe=fin.roe,
-        div_yield=fin.div_yield,
-        per_rank=per_rank,
-        pbr_rank=pbr_rank,
-        ev_rank=ev_rank,
+        return None
+    score, _ = analysis_scoring.value_score_abs(
+        fin.per, fin.pbr, fin.ev_ebitda, fin.roe, fin.div_yield
     )
+    return score
 
 
 def screen(
@@ -186,13 +177,9 @@ def _screen_growth(db, base, as_of, sort, limit, offset) -> ScreenerResult:
     total = db.scalar(select(func.count()).select_from(base.subquery())) or 0
     if sort == "score":
         rows = list(db.execute(base).all())
-        rev_rank = scoring.percentile_ranker([r[1].revenue_yoy for r in rows if r[1]])
-        op_rank = scoring.percentile_ranker([r[1].op_yoy for r in rows if r[1]])
-        mom_rank = scoring.percentile_ranker([r[0].momentum_3m for r in rows])
-        scored = [
-            (r, _growth_score(r[0], r[1], r[2], r[3], rev_rank, op_rank, mom_rank)) for r in rows
-        ]
-        scored.sort(key=lambda x: (-x[1], x[0][0].stock_code))
+        scored = [(r, _growth_score(r[0], r[1])) for r in rows]
+        # 절대 점수라 결측(None)은 최하위로 정렬(-1). 표시는 None 유지.
+        scored.sort(key=lambda x: (-(x[1] if x[1] is not None else -1), x[0][0].stock_code))
         page = scored[offset : offset + limit]
         ev = _representative_events(db, [r[0].stock_code for r, _ in page], as_of)
         items = [
@@ -286,11 +273,8 @@ def _screen_value(
     total = len(kept)
 
     if sort == "score" or sort not in ("market_cap", "change", "trading_value"):
-        per_rank = scoring.cheap_ranker([f.per for _, f in kept])
-        pbr_rank = scoring.cheap_ranker([f.pbr for _, f in kept])
-        ev_rank = scoring.cheap_ranker([f.ev_ebitda for _, f in kept])
-        scored = [(r, f, _value_score(f, per_rank, pbr_rank, ev_rank)) for r, f in kept]
-        scored.sort(key=lambda x: (-x[2], x[0][0].stock_code))
+        scored = [(r, f, _value_score(f)) for r, f in kept]
+        scored.sort(key=lambda x: (-(x[2] if x[2] is not None else -1), x[0][0].stock_code))
         page = scored[offset : offset + limit]
         ev = _representative_events(db, [r[0].stock_code for r, _, _ in page], as_of)
         items = [
@@ -398,11 +382,25 @@ def _topdown_scores(db) -> dict[str, tuple[float | None, float | None]]:
     return out
 
 
-def _stock_topdown_score(kr_sector: str | None, flows: dict) -> float | None:
+def _index_rising(market: str | None) -> bool | None:
+    """종목 시장(KOSPI/KOSDAQ)에 해당하는 지수의 당일 방향. 종목분석 build_topdown 과 동일 기준."""
+    from reporter import us_market
+
+    name = "코스닥" if market == "KOSDAQ" else "코스피"
+    for q in us_market.fetch_kr_indices():
+        if q.name == name:
+            return q.rising
+    return None
+
+
+def _stock_topdown_score(
+    kr_sector: str | None, flows: dict, index_rising: bool | None
+) -> float | None:
     if kr_sector is None or kr_sector not in flows:
         return None
     kr_f, us_f = flows[kr_sector]
-    return analysis_scoring.topdown_flow_score(us_f, kr_f, None)
+    # 종목분석과 동일하게 지수 방향(0.15 가중)까지 포함해 점수를 일치시킨다.
+    return analysis_scoring.topdown_flow_score(us_f, kr_f, index_rising)
 
 
 def _screen_topdown(db, base, as_of, sort, limit, offset) -> ScreenerResult:
@@ -411,10 +409,14 @@ def _screen_topdown(db, base, as_of, sort, limit, offset) -> ScreenerResult:
     codes = [r[0].stock_code for r in rows]
     sector_map = _stock_sector_map(db, codes)
     flows = _topdown_scores(db)
+    idx_cache: dict[str | None, bool | None] = {}
     scored = []
     for r in rows:
         kr_sec = sector_map.get(r[0].stock_code)
-        sc = _stock_topdown_score(kr_sec, flows)
+        mkt = r[0].market
+        if mkt not in idx_cache:
+            idx_cache[mkt] = _index_rising(mkt)
+        sc = _stock_topdown_score(kr_sec, flows, idx_cache[mkt])
         if sc is None:
             continue
         scored.append((r, kr_sec, sc))
@@ -442,38 +444,33 @@ def _screen_topdown(db, base, as_of, sort, limit, offset) -> ScreenerResult:
 def _screen_overall(db, base, as_of, sort, limit, offset) -> ScreenerResult:
     """성장·가치·추세·탑다운 중 계산 가능한 축의 단순 평균(테크노펀더멘탈 종합과 동일 규칙).
 
-    유니버스 전체에 4축을 매기려면 성장·가치 백분위 랭커를 필터 통과 집합 전체로 계산해야 하므로
-    한 번에 전 행을 스코어링한 뒤 상위를 페이지네이션한다."""
+    각 축이 절대 밴드라 집합 무관 — 종목분석과 같은 점수를 낸다. 전 행을 스코어링한 뒤 페이지네이션."""
     rows = list(db.execute(base).all())
     codes = [r[0].stock_code for r in rows]
 
-    # 성장 백분위(집합 내)
-    rev_rank = scoring.percentile_ranker([r[1].revenue_yoy for r in rows if r[1]])
-    op_rank = scoring.percentile_ranker([r[1].op_yoy for r in rows if r[1]])
-    mom_rank = scoring.percentile_ranker([r[0].momentum_3m for r in rows])
-    # 가치 백분위(집합 내 저평가)
+    # 가치용 최신 재무(배당 보정) — 절대 밴드라 랭커 불필요.
     fin_map = _latest_financials(db, codes)
     div_map = _latest_dividends(db, codes)
     for c, fin in fin_map.items():
         dy = div_map.get(c)
         if dy is not None:
             fin.div_yield = dy
-    per_rank = scoring.cheap_ranker([f.per for f in fin_map.values()])
-    pbr_rank = scoring.cheap_ranker([f.pbr for f in fin_map.values()])
-    ev_rank = scoring.cheap_ranker([f.ev_ebitda for f in fin_map.values()])
-    # 탑다운(섹터 flow)
+    # 탑다운(섹터 flow + 지수 방향)
     sector_map = _stock_sector_map(db, codes)
     flows = _topdown_scores(db)
+    idx_cache: dict[str | None, bool | None] = {}
 
     scored = []
     for r in rows:
         u, g = r[0], r[1]
-        gsc = _growth_score(u, g, r[2], r[3], rev_rank, op_rank, mom_rank)
+        gsc = _growth_score(u, g)
         fin = fin_map.get(u.stock_code)
-        vsc = _value_score(fin, per_rank, pbr_rank, ev_rank) if fin else None
+        vsc = _value_score(fin)
         tsc = u.trend_score
         kr_sec = sector_map.get(u.stock_code)
-        dsc = _stock_topdown_score(kr_sec, flows)
+        if u.market not in idx_cache:
+            idx_cache[u.market] = _index_rising(u.market)
+        dsc = _stock_topdown_score(kr_sec, flows, idx_cache[u.market])
         overall = analysis_scoring.overall([gsc, vsc, tsc, dsc])
         if overall is None:
             continue

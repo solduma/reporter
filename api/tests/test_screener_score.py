@@ -10,7 +10,9 @@ from app.services import screener_service as screener
 
 @dataclass
 class _U:
-    momentum_3m: float | None
+    momentum_3m: float | None = None
+    market: str | None = "KOSDAQ"
+    trend_score: float | None = None
 
 
 @dataclass
@@ -50,36 +52,23 @@ def test_percentile_ranker_small_sample():
 
 
 def test_growth_score_ranks_high_growth_above_low():
-    rev_rank = scoring.percentile_ranker([0.1, 0.5, 1.0])
-    op_rank = scoring.percentile_ranker([0.1, 0.5, 1.0])
-    mom_rank = scoring.percentile_ranker([0.0, 50.0, 100.0])
-
-    high = screener._growth_score(
-        _U(100.0), _G(1.0, 1.0, False), 3, 3, rev_rank, op_rank, mom_rank
-    )
-    low = screener._growth_score(
-        _U(0.0), _G(0.1, 0.1, False), 0, 0, rev_rank, op_rank, mom_rank
-    )
-    assert high > low
+    # 절대 밴드(종목분석과 동일): 고YoY 가 저YoY 보다 높은 절대 점수.
+    high = screener._growth_score(_U(), _G(0.6, 0.6, False))
+    low = screener._growth_score(_U(), _G(0.0, 0.0, False))
+    assert high is not None and low is not None and high > low
     assert 0 <= low <= 100 and 0 <= high <= 100
 
 
-def test_growth_score_buy_coverage_boosts():
-    rev_rank = op_rank = scoring.percentile_ranker([0.5, 0.5])
-    mom_rank = scoring.percentile_ranker([10.0, 10.0])
-    g = _G(0.5, 0.5, False)
-    covered_buy = screener._growth_score(_U(10.0), g, 4, 4, rev_rank, op_rank, mom_rank)
-    uncovered = screener._growth_score(_U(10.0), g, 0, 0, rev_rank, op_rank, mom_rank)
-    # 커버리지+BUY 는 센티먼트·커버리지 factor 가점으로 더 높아야 한다
-    assert covered_buy > uncovered
+def test_growth_score_turnaround_boosts():
+    # 흑자전환 가점(같은 YoY 라도 더 높음).
+    g_turn = _G(0.2, 0.2, True)
+    g_plain = _G(0.2, 0.2, False)
+    assert screener._growth_score(_U(), g_turn) > screener._growth_score(_U(), g_plain)
 
 
-def test_growth_score_null_growth_low():
-    # 성장지표 없는 종목(g=None)은 모멘텀만 반영돼 낮은 스코어
-    rev_rank = op_rank = scoring.percentile_ranker([0.5])
-    mom_rank = scoring.percentile_ranker([10.0])
-    score = screener._growth_score(_U(10.0), None, 0, 0, rev_rank, op_rank, mom_rank)
-    assert score <= 20  # 모멘텀(0.15)만 최대
+def test_growth_score_null_growth_none():
+    # 성장지표 없는 종목(g=None) → 점수 계산 불가(None).
+    assert screener._growth_score(_U(), None) is None
 
 
 # ── 가치 전략 ──────────────────────────────────────────────────────────
@@ -93,31 +82,38 @@ def test_cheap_ranker_lower_is_higher():
 
 
 def test_value_score_cheap_above_expensive():
-    per_rank = scoring.cheap_ranker([3.0, 10.0, 30.0])
-    pbr_rank = scoring.cheap_ranker([0.3, 1.0, 3.0])
-    ev_rank = scoring.cheap_ranker([3.0, 8.0, 20.0])
-    cheap = screener._value_score(_F(per=3.0, pbr=0.3, roe=15.0, ev_ebitda=3.0), per_rank, pbr_rank, ev_rank)
-    pricey = screener._value_score(_F(per=30.0, pbr=3.0, roe=2.0, ev_ebitda=20.0), per_rank, pbr_rank, ev_rank)
-    assert cheap > pricey
+    # 절대 밴드(종목분석과 동일): 저평가가 고평가보다 높은 절대 점수.
+    cheap = screener._value_score(_F(per=3.0, pbr=0.3, roe=15.0, ev_ebitda=3.0))
+    pricey = screener._value_score(_F(per=30.0, pbr=3.0, roe=2.0, ev_ebitda=20.0))
+    assert cheap is not None and pricey is not None and cheap > pricey
     assert 0 <= pricey <= 100 and 0 <= cheap <= 100
 
 
-def test_value_score_none_is_zero():
-    per_rank = pbr_rank = ev_rank = scoring.cheap_ranker([10.0, 10.0])
-    assert screener._value_score(None, per_rank, pbr_rank, ev_rank) == 0.0
+def test_value_score_none_is_none():
+    # 재무 없음 → 점수 계산 불가(None). (구 백분위 방식의 0.0 과 달리 명시적 결측)
+    assert screener._value_score(None) is None
 
 
 def test_value_score_roe_bonus():
     # ROE 가 높으면 가점(같은 밸류 배수라도).
-    per_rank = pbr_rank = ev_rank = scoring.cheap_ranker([10.0, 10.0])
-    hi = screener._value_score(_F(per=10.0, pbr=10.0, roe=15.0), per_rank, pbr_rank, ev_rank)
-    lo = screener._value_score(_F(per=10.0, pbr=10.0, roe=0.0), per_rank, pbr_rank, ev_rank)
+    hi = screener._value_score(_F(per=10.0, pbr=10.0, roe=15.0))
+    lo = screener._value_score(_F(per=10.0, pbr=10.0, roe=0.0))
     assert hi > lo
 
 
 def test_value_score_dividend_bonus():
     # 시가배당률이 높으면 가점.
-    per_rank = pbr_rank = ev_rank = scoring.cheap_ranker([10.0, 10.0])
-    hi = screener._value_score(_F(per=10.0, pbr=10.0, div_yield=5.0), per_rank, pbr_rank, ev_rank)
-    lo = screener._value_score(_F(per=10.0, pbr=10.0, div_yield=0.0), per_rank, pbr_rank, ev_rank)
+    hi = screener._value_score(_F(per=10.0, pbr=10.0, div_yield=5.0))
+    lo = screener._value_score(_F(per=10.0, pbr=10.0, div_yield=0.0))
     assert hi > lo
+
+
+def test_screener_value_matches_company_analysis():
+    # 회귀: 스크리너 가치 점수 = 종목분석 가치 점수(둘 다 절대 밴드 value_score_abs).
+    from app.domain import analysis_scoring
+    fin = _F(per=8.0, pbr=1.2, roe=12.0, ev_ebitda=6.0, div_yield=3.0)
+    screener_v = screener._value_score(fin)
+    analysis_v, _ = analysis_scoring.value_score_abs(
+        fin.per, fin.pbr, fin.ev_ebitda, fin.roe, fin.div_yield
+    )
+    assert screener_v == analysis_v
