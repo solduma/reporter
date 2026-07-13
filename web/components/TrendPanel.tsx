@@ -23,17 +23,26 @@ const STAGE_STYLE: Record<number, { cls: string; hint: string }> = {
   3: { cls: styles.stage3, hint: "분산·주의" },
   4: { cls: styles.stage4, hint: "하락·회피" },
 };
+// 볼륨 축적/분산 칩(거래량 시그니처). 축적=상승에 거래량(bullish), 분산=하락에 거래량(bearish).
+const VOL_CHIP: Record<string, { label: string; cls: string }> = {
+  accumulation: { label: "축적", cls: styles.volAccum },
+  distribution: { label: "분산", cls: styles.volDistrib },
+};
 
 function StageBadge({ f }: { f: StageFrame }) {
   const style = f.stage ? STAGE_STYLE[f.stage] : null;
   const meta = FRAME_META[f.frame];
+  const vol = f.volume_signal ? VOL_CHIP[f.volume_signal] : null;
   return (
     <div className={styles.stageItem}>
       <span className={styles.frameLabel}>
         {meta.label} <span className={styles.frameSpan}>{meta.span}</span>
       </span>
-      <span className={`${styles.stageBadge} ${style?.cls ?? styles.stageNa}`}>
-        {f.label ?? "—"}
+      <span className={styles.stageLine}>
+        <span className={`${styles.stageBadge} ${style?.cls ?? styles.stageNa}`}>
+          {f.label ?? "—"}
+        </span>
+        {vol ? <span className={`${styles.volChip} ${vol.cls}`}>{vol.label}</span> : null}
       </span>
       {style ? <span className={styles.stageHint}>{style.hint}</span> : null}
       <span className={styles.maPeriod}>
@@ -136,8 +145,8 @@ export default function TrendPanel({ trend, status, message }: Props) {
         <div className={styles.blockHead}>
           <span className={styles.blockTitle}>와인스타인 국면</span>
           <InfoDot
-            what="주가가 추세상 어느 국면(바닥→상승→천정→하락)에 있는지. 가격·이평 위치와 곡선 모양으로 판별."
-            guide="② 상승이 매수존, ④ 하락은 회피. 단기=일봉·중기=주봉(와인스타인 30주)·장기=월봉으로 각 시간지평을 본다."
+            what="주가가 추세상 어느 국면(바닥→상승→천정→하락)에 있는지. 가격·이평 위치·곡선 모양·거래량으로 판별."
+            guide="② 상승이 매수존, ④ 하락은 회피. 단기=일봉·중기=주봉(와인스타인 30주)·장기=월봉. 축적=상승에 거래량 실림(우호), 분산=하락에 거래량 실림(경계)."
           />
         </div>
         <div className={styles.stages}>

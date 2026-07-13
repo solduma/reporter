@@ -12,6 +12,7 @@ from app.services import trend
 class _Bar:
     bar_date: date
     close: float
+    volume: int = 1000
 
 
 def _series(n: int, fn) -> list[_Bar]:

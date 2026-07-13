@@ -37,12 +37,14 @@ def compute_trend(db: Session, code: str, market: str | None) -> TrendResult:
     stock_rows = candle_service.ensure_periodic(db, code, "day")
     closes = [r.close for r in stock_rows]
     dates = [r.bar_date.isoformat() for r in stock_rows]
+    volumes = [int(r.volume or 0) for r in stock_rows]
 
     stages: dict[str, stage.StageResult] = {}
     stage_segments: list[dict] = []
     for name, frame in stage.FRAMES.items():
         rd, rc = stage.resample_closes(dates, closes, frame.bar)
-        stages[name] = stage.classify(rc, frame.ma_period, frame.slope_lookback)
+        rv = stage.resample_volumes(dates, volumes, frame.bar)
+        stages[name] = stage.classify(rc, frame.ma_period, frame.slope_lookback, rv)
         if name == _SEGMENT_FRAME:
             stage_segments = stage.segments(
                 rc, rd, frame.ma_period, frame.slope_lookback, frame.min_run

@@ -69,10 +69,33 @@
   color: var(--muted);
 }
 
+.stageLine {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .stageBadge {
   font-size: 0.95rem;
   font-weight: 700;
   padding: 2px 0;
+}
+
+.volChip {
+  font-size: 0.66rem;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 8px;
+}
+
+.volAccum {
+  background: var(--buy-bg);
+  color: var(--buy);
+}
+
+.volDistrib {
+  background: var(--sell-bg);
+  color: var(--sell);
 }
 
 .stageHint {

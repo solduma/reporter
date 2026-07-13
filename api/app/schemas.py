@@ -111,6 +111,7 @@ class StageFrame(BaseModel):
     label: str | None  # '② 상승' 등
     ma_dir: str | None  # rising | flat | falling
     quality: float | None  # 추세 깨끗함 0~100(shape 신뢰도)
+    volume_signal: str | None  # accumulation | distribution | neutral (축적/분산)
 
 
 class StageSegment(BaseModel):
