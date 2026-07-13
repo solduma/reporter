@@ -480,24 +480,27 @@ def _decide(
         if basing:
             return 1
         # 하락(Stg4): 가파른 하락 or (하락세 slope<0 이면서 가속 하락 or 매도 클라이맥스).
-        # 가격이 MA 아래여도 slope 가 양(상승 반등 중)이면 하락이 아니다 → 천정 롤오버(Stg3)로 본다.
         declining = slope <= -STEEP_SLOPE or (
             slope < 0 and (curv < -CURV_EPS or volatility == "expansion")
         )
-        return 4 if declining else 3
+        if declining:
+            return 4
+        # 하락 아님(반등·완만). 천정(Stg3)은 '직전 상승'이 있어야 성립 — 직전이 하락세(long_ctx=down)면
+        # MA 아래 curl-down 은 천정이 아니라 바닥 다지기 연장(Stg1)이다.
+        return 3 if long_ctx == "up" else 1
     # 대칭: 가격이 하락 MA 위로 회복하면 바닥 탈출 시도 → 상승세면 Stg2 는 위에서 처리됨, 아니면 Stg1.
     if price_pos == "above" and ma_dir == "falling" and slope <= 0:
         return 3
-    # 레인지·라운딩 → 곡률로 바닥(U자)/천정(역U자).
+    # 레인지·라운딩 → 곡률로 바닥(U자)/천정(역U자). 단 천정(Stg3)은 직전 상승(long_ctx=up)일 때만.
     if curv > CURV_EPS:
         return 1
     if curv < -CURV_EPS:
-        return 3
+        return 3 if long_ctx == "up" else 1
     # 곡률 미미 → 변동성 레짐(수축=베이스 다지기 Stage1·확장=클라이맥스 Stage3).
     if volatility == "contraction":
         return 1
     if volatility == "expansion":
-        return 3
+        return 3 if long_ctx == "up" else 4
     # 변동성 중립 → 볼륨(축적=바닥/분산=천정), 볼륨도 중립이면 직전 장기 문맥으로.
     if vol_sig == "accumulation":
         return 1
