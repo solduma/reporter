@@ -655,10 +655,18 @@ def _direction_correct(
     # 상승(Stg2). 강한 상승주의 계단식 마크업이 국지적 되돌림마다 천정으로 잡혀 통째 Stg3 가 되던
     # 문제 보정. 신고가에서 롤오버한 진짜 천정은 순변화가 음(-)이라 여기 안 걸린다.
     if stg == 3 and ret > STG3_ADVANCE:
-        idxs = [i for i, item in enumerate(raw) if seg["from"] <= item[1] <= seg["to"]]
-        prices = [close_at[raw[i][1]] for i in idxs if raw[i][1] in close_at]
+        items = [item for item in raw if seg["from"] <= item[1] <= seg["to"]]
+        prices = [close_at[d] for _, d, _ in items if d in close_at]
         if prices and prices.index(max(prices)) >= len(prices) * 0.7:
-            seg["stage"] = 2  # 고점이 뒤쪽 70% 이후 → 상승 지속
+            # 상승 재개(가격이 MA 를 되찾아 above 로 확정된) 지점에서 분할: 앞=바닥 다지기(Stg1),
+            # 뒤=상승(Stg2). MA 아래에서 다지던 앞 구간까지 상승으로 칠하지 않도록(돌파 전 base 보존).
+            brk = next((k for k, it in enumerate(items) if it[2] == "above"), None)
+            if brk is not None and 0 < brk < len(items) - 1:
+                return [
+                    {"stage": 1, "from": seg["from"], "to": _prev_day(raw, items[brk][1])},
+                    {"stage": 2, "from": items[brk][1], "to": seg["to"]},
+                ]
+            seg["stage"] = 2  # 처음부터 MA 위 → 통째 상승
             return [seg]
     # 방향 일치(하락 국면=하락, 상승 국면=상승)거나 추세 국면이 아니면(1·3) 그대로.
     conflict = (stg == 4 and ret > DIR_TOLERANCE) or (stg == 2 and ret < -DIR_TOLERANCE)
