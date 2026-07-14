@@ -113,15 +113,24 @@ def test_fetch_disclosures_empty_status_returns_empty():
     assert discs == []
 
 
-def test_sync_disclosures_skips_within_ttl(monkeypatch):
-    # 최근 _SYNC_TTL 안에 동기화 이력이 있으면 DART 를 호출하지 않고 0 반환
+def _sync_state_db(synced_at, synced_from):
+    """sync_disclosures 의 db.execute(select(synced_at, synced_from)).first() 를 흉내낸다."""
+    db = MagicMock()
+    row = MagicMock()
+    row.synced_at = synced_at
+    row.synced_from = synced_from
+    db.execute.return_value.first.return_value = row
+    return db
+
+
+def test_sync_disclosures_skips_within_ttl_when_depth_covered(monkeypatch):
+    # TTL(6h) 이내 + 요청 begin 이 이미 동기화된 깊이(synced_from) 안이면 DART 재조회 억제.
     from datetime import datetime, timedelta
 
     from app.services import dart_ingest
 
-    recent = datetime.now(UTC) - timedelta(hours=1)  # TTL(6h) 이내
-    db = MagicMock()
-    db.scalar.return_value = recent  # last_synced
+    recent = datetime.now(UTC) - timedelta(hours=1)
+    db = _sync_state_db(recent, date(2024, 1, 1))  # 2024년까지 이미 동기화됨
 
     called = {"fetch": False}
 
@@ -132,10 +141,42 @@ def test_sync_disclosures_skips_within_ttl(monkeypatch):
     monkeypatch.setattr(dart_ingest.dart, "fetch_disclosures", _should_not_fetch)
 
     settings = MagicMock()
+    # 요청 begin(2026-04-01) >= synced_from(2024-01-01) → 커버됨 → 스킵.
     result = dart_ingest.sync_disclosures(db, settings, "005930", date(2026, 4, 1), date(2026, 7, 8))
 
     assert result == 0
-    assert called["fetch"] is False  # DART 재조회 억제
+    assert called["fetch"] is False
+
+
+def test_sync_disclosures_refetches_when_request_deeper_than_synced(monkeypatch):
+    # TTL 이 유효해도 요청이 동기화된 깊이보다 더 과거(begin < synced_from)면 재조회해야 한다.
+    from datetime import datetime, timedelta
+
+    from app.services import dart_ingest
+
+    recent = datetime.now(UTC) - timedelta(hours=1)  # TTL 이내
+    db = _sync_state_db(recent, date(2026, 6, 30))  # 최근 14일만 얕게 동기화됨
+
+    called = {"fetch": False}
+
+    def _fetch(*a, **k):
+        called["fetch"] = True
+        return []  # 목록 비어도 fetch 시도 자체를 검증
+
+    disc = MagicMock()
+    disc.fetch_disclosures.side_effect = _fetch
+    monkeypatch.setattr(dart_ingest, "_disclosures", lambda s: disc)
+    monkeypatch.setattr(dart_ingest, "ensure_corp_mappings", lambda *a, **k: None)
+    monkeypatch.setattr(dart_ingest, "get_llm", lambda s: MagicMock())
+    monkeypatch.setattr(dart_ingest, "_mark_synced", lambda *a, **k: None)
+    # corp_code 조회(db.scalar) 는 값 반환.
+    db.scalar.return_value = "00126380"
+
+    settings = MagicMock()
+    # 요청 begin(2024-07-14, ~2년) < synced_from(2026-06-30) → 재조회.
+    dart_ingest.sync_disclosures(db, settings, "005930", date(2024, 7, 14), date(2026, 7, 14))
+
+    assert called["fetch"] is True  # 더 깊은 과거 요청이라 DART 재조회함
 
 
 def test_fetch_ownership_changes_parses_signed_delta():

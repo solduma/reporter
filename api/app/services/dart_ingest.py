@@ -58,16 +58,20 @@ def sync_disclosures(
 ) -> int:
     """종목의 공시를 조회·센티먼트 분류·저장한다. 신규 저장 수를 반환한다.
 
-    최근 _SYNC_TTL 안에 동기화한 이력이 있으면 DART 재조회를 건너뛰고 0 을 반환한다.
-    공시가 0건인 종목도 재조회를 억제하도록 마지막 동기화 시각을 별도로 기록한다.
+    최근 _SYNC_TTL 안에 동기화했고 그 동기화가 요청 창(begin)만큼 과거를 이미 커버했으면 DART
+    재조회를 건너뛰고 0 을 반환한다. 요청이 더 과거(begin < synced_from)를 원하면 TTL 이 유효해도
+    재조회한다(얕은 배치가 최근 stamp 한 뒤 2년 조회가 스킵되는 것 방지). 공시가 0건인 종목도
+    재조회 억제를 위해 마지막 동기화 시각·깊이를 기록한다.
     """
-    last_synced = db.scalar(
-        select(DisclosureSyncState.synced_at).where(
+    state = db.execute(
+        select(DisclosureSyncState.synced_at, DisclosureSyncState.synced_from).where(
             DisclosureSyncState.stock_code == stock_code
         )
-    )
-    if last_synced and datetime.now(UTC) - last_synced < _SYNC_TTL:
-        return 0  # 최근 동기화됨 → DB 캐시만 사용
+    ).first()
+    # TTL 유효 + 요청 창이 이미 동기화된 깊이 안(begin >= synced_from)이면 캐시만 사용.
+    fresh = state and state.synced_at and datetime.now(UTC) - state.synced_at < _SYNC_TTL
+    if fresh and state.synced_from is not None and begin >= state.synced_from:
+        return 0
 
     session = requests.Session()
     ensure_corp_mappings(db, settings, session)
@@ -77,7 +81,7 @@ def sync_disclosures(
     )
     if not corp_code:
         logger.info("no corp_code for %s", stock_code)
-        _mark_synced(db, stock_code)  # 비상장 등도 TTL 동안 재조회 억제
+        _mark_synced(db, stock_code, begin)  # 비상장 등도 TTL 동안 재조회 억제
         return 0
 
     disc = _disclosures(settings)
@@ -138,15 +142,26 @@ def sync_disclosures(
         db.commit()
         saved += 1
 
-    _mark_synced(db, stock_code)  # 신규 0건이어도 기록해 재조회를 억제
+    _mark_synced(db, stock_code, begin)  # 신규 0건이어도 기록해 재조회를 억제
     logger.info("synced %d new disclosures for %s", saved, stock_code)
     return saved
 
 
-def _mark_synced(db: Session, stock_code: str) -> None:
-    stmt = insert(DisclosureSyncState).values(stock_code=stock_code, synced_at=func.now())
+def _mark_synced(db: Session, stock_code: str, begin: date) -> None:
+    """동기화 시각·깊이를 기록한다. synced_from 은 더 깊은(과거) 하한만 남긴다 — 얕은 배치가
+    이미 확보한 깊은 이력을 되돌리지 않도록 least(기존, 이번 begin) 로 갱신한다."""
+    stmt = insert(DisclosureSyncState).values(
+        stock_code=stock_code, synced_at=func.now(), synced_from=begin
+    )
     stmt = stmt.on_conflict_do_update(
-        index_elements=["stock_code"], set_={"synced_at": func.now()}
+        index_elements=["stock_code"],
+        set_={
+            "synced_at": func.now(),
+            "synced_from": func.least(
+                func.coalesce(DisclosureSyncState.synced_from, stmt.excluded.synced_from),
+                stmt.excluded.synced_from,
+            ),
+        },
     )
     db.execute(stmt)
     db.commit()

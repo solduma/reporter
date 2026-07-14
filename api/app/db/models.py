@@ -217,7 +217,12 @@ class CorpCodeMap(Base):
 
 
 class DisclosureSyncState(Base):
-    """종목별 DART 마지막 동기화 시각. 공시가 0건이거나 신규가 없어도 재조회를 억제한다."""
+    """종목별 DART 마지막 동기화 시각·깊이. 공시가 0건이거나 신규가 없어도 재조회를 억제한다.
+
+    synced_from 은 이 종목을 어디까지(과거 하한) 동기화했는지 — TTL 이 유효해도 요청 창이 그보다
+    더 과거를 원하면(begin < synced_from) 재조회해야 하므로 깊이를 함께 추적한다. 얕은 정기배치
+    (최근 14일)가 stamp 한 뒤 온디맨드 2년 조회가 TTL 로 스킵돼 과거를 못 채우는 것을 막는다.
+    """
 
     __tablename__ = "disclosure_sync_state"
 
@@ -225,6 +230,7 @@ class DisclosureSyncState(Base):
     synced_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+    synced_from: Mapped[date | None] = mapped_column(Date)  # 동기화가 도달한 과거 하한(없으면 미상)
 
 
 class MarketQuote(Base):

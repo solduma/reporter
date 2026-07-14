@@ -14,8 +14,8 @@ import SentimentBadge from "./SentimentBadge";
 // 타임라인은 다른 섹션과 독립적으로 로딩/실패하도록 상태를 분리한다.
 type State = { status: "loading" | "ready" | "error"; data: TimelineItem[]; message?: string };
 
-// 최근 항목만 노출(백엔드는 최신순 정렬로 90일치 반환). 과거는 스크롤 대신 잘라 간결하게.
-const TIMELINE_LIMIT = 20;
+// 백엔드는 최신순 정렬로 과거 2년치를 반환. 10개씩 페이지네이션으로 '더보기' 하며 넓힌다.
+const PAGE_SIZE = 10;
 
 function formatDate(value: string): string {
   const parsed = new Date(value);
@@ -120,11 +120,14 @@ function TimelineRow({ item }: { item: TimelineItem }) {
 
 export default function CompanyTimeline({ code }: { code: string }) {
   const [state, setState] = useState<State>({ status: "loading", data: [] });
+  // 노출 개수 — '더보기' 마다 PAGE_SIZE 씩 늘린다. 종목 바뀌면 다시 첫 페이지로.
+  const [visible, setVisible] = useState(PAGE_SIZE);
 
   useEffect(() => {
     let active = true;
     async function load() {
       setState({ status: "loading", data: [] });
+      setVisible(PAGE_SIZE);
       try {
         const res = await fetchTimeline(code);
         if (active) {
@@ -156,11 +159,24 @@ export default function CompanyTimeline({ code }: { code: string }) {
     return <div className={styles.status}>타임라인 데이터가 없습니다</div>;
   }
 
+  const shown = state.data.slice(0, visible);
+  const remaining = state.data.length - shown.length;
   return (
-    <ul className={styles.list}>
-      {state.data.slice(0, TIMELINE_LIMIT).map((item, i) => (
-        <TimelineRow key={`${item.type}-${item.report_id ?? item.broadcast_id ?? item.link ?? item.title}-${item.date}-${i}`} item={item} />
-      ))}
-    </ul>
+    <>
+      <ul className={styles.list}>
+        {shown.map((item, i) => (
+          <TimelineRow key={`${item.type}-${item.report_id ?? item.broadcast_id ?? item.link ?? item.title}-${item.date}-${i}`} item={item} />
+        ))}
+      </ul>
+      {remaining > 0 ? (
+        <button
+          type="button"
+          className={styles.moreButton}
+          onClick={() => setVisible((v) => v + PAGE_SIZE)}
+        >
+          더보기 ({remaining}건)
+        </button>
+      ) : null}
+    </>
   );
 }
