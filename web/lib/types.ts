@@ -287,24 +287,16 @@ export interface ElliottPivot {
   label: string; // '0'~'5' 또는 ''
 }
 
-export interface ElliottWavePoint {
-  date: string; // YYYY-MM-DD
-  price: number;
-  label: string; // '0'~'5'
-}
-
 export interface ElliottWaveSegment {
   start_date: string; // YYYY-MM-DD
   end_date: string;
   start_price: number;
   end_price: number;
-  degree: "primary" | "sub";
   phase: "motive" | "corrective";
   direction: "up" | "down"; // 실제 가격 진행 방향
+  wave_label: string; // '1'~'5' | 'A'~'C'
   bars?: number; // 소요 봉 수
-  wave_label?: string; // '5파' | '3파'
   confidence?: number; // 0~1
-  points?: ElliottWavePoint[]; // 내부 하위 라벨(motive=1~5, corr=A~C)
 }
 
 export interface ElliottProjection {

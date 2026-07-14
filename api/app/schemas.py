@@ -153,28 +153,18 @@ class ElliottPivot(BaseModel):
     label: str  # '0'~'5' 또는 '' (미라벨)
 
 
-class ElliottWavePoint(BaseModel):
-    """임펄스 세그먼트의 라벨 포인트(자체 피벗). 프론트가 이 점들로 선·라벨을 그린다."""
-
-    date: str  # YYYY-MM-DD
-    price: float
-    label: str  # '0'~'5'
-
-
 class ElliottWaveSegment(BaseModel):
-    """연결형 파동 체인의 한 파동(중단없이 이어짐). 추진(motive)↔조정(corrective) 교대."""
+    """엘리엇 파동 한 개(=피벗 사이 한 다리). 반복 사이클 1-2-3-4-5-A-B-C 중 하나."""
 
     start_date: str  # YYYY-MM-DD
     end_date: str
     start_price: float
     end_price: float
-    degree: str  # primary | sub
     phase: str  # motive | corrective
     direction: str  # up | down (실제 가격 진행 방향)
+    wave_label: str  # '1'~'5' | 'A'~'C'
     bars: int = 0  # 소요 봉 수
-    wave_label: str = ""  # '5파' | '3파' 등
     confidence: float = 0.0  # 0~1
-    points: list[ElliottWavePoint] = []  # 내부 하위 라벨(motive=1~5, corr=A~C)
 
 
 class ElliottProjection(BaseModel):

@@ -383,9 +383,7 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
   // 가장 최근 추진(motive) 파동의 시작일 — 기본 뷰를 여기까지만 넓혀 '현재' 파동 구조가 잘려 안
   // 보이는 걸 막는다(전 구간으로 넓히지 않아 뷰가 과하게 커지지 않음).
   const recentImpulseStart = useMemo(() => {
-    const motives = (trend.data?.elliott?.segments ?? []).filter(
-      (s) => s.degree === "primary" && s.phase === "motive",
-    );
+    const motives = (trend.data?.elliott?.segments ?? []).filter((s) => s.phase === "motive");
     if (motives.length === 0) {
       return null;
     }
