@@ -222,9 +222,12 @@ def company_analysis(
         ),
     )
 
-    # 탑다운 축 — 종목이 속한 섹터의 국내/미국 수급 flow(미국 선행) + 국내 지수.
+    # 탑다운 축 — 종목 섹터의 국내/미국 수급 flow(미국 선행) + 국내 지수 + 종목 상대강도(RS).
     theme_names = company_service.theme_names(db, code)
-    topdown_view, topdown_sc = analysis.build_topdown(theme_names, market, code=code)
+    stock_rs = float(snap.rs_rating) if snap and snap.rs_rating else None
+    topdown_view, topdown_sc = analysis.build_topdown(
+        theme_names, market, code=code, stock_rs=stock_rs
+    )
     kr_sec = topdown_view["kr_sector"]
     us_sec = topdown_view["us_sector"]
     kr_index_flow = topdown_view["kr_index_flow"]
@@ -243,6 +246,7 @@ def company_analysis(
                 "value": _flow_label(topdown_view["us_sector_flow"]),
             },
             {"label": idx_label, "value": _flow_label(kr_index_flow)},
+            {"label": "종목 상대강도(RS)", "value": f"{int(stock_rs)}" if stock_rs else "—"},
         ],
         method=score_factors.TOPDOWN_METHOD,
         factors=_factors(
@@ -250,6 +254,7 @@ def company_analysis(
                 topdown_view["us_sector_flow"],
                 topdown_view["kr_sector_flow"],
                 kr_index_flow,
+                stock_rs,
             )
         ),
     )

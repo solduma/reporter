@@ -145,33 +145,42 @@ def trend_factors(
 
 # ── 탑다운 축 분해 (analysis_scoring.topdown_flow_score 와 동일 규칙) ──────
 TOPDOWN_METHOD = (
-    "미국 동일섹터 수급 flow(선행, 0.45)·국내 동일섹터 flow(0.40)·국내 지수 수급(0.15)을 "
-    "가중 평균. 세 항 모두 추세·신고가·거래량(+외국인) 종합 0~100 수급 점수(지수도 방향이 아니라 "
-    "지수 일봉 flow 점수)."
+    "미국 동일섹터 수급 flow(선행, 0.35)·국내 동일섹터 flow(0.30)·국내 지수 수급(0.10)·"
+    "종목 상대강도 RS(0.25)를 가중 평균. 섹터 세 항은 추세·신고가·거래량(+외국인) 종합 0~100 수급 "
+    "점수(같은 섹터면 동일), RS 는 종목별로 달라 같은 섹터 안에서도 종목을 변별한다."
 )
 
 
 def topdown_factors(
-    us_flow: float | None, kr_flow: float | None, kr_index_flow: float | None
+    us_flow: float | None,
+    kr_flow: float | None,
+    kr_index_flow: float | None,
+    stock_rs: float | None = None,
 ) -> list[Factor]:
     return [
         Factor(
             "미국 섹터 수급(선행)",
             _num(us_flow, "점"),
             None if us_flow is None else us_flow / 100,
-            0.45,
+            0.35,
         ),
         Factor(
             "국내 섹터 수급",
             _num(kr_flow, "점"),
             None if kr_flow is None else kr_flow / 100,
-            0.40,
+            0.30,
         ),
         Factor(
             "국내 지수 수급",
             _num(kr_index_flow, "점"),
             None if kr_index_flow is None else kr_index_flow / 100,
-            0.15,
+            0.10,
+        ),
+        Factor(
+            "종목 상대강도(RS)",
+            "—" if stock_rs is None else f"{int(stock_rs)}",
+            None if stock_rs is None else clamp01(stock_rs / 100),
+            0.25,
         ),
     ]
 

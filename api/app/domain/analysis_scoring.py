@@ -121,23 +121,29 @@ def value_score_abs(
     return score, (per_r, pbr_r, ev_r)
 
 
-# ── 탑다운 축(수급 섹터 flow) ─────────────────────────────────────────
+# ── 탑다운 축(수급 섹터 flow + 종목 수급) ────────────────────────────
 def topdown_flow_score(
-    us_flow: float | None, kr_flow: float | None, kr_index_flow: float | None
+    us_flow: float | None,
+    kr_flow: float | None,
+    kr_index_flow: float | None,
+    stock_rs: float | None = None,
 ) -> float | None:
-    """수급 섹터 flow 기반 탑다운 점수(0~100).
+    """수급 섹터 flow + 종목 수급 기반 탑다운 점수(0~100).
 
-    미국 동일섹터 flow(선행, 가중 큼) + 국내 동일섹터 flow + 국내 지수 수급(보조).
-    세 항 모두 0~100 수급 점수(지수도 방향 bool 이 아니라 지수 일봉 flow 점수). 섹터 flow 를 못
-    구하면 지수 수급만으로 폴백(계산 가능한 것만 가중 평균).
+    미국 동일섹터 flow(선행, 가중 큼) + 국내 동일섹터 flow + 국내 지수 수급(보조) + 종목 자체
+    상대강도(RS, 종목 수급). 앞 세 항은 섹터 로테이션(같은 섹터면 동일), stock_rs 는 종목별로
+    달라 같은 섹터 안에서도 변별한다(섹터 점수가 ~22종류로 뭉치던 문제 보정). 계산 가능한 것만
+    가중 평균 — stock_rs 만 있으면(섹터 미분류) 그것만으로, 섹터만 있으면 섹터만으로 폴백.
     """
     parts: list[tuple[float, float]] = []
     if us_flow is not None:
-        parts.append((us_flow / 100, 0.45))  # 미국 섹터 선행
+        parts.append((us_flow / 100, 0.35))  # 미국 섹터 선행
     if kr_flow is not None:
-        parts.append((kr_flow / 100, 0.40))  # 국내 섹터 수급
+        parts.append((kr_flow / 100, 0.30))  # 국내 섹터 수급
     if kr_index_flow is not None:
-        parts.append((kr_index_flow / 100, 0.15))  # 국내 지수 수급(보조)
+        parts.append((kr_index_flow / 100, 0.10))  # 국내 지수 수급(보조)
+    if stock_rs is not None:
+        parts.append((clamp01(stock_rs / 100), 0.25))  # 종목 상대강도(RS) — 종목별 변별
     return _weighted(parts)
 
 
