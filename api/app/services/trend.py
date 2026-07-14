@@ -65,7 +65,8 @@ def compute_trend(db: Session, code: str, market: str | None) -> TrendResult:
         )
         low_confidence[name] = len(b.closes) < _min_bars(frame)
         segments_by_frame[name] = stage.segments(
-            b.closes, b.dates, frame.ma_period, frame.slope_lookback, frame.min_run
+            b.closes, b.dates, frame.ma_period, frame.slope_lookback, frame.min_run,
+            b.volumes, b.highs, b.lows,
         )
 
     # secular 오버레이 — 데이터 허락 최장 월봉 MA 대비 위치(프레임과 별개, 항상 월봉 기준).
