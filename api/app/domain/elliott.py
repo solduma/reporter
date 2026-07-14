@@ -192,50 +192,53 @@ def _correction_conf(window: list[Pivot], down: bool) -> float | None:
 _SCAN_WINDOW = 8
 
 
-def _label_cycles(
-    pivots: list[Pivot], up_trend: bool
-) -> list[tuple[int, str, str, float]]:
-    """피벗열을 좌→우로 반복 사이클 [1,2,3,4,5]-[A,B,C] 로 라벨한다(연구 스펙).
+def _label_cycles(pivots: list[Pivot]) -> list[tuple[int, str, str, float]]:
+    """피벗열을 좌→우로 반복 사이클 [1,2,3,4,5]-[A,B,C] 로 라벨한다(양방향 국소 추세).
 
-    각 다리(pivots[i]→pivots[i+1])가 사이클 내 한 파동. 추진 5파(하드룰 통과)와 조정 3파(지그재그)
-    를 번갈아 찾되, 안 맞으면 그 구간은 라벨 유보(억지 카운트 금지 — 정직). 여러 후보 중 피보
-    신뢰도 최고를 채택. 반환: 각 다리의 (start_pivot_i, wave_label, phase, cycle_confidence).
-    빈 라벨('')은 유보 다리. 하락 추세면 추진=하락 5파·조정=상승 3파(방향 미러).
+    각 다리(pivots[i]→pivots[i+1])가 사이클 내 한 파동. **전역 추세를 고정하지 않고**, 추진을 찾을
+    때 상승·하락 5파를 모두 스캔해 최고 신뢰도 방향을 그 지역의 추세로 채택한다(하락 후 대상승 후
+    재하락처럼 국면이 바뀌는 종목을 올바르게 라벨). 조정은 직전 추진의 반대 방향으로 검증한다.
+    안 맞으면 라벨 유보(억지 카운트 금지). 반환: (start_pivot_i, wave_label, phase, confidence).
     """
     n = len(pivots)
     out: list[tuple[int, str, str, float]] = []
     i = 0
     expect_motive = True
+    last_motive_up: bool | None = None  # 직전 추진 방향(조정 방향 결정용)
     while i < n - 1:
         found = None
         if expect_motive:
-            # i 부터 창 내에서 하드룰 통과 5파(6피벗)를 탐색, 최고 신뢰도 채택.
-            best_st, best_c = None, -1.0
+            # **가장 이른** 유효 5파를 채택(연속 체인 우선 — 갭 최소화). 그 시작점에서 상승·하락을
+            # 모두 시험해 신뢰도 높은 방향을 국소 추세로 삼는다. (최고 신뢰 창을 좇으면 그 앞의 유효
+            # 임펄스가 통째로 유실돼 장기 사이클이 끊긴다.)
             for st in range(i, min(i + _SCAN_WINDOW, n - 5)):
-                c = _impulse_conf(pivots[st : st + 6], up_trend)
-                if c is not None and c > best_c:
-                    best_st, best_c = st, c
-            if best_st is not None:
-                found = (best_st, 5, ["1", "2", "3", "4", "5"], "motive", best_c)
+                cand = None  # (conf, up)
+                for up in (True, False):
+                    c = _impulse_conf(pivots[st : st + 6], up)
+                    if c is not None and (cand is None or c > cand[0]):
+                        cand = (c, up)
+                if cand is not None:
+                    found = (st, 5, ["1", "2", "3", "4", "5"], "motive", cand[0], cand[1])
+                    break
         else:
-            best_st, best_c = None, -1.0
+            # 조정은 직전 추진의 반대 방향. 상승 추진 뒤엔 하락 조정(down=True). 가장 이른 유효 A-B-C 채택.
             for st in range(i, min(i + _SCAN_WINDOW, n - 3)):
-                # 조정은 추세 반대 방향: 상승추세→하락 조정(down=True), 하락추세→상승 조정(down=False).
-                c = _correction_conf(pivots[st : st + 4], down=up_trend)
-                if c is not None and c > best_c:
-                    best_st, best_c = st, c
-            if best_st is not None:
-                found = (best_st, 3, ["A", "B", "C"], "corrective", best_c)
+                c = _correction_conf(pivots[st : st + 4], down=bool(last_motive_up))
+                if c is not None:
+                    found = (st, 3, ["A", "B", "C"], "corrective", c, last_motive_up)
+                    break
         if found:
-            st, ln, labels, phase, conf = found
+            st, ln, labels, phase, conf, is_up = found
             for k in range(i, st):  # 사이클 시작 전 구간은 라벨 유보
                 out.append((k, "", "", 0.0))
             for k, lab in enumerate(labels):
                 out.append((st + k, lab, phase, round(conf, 2)))
+            if phase == "motive":
+                last_motive_up = is_up
             i = st + ln
             expect_motive = not expect_motive
         elif not expect_motive:
-            expect_motive = True  # 조정이 없거나 복합 → 다음 추진을 기대(위상만 전환, 스킵 없음)
+            expect_motive = True  # 조정이 없거나 복합 → 다음 추진을 기대(위상만 전환)
         else:
             out.append((i, "", "", 0.0))  # 추진도 없음 → 이 다리 유보
             i += 1
@@ -252,8 +255,7 @@ def _build_segments(
     """
     if len(pivots) < 3:
         return []
-    up_trend = pivots[-1].price >= pivots[0].price
-    labeled = _label_cycles(pivots, up_trend)
+    labeled = _label_cycles(pivots)
     segs: list[WaveSegment] = []
     for start_i, label, phase, conf in labeled:
         if not label or start_i + 1 >= len(pivots):
@@ -314,15 +316,15 @@ def _project(segments: list[WaveSegment]) -> WaveProjection | None:
     )
 
 
-def _current_position(
-    segments: list[WaveSegment], up_trend: bool
-) -> tuple[str, float | None]:
-    """마지막 라벨된 파동으로 현재 위치·무효화가격을 낸다(추세 방향에 맞춰 서술)."""
+def _current_position(segments: list[WaveSegment]) -> tuple[str, float | None]:
+    """마지막 라벨된 파동으로 현재 위치·무효화가격을 낸다(국소 추진 방향에 맞춰 서술)."""
     if not segments:
         return "뚜렷한 파동 미검출", None
     last = segments[-1]
     lab = last.wave_label
-    push = "상승" if up_trend else "하락"  # 추진 방향(추세와 동일)
+    # 국소 추진 방향 = 가장 최근 motive 파동의 방향(전역 추세 아님).
+    recent_motive = next((s for s in reversed(segments) if s.phase == "motive"), None)
+    push = "상승" if (recent_motive and recent_motive.direction == "up") else "하락"
     if last.phase == "motive":
         nxt = {
             "1": "2파 되돌림 대비", "2": f"3파 {push} 기대", "3": "4파 되돌림 대비",
@@ -345,16 +347,20 @@ def analyze(
             current_position="피벗 부족", note="피벗 부족",
         )
 
-    up_trend = pivots[-1].price >= pivots[0].price
     bar_index = {d: i for i, (d, _) in enumerate(prices)}  # 날짜→봉 인덱스(기간 투영)
     segments = _build_segments(pivots, bar_index)
-    position, invalidation = _current_position(segments, up_trend)
+    position, invalidation = _current_position(segments)
     projection = _project(segments)
 
     labeled = len(segments) > 0
     n_mot = sum(1 for s in segments if s.phase == "motive")
     n_cor = sum(1 for s in segments if s.phase == "corrective")
-    direction = "up" if up_trend else "down"
+    # 대표 방향 = 가장 최근 추진 파동 방향(국소). 없으면 전 구간 방향으로 폴백.
+    recent_motive = next((s for s in reversed(segments) if s.phase == "motive"), None)
+    direction = (
+        recent_motive.direction if recent_motive
+        else ("up" if pivots[-1].price >= pivots[0].price else "down")
+    )
     confidence = (
         round(sum(s.confidence for s in segments) / len(segments), 2) if segments else 0.0
     )
