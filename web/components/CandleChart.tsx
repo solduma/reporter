@@ -235,13 +235,12 @@ export default function CandleChart({
       );
     }
 
-    // 엘리엇 파동 추정(있으면): 전 구간 세부 스윙을 옅은 점선(지지/저항 맥락)으로 깔고, 검출된
-    // 파동 세그먼트를 겹쳐 그린다 — 임펄스=실선·조정=점선, major=굵게·minor=가늘게(프랙탈). 세부
-    // 라벨(1~5·A~C)은 마커로. 추정이므로 보라 계열.
+    // 엘리엇 파동 추정(있으면) — 2레이어: 전 구간 상승/하락 다리(옅은 점선, 흐름 맥락) + 검출된 5파
+    // 임펄스(굵은 실선 강조, 1~5 라벨). 추정이므로 보라 계열.
     if (elliott && elliott.pivots.length >= 2) {
-      const byDate = new Map(elliott.pivots.map((p) => [p.date.slice(0, 10), p.price]));
+      // 기본 스윙 흐름(전 피벗을 잇는 옅은 점선) — 상승/하락 다리를 균형있게 보여준다.
       const swingLine = chart.addSeries(LineSeries, {
-        color: "rgba(139, 92, 246, 0.22)", // 배경 스윙(옅은 점선)
+        color: "rgba(139, 92, 246, 0.3)",
         lineWidth: 1,
         lineStyle: 2, // dashed
         priceLineVisible: false,
@@ -250,34 +249,24 @@ export default function CandleChart({
       });
       swingLine.setData(elliott.pivots.map((p) => ({ time: p.date.slice(0, 10) as Time, value: p.price })));
 
-      // 세그먼트별 오버레이 — 그 구간에 속한 피벗들을 이어 그린다. major 를 먼저(아래) 깔고 minor 를 위에.
-      const segs = (elliott.segments ?? [])
-        .slice()
-        .sort((a, b) => (a.degree === b.degree ? 0 : a.degree === "major" ? -1 : 1));
-      for (const seg of segs) {
+      // 강조 레이어: 검출된 5파 임펄스만 굵은 실선으로 겹쳐 그려 파동 구조를 도드라지게 한다.
+      const impulses = (elliott.segments ?? []).filter((s) => s.layer === "impulse");
+      for (const seg of impulses) {
         const from = seg.start_date.slice(0, 10);
         const to = seg.end_date.slice(0, 10);
-        const pts = elliott.pivots
+        const data = elliott.pivots
           .filter((p) => {
             const d = p.date.slice(0, 10);
             return d >= from && d <= to;
           })
           .map((p) => ({ time: p.date.slice(0, 10) as Time, value: p.price }));
-        // major 세그먼트는 시작·끝만 이어 큰 파동 골격을 굵게(중간 minor 피벗은 minor 세그가 표현).
-        const data = seg.degree === "major"
-          ? [
-              { time: from as Time, value: byDate.get(from) ?? pts[0]?.value },
-              { time: to as Time, value: byDate.get(to) ?? pts[pts.length - 1]?.value },
-            ].filter((d) => d.value !== undefined)
-          : pts;
         if (data.length < 2) {
           continue;
         }
-        const isMajor = seg.degree === "major";
         const line = chart.addSeries(LineSeries, {
-          color: isMajor ? "rgba(124, 58, 237, 0.9)" : "rgba(139, 92, 246, 0.85)",
-          lineWidth: isMajor ? 3 : 2,
-          lineStyle: seg.kind === "impulse" ? 0 : 2, // 임펄스=실선, 조정=점선
+          // 상승 임펄스=진보라, 하락 임펄스=자홍 — 방향을 색으로 구분.
+          color: seg.direction === "up" ? "rgba(109, 40, 217, 0.95)" : "rgba(190, 24, 93, 0.9)",
+          lineWidth: 3,
           priceLineVisible: false,
           lastValueVisible: false,
           crosshairMarkerVisible: false,
@@ -285,7 +274,7 @@ export default function CandleChart({
         line.setData(data as { time: Time; value: number }[]);
       }
 
-      // 세부 라벨 마커(1~5·A~C) — '0'(시작점)은 생략.
+      // 임펄스 라벨 마커(1~5) — '0'(시작점)은 생략.
       const markers: SeriesMarker<Time>[] = elliott.pivots
         .filter((p) => p.label !== "" && p.label !== "0")
         .map((p) => ({

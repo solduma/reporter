@@ -290,11 +290,10 @@ export interface ElliottPivot {
 export interface ElliottWaveSegment {
   start_date: string; // YYYY-MM-DD
   end_date: string;
-  kind: "impulse" | "correction";
-  degree: "major" | "minor";
-  direction: "up" | "down";
-  labels: string[]; // ['0'..'5'] 또는 ['0','A','B','C']
-  confidence: number; // 0~1
+  layer: "leg" | "impulse"; // leg=기본 상승/하락 다리, impulse=강조 5파
+  direction: "up" | "down"; // 실제 가격 진행 방향
+  labels: string[]; // leg=[] , impulse=['0'..'5']
+  confidence: number; // 0~1 (impulse 만 유효)
 }
 
 export interface ElliottView {
