@@ -36,6 +36,21 @@ class _Bar:
     bar_date: str = ""
 
 
+# 3개월 모멘텀(거래일 기준). growth_ingest 는 90일 네이버 재조회로 계산하나, 여기선 이미 읽은
+# 일봉 종가로 무네트워크 계산해 장중 사이클에서 스냅샷에 폴딩한다(추세·RS 와 동일 봉 재사용).
+_MOMENTUM_BARS = 63  # ≈ 3개월 거래일
+
+
+def _momentum_3m(closes: list[float]) -> float | None:
+    """일봉 종가(오름차순)로 3개월(≈63거래일) 수익률 %. 데이터 부족 시 None."""
+    if len(closes) < _MOMENTUM_BARS + 1:
+        return None
+    past = closes[-(_MOMENTUM_BARS + 1)]
+    if not past:
+        return None
+    return round((closes[-1] / past - 1) * 100, 2)
+
+
 def _mid_stage(bars: list[_Bar]) -> int | None:
     """일봉 → 주봉 리샘플 후 와인스타인 중기 국면(주봉 MA30) 판정. 추세 점수 보조 가중용."""
     if not bars or not bars[0].bar_date:
@@ -79,16 +94,22 @@ def _recent_bars(db: Session, code: str) -> list[_Bar]:
     return [_Bar(r[0], r[1], r[2], int(r[3] or 0), r[4].isoformat()) for r in reversed(rows)]
 
 
-def run_rs_rating_batch(db: Session) -> dict:
-    """전 유니버스의 RS Rating(1~99)·추세 점수(0~100)를 계산·적재한다. 처리 종목 수를 반환한다."""
+def run_rs_rating_batch(db: Session, with_momentum: bool = False) -> dict:
+    """전 유니버스의 RS Rating(1~99)·추세 점수(0~100)를 계산·적재한다. 처리 종목 수를 반환한다.
+
+    with_momentum=True 면 momentum_3m 도 같은 일봉으로 폴딩한다(장중 사이클 전용 — 스냅샷을
+    오늘로 전진하면 momentum_3m 이 결측이라 스크리너 정렬이 비므로 무네트워크로 채운다).
+    야간에는 growth_ingest 가 momentum 을 소유하므로 기본은 False.
+    """
     snap_date = universe_ingest.latest_snapshot_date(db)
     if not snap_date:
         return {"rated": 0, "total": 0}
 
     codes = _universe_codes(db, snap_date)
-    # 1) 종목별 OHLCV 1회 read → 강도지수 + 추세 점수 계산(외부 fetch 없음).
+    # 1) 종목별 OHLCV 1회 read → 강도지수 + 추세 점수(+ 선택적 모멘텀) 계산(외부 fetch 없음).
     factors: dict[str, float] = {}
     trend_scores: dict[str, float] = {}
+    momentums: dict[str, float] = {}
     for code in codes:
         bars = _recent_bars(db, code)
         closes = [b.close for b in bars]
@@ -99,6 +120,10 @@ def run_rs_rating_batch(db: Session) -> dict:
         ts = technicals.compute(bars, stage=_mid_stage(bars)).trend_score
         if ts is not None:
             trend_scores[code] = ts
+        if with_momentum:
+            mom = _momentum_3m(closes)
+            if mom is not None:
+                momentums[code] = mom
 
     # 2) 전 종목 횡단면 백분위 → RS 1~99. 추세 점수는 절대값이라 그대로 적재.
     sorted_factors = sorted(factors.values())
@@ -112,6 +137,8 @@ def run_rs_rating_batch(db: Session) -> dict:
                 values["rs_rating"] = rating
         if code in trend_scores:
             values["trend_score"] = trend_scores[code]
+        if code in momentums:
+            values["momentum_3m"] = momentums[code]
         if not values:
             continue
         db.execute(

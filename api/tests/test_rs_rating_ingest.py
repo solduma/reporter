@@ -54,3 +54,44 @@ def test_run_rs_rating_batch_no_snapshot(monkeypatch):
     )
     result = rs_rating_ingest.run_rs_rating_batch(db=None)
     assert result == {"rated": 0, "total": 0}
+
+
+def test_momentum_3m_from_closes():
+    # +5% over the 63-bar window(오늘 종가 / 63거래일 전 종가 - 1).
+    closes = [100.0] * 63 + [105.0]
+    assert rs_rating_ingest._momentum_3m(closes) == 5.0
+    # 데이터 부족 시 None.
+    assert rs_rating_ingest._momentum_3m([100.0] * 10) is None
+
+
+def test_run_rs_rating_batch_folds_momentum_when_requested(monkeypatch):
+    # 장중 사이클 경로: with_momentum=True 면 UPDATE values 에 momentum_3m 이 포함된다.
+    closes = [100.0 * (1.003**i) for i in range(300)]
+    monkeypatch.setattr(
+        rs_rating_ingest.universe_ingest, "latest_snapshot_date", lambda db: date(2026, 7, 14)
+    )
+    monkeypatch.setattr(rs_rating_ingest, "_universe_codes", lambda db, d: ["UP"])
+    monkeypatch.setattr(
+        rs_rating_ingest, "_recent_bars",
+        lambda db, code: [
+            rs_rating_ingest._Bar(close=c, high=c * 1.01, low=c * 0.99, volume=1000) for c in closes
+        ],
+    )
+    captured: list[dict] = []
+
+    class _FakeDB:
+        def execute(self, stmt):
+            captured.append(stmt.compile().params)
+
+        def commit(self):
+            pass
+
+    rs_rating_ingest.run_rs_rating_batch(_FakeDB(), with_momentum=True)
+    assert captured, "UPDATE 가 실행되어야 한다"
+    assert any("momentum_3m" in p for p in captured)  # 모멘텀이 폴딩됨
+
+    # 기본(야간)에는 momentum 을 건드리지 않는다(growth_ingest 소유).
+    captured.clear()
+    rs_rating_ingest.run_rs_rating_batch(_FakeDB())
+    assert captured
+    assert all("momentum_3m" not in p for p in captured)
