@@ -83,3 +83,77 @@ def analyze(
     return SwingStructure(
         trend=trend, last_high=last_high, last_low=last_low, setup=setup, pivots=pivots
     )
+
+
+# ── 박스권(수평 지지/저항) + 거래량 동반 돌파/이탈 ─────────────────────────
+# 스윙 고점 군집 = 저항, 저점 군집 = 지지. 여러 번 눌린 레벨이라 단일 최고/최저(Donchian)보다
+# 신뢰도가 높다. 박스 상단 거래량 돌파 = Stage1→2 진입 타점, 하단 이탈 = Stage3→4 매도 타점.
+BOX_CLUSTER = 0.04  # 이 비율 이내 스윙점들은 같은 레벨(박스 경계)로 군집
+BOX_VOL_MULT = 1.5  # 돌파/이탈 봉 거래량이 최근 평균의 이 배수↑면 '확정'
+
+
+@dataclass
+class BoxSignal:
+    """박스권(수평 지지/저항)과 최신봉의 경계 돌파/이탈 신호."""
+
+    support: float | None  # 박스 하단(지지, 저점 군집 대표값)
+    resistance: float | None  # 박스 상단(저항, 고점 군집 대표값)
+    event: str  # breakout(상단 돌파) | breakdown(하단 이탈) | inside | none
+    vol_confirmed: bool  # 돌파/이탈 봉 거래량이 평균 대비 확정 배수↑인지
+
+
+def _cluster_level(prices: list[float], anchor: str) -> float | None:
+    """스윙점 가격들에서 대표 레벨. anchor='high'면 상단 군집(최고 근처), 'low'면 하단 군집.
+
+    최고(또는 최저)에서 BOX_CLUSTER 이내에 든 점들의 평균 — '여러 번 닿은' 레벨을 대표값으로.
+    """
+    if not prices:
+        return None
+    if anchor == "high":
+        top = max(prices)
+        near = [p for p in prices if p >= top * (1 - BOX_CLUSTER)]
+    else:
+        bot = min(prices)
+        near = [p for p in prices if p <= bot * (1 + BOX_CLUSTER)]
+    return sum(near) / len(near) if near else None
+
+
+def box_signal(
+    pivots: list[Pivot],
+    closes: list[float],
+    volumes: list[int] | None = None,
+    lookback_pivots: int = 6,
+) -> BoxSignal:
+    """최근 스윙 피벗으로 박스(지지/저항)를 만들고 최신 종가의 돌파/이탈을 판정한다.
+
+    최근 lookback_pivots 개 피벗의 고점 군집=저항, 저점 군집=지지. 최신 종가가 저항 초과=breakout,
+    지지 미만=breakdown, 그 사이=inside. 거래량을 주면 돌파/이탈 봉이 평균의 BOX_VOL_MULT 배↑인지
+    확인(vol_confirmed). 피벗·데이터 부족 시 none.
+    """
+    none = BoxSignal(None, None, "none", False)
+    if len(pivots) < 3 or len(closes) < 5:
+        return none
+    # 박스는 '직전까지 확립된' 레인지여야 한다. 마지막 피벗은 지금 돌파/이탈 중인 잠정 극점이라
+    # (zigzag 이 최신 극점을 참고용으로 넣음) 박스 경계에서 제외한다 — 안 그러면 돌파봉이 스스로
+    # 저항을 끌어올려 영원히 inside 로 잡힌다.
+    established = pivots[:-1]
+    recent = established[-lookback_pivots:]
+    highs = [p.price for p in recent if p.kind == "high"]
+    lows = [p.price for p in recent if p.kind == "low"]
+    if not highs or not lows:
+        return none
+    resistance = _cluster_level(highs, "high")
+    support = _cluster_level(lows, "low")
+    if resistance is None or support is None or resistance <= support:
+        return none
+
+    last = closes[-1]
+    event = "breakout" if last > resistance else "breakdown" if last < support else "inside"
+    vol_confirmed = False
+    if volumes and len(volumes) == len(closes) and len(volumes) >= 6 and event in ("breakout", "breakdown"):
+        base = sum(volumes[-6:-1]) / 5
+        vol_confirmed = base > 0 and volumes[-1] >= base * BOX_VOL_MULT
+    return BoxSignal(
+        support=round(support, 2), resistance=round(resistance, 2),
+        event=event, vol_confirmed=vol_confirmed,
+    )

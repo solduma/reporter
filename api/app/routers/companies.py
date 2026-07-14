@@ -339,6 +339,10 @@ def company_trend(
                 last_high=result.structure_by_frame[frame].last_high,
                 last_low=result.structure_by_frame[frame].last_low,
                 setup=result.structure_by_frame[frame].setup,
+                box_support=result.box_by_frame[frame].support,
+                box_resistance=result.box_by_frame[frame].resistance,
+                box_event=result.box_by_frame[frame].event,
+                box_vol_confirmed=result.box_by_frame[frame].vol_confirmed,
             )
             for frame in ("short", "mid", "long")
         ],

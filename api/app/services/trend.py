@@ -35,6 +35,7 @@ class TrendResult:
     low_confidence: dict[str, bool]  # frame → 이력 부족(리샘플 봉 < 최소치)이면 True
     segments_by_frame: dict[str, list[dict]]  # frame → 국면 구간 [{stage, from, to}] (배경밴드)
     structure_by_frame: dict[str, market_structure.SwingStructure]  # frame → 스윙 구조·전환 조짐
+    box_by_frame: dict[str, market_structure.BoxSignal]  # frame → 박스권 지지/저항·돌파 이벤트
     rs: relative_strength.RelativeStrength
     benchmark: str  # 사용한 벤치마크 지수
     elliott: elliott.ElliottResult  # 엘리엇 파동 추정(실험적)
@@ -59,6 +60,7 @@ def compute_trend(db: Session, code: str, market: str | None) -> TrendResult:
     low_confidence: dict[str, bool] = {}
     segments_by_frame: dict[str, list[dict]] = {}
     structure_by_frame: dict[str, market_structure.SwingStructure] = {}
+    box_by_frame: dict[str, market_structure.BoxSignal] = {}
     secular = stage.SecularContext(None, None, None, None)
     for name, frame in stage.FRAMES.items():
         b = stage.resample_ohlcv(dates, highs, lows, closes, volumes, frame.bar)
@@ -70,7 +72,9 @@ def compute_trend(db: Session, code: str, market: str | None) -> TrendResult:
             b.closes, b.dates, frame.ma_period, frame.slope_lookback, frame.min_run,
             b.volumes, b.highs, b.lows,
         )
-        structure_by_frame[name] = market_structure.analyze(b.dates, b.closes, frame.bar)
+        struct = market_structure.analyze(b.dates, b.closes, frame.bar)
+        structure_by_frame[name] = struct
+        box_by_frame[name] = market_structure.box_signal(struct.pivots, b.closes, b.volumes)
 
     # secular 오버레이 — 데이터 허락 최장 월봉 MA 대비 위치(프레임과 별개, 항상 월봉 기준).
     monthly = stage.resample_ohlcv(dates, highs, lows, closes, volumes, "month")
@@ -90,6 +94,7 @@ def compute_trend(db: Session, code: str, market: str | None) -> TrendResult:
         low_confidence=low_confidence,
         segments_by_frame=segments_by_frame,
         structure_by_frame=structure_by_frame,
+        box_by_frame=box_by_frame,
         rs=rs,
         benchmark=benchmark,
         elliott=wave,
