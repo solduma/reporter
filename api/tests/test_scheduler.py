@@ -84,3 +84,69 @@ def test_run_ingest_cycle_closes_session(monkeypatch):
     scheduler.run_ingest_cycle(_settings())
 
     session.close.assert_called_once()
+
+
+# ── 장중 스크리너 선반영 사이클(run_intraday_refresh) ───────────────────
+
+def test_intraday_refresh_cron_is_30min_market_hours():
+    fields = {f.name: str(f) for f in scheduler._INTRADAY_REFRESH_CRON.fields}
+    assert fields["day_of_week"] == "mon-fri"
+    assert fields["hour"] == "9-15"
+    assert fields["minute"] == "0,30"
+    assert str(scheduler._INTRADAY_REFRESH_CRON.timezone) == "Asia/Seoul"
+    # 마감 확정봉 1회(15:40).
+    close = {f.name: str(f) for f in scheduler._INTRADAY_CLOSE_CRON.fields}
+    assert close["hour"] == "15"
+    assert close["minute"] == "40"
+
+
+def test_build_scheduler_registers_intraday_jobs():
+    sched = scheduler.build_scheduler(_settings())
+    for jid in ("intraday_refresh", "intraday_close"):
+        job = sched.get_job(jid)
+        assert job is not None
+        assert job.max_instances == 1  # 겹쳐 실행 금지(~2~3분 소요)
+        assert str(job.trigger.timezone) == "Asia/Seoul"
+
+
+def test_run_intraday_refresh_orders_candles_before_snapshot(monkeypatch):
+    # 순서 계약: 일봉 갱신 → 스냅샷 전진 → 재계산(모멘텀 폴딩). 오늘 행 결측창을 줄이는 순서.
+    order: list[str] = []
+    monkeypatch.setattr(scheduler, "SessionLocal", lambda: MagicMock())
+    import app.services.candle_ingest as ci
+    import app.services.rs_rating_ingest as rr
+    monkeypatch.setattr(ci, "refresh_today_day_candles",
+                        lambda db, s: order.append("candles") or {"updated": 2})
+    monkeypatch.setattr(scheduler.universe_ingest, "snapshot_universe",
+                        lambda db, d: order.append("snapshot") or 2)
+
+    captured = {}
+
+    def _rs(db, with_momentum=False):
+        order.append("recompute")
+        captured["with_momentum"] = with_momentum
+        return {"rated": 2}
+
+    monkeypatch.setattr(rr, "run_rs_rating_batch", _rs)
+
+    result = scheduler.run_intraday_refresh(_settings())
+
+    assert order == ["candles", "snapshot", "recompute"]
+    assert captured["with_momentum"] is True  # 장중엔 모멘텀 폴딩
+    assert result["candles"] == {"updated": 2}
+    assert result["universe_rows"] == 2
+    assert result["rs_trend"] == {"rated": 2}
+
+
+def test_run_intraday_refresh_closes_session(monkeypatch):
+    session = MagicMock()
+    monkeypatch.setattr(scheduler, "SessionLocal", lambda: session)
+    import app.services.candle_ingest as ci
+    import app.services.rs_rating_ingest as rr
+    monkeypatch.setattr(ci, "refresh_today_day_candles", lambda db, s: {})
+    monkeypatch.setattr(scheduler.universe_ingest, "snapshot_universe", lambda db, d: 0)
+    monkeypatch.setattr(rr, "run_rs_rating_batch", lambda db, with_momentum=False: {})
+
+    scheduler.run_intraday_refresh(_settings())
+
+    session.close.assert_called_once()

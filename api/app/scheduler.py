@@ -56,6 +56,15 @@ _CRON = CronTrigger(day_of_week="mon-fri", hour="9-19", minute="0,30", timezone=
 _NIGHTLY_CRON = CronTrigger(day_of_week="mon-fri", hour=18, minute=0, timezone=_TZ)
 # 봉 배치: 유니버스 스냅샷(18시) 이후 19:30 에 전 종목 일/주/30분봉 증분 + 변동 시 재적재.
 _CANDLE_CRON = CronTrigger(day_of_week="mon-fri", hour=19, minute=30, timezone=_TZ)
+# 장중 스크리너 선반영: 09:00~15:30 매 30분 + 마감 직후 15:40(확정봉) 1회. 스냅샷을 오늘로
+# 전진하고 전 종목 오늘 일봉을 갱신해 스크리너·상세 점수를 일치시킨다. 6워커 병렬로 ~2~3분.
+# 무인증 네이버 연타(밴)를 피하려 30분 간격을 넘기지 않는다. coalesce 로 밀린 실행은 1회 합침.
+# 15:40 은 종가 단일가매매(15:20~15:30 체결)가 확정된 뒤라 진짜 종가로 마무리한다(19:30 야간
+# 배치가 최종 재확정하지만, 마감~19:30 사이 스크리너를 확정봉으로 채워 상세와 어긋나지 않게).
+_INTRADAY_REFRESH_CRON = CronTrigger(
+    day_of_week="mon-fri", hour="9-15", minute="0,30", timezone=_TZ
+)
+_INTRADAY_CLOSE_CRON = CronTrigger(day_of_week="mon-fri", hour=15, minute=40, timezone=_TZ)
 # 10년 일봉 병렬 백필: 매일 02:00. 미완 종목을 네이버 스레드풀로 전량 조회(재개 가능).
 # 봉 배치(19:30~)는 전 종목 순회라 한 시간을 훌쩍 넘길 수 있어, 겹치면 네이버 동시 호출이
 # 몰리고 price_candles 를 함께 변경한다. 깊은 새벽으로 빼 저녁 배치와 확실히 분리한다.
@@ -132,6 +141,32 @@ def run_candle_batch(settings: Settings | None = None) -> dict:
         result = candle_ingest.run_candle_batch(session, settings)
         rs = rs_rating_ingest.run_rs_rating_batch(session)
         return {**result, "rs_rating": rs}
+    finally:
+        session.close()
+
+
+def run_intraday_refresh(settings: Settings | None = None) -> dict:
+    """장중 스크리너 선반영: 스냅샷을 오늘로 전진 + 전 종목 오늘 일봉 갱신 + 추세/RS/모멘텀 재계산.
+
+    스크리너는 UniverseSnapshot 을 읽고, 상세페이지는 오늘 일봉으로 추세를 라이브 재계산한다.
+    이 사이클이 (1) 스냅샷을 오늘로 올려 최신 시세·거래대금을 반영하고, (2) 전 종목 오늘 일봉을
+    price_candles 에 써서 상세페이지의 자체 fetch(is_stale)를 없애 배치와 같은 봉을 읽게 하고,
+    (3) 무네트워크로 추세·RS·모멘텀을 재계산해 스냅샷에 폴딩한다 → 스크리너·상세 점수가 일치한다.
+    """
+    from app.services import candle_ingest, rs_rating_ingest  # 무거운 의존성 → 지연 임포트
+
+    session = SessionLocal()
+    try:
+        today = datetime.now().date()
+        # 순서 중요: 가장 긴 일봉 갱신(~2~3분)을 스냅샷이 아직 완전한 어제 상태일 때 먼저 돌려
+        # 스크리너가 그동안 어제 값으로 정합하게 보이게 한다. 그 뒤 스냅샷을 오늘로 올리고
+        # 곧바로 재계산해, 오늘 행의 파생필드(추세·RS·모멘텀)가 비는 창을 ~1분으로 줄인다.
+        candles = candle_ingest.refresh_today_day_candles(session, settings)
+        rows = universe_ingest.snapshot_universe(session, today)
+        rs = rs_rating_ingest.run_rs_rating_batch(session, with_momentum=True)
+        result = {"candles": candles, "universe_rows": rows, "rs_trend": rs}
+        logger.info("intraday refresh done: %s", result)
+        return result
     finally:
         session.close()
 
@@ -237,6 +272,22 @@ def build_scheduler(settings: Settings | None = None) -> BlockingScheduler:
         _logged("candle_batch", run_candle_batch),
         trigger=_CANDLE_CRON,
         id="candle_batch",
+        max_instances=1,
+        coalesce=True,
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        _logged("intraday_refresh", run_intraday_refresh),
+        trigger=_INTRADAY_REFRESH_CRON,
+        id="intraday_refresh",
+        max_instances=1,  # 이전 사이클(~2~3분)이 안 끝났으면 겹쳐 실행하지 않는다
+        coalesce=True,  # 슬립 등으로 밀린 실행은 1회로 합친다
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        _logged("intraday_refresh", run_intraday_refresh),
+        trigger=_INTRADAY_CLOSE_CRON,
+        id="intraday_close",
         max_instances=1,
         coalesce=True,
         replace_existing=True,

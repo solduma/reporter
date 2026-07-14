@@ -292,6 +292,56 @@ def run_candle_batch(db: Session, settings: Settings | None = None) -> dict:
     return stats
 
 
+# ── 장중 일봉 증분 갱신 (스크리너 선반영, 병렬) ─────────────────────────
+# 장중 30분 사이클 전용: 전 종목의 '오늘 형성 중인 일봉'만 병렬로 증분 갱신한다. 저녁 배치와 달리
+# 주식변동 판별·주봉·30분봉은 건드리지 않는다(장중 소급 조정은 없고, 추세·모멘텀 점수는 일봉만
+# 필요). 오늘 봉을 price_candles 에 써두면 is_stale(오늘)=False 가 되어 상세페이지가 자체 fetch
+# 를 멈추고 배치와 같은 봉을 읽는다 → 스크리너와 상세 점수가 정확히 일치한다.
+_INTRADAY_DAY_WORKERS = 6  # 무인증 네이버 동시 조회(밴 방지). 6워커면 전 종목 ~2~3분.
+_INTRADAY_DAY_RANGE_DAYS = 7  # 형성봉 + 직전 며칠(증분이라 최근분만)
+
+
+def refresh_today_day_candles(db: Session, settings: Settings | None = None) -> dict:
+    """전 유니버스의 오늘 일봉을 병렬 증분 갱신한다(장중 스크리너 선반영용).
+
+    조회만 스레드풀로 병렬화하고 DB 쓰기는 호출 스레드 단일 세션에서만 수행한다(Session 은
+    스레드 비안전 — 10년 백필과 동일 패턴). 반환: {updated, failed, total}.
+    """
+    settings = settings or get_settings()
+    codes = _universe_codes(db)
+    if not codes:
+        logger.warning("no universe stocks; skip intraday day refresh")
+        return {"updated": 0, "failed": 0, "total": 0}
+
+    end = datetime.now()
+    start = end - timedelta(days=_INTRADAY_DAY_RANGE_DAYS)
+
+    def _fetch(code: str) -> tuple[str, list[chart.Candle]]:
+        with requests.Session() as session:  # 스레드 간 세션 공유 금지
+            return code, chart.fetch_periodic_with_fallback(settings, code, "day", start, end, session)
+
+    updated = failed = 0
+    window = _INTRADAY_DAY_WORKERS * 4  # 결과 동시 상주 제한(10년 백필과 동일)
+    with ThreadPoolExecutor(max_workers=_INTRADAY_DAY_WORKERS) as pool:
+        for i in range(0, len(codes), window):
+            futures = {pool.submit(_fetch, c): c for c in codes[i : i + window]}
+            for fut in as_completed(futures):
+                code = futures[fut]
+                try:
+                    _, candles = fut.result()
+                    if candles:
+                        candle_service.batch_upsert_periodic(db, code, Timeframe.DAY, candles)
+                        updated += 1
+                except Exception as e:  # 한 종목 실패가 사이클을 막지 않도록
+                    db.rollback()
+                    failed += 1
+                    logger.warning("intraday day refresh failed for %s: %s", code, e)
+            futures.clear()
+
+    logger.info("intraday day refresh: updated=%d failed=%d total=%d", updated, failed, len(codes))
+    return {"updated": updated, "failed": failed, "total": len(codes)}
+
+
 # ── 10년 일봉 점진 백필 (야간, 재개 가능) ──────────────────────────────
 
 _BACKFILL_DOMAIN = "backfill_10y"  # SyncState 도메인: 10년 백필 완료 종목 마킹

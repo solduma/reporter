@@ -141,3 +141,50 @@ def test_reload_stock_deletes_then_refills(monkeypatch):
     monkeypatch.setattr(candle_ingest, "_upsert", lambda *a: None)
     candle_ingest._reload_stock(db, _settings(), "005930", None)
     assert db.deleted is True  # 전체 파기 후 재적재
+
+
+# ── 장중 일봉 증분 갱신(refresh_today_day_candles) ──────────────────────
+
+def test_refresh_today_day_candles_upserts_all(monkeypatch):
+    codes = ["A", "B", "C"]
+    monkeypatch.setattr(candle_ingest, "_universe_codes", lambda db: codes)
+    monkeypatch.setattr(candle_ingest.chart, "fetch_periodic_with_fallback",
+                        lambda *a, **k: [_fresh(date(2026, 7, 14), 100)])
+    upserted: list[str] = []
+    monkeypatch.setattr(candle_ingest.candle_service, "batch_upsert_periodic",
+                        lambda db, code, tf, candles: upserted.append(code))
+    out = candle_ingest.refresh_today_day_candles(db=object(), settings=_settings())
+    assert out == {"updated": 3, "failed": 0, "total": 3}
+    assert sorted(upserted) == codes  # 전 종목 오늘 봉 기록
+
+
+def test_refresh_today_day_candles_skips_empty_and_survives_failure(monkeypatch):
+    codes = ["OK", "EMPTY", "BOOM"]
+
+    def _fetch(settings, code, tf, start, end, session):
+        if code == "EMPTY":
+            return []
+        if code == "BOOM":
+            raise RuntimeError("naver throttled")
+        return [_fresh(date(2026, 7, 14), 100)]
+
+    monkeypatch.setattr(candle_ingest, "_universe_codes", lambda db: codes)
+    monkeypatch.setattr(candle_ingest.chart, "fetch_periodic_with_fallback", _fetch)
+    upserted: list[str] = []
+
+    class _DB:
+        def rollback(self):
+            pass
+
+    monkeypatch.setattr(candle_ingest.candle_service, "batch_upsert_periodic",
+                        lambda db, code, tf, candles: upserted.append(code))
+    out = candle_ingest.refresh_today_day_candles(db=_DB(), settings=_settings())
+    # OK 만 upsert(EMPTY 는 빈 응답 skip), BOOM 은 실패로 집계되나 사이클은 계속.
+    assert upserted == ["OK"]
+    assert out == {"updated": 1, "failed": 1, "total": 3}
+
+
+def test_refresh_today_day_candles_no_universe(monkeypatch):
+    monkeypatch.setattr(candle_ingest, "_universe_codes", lambda db: [])
+    out = candle_ingest.refresh_today_day_candles(db=object(), settings=_settings())
+    assert out == {"updated": 0, "failed": 0, "total": 0}
