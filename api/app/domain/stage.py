@@ -422,6 +422,7 @@ def classify(
     stage = _decide(
         price_pos, ma_dir, lslope, r2, er, curv,
         _long_context(closes, ma_period), vol_sig, volatility, breakout, pos_ratio,
+        channel_pos,
     )
     return StageResult(
         stage=stage,
@@ -465,6 +466,7 @@ def _decide(
     volatility: str = "normal",
     breakout: str = "none",
     pos_ratio: float = 0.0,
+    channel_pos: float | None = None,
 ) -> int:
     """shape+백본+볼륨+변동성+돌파 결합 국면 판정.
 
@@ -524,6 +526,16 @@ def _decide(
     # 상승 국면이 아니다). 상승 초입 급등이 천정으로 오분류되는 건 방향 교정 후처리에서 걸러낸다.
     if price_pos == "above" and pos_ratio > DEEP_ABOVE and ma_dir != "rising" and long_ctx == "up":
         return 3
+    # Donchian 채널 위치(구조적 지지/저항 프록시)로 레인지 tiebreak. 신저가권(하위 20%)은 지지
+    # 이탈 성격이라 바닥/하락, 신고가권(상위 20%)은 저항 돌파 성격이라 상승/천정 쪽으로 가른다.
+    # 곡률보다 앞서 본다 — 채널 극단은 회귀 곡률보다 직접적인 구조 신호다. 애매(near) 위치만 곡률로.
+    if channel_pos is not None:
+        if channel_pos <= DONCHIAN_LOW * 100:
+            # 신저가권: 직전 상승 뒤면 천정 이탈 초입(Stg3 근접)이 아니라 바닥/하락 — 곡률로 재확인.
+            return 1 if curv > CURV_EPS else 4 if long_ctx == "down" else 1
+        if channel_pos >= DONCHIAN_HIGH * 100:
+            # 신고가권: 직전 상승이면 상승 지속/천정, 아니면 바닥 탈출 초입.
+            return 2 if long_ctx == "up" and curv >= -CURV_EPS else (3 if long_ctx == "up" else 1)
     # 레인지·라운딩 → 곡률로 바닥(U자)/천정(역U자). 단 천정(Stg3)은 직전 상승(long_ctx=up)일 때만.
     if curv > CURV_EPS:
         return 1
@@ -543,9 +555,20 @@ def _decide(
 
 
 def segments(
-    closes: list[float], dates: list[str], ma_period: int, slope_lookback: int, min_run: int
+    closes: list[float],
+    dates: list[str],
+    ma_period: int,
+    slope_lookback: int,
+    min_run: int,
+    volumes: list[int] | None = None,
+    highs: list[float] | None = None,
+    lows: list[float] | None = None,
 ) -> list[dict]:
     """각 봉의 국면을 시계열로 계산해 연속 구간으로 병합한다(차트 배경밴드용).
+
+    volumes/highs/lows 를 주면 각 시점 classify 에 함께 넘겨 거래량(축적/분산)·변동성 레짐·
+    Donchian 돌파를 국면 판별에 반영한다(안 주면 종가만 — 하위호환). 밴드가 거래량·돌파를
+    보게 하려면 반드시 넘겨야 한다.
 
     두 겹 안정화로 노이즈 과민반응을 줄인다:
     1) 히스테리시스(전환 관성) — 가격이 MA 근처(near)+MA 평탄(flat)인 애매 구간에선 새 국면으로
@@ -559,7 +582,14 @@ def segments(
     raw: list[tuple[int, str, str, str]] = []  # (stage, date, price_pos, ma_dir)
     prev_stage: int | None = None
     for i in range(ma_period - 1, len(closes)):
-        r = classify(closes[: i + 1], ma_period, slope_lookback)
+        r = classify(
+            closes[: i + 1],
+            ma_period,
+            slope_lookback,
+            volumes[: i + 1] if volumes else None,
+            highs[: i + 1] if highs else None,
+            lows[: i + 1] if lows else None,
+        )
         st = r.stage
         # 히스테리시스: 애매한 경계(가격 near + MA flat)에선 직전 국면 유지(전환 관성). 단 직전이
         # 추세 국면(상승2·하락4)일 때는 유지하지 않는다 — 추세가 MA 근처로 돌아와 평탄해졌다는 건

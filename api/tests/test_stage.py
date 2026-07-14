@@ -197,6 +197,34 @@ def test_breakout_promotes_to_stage2():
     assert r.stage == 2
 
 
+def test_segments_uses_ohlcv_for_breakout():
+    # segments 에 volumes/highs/lows 를 넘기면 거래량·돌파가 국면 판별에 반영된다(P0).
+    # 평탄 레인지 뒤 볼륨 동반 신고가 돌파 → 종가만 넘길 때와 다른(상승으로 잡히는) 결과.
+    flat = _flat(120, level=100.0)
+    closes = [*flat, *_rising(30, start=101.0, step=1.5)]
+    dates = [f"2024-{1 + i // 28:02d}-{1 + (i % 28):02d}" for i in range(len(closes))]
+    highs = [c * 1.01 for c in closes]
+    lows = [c * 0.99 for c in closes]
+    vols = [100] * 120 + [400] * 30  # 돌파 구간 볼륨 급증
+    with_ohlcv = stage.segments(closes, dates, _MA, _SL, 8, vols, highs, lows)
+    closes_only = stage.segments(closes, dates, _MA, _SL, 8)
+    # OHLCV 를 넘긴 경우가 최소한 종가만과 다르게(거래량·돌파 반영) 동작해야 한다.
+    assert with_ohlcv and closes_only
+    assert with_ohlcv[-1]["stage"] == 2  # 볼륨 동반 상승 → 마지막은 상승
+
+
+def test_channel_pos_low_leans_declining():
+    # Donchian 신저가권(하위 20%)에서 직전 하락 문맥이면 하락(Stg4)으로 tiebreak(P1).
+    # 곡률·기울기가 애매한 레인지에서도 채널 위치가 방향을 준다.
+    assert stage._decide(
+        "near", "flat", -0.001, 0.1, 0.1, 0.0, "down", channel_pos=5.0
+    ) == 4
+    # 신고가권 + 직전 상승 → 상승(Stg2) 쪽.
+    assert stage._decide(
+        "near", "flat", 0.001, 0.1, 0.1, 0.0, "up", channel_pos=95.0
+    ) == 2
+
+
 def test_secular_context_adaptive_length():
     # 120개월(10년) 상승 월봉 → secular MA 는 clamp 최대(120이 아니라 n-slope=108) 근처, 위·상승.
     closes = [100.0 * (1.01**i) for i in range(120)]
