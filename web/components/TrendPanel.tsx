@@ -245,16 +245,16 @@ export default function TrendPanel({ trend, status, message }: Props) {
           <div className={styles.blockHead}>
             <span className={styles.blockTitle}>엘리엇 파동 (추정)</span>
             <InfoDot
-              what="전 구간을 추진(임펄스 1~5)·조정(A~C) 파동으로 나눠 표시. 굵은 실선=큰 파동, 가는 선=세부 파동, 실선=추진·점선=조정. 차트에 보라 선·번호로."
-              guide="해석이 갈리는 보조지표라 참고용. 안 맞는 구간은 라벨하지 않고 스윙만 표시합니다. 확정 신호가 아니며 매매 판단 근거로 삼지 마세요."
+              what="전 구간 상승·하락 스윙 흐름(옅은 점선)에 하드룰을 통과한 5파 임펄스를 굵은 실선으로 강조(상승=보라·하락=자홍, 1~5 번호). 차트에 표시."
+              guide="해석이 갈리는 보조지표라 참고용. 뚜렷한 5파가 아니면 라벨 없이 스윙 흐름만 표시합니다. 확정 신호가 아니며 매매 판단 근거로 삼지 마세요."
             />
             {trend.elliott.labeled ? (
               <span className={styles.elliottBadge}>
-                {trend.elliott.direction === "down" ? "하락 추세" : "상승 추세"} · 신뢰도{" "}
+                {trend.elliott.direction === "down" ? "하락 5파" : "상승 5파"} 검출 · 신뢰도{" "}
                 {Math.round(trend.elliott.confidence * 100)}%
               </span>
             ) : (
-              <span className={styles.elliottBadgeMuted}>패턴 미검출</span>
+              <span className={styles.elliottBadgeMuted}>뚜렷한 5파 없음</span>
             )}
           </div>
           {trend.elliott.current_position ? (

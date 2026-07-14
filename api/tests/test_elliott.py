@@ -76,76 +76,58 @@ def test_impulse_conf_bear_mirror():
 
 # ── ABC 조정(_correction_conf) ───────────────────────────────────────────
 
-def test_correction_conf_accepts_zigzag_down():
-    # 상승 추세 속 하락 조정(고-저-고-저): A 하락, B 되돌림, C 하락.
-    w = _piv([("0", 200.0, "high"), ("A", 150.0, "low"),
-              ("B", 175.0, "high"), ("C", 145.0, "low")])
-    assert elliott._correction_conf(w, up=True) is not None
+# ── 기본 다리 레이어(_leg_segments) ─────────────────────────────────────
+
+def test_leg_segments_alternate_up_down():
+    # 인접 피벗 다리는 상승/하락이 교대로 나온다(전 구간 흐름 균형).
+    pivots = _piv([("d0", 100.0, "low"), ("d1", 130.0, "high"),
+                   ("d2", 110.0, "low"), ("d3", 150.0, "high")])
+    legs = elliott._leg_segments(pivots)
+    assert [s.direction for s in legs] == ["up", "down", "up"]
+    assert all(s.layer == "leg" for s in legs)
 
 
-def test_correction_conf_rejects_wrong_shape():
-    # 상승 추세인데 조정 피벗이 저-고-저-고(상승형) → None.
-    w = _piv([("0", 150.0, "low"), ("A", 200.0, "high"),
-              ("B", 170.0, "low"), ("C", 210.0, "high")])
-    assert elliott._correction_conf(w, up=True) is None
+# ── analyze 통합(하이브리드) ─────────────────────────────────────────────
 
-
-# ── 재귀 ZigZag 프랙탈 nesting ───────────────────────────────────────────
-
-def test_recursive_zigzag_is_subset_of_minor():
-    # major 피벗은 반드시 minor 피벗의 부분집합(엄격한 nesting).
-    prices = [(f"d{i:02d}", v) for i, v in enumerate(
-        [100, 130, 112, 160, 140, 200, 175, 230, 150, 240, 130, 260]
-    )]
-    minor = elliott.zigzag(prices, 0.05)
-    major = elliott.recursive_zigzag(minor, 0.13)
-    minor_dates = {p.date for p in minor}
-    assert all(p.date in minor_dates for p in major)
-    assert len(major) <= len(minor)
-
-
-# ── analyze 통합 ─────────────────────────────────────────────────────────
-
-def test_analyze_labels_full_five_wave_impulse():
-    # 이상적 상승 5파 → 최소 1개 impulse 세그먼트 + 방향 up + 현재 위치 문구.
+def test_analyze_emphasizes_five_wave_impulse():
+    # 이상적 상승 5파 → 강조 impulse 세그먼트 1개(방향 up) + 라벨 부여.
     p0, p1 = 100.0, 200.0
     p2 = p1 - 55.9
     p3 = p2 + 161.8
     p4 = p3 - 61.8
     p5 = p4 + 100.0
     prices = [("d0", p0), ("d1", p1), ("d2", p2), ("d3", p3), ("d4", p4), ("d5", p5)]
-    res = elliott.analyze(prices, minor_threshold=0.05)
+    res = elliott.analyze(prices, leg_threshold=0.05)
     assert res.labeled is True
     assert res.direction == "up"
-    assert any(s.kind == "impulse" for s in res.segments)
-    assert res.current_position  # 비어있지 않음
-    # 세부 세그먼트 라벨이 피벗에 부여됨.
+    imp = [s for s in res.segments if s.layer == "impulse"]
+    assert len(imp) == 1 and imp[0].direction == "up"
     assert any(p.label for p in res.pivots)
 
 
-def test_analyze_returns_pivots_even_without_label():
-    # 파동 구조가 없으면 피벗만, labeled=False, 방향 none.
-    prices = [("d1", 100.0), ("d2", 120.0), ("d3", 108.0), ("d4", 125.0)]
-    res = elliott.analyze(prices, minor_threshold=0.05)
-    assert res.labeled is False
-    assert res.direction == "none"
-    assert res.segments == []
+def test_analyze_always_has_leg_segments_both_directions():
+    # 상승 추세 잡음 데이터 — 강조 5파가 없어도 기본 다리는 상승·하락 모두 나온다(하락 도배 방지).
+    prices = [(f"d{i:02d}", v) for i, v in enumerate(
+        [100, 112, 104, 118, 109, 124, 115, 130]
+    )]
+    res = elliott.analyze(prices, leg_threshold=0.05)
+    legs = [s for s in res.segments if s.layer == "leg"]
+    assert any(s.direction == "up" for s in legs)
+    assert any(s.direction == "down" for s in legs)
 
 
 def test_analyze_insufficient_pivots():
-    res = elliott.analyze([("d1", 100.0)], minor_threshold=0.05)
+    res = elliott.analyze([("d1", 100.0)], leg_threshold=0.05)
     assert res.labeled is False
     assert res.current_position == "피벗 부족"
 
 
 def test_analyze_current_position_holds_on_complex_region():
-    # 이상적 5파 뒤에 방향 안 맞는 잡음 스윙을 여럿 붙이면 '복합 구간 라벨 유보'로 정직 처리.
+    # 이상적 5파 뒤에 방향 안 맞는 큰 스윙을 여럿 붙이면 '복합 구간 라벨 유보'.
     p0, p1 = 100.0, 200.0
     p2, p3, p4, p5 = 144.1, 305.9, 244.1, 344.1
     prices = [("d0", p0), ("d1", p1), ("d2", p2), ("d3", p3), ("d4", p4), ("d5", p5)]
-    # 5파 뒤 큰 스윙 4개(라벨 안 맞는 진행 레그) 추가.
-    tail = [("d6", 300.0), ("d7", 360.0), ("d8", 300.0), ("d9", 380.0), ("d10", 310.0)]
-    res = elliott.analyze(prices + tail, minor_threshold=0.05)
-    # 현재 위치는 항상 사람이 읽는 문구(추진/조정/유보 등)를 낸다 — 빈 문자열이 아니다.
+    tail = [("d6", 260.0), ("d7", 330.0), ("d8", 270.0), ("d9", 350.0), ("d10", 280.0)]
+    res = elliott.analyze(prices + tail, leg_threshold=0.05)
     assert res.labeled is True
-    assert res.current_position and res.current_position != "구조 불명 — 스윙만 표시"
+    assert "유보" in res.current_position

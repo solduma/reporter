@@ -372,7 +372,7 @@ def company_trend(
             direction=result.elliott.direction,
             segments=[
                 ElliottWaveSegment(
-                    start_date=s.start_date, end_date=s.end_date, kind=s.kind, degree=s.degree,
+                    start_date=s.start_date, end_date=s.end_date, layer=s.layer,
                     direction=s.direction, labels=s.labels, confidence=s.confidence,
                 )
                 for s in result.elliott.segments

@@ -154,15 +154,14 @@ class ElliottPivot(BaseModel):
 
 
 class ElliottWaveSegment(BaseModel):
-    """전 구간 내 한 파동 세그먼트(임펄스 5레그 또는 조정 3레그) — 등급·방향·라벨."""
+    """파동 세그먼트. layer=leg(기본 상승/하락 다리) 또는 impulse(강조 5파)."""
 
     start_date: str  # YYYY-MM-DD
     end_date: str
-    kind: str  # impulse | correction
-    degree: str  # major | minor
-    direction: str  # up | down
-    labels: list[str]  # ['0','1'..'5'] 또는 ['0','A','B','C']
-    confidence: float  # 0~1
+    layer: str  # leg | impulse
+    direction: str  # up | down (실제 가격 진행 방향)
+    labels: list[str]  # leg=[] , impulse=['0'..'5']
+    confidence: float  # 0~1 (impulse 만 유효)
 
 
 class ElliottView(BaseModel):
