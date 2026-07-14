@@ -37,6 +37,8 @@ _COLUMN_MIGRATIONS = (
     "ALTER TABLE universe_snapshot ADD COLUMN IF NOT EXISTS trend_score DOUBLE PRECISION",
     # 영업이익 손익 4상태(흑자전환/흑자지속/적자전환/적자지속) — 이진 흑자전환의 표시 손실 보완.
     "ALTER TABLE growth_metric ADD COLUMN IF NOT EXISTS op_status VARCHAR(8)",
+    # 공시 동기화 깊이(과거 하한) — 얕은 배치 후에도 온디맨드 2년 조회가 실제 fetch 되게(#318).
+    "ALTER TABLE disclosure_sync_state ADD COLUMN IF NOT EXISTS synced_from DATE",
 )
 
 

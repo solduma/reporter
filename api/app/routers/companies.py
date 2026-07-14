@@ -508,6 +508,9 @@ def company_peers(
     ]
 
 
+_TIMELINE_WINDOW_DAYS = 730  # 기본 조회 창 — 과거 2년(프론트가 10개씩 페이지네이션).
+
+
 @router.get("/{code}/timeline", response_model=list[TimelineItem])
 def company_timeline(
     code: str,
@@ -516,7 +519,7 @@ def company_timeline(
     db: Session = Depends(get_session),
 ) -> list[TimelineItem]:
     end = to or datetime.now().date()
-    begin = from_ or (end - timedelta(days=90))
+    begin = from_ or (end - timedelta(days=_TIMELINE_WINDOW_DAYS))
 
     company_service.sync_disclosures_safe(db, code, begin, end)  # DART 공시 cache-aside
 
