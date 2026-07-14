@@ -21,16 +21,8 @@ from dataclasses import dataclass, field
 ZIGZAG_THRESHOLD = 0.08
 # 기본 다리(leg) 등급 임계 — 전 구간 위상 교대·스윙 흐름의 기본 해상도.
 LEG_THRESHOLD = 0.06
-# 다중 임계 임펄스 스캔 — 큰 5파는 굵은 임계에서만, 세부 5파는 가는 임계에서 잡힌다.
-IMPULSE_THRESHOLDS = (0.05, 0.06, 0.08, 0.10, 0.13)
 # 재귀 상위 등급 배수 — leg 피벗 위에 이 비율 이상 스윙만 상위 파동으로(nesting 보장).
 MAJOR_FACTOR = 0.18
-# 임펄스 강조 최소 피보 신뢰도(하드룰 통과 후).
-IMPULSE_MIN_CONFIDENCE = 0.45
-# 위상 교대에서 미달(저신뢰) 세그먼트에 줄 신뢰도.
-_LOW_CONF = 0.25
-# 현재 위치 판단에 쓰는 임펄스 종료 이후 진행 다리 상한.
-_MAX_TRAILING_LEGS = 3
 # 5파 완성 후 반대 조정 목표 되돌림 비율(피보) — 투영 zone 경계.
 _CORRECTION_RETRACE = (0.382, 0.618)
 
@@ -54,30 +46,35 @@ class WavePoint:
 
 @dataclass
 class WaveSegment:
-    """파동 세그먼트.
+    """연결형 파동 체인의 한 파동(중단없이 이어짐).
 
-    - layer='leg': 전 구간 위상 교대의 한 구간. phase(motive|corrective)·confidence 로 차등.
-    - layer='impulse': 다중 임계로 검출한 진짜 5파(강조). points 6개(0~5) 보유.
+    상승 추세면 motive=상승 5파·corrective=하락 3파가 번갈아 연결되고, 각 파동은 하위 등급 재귀
+    라벨(points)을 가진다. degree=primary(최상위) | sub(하위 재귀).
     """
 
     start_date: str
     end_date: str
-    layer: str  # leg | impulse
+    start_price: float
+    end_price: float
+    degree: str  # primary | sub
+    phase: str  # motive | corrective
     direction: str  # up | down (실제 가격 진행 방향)
-    phase: str = ""  # leg: motive | corrective , impulse: ''
-    labels: list[str] = field(default_factory=list)  # impulse=['0'..'5']
+    bars: int = 0  # 이 파동 소요 봉 수(기간 투영용)
+    wave_label: str = ""  # 부모 안 순번: motive='1'..'5' 자식 or 'M'; corrective='A'..'C' or 'C'
     confidence: float = 0.0  # 0~1
-    points: list[WavePoint] = field(default_factory=list)  # impulse 만: 라벨 6점
+    points: list[WavePoint] = field(default_factory=list)  # 내부 라벨 피벗(motive=1~5, corr=A~C)
 
 
 @dataclass
 class WaveProjection:
-    """다음 파동 가격 목표 구간(피보 투영). 단일 선이 아니라 zone."""
+    """다음 파동 목표 — 가격 구간(zone) + 기간(봉 수) 투영. 파동 크기·속도 기반 피보 예측."""
 
-    wave: str  # '3' | '5' | 'C' (투영 대상)
-    low: float
-    high: float
-    basis: str  # 사람이 읽는 근거(예: "1파 1.618~2.618배")
+    wave: str  # 투영 대상(예: '다음 조정' | '다음 추진')
+    low: float  # 가격 하한
+    high: float  # 가격 상한
+    bars_low: int  # 예상 소요 봉 수 하한(직전 파동 기간 x 피보)
+    bars_high: int  # 예상 소요 봉 수 상한
+    basis: str  # 사람이 읽는 근거
 
 
 @dataclass
@@ -191,150 +188,211 @@ def _impulse_conf(window: list[Pivot], up: bool) -> float | None:
     return _fib_score(w1, w2, w3, w4)
 
 
-def _find_impulses(prices: list[tuple[str, float]]) -> list[WaveSegment]:
-    """여러 ZigZag 임계로 하드룰 통과 5파 임펄스를 양방향 검출, 날짜 겹침 없이 고신뢰부터 채택한다.
+def _correction_conf(window: list[Pivot], down: bool) -> float | None:
+    """4피벗 A-B-C 지그재그 조정이 규칙을 만족하면 신뢰도, 아니면 None.
 
-    임계마다 피벗 집합이 달라 각 세그먼트는 자기 라벨 6점(WavePoint)을 보유한다.
+    down=True(상승 추세 속 하락 조정)면 고-저-고-저: A 하락, B 반등(A 를 100% 넘게 되돌리지 않음),
+    C 하락(A 방향 재개). B 되돌림이 A 의 0.382~0.886 이면 정통 지그재그로 가점.
     """
-    candidates: list[tuple[float, str, str, bool, list[Pivot]]] = []
-    for th in IMPULSE_THRESHOLDS:
-        piv = zigzag(prices, th)
-        for i in range(len(piv) - 5):
-            window = piv[i : i + 6]
-            for up in (True, False):
-                conf = _impulse_conf(window, up)
-                if conf is not None and conf >= IMPULSE_MIN_CONFIDENCE:
-                    candidates.append((conf, window[0].date, window[5].date, up, window))
-    candidates.sort(key=lambda c: -c[0])
-    chosen: list[tuple[float, str, str, bool, list[Pivot]]] = []
-    for cand in candidates:
-        _, sd, ed, _, _ = cand
-        if any(not (ed < cs or sd > ce) for _, cs, ce, _, _ in chosen):
-            continue
-        chosen.append(cand)
-    chosen.sort(key=lambda c: c[1])
-    segs: list[WaveSegment] = []
-    for conf, sd, ed, up, window in chosen:
-        points = [WavePoint(date=p.date, price=p.price, label=str(k)) for k, p in enumerate(window)]
-        segs.append(
-            WaveSegment(
-                start_date=sd, end_date=ed, layer="impulse", direction="up" if up else "down",
-                labels=["0", "1", "2", "3", "4", "5"], confidence=round(conf, 2), points=points,
-            )
-        )
-    return segs
+    kinds = [x.kind for x in window]
+    expect = ["high", "low"] if down else ["low", "high"]
+    if kinds != [expect[i % 2] for i in range(4)]:
+        return None
+    p0, p1, p2, p3 = (x.price for x in window)
+    s = 1.0 if down else -1.0  # 조정 진행 방향(하락 조정이면 하락이 +)
+    a = s * (p0 - p1)  # A 폭
+    b = s * (p2 - p1)  # B 되돌림
+    c = s * (p2 - p3)  # C 폭
+    if a <= 0 or c <= 0 or b <= 0:
+        return None
+    if b >= a:  # B 가 A 를 100% 이상 되돌리면 지그재그 아님(무효)
+        return None
+    return _near(b / a, 0.618, 0.4)  # B 되돌림이 0.618 근처일수록 정통 지그재그
 
 
-def _phase_chain(pivots: list[Pivot], impulses: list[WaveSegment]) -> list[WaveSegment]:
-    """전 구간을 motive/corrective 위상으로 중단없이(gapless) 교대 라벨한다.
+# 조정으로 간주할 최소 되돌림(직전 추진 폭 대비). 이보다 작으면 추진의 연장으로 흡수.
+_CORRECTION_RETRACE_MIN = 0.5
 
-    검출된 고신뢰 임펄스가 놓인 구간은 motive(고신뢰)로 고정하고, 그 사이 빈 구간은 남은 다리를
-    corrective/motive 로 교대 배정(저신뢰)한다. 항상 이전 세그 끝=다음 시작(gap 없음).
+
+def _parse_chain(pivots: list[Pivot], up_trend: bool) -> list[tuple[int, int, str, str]]:
+    """피벗열을 추진(motive)/조정(corrective) 파동으로 중단없이 교대 분할한다.
+
+    추진은 순추세 방향으로 진행이 이어지는 한 확장하고, 극점 대비 되돌림이 그 진행폭의
+    _CORRECTION_RETRACE_MIN 을 넘으면 극점에서 끊어 조정 구간으로 넘긴다. 반환: (start_i, end_i,
+    phase, direction) 리스트. 항상 end_i=다음 start_i(gapless).
     """
     n = len(pivots)
-    if n < 2:
+    if n < 3:
         return []
-    # 임펄스가 차지한 피벗 인덱스 구간 [start_i, end_i].
-    imp_spans: list[tuple[int, int, WaveSegment]] = []
-    date_to_idx = {p.date: i for i, p in enumerate(pivots)}
-    for imp in impulses:
-        si = date_to_idx.get(imp.start_date)
-        ei = date_to_idx.get(imp.end_date)
-        if si is not None and ei is not None:
-            imp_spans.append((si, ei, imp))
-    imp_spans.sort()
-
-    segs: list[WaveSegment] = []
+    s = 1.0 if up_trend else -1.0
+    out: list[tuple[int, int, str, str]] = []
     i = 0
-    phase = "motive"  # 임펄스 밖 구간의 시작 위상(임펄스=motive 이므로 그 뒤는 corrective)
+    want_motive = True
+    while i < n - 1:
+        ext = i  # 현재 파동의 진행 극점(motive=순추세 극값, corrective=반대 극값)
+        sgn = s if want_motive else -s  # 이 파동이 진행하는 방향 부호
+        j = i
+        while j < n - 1:
+            j += 1
+            if sgn * (pivots[j].price - pivots[ext].price) > 0:
+                ext = j  # 진행 극점 갱신
+            span = sgn * (pivots[ext].price - pivots[i].price)
+            retr = sgn * (pivots[ext].price - pivots[j].price)
+            if span > 0 and j > ext and retr >= _CORRECTION_RETRACE_MIN * span:
+                break  # 유의미 되돌림 → 극점에서 파동 종료
+        if ext <= i:
+            ext = min(i + 1, n - 1)  # 진행 없으면 최소 한 다리
+        direction = "up" if pivots[ext].price > pivots[i].price else "down"
+        out.append((i, ext, "motive" if want_motive else "corrective", direction))
+        i = ext
+        want_motive = not want_motive
+    return out
 
-    def leg_seg(a: int, b: int, ph: str) -> WaveSegment:
-        up = pivots[b].price > pivots[a].price
-        return WaveSegment(
-            start_date=pivots[a].date, end_date=pivots[b].date, layer="leg",
-            direction="up" if up else "down", phase=ph, confidence=_LOW_CONF,
+
+def _sub_label(pivots: list[Pivot], a: int, b: int, phase: str, up: bool) -> list[WavePoint]:
+    """한 파동 구간(a..b)의 내부 전환점을 하위 파동으로 라벨한다 — 하드룰 검증 후에만.
+
+    motive: 구간이 정확히 5개 하위 파동(6피벗)이고 3대 하드룰(R1/R2/R3)을 통과할 때만 1~5 를
+    붙인다(진짜 재귀 임펄스). 미달이면 라벨 유보(억지 카운트 금지 — 정직).
+    corrective: 3개 하위 파동(4피벗) 형태면 A~B~C. 파동 끝점은 상위 경계 마커와 겹쳐 제외(dedupe).
+    """
+    window = pivots[a : b + 1]
+    if phase == "motive":
+        # 구간 안에서 하드룰(R1/R2/R3) 통과하는 6피벗 5파를 찾는다(복합 파동은 부분구간이 통과).
+        # 없으면 라벨 유보(억지 카운트 금지 — 정직). 시작 앵커 우선(앞쪽 6피벗부터).
+        best: list[Pivot] | None = None
+        best_conf = -1.0
+        for i in range(len(window) - 5):
+            w6 = window[i : i + 6]
+            conf = _impulse_conf(w6, up)
+            if conf is not None and conf > best_conf:
+                best, best_conf = w6, conf
+        if best is None:
+            return []
+        return [
+            WavePoint(date=p.date, price=p.price, label=lab)
+            for p, lab in zip(best[1:], ["1", "2", "3", "4", "5"], strict=True)
+        ]
+    # corrective: 구간에서 A-B-C 지그재그 규칙 통과하는 4피벗을 스캔해 검증 후에만 A·B 라벨(C=끝점,
+    # 경계 마커와 겹쳐 제외). 미달이면 라벨 유보(motive 와 동일한 정직성). down=조정 자체 방향.
+    best_c: list[Pivot] | None = None
+    best_cc = -1.0
+    for i in range(len(window) - 3):
+        w4 = window[i : i + 4]
+        cc = _correction_conf(w4, down=not up)  # 조정 파동 방향: 하락 조정이면 down=True
+        if cc is not None and cc > best_cc:
+            best_c, best_cc = w4, cc
+    if best_c is None:
+        return []
+    return [
+        WavePoint(date=best_c[1].date, price=best_c[1].price, label="A"),
+        WavePoint(date=best_c[2].date, price=best_c[2].price, label="B"),
+    ]
+
+
+def _wave_confidence(pivots: list[Pivot], a: int, b: int, phase: str, up: bool) -> float:
+    """파동 구간이 교과서 형태(motive=5파 하드룰·corrective=3파)에 얼마나 부합하는지 0~1.
+
+    정확히 5파(6피벗)면 하드룰+피보로 채점(고신뢰), 아니면 다리 수 기반 중간 신뢰.
+    """
+    span = b - a
+    if phase == "motive" and span == 5:
+        conf = _impulse_conf(pivots[a : b + 1], up)
+        if conf is not None:
+            return round(max(conf, 0.6), 2)
+    if phase == "corrective" and span == 3:
+        return 0.55
+    # 형태 미달 — 다리 수가 5(추진)/3(조정)에 가까울수록 소폭 신뢰.
+    ideal = 5 if phase == "motive" else 3
+    return round(0.3 * _near(span, ideal, ideal), 2)
+
+
+def _build_segments(
+    pivots: list[Pivot], sub_pivots: list[Pivot], bar_index: dict[str, int]
+) -> list[WaveSegment]:
+    """연결형 파동 체인(primary) + 각 파동 내부 하위 라벨(sub) 세그먼트를 만든다.
+
+    bar_index: 날짜→봉 인덱스(파동 소요 봉 수 계산용, 기간 투영에 쓰임).
+    """
+    if len(pivots) < 3:
+        return []
+    up_trend = pivots[-1].price >= pivots[0].price
+    chain = _parse_chain(pivots, up_trend)
+    sub_idx = {p.date: k for k, p in enumerate(sub_pivots)}
+    segs: list[WaveSegment] = []
+    for a, b, phase, direction in chain:
+        conf = _wave_confidence(pivots, a, b, phase, direction == "up")
+        # 하위 라벨은 더 촘촘한 sub_pivots 로(프랙탈: 파동 안의 작은 파동).
+        sa, sb = sub_idx.get(pivots[a].date), sub_idx.get(pivots[b].date)
+        up = direction == "up"
+        points = (
+            _sub_label(sub_pivots, sa, sb, phase, up)
+            if sa is not None and sb is not None and sb > sa
+            else _sub_label(pivots, a, b, phase, up)
         )
-
-    for si, ei, _imp in imp_spans:
-        # 임펄스 이전 빈 구간을 다리 단위로 교대 채움(gapless).
-        while i < si:
-            segs.append(leg_seg(i, i + 1, phase))
-            phase = "corrective" if phase == "motive" else "motive"
-            i += 1
-        # 임펄스 구간을 motive(고신뢰) 한 덩어리로.
+        bars = bar_index.get(pivots[b].date, 0) - bar_index.get(pivots[a].date, 0)
         segs.append(
             WaveSegment(
-                start_date=pivots[si].date, end_date=pivots[ei].date, layer="leg",
-                direction="up" if pivots[ei].price > pivots[si].price else "down",
-                phase="motive", confidence=0.7,
+                start_date=pivots[a].date, end_date=pivots[b].date,
+                start_price=pivots[a].price, end_price=pivots[b].price, degree="primary",
+                phase=phase, direction=direction, bars=max(bars, 1),
+                wave_label="5파" if phase == "motive" else "3파",
+                confidence=conf, points=points,
             )
         )
-        i = ei
-        phase = "corrective"  # 임펄스 다음은 조정 기대
-    # 남은 꼬리 구간.
-    while i < n - 1:
-        segs.append(leg_seg(i, i + 1, phase))
-        phase = "corrective" if phase == "motive" else "motive"
-        i += 1
     return segs
 
 
-def _project(impulses: list[WaveSegment]) -> WaveProjection | None:
-    """가장 최근 임펄스가 진행 중이라 가정하고 다음 파동 가격 목표 zone 을 피보로 투영한다.
+def _project(segments: list[WaveSegment]) -> WaveProjection | None:
+    """마지막 완성 파동의 크기로 다음 파동 가격 목표 zone 을 피보로 투영한다.
 
-    완성된 최근 임펄스의 파동 폭으로 그 다음(반대 방향 조정 C, 또는 새 추진 3파)을 추정한다.
-    실데이터에선 '완성 임펄스 다음 조정의 C' 투영이 가장 실용적이라 그걸 낸다.
+    마지막이 추진(5파)이면 다음은 조정 → 되돌림 0.382~0.618 zone. 마지막이 조정이면 다음은 추진
+    → 직전 추진 크기의 0.618~1.618 연장 zone(파동 크기·속도 기반 예측).
     """
-    if not impulses:
+    primary = [s for s in segments if s.degree == "primary"]
+    if not primary:
         return None
-    last = max(impulses, key=lambda s: s.end_date)
-    if len(last.points) < 6:
+    last = primary[-1]
+    span = abs(last.end_price - last.start_price)
+    if span <= 0:
         return None
-    p = [pt.price for pt in last.points]
-    up = last.direction == "up"
-    s = 1.0 if up else -1.0
-    end = p[5]
-    # 5파 완성 후 반대 방향 조정 → A 폭을 5파 전체(0→5)의 되돌림으로 추정하기 어려우니, 관용적으로
-    # 직전 임펄스 전체 폭 대비 0.382~0.618 되돌림 zone 을 다음 조정 목표로 제시.
-    span = s * (p[5] - p[0])
-    r_lo, r_hi = _CORRECTION_RETRACE
-    t1 = end - s * span * r_lo
-    t2 = end - s * span * r_hi
-    low, high = (min(t1, t2), max(t1, t2))
-    kind = "상승" if up else "하락"
+    # 기간 투영 — 직전 파동 소요 봉 수에 피보 배수(조정은 되돌림≈0.5~1.0배 기간, 추진은 0.618~1.618배).
+    if last.phase == "motive":
+        r_lo, r_hi = _CORRECTION_RETRACE
+        t_lo, t_hi = 0.5, 1.0
+        sgn = 1.0 if last.direction == "up" else -1.0
+        t1, t2 = last.end_price - sgn * span * r_lo, last.end_price - sgn * span * r_hi
+        wave, basis = "다음 조정", f"직전 추진 되돌림 {r_lo}~{r_hi}·기간 {t_lo}~{t_hi}배"
+    else:
+        r_lo, r_hi = 0.618, 1.618
+        t_lo, t_hi = 0.618, 1.618
+        sgn = 1.0 if last.direction == "down" else -1.0  # 조정 방향의 반대로 추진
+        t1, t2 = last.end_price + sgn * span * r_lo, last.end_price + sgn * span * r_hi
+        wave, basis = "다음 추진", f"직전 파동 크기 {r_lo}~{r_hi}배·기간 {t_lo}~{t_hi}배"
     return WaveProjection(
-        wave="조정", low=round(low, 2), high=round(high, 2),
-        basis=f"{kind} 5파 되돌림 {r_lo}~{r_hi}",
+        wave=wave, low=round(min(t1, t2), 2), high=round(max(t1, t2), 2),
+        bars_low=max(int(last.bars * t_lo), 1), bars_high=max(int(last.bars * t_hi), 1),
+        basis=basis,
     )
 
 
-def _current_position(
-    pivots: list[Pivot], impulses: list[WaveSegment]
-) -> tuple[str, float | None]:
-    """가장 최근 임펄스 + 이후 진행 다리로 현재 파동 위치·무효화가격을 추정한다."""
-    if not impulses:
-        return "뚜렷한 5파 미검출 — 스윙 흐름만 참고", None
-    last = max(impulses, key=lambda s: s.end_date)
-    end_price = last.points[-1].price if last.points else None
-    trailing = sum(1 for p in pivots if p.date > last.end_date)
-    up = last.direction == "up"
-    kind = "상승" if up else "하락"
-    if trailing > _MAX_TRAILING_LEGS:
-        return f"{kind} 5파 이후 복합 구간 — 라벨 유보", None
-    phases = {
-        0: f"{kind} 5파 완성 — 반대 조정 시작 가능",
-        1: "조정 A파 진행",
-        2: "조정 B파 되돌림",
-        3: "조정 C파 진행 — 추세 재개 주시",
-    }
-    return phases[trailing], end_price
+def _current_position(segments: list[WaveSegment]) -> tuple[str, float | None]:
+    """마지막 완성 파동으로 현재 위치·무효화가격을 낸다."""
+    primary = [s for s in segments if s.degree == "primary"]
+    if not primary:
+        return "뚜렷한 파동 미검출", None
+    last = primary[-1]
+    kind = "상승" if last.direction == "up" else "하락"
+    if last.phase == "motive":
+        return f"{kind} 추진 파동 진행/완료 — 반대 조정 대비", last.start_price
+    return f"{kind} 조정 진행 — 추세 재개 주시", last.start_price
 
 
 def analyze(
     prices: list[tuple[str, float]],
     leg_threshold: float = LEG_THRESHOLD,
 ) -> ElliottResult:
-    """전 구간 연속 위상 교대 + 다중 임계 5파 강조 + 가격 투영으로 파동 구조를 분석한다."""
+    """전 구간을 상승 추진↔하락 조정으로 중단없이 연결한 파동 체인 + 하위 재귀 라벨 + 투영."""
     pivots = zigzag(prices, leg_threshold)
     if len(pivots) < 3:
         return ElliottResult(
@@ -342,24 +400,22 @@ def analyze(
             current_position="피벗 부족", note="피벗 부족",
         )
 
-    impulses = _find_impulses(prices)  # 다중 임계 진짜 5파(강조)
-    chain = _phase_chain(pivots, impulses)  # 전 구간 gapless 위상 교대(연속)
-    segments = chain + impulses
+    sub_pivots = zigzag(prices, leg_threshold * 0.6)  # 프랙탈 하위 등급(더 촘촘)
+    bar_index = {d: i for i, (d, _) in enumerate(prices)}  # 날짜→봉 인덱스(기간 투영)
+    segments = _build_segments(pivots, sub_pivots, bar_index)
+    position, invalidation = _current_position(segments)
+    projection = _project(segments)
 
-    position, invalidation = _current_position(pivots, impulses)
-    projection = _project(impulses)
-    labeled = len(impulses) > 0
-    last = max(impulses, key=lambda s: s.end_date) if impulses else None
-    confidence = last.confidence if last else 0.0
-    direction = last.direction if last else "none"
-
-    if labeled:
-        n_up = sum(1 for s in impulses if s.direction == "up")
-        n_dn = len(impulses) - n_up
-        note = f"5파 임펄스 상승 {n_up}·하락 {n_dn} · {position} — 참고용(확정 아님)"
-    else:
-        note = "뚜렷한 5파 미검출 — 상승/하락 스윙 흐름만 표시"
-
+    primary = [s for s in segments if s.degree == "primary"]
+    labeled = len(primary) > 0
+    n_mot = sum(1 for s in primary if s.phase == "motive")
+    n_cor = sum(1 for s in primary if s.phase == "corrective")
+    direction = "up" if pivots[-1].price >= pivots[0].price else "down"
+    confidence = round(sum(s.confidence for s in primary) / len(primary), 2) if primary else 0.0
+    note = (
+        f"추진 {n_mot}·조정 {n_cor} 파동 연결 · {position} — 참고용(확정 아님)"
+        if labeled else "파동 구조 미검출"
+    )
     return ElliottResult(
         pivots=pivots, labeled=labeled, confidence=confidence, direction=direction,
         segments=segments, current_position=position,

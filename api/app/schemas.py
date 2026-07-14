@@ -162,24 +162,29 @@ class ElliottWavePoint(BaseModel):
 
 
 class ElliottWaveSegment(BaseModel):
-    """파동 세그먼트. layer=leg(전 구간 연속 위상 교대) 또는 impulse(강조 5파, points 6개)."""
+    """연결형 파동 체인의 한 파동(중단없이 이어짐). 추진(motive)↔조정(corrective) 교대."""
 
     start_date: str  # YYYY-MM-DD
     end_date: str
-    layer: str  # leg | impulse
+    start_price: float
+    end_price: float
+    degree: str  # primary | sub
+    phase: str  # motive | corrective
     direction: str  # up | down (실제 가격 진행 방향)
-    phase: str = ""  # leg: motive | corrective
-    labels: list[str] = []  # impulse=['0'..'5']
+    bars: int = 0  # 소요 봉 수
+    wave_label: str = ""  # '5파' | '3파' 등
     confidence: float = 0.0  # 0~1
-    points: list[ElliottWavePoint] = []  # impulse 만: 라벨 6점(자체 피벗)
+    points: list[ElliottWavePoint] = []  # 내부 하위 라벨(motive=1~5, corr=A~C)
 
 
 class ElliottProjection(BaseModel):
     """다음 파동 가격 목표 구간(피보 투영). 단일 선이 아닌 zone."""
 
-    wave: str  # 투영 대상(예: '조정' | '3' | '5' | 'C')
-    low: float
-    high: float
+    wave: str  # 투영 대상(예: '다음 조정' | '다음 추진')
+    low: float  # 가격 하한
+    high: float  # 가격 상한
+    bars_low: int = 0  # 예상 소요 봉 수 하한
+    bars_high: int = 0  # 예상 소요 봉 수 상한
     basis: str  # 근거 문구
 
 

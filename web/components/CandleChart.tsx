@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  BaselineSeries,
   CandlestickSeries,
   ColorType,
   createSeriesMarkers,
@@ -235,66 +236,120 @@ export default function CandleChart({
       );
     }
 
-    // 엘리엇 파동 추정(있으면) — 2레이어: 전 구간 상승/하락 다리(옅은 점선, 흐름 맥락) + 검출된 5파
-    // 임펄스(굵은 실선 강조, 1~5 라벨). 추정이므로 보라 계열.
-    if (elliott && elliott.pivots.length >= 2) {
-      // 기본 스윙 흐름(전 피벗을 잇는 옅은 점선) — 상승/하락 다리를 균형있게 보여준다.
-      const swingLine = chart.addSeries(LineSeries, {
-        color: "rgba(139, 92, 246, 0.3)",
-        lineWidth: 1,
-        lineStyle: 2, // dashed
-        priceLineVisible: false,
-        lastValueVisible: false,
-        crosshairMarkerVisible: false,
+    // 엘리엇 파동 — 전 구간 상승 추진↔하락 조정이 중단없이 연결된 파동 체인. 한붓그리기(연결 폴리라인)
+    // 로 그려 상승5파↔하락3파 톱니 구조가 드러나게 하고, 흰색 헤일로 + 진한 남색 선으로 MA(주황·틸·
+    // 보라·자홍)·캔들과 확실히 분리한다. 파동 경계(1~5·A~C)와 하위 프랙탈 라벨을 마커로.
+    const primary = (elliott?.segments ?? []).filter((s) => s.degree === "primary");
+    if (elliott && primary.length >= 1) {
+      // 연결 폴리라인 정점: 시작 + 각 파동의 하위 전환점(1~5·A~C) + 파동 끝. 하위 피벗까지 포함해
+      // 대형 파동도 밋밋한 직선이 아니라 실제 톱니(파동 안의 작은 파동)로 그려진다. 시각 정합을 위해
+      // 같은 시각 중복은 제거하며 오름차순 유지.
+      const chainPts: { time: Time; value: number }[] = [
+        { time: primary[0].start_date.slice(0, 10) as Time, value: primary[0].start_price },
+      ];
+      for (const seg of primary) {
+        for (const pt of seg.points ?? []) {
+          chainPts.push({ time: pt.date.slice(0, 10) as Time, value: pt.price });
+        }
+        chainPts.push({ time: seg.end_date.slice(0, 10) as Time, value: seg.end_price });
+      }
+      const dedup = chainPts.filter((p, i) => i === 0 || p.time !== chainPts[i - 1].time);
+      // 헤일로(굵은 반투명 흰선)를 연속으로 깔아 MA·캔들 위로 도드라지게.
+      const halo = chart.addSeries(LineSeries, {
+        color: "rgba(255,255,255,0.9)", lineWidth: 4,
+        priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
       });
-      swingLine.setData(elliott.pivots.map((p) => ({ time: p.date.slice(0, 10) as Time, value: p.price })));
-
-      // 강조 레이어: 검출된 5파 임펄스만 굵은 실선으로 겹쳐 그린다. 임펄스는 자체 라벨 6점(points)을
-      // 보유하므로(임계마다 피벗이 달라 base pivots 와 별개) 그 점으로 선·라벨을 그린다.
-      const impulses = (elliott.segments ?? []).filter(
-        (s) => s.layer === "impulse" && (s.points?.length ?? 0) >= 2,
-      );
-      const markers: SeriesMarker<Time>[] = [];
-      for (const seg of impulses) {
-        const pts = seg.points ?? [];
+      halo.setData(dedup);
+      // 본선은 세그먼트별로 그려 신뢰도에 따라 스타일 차등: 고신뢰=실선 진남색, 저신뢰=점선 회색.
+      // (하드룰 검증 통과 파동만 진하게 — 저신뢰 다리가 진짜 임펄스처럼 안 보이게.)
+      for (const seg of primary) {
+        const strong = (seg.confidence ?? 0) >= 0.5;
+        const segPts: { time: Time; value: number }[] = [
+          { time: seg.start_date.slice(0, 10) as Time, value: seg.start_price },
+          ...(seg.points ?? []).map((pt) => ({ time: pt.date.slice(0, 10) as Time, value: pt.price })),
+          { time: seg.end_date.slice(0, 10) as Time, value: seg.end_price },
+        ].filter((p, i, arr) => i === 0 || p.time !== arr[i - 1].time);
+        if (segPts.length < 2) {
+          continue;
+        }
         const line = chart.addSeries(LineSeries, {
-          // 상승 임펄스=진보라, 하락 임펄스=자홍 — 방향을 색으로 구분.
-          color: seg.direction === "up" ? "rgba(109, 40, 217, 0.95)" : "rgba(190, 24, 93, 0.9)",
-          lineWidth: 3,
-          priceLineVisible: false,
-          lastValueVisible: false,
+          color: strong ? "#1e293b" : "rgba(100,116,139,0.7)",
+          lineWidth: 2,
+          lineStyle: strong ? 0 : 2, // 저신뢰=점선
+          priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+        });
+        line.setData(segPts);
+      }
+
+      // 마커: 파동 경계(추진 끝=상승5파 파랑 위, 조정 끝=하락3파 빨강 아래) + 하위 전환점(1~5·A~C
+      // 회색). 경계와 하위 라벨이 같은 x 에 겹치지 않게, 하위는 파동 끝점 직전까지만(백엔드에서 이미
+      // 끝점 제외). 저신뢰 경계는 흐린 색.
+      const markers: SeriesMarker<Time>[] = [];
+      for (const seg of primary) {
+        const strong = (seg.confidence ?? 0) >= 0.5;
+        markers.push({
+          time: seg.end_date.slice(0, 10) as Time,
+          position: seg.direction === "up" ? "aboveBar" : "belowBar",
+          shape: seg.phase === "motive" ? "arrowUp" : "arrowDown",
+          color: seg.phase === "motive"
+            ? (strong ? "#1d4ed8" : "#93b4f0")
+            : (strong ? "#dc2626" : "#f0a3a3"),
+          text: seg.phase === "motive" ? "5" : "C",
+        });
+        for (const pt of seg.points ?? []) {
+          markers.push({
+            time: pt.date.slice(0, 10) as Time,
+            position: seg.direction === "up" ? "belowBar" : "aboveBar",
+            shape: "circle",
+            color: "#64748b",
+            text: pt.label,
+          });
+        }
+      }
+      markers.sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
+      createSeriesMarkers(candleSeries, markers);
+
+      // 다음 파동 목표 — 규모(가격 low~high) × 기간(now~now+예상봉수)을 미래 축까지 뻗는 2D zone 으로.
+      // 상·하한을 현재봉→미래봉까지 청록 점선으로 그려 "언제쯤 어디까지"를 사각 영역으로 보인다.
+      if (elliott.projection && data.length > 0 && timeframe !== "30m") {
+        const { low, high, bars_low, bars_high, wave } = elliott.projection;
+        const lastDate = data[data.length - 1].t.slice(0, 10);
+        // 미래 목표 시점 = 마지막봉 + 예상 봉수(달력일 근사: 봉수×1.4 로 주말 보정).
+        const future = new Date(`${lastDate}T00:00:00Z`);
+        future.setUTCDate(future.getUTCDate() + Math.round((bars_high || 10) * 1.4));
+        const futureDate = future.toISOString().slice(0, 10) as Time;
+        const nowT = lastDate as Time;
+        // 채움 밴드: BaselineSeries 의 baseValue=low, 라인=high → low~high 사이가 반투명 청록으로
+        // 채워진 사각 zone(규모×기간). 상·하한 경계선은 그 위에 점선으로 덧그린다.
+        const band = chart.addSeries(BaselineSeries, {
+          baseValue: { type: "price", price: low },
+          topFillColor1: "rgba(8,145,178,0.18)", topFillColor2: "rgba(8,145,178,0.18)",
+          topLineColor: "rgba(8,145,178,0.85)", bottomLineColor: "rgba(8,145,178,0)",
+          bottomFillColor1: "rgba(8,145,178,0)", bottomFillColor2: "rgba(8,145,178,0)",
+          lineWidth: 2, priceLineVisible: false, lastValueVisible: false,
           crosshairMarkerVisible: false,
         });
-        line.setData(pts.map((pt) => ({ time: pt.date.slice(0, 10) as Time, value: pt.price })));
-        // 라벨 마커(1~5) — '0'(시작점) 생략. 직전 점보다 높으면 고점(위)·낮으면 저점(아래).
-        for (let i = 1; i < pts.length; i += 1) {
-          markers.push({
-            time: pts[i].date.slice(0, 10) as Time,
-            position: pts[i].price >= pts[i - 1].price ? "aboveBar" : "belowBar",
-            shape: "circle",
-            color: seg.direction === "up" ? "#6d28d9" : "#be185d",
-            text: pts[i].label,
-          });
-        }
-      }
-      if (markers.length > 0) {
-        // 마커는 시간 오름차순이어야 한다(여러 임펄스 병합 시).
-        markers.sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
-        createSeriesMarkers(candleSeries, markers);
-      }
-
-      // 다음 파동 가격 목표 zone(피보 투영) — 상·하한을 수평선으로. 추정이라 점선·반투명.
-      if (elliott.projection) {
-        for (const price of [elliott.projection.low, elliott.projection.high]) {
-          candleSeries.createPriceLine({
-            price,
-            color: "rgba(139, 92, 246, 0.6)",
-            lineWidth: 1,
-            lineStyle: 2, // dashed
-            axisLabelVisible: true,
-            title: `목표 ${elliott.projection.wave}`,
-          });
-        }
+        band.setData([
+          { time: nowT, value: high },
+          { time: futureDate, value: high },
+        ]);
+        const lowLine = chart.addSeries(LineSeries, {
+          color: "rgba(8,145,178,0.85)", lineWidth: 2, lineStyle: 2,
+          priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+        });
+        lowLine.setData([
+          { time: nowT, value: low },
+          { time: futureDate, value: low },
+        ]);
+        const barTxt = bars_low && bars_high ? ` ${bars_low}~${bars_high}봉` : "";
+        candleSeries.createPriceLine({
+          price: high, color: "#0891b2", lineWidth: 1, lineStyle: 2,
+          axisLabelVisible: true, title: `${wave}${barTxt}`,
+        });
+        candleSeries.createPriceLine({
+          price: low, color: "#0891b2", lineWidth: 1, lineStyle: 2,
+          axisLabelVisible: true, title: "",
+        });
       }
     }
 
