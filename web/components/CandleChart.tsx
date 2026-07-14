@@ -282,6 +282,20 @@ export default function CandleChart({
         markers.sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
         createSeriesMarkers(candleSeries, markers);
       }
+
+      // 다음 파동 가격 목표 zone(피보 투영) — 상·하한을 수평선으로. 추정이라 점선·반투명.
+      if (elliott.projection) {
+        for (const price of [elliott.projection.low, elliott.projection.high]) {
+          candleSeries.createPriceLine({
+            price,
+            color: "rgba(139, 92, 246, 0.6)",
+            lineWidth: 1,
+            lineStyle: 2, // dashed
+            axisLabelVisible: true,
+            title: `목표 ${elliott.projection.wave}`,
+          });
+        }
+      }
     }
 
     // 시간 구분 수직선(붉은 점선): 30분봉=일 · 일봉=월 · 주봉=연 경계.

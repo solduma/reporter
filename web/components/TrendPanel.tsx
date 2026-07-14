@@ -268,6 +268,16 @@ export default function TrendPanel({ trend, status, message }: Props) {
               ) : null}
             </p>
           ) : null}
+          {trend.elliott.projection ? (
+            <p className={styles.elliottProjection}>
+              <span className={styles.elliottProjectionLabel}>다음 목표</span>
+              {trend.elliott.projection.low.toLocaleString("ko-KR")}~
+              {trend.elliott.projection.high.toLocaleString("ko-KR")}
+              <span className={styles.elliottProjectionBasis}>
+                {trend.elliott.projection.basis}
+              </span>
+            </p>
+          ) : null}
           <p className={styles.elliottNote}>{trend.elliott.note}</p>
         </div>
       ) : null}
