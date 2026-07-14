@@ -235,18 +235,31 @@ export default function CandleChart({
       );
     }
 
-    // 엘리엇 파동 추정(있으면): 피벗을 잇는 점선 + 라벨된 파동(1~5) 마커. 추정이라 반투명·점선.
+    // 엘리엇 파동 추정(있으면): 전 피벗을 잇는 옅은 점선(스윙 컨텍스트) + 검출된 5파 임펄스(0→5)만
+    // 굵은 실선으로 강조. 라벨 파동(1~5)은 마커로. 추정이므로 보라 계열·반투명.
     if (elliott && elliott.pivots.length >= 2) {
-      const waveLine = chart.addSeries(LineSeries, {
-        color: "rgba(139, 92, 246, 0.55)",
+      const swingLine = chart.addSeries(LineSeries, {
+        color: "rgba(139, 92, 246, 0.28)", // 배경 스윙(옅은 점선) — 지지/저항 맥락
         lineWidth: 1,
-        lineStyle: 2, // dashed — 추정 강조
+        lineStyle: 2, // dashed
         priceLineVisible: false,
         lastValueVisible: false,
         crosshairMarkerVisible: false,
       });
-      waveLine.setData(elliott.pivots.map((p) => ({ time: p.date.slice(0, 10) as Time, value: p.price })));
+      swingLine.setData(elliott.pivots.map((p) => ({ time: p.date.slice(0, 10) as Time, value: p.price })));
       if (elliott.labeled) {
+        // 라벨된 0~5 임펄스만 굵은 실선으로 겹쳐 그려 파동 구조를 도드라지게 한다.
+        const impulse = elliott.pivots.filter((p) => p.label !== "");
+        if (impulse.length >= 2) {
+          const impulseLine = chart.addSeries(LineSeries, {
+            color: "rgba(139, 92, 246, 0.95)",
+            lineWidth: 2,
+            priceLineVisible: false,
+            lastValueVisible: false,
+            crosshairMarkerVisible: false,
+          });
+          impulseLine.setData(impulse.map((p) => ({ time: p.date.slice(0, 10) as Time, value: p.price })));
+        }
         const markers: SeriesMarker<Time>[] = elliott.pivots
           .filter((p) => p.label !== "" && p.label !== "0")
           .map((p) => ({
