@@ -186,10 +186,47 @@ def test_analyze_insufficient_pivots():
     assert res.current_position == "피벗 부족"
 
 
-def test_analyze_holds_labels_on_unfittable_noise():
-    # 규칙에 안 맞는 잡음은 라벨 유보(억지 카운트 금지) — 세그먼트가 적거나 없음.
+def test_labels_are_only_valid_wave_symbols():
+    # 라벨은 유효 파동 번호(1~5·A~C)만 — '5파' 같은 문자열이나 잡값 금지.
     prices = [(f"d{i:02d}", v) for i, v in enumerate([100, 103, 101, 104, 102, 105])]
     r = elliott.analyze(prices, leg_threshold=0.05)
-    # 억지로 '5파' 를 만들지 않는다 — 라벨은 유효 파동 번호만.
     for s in r.segments:
         assert s.wave_label in {"1", "2", "3", "4", "5", "A", "B", "C"}
+
+
+def _many_pivots() -> list[tuple[str, float]]:
+    # 여러 사이클이 나오도록 상승·하락·조정을 반복한 긴 시계열.
+    seg1 = [100.0, 200.0, 144.1, 305.9, 244.1, 344.1]  # 상승 5파
+    cor1 = [280.0, 320.0, 250.0]  # 조정 A-B-C
+    seg2 = [400.0, 300.0, 335.9, 174.1, 235.9, 135.9]  # 하락 5파
+    cor2 = [200.0, 160.0, 240.0]  # 조정 A-B-C
+    seg3 = [180.0, 280.0, 224.1, 385.9, 324.1, 424.1]  # 상승 5파
+    vals = seg1 + cor1 + seg2 + cor2 + seg3
+    return [(f"d{i:03d}", v) for i, v in enumerate(vals)]
+
+
+def test_chain_is_gapless():
+    # 연속 체인의 핵심 불변식: 라벨된 다리가 피벗 인덱스로 끊김 없이 이어진다(갭 0).
+    # (정렬 보정으로 사이클 사이에 연결용 저신뢰 다리가 낄 수 있어 위상이 정확히 5-3-5-3은 아님.)
+    piv = elliott.zigzag(_many_pivots(), 0.05)
+    labeled = [(si, lab) for si, lab, _, _ in elliott._label_cycles(piv) if lab]
+    idxs = [si for si, _ in labeled]
+    assert idxs == list(range(len(piv) - 1))  # 갭 없이 전 다리 라벨(마지막 피벗 제외)
+
+
+def test_high_confidence_motive_and_correction_both_present():
+    # 정렬 유연성 회귀 가드: 이상적 사이클엔 고신뢰 추진과 조정이 모두 검출돼야 한다.
+    # (정렬 없이 고정 진행하면 추진이 전부 저신뢰로 격하되던 회귀를 막는다.)
+    r = elliott.analyze(_many_pivots(), leg_threshold=0.05)
+    hi = [s for s in r.segments if s.confidence >= 0.4]
+    assert any(s.phase == "motive" for s in hi)  # 고신뢰 추진 존재
+    assert any(s.phase == "corrective" for s in hi)  # 고신뢰 조정 존재
+
+
+def test_filler_blocks_are_low_confidence():
+    # 하드룰 미달 '연결용' 블록은 저신뢰(_FILLER_CONF) 이하, 신뢰도는 항상 0~1.
+    r = elliott.analyze(_many_pivots(), leg_threshold=0.05)
+    assert all(0.0 <= s.confidence <= 1.0 for s in r.segments)
+    # 연결용 저신뢰와 고신뢰가 공존(차등이 실제로 일어남).
+    confs = [s.confidence for s in r.segments]
+    assert min(confs) <= elliott._FILLER_CONF and max(confs) > elliott._FILLER_CONF

@@ -192,57 +192,83 @@ def _correction_conf(window: list[Pivot], down: bool) -> float | None:
 _SCAN_WINDOW = 8
 
 
-def _label_cycles(pivots: list[Pivot]) -> list[tuple[int, str, str, float]]:
-    """피벗열을 좌→우로 반복 사이클 [1,2,3,4,5]-[A,B,C] 로 라벨한다(양방향 국소 추세).
+# 하드룰+피보를 통과 못 한 '연결용' 블록의 저신뢰값. 프론트는 이 미만을 옅은/점선으로 차등.
+_FILLER_CONF = 0.15
 
-    각 다리(pivots[i]→pivots[i+1])가 사이클 내 한 파동. **전역 추세를 고정하지 않고**, 추진을 찾을
-    때 상승·하락 5파를 모두 스캔해 최고 신뢰도 방향을 그 지역의 추세로 채택한다(하락 후 대상승 후
-    재하락처럼 국면이 바뀌는 종목을 올바르게 라벨). 조정은 직전 추진의 반대 방향으로 검증한다.
-    안 맞으면 라벨 유보(억지 카운트 금지). 반환: (start_pivot_i, wave_label, phase, confidence).
+
+def _label_cycles(pivots: list[Pivot]) -> list[tuple[int, str, str, float]]:
+    """피벗열을 좌→우로 반복 사이클 [1,2,3,4,5]-[A,B,C] 로 **중단 없이** 라벨한다.
+
+    각 다리(pivots[i]→pivots[i+1])가 사이클 내 한 파동. 추진 5파↔조정 3파를 갭 없이 교대로
+    이어붙여 전 구간을 채운다(추진 다음에 조정, 조정 다음에 다시 추진이 끊김 없이 연결).
+
+    정렬 유연성: 각 블록에서 앞으로 최대 _SCAN_WINDOW 피벗 내 하드룰(R1/R2/R3)+피보 통과 임펄스/
+    조정을 찾아 **고신뢰**(그 판정 방향)로 라벨하고, 그 앞의 어긋난 다리는 직전 위상의 '연결용'
+    저신뢰로 채워 연속성을 유지한다. 창 내에 통과 블록이 없으면 순가격 방향으로 저신뢰 라벨.
+    → 전역 추세 고정 없이, 억지 없이 신뢰도로만 정직하게 차등. 라벨은 항상 유효 파동 번호(빈칸 없음).
+    반환: (start_pivot_i, wave_label, phase, confidence).
     """
     n = len(pivots)
     out: list[tuple[int, str, str, float]] = []
     i = 0
     expect_motive = True
     last_motive_up: bool | None = None  # 직전 추진 방향(조정 방향 결정용)
+    # 연결용(어긋난 앞 다리) 채울 때 쓸 직전 위상 라벨 순환자.
+    filler_seq = {"motive": ["1", "2", "3", "4", "5"], "corrective": ["A", "B", "C"]}
     while i < n - 1:
-        found = None
         if expect_motive:
-            # **가장 이른** 유효 5파를 채택(연속 체인 우선 — 갭 최소화). 그 시작점에서 상승·하락을
-            # 모두 시험해 신뢰도 높은 방향을 국소 추세로 삼는다. (최고 신뢰 창을 좇으면 그 앞의 유효
-            # 임펄스가 통째로 유실돼 장기 사이클이 끊긴다.)
+            best = None  # (st, conf, up)
             for st in range(i, min(i + _SCAN_WINDOW, n - 5)):
-                cand = None  # (conf, up)
-                for up in (True, False):
-                    c = _impulse_conf(pivots[st : st + 6], up)
-                    if c is not None and (cand is None or c > cand[0]):
-                        cand = (c, up)
-                if cand is not None:
-                    found = (st, 5, ["1", "2", "3", "4", "5"], "motive", cand[0], cand[1])
-                    break
+                for cand_up in (True, False):
+                    c = _impulse_conf(pivots[st : st + 6], cand_up)
+                    if c is not None and (best is None or c > best[1]):
+                        best = (st, c, cand_up)
+            if best is not None:
+                st, conf, up = best
+                _fill_gap(out, i, st, "corrective", filler_seq)  # 앞 다리=직전 조정 연장(저신뢰)
+                for k, lab in enumerate(["1", "2", "3", "4", "5"]):
+                    out.append((st + k, lab, "motive", round(conf, 2)))
+                last_motive_up = up
+                i = st + 5
+            else:  # 창 내 통과 임펄스 없음 → 순가격 방향 저신뢰 5파
+                legs = min(5, n - 1 - i)
+                up = pivots[i + legs].price >= pivots[i].price
+                for k, lab in enumerate(["1", "2", "3", "4", "5"][:legs]):
+                    out.append((i + k, lab, "motive", _FILLER_CONF))
+                last_motive_up = up
+                i += legs
         else:
-            # 조정은 직전 추진의 반대 방향. 상승 추진 뒤엔 하락 조정(down=True). 가장 이른 유효 A-B-C 채택.
+            best = None  # (st, conf)
             for st in range(i, min(i + _SCAN_WINDOW, n - 3)):
                 c = _correction_conf(pivots[st : st + 4], down=bool(last_motive_up))
-                if c is not None:
-                    found = (st, 3, ["A", "B", "C"], "corrective", c, last_motive_up)
-                    break
-        if found:
-            st, ln, labels, phase, conf, is_up = found
-            for k in range(i, st):  # 사이클 시작 전 구간은 라벨 유보
-                out.append((k, "", "", 0.0))
-            for k, lab in enumerate(labels):
-                out.append((st + k, lab, phase, round(conf, 2)))
-            if phase == "motive":
-                last_motive_up = is_up
-            i = st + ln
-            expect_motive = not expect_motive
-        elif not expect_motive:
-            expect_motive = True  # 조정이 없거나 복합 → 다음 추진을 기대(위상만 전환)
-        else:
-            out.append((i, "", "", 0.0))  # 추진도 없음 → 이 다리 유보
-            i += 1
+                if c is not None and (best is None or c > best[1]):
+                    best = (st, c)
+            if best is not None:
+                st, conf = best
+                _fill_gap(out, i, st, "motive", filler_seq)  # 앞 다리=직전 추진 연장(저신뢰)
+                for k, lab in enumerate(["A", "B", "C"]):
+                    out.append((st + k, lab, "corrective", round(conf, 2)))
+                i = st + 3
+            else:  # 창 내 통과 조정 없음 → 저신뢰 3파
+                legs = min(3, n - 1 - i)
+                for k, lab in enumerate(["A", "B", "C"][:legs]):
+                    out.append((i + k, lab, "corrective", _FILLER_CONF))
+                i += legs
+        expect_motive = not expect_motive
     return out
+
+
+def _fill_gap(
+    out: list[tuple[int, str, str, float]],
+    start: int,
+    stop: int,
+    phase: str,
+    filler_seq: dict[str, list[str]],
+) -> None:
+    """[start, stop) 어긋난 다리를 직전 위상(phase)의 연결용 저신뢰 라벨로 채운다(연속성 유지)."""
+    labels = filler_seq[phase]
+    for k in range(start, stop):
+        out.append((k, labels[(k - start) % len(labels)], phase, _FILLER_CONF))
 
 
 def _build_segments(

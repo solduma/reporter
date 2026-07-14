@@ -245,33 +245,44 @@ export default function CandleChart({
     const segs = elliott?.segments ?? [];
     if (elliott && segs.length >= 1) {
       const markers: SeriesMarker<Time>[] = [];
-      // 라벨된 파동 다리를 세그먼트별로 그린다(사이 유보 구간은 선 없음 → 사이클이 시각적으로 분리).
-      // 흰 헤일로를 아래에 깔아 MA·캔들 위로 도드라지게.
+      // 파동 다리를 갭 없이 이어 그린다(추진 5파↔조정 3파가 끊김 없이 연결). 각 다리는 신뢰도로
+      // 차등: 하드룰+피보 통과(고신뢰)는 진한 실선 + 라벨, 연결용(저신뢰)은 옅은 점선 + 라벨 생략
+      // → 사용자가 "진짜 카운트"와 "연결용 추정"을 한눈에 구분. 흰 헤일로로 MA·캔들과 분리.
+      const CONF_HI = 0.4; // 이 미만은 연결용(저신뢰) — 억지 카운트 아님을 옅게 표시
       for (const seg of segs) {
+        const strong = (seg.confidence ?? 0) >= CONF_HI;
         const pts = [
           { time: seg.start_date.slice(0, 10) as Time, value: seg.start_price },
           { time: seg.end_date.slice(0, 10) as Time, value: seg.end_price },
         ];
-        const halo = chart.addSeries(LineSeries, {
-          color: "rgba(255,255,255,0.9)", lineWidth: 4,
-          priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
-        });
-        halo.setData(pts);
-        // 추진=진남색, 조정=자홍(방향 아닌 위상으로 색 구분 — MA 와 안 겹치는 톤).
+        if (strong) {
+          const halo = chart.addSeries(LineSeries, {
+            color: "rgba(255,255,255,0.9)", lineWidth: 4,
+            priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+          });
+          halo.setData(pts);
+        }
+        // 추진=진남색, 조정=자홍(방향 아닌 위상으로 색 구분). 저신뢰는 옅은 톤 + 점선.
+        const motive = seg.phase === "motive";
         const line = chart.addSeries(LineSeries, {
-          color: seg.phase === "motive" ? "#1e293b" : "#9333ea",
-          lineWidth: 2,
+          color: strong
+            ? (motive ? "#1e293b" : "#9333ea")
+            : (motive ? "rgba(30,41,59,0.35)" : "rgba(147,51,234,0.35)"),
+          lineWidth: strong ? 2 : 1,
+          lineStyle: strong ? 0 : 2, // 0=실선, 2=점선(연결용)
           priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
         });
         line.setData(pts);
-        // 파동 번호(1~5·A~C)를 끝점에. 상승 다리=위, 하락 다리=아래.
-        markers.push({
-          time: seg.end_date.slice(0, 10) as Time,
-          position: seg.direction === "up" ? "aboveBar" : "belowBar",
-          shape: "circle",
-          color: seg.phase === "motive" ? "#1d4ed8" : "#9333ea",
-          text: seg.wave_label,
-        });
+        // 파동 번호는 고신뢰 다리에만(저신뢰는 라벨 생략 — 차트가 번호로 뒤덮이지 않게).
+        if (strong) {
+          markers.push({
+            time: seg.end_date.slice(0, 10) as Time,
+            position: seg.direction === "up" ? "aboveBar" : "belowBar",
+            shape: "circle",
+            color: motive ? "#1d4ed8" : "#9333ea",
+            text: seg.wave_label,
+          });
+        }
       }
       markers.sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
       createSeriesMarkers(candleSeries, markers);

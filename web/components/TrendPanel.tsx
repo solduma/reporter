@@ -245,8 +245,8 @@ export default function TrendPanel({ trend, status, message }: Props) {
           <div className={styles.blockHead}>
             <span className={styles.blockTitle}>엘리엇 파동 (추정)</span>
             <InfoDot
-              what="추진 5파(1-2-3-4-5, 남색)와 조정 3파(A-B-C, 보라)가 번갈아 이어지는 반복 사이클을 차트에 라벨. 하락 추세면 추진은 하락 5파·조정은 상승 3파(방향 반전)."
-              guide="해석이 갈리는 보조지표라 참고용. 3대 하드룰을 통과한 구간만 라벨하고, 안 맞는 구간은 유보(라벨 없음)합니다. 확정 신호가 아니며 매매 판단 근거로 삼지 마세요."
+              what="추진 5파(1-2-3-4-5, 남색)와 조정 3파(A-B-C, 보라)가 번갈아 끊김 없이 이어지는 반복 사이클을 차트에 라벨. 하락 추세면 추진은 하락 5파·조정은 상승 3파(방향 반전)."
+              guide="해석이 갈리는 보조지표라 참고용. 3대 하드룰+피보를 통과한 구간은 진한 실선 + 번호 라벨(고신뢰), 형태가 덜 맞는 연결 구간은 옅은 점선(저신뢰)으로 차등 표시합니다. 확정 신호가 아니며 매매 판단 근거로 삼지 마세요."
             />
             {trend.elliott.labeled ? (
               <span className={styles.elliottBadge}>
