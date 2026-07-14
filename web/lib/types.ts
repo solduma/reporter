@@ -74,6 +74,7 @@ export interface TopDownView {
   us_sector_flow: number | null;
   us_sector_return_3m: number | null;
   kr_index_flow: number | null; // 종목 시장 지수(코스피/코스닥) 수급 점수(0~100)
+  stock_rs: number | null; // 종목 상대강도(RS Rating 1~99) — 탑다운 종목 변별 항
   kr_indices: { name: string; change_ratio: string; rising: boolean | null }[];
 }
 

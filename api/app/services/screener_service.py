@@ -388,12 +388,12 @@ def _index_flow(market: str | None) -> float | None:
 
 
 def _stock_topdown_score(
-    kr_sector: str | None, flows: dict, index_flow: float | None
+    kr_sector: str | None, flows: dict, index_flow: float | None, stock_rs: float | None
 ) -> float | None:
-    """섹터 flow(있으면) + 지수 수급으로 탑다운 점수. 지수는 항상 반영 — 섹터 미분류·flow 부재면
-    지수 수급만으로 점수를 낸다(가중치 재정규화). 종목분석 build_topdown 과 동일 규칙."""
+    """섹터 flow + 지수 수급 + 종목 RS 로 탑다운 점수. 섹터 로테이션에 종목 상대강도를 섞어 같은
+    섹터 종목도 변별한다. 종목분석 build_topdown 과 동일 규칙."""
     kr_f, us_f = flows.get(kr_sector, (None, None)) if kr_sector else (None, None)
-    return analysis_scoring.topdown_flow_score(us_f, kr_f, index_flow)
+    return analysis_scoring.topdown_flow_score(us_f, kr_f, index_flow, stock_rs)
 
 
 def _screen_topdown(db, base, as_of, sort, limit, offset) -> ScreenerResult:
@@ -409,7 +409,8 @@ def _screen_topdown(db, base, as_of, sort, limit, offset) -> ScreenerResult:
         mkt = r[0].market
         if mkt not in idx_cache:
             idx_cache[mkt] = _index_flow(mkt)
-        sc = _stock_topdown_score(kr_sec, flows, idx_cache[mkt])
+        rs = float(r[0].rs_rating) if r[0].rs_rating else None
+        sc = _stock_topdown_score(kr_sec, flows, idx_cache[mkt], rs)
         if sc is None:
             continue
         scored.append((r, kr_sec, sc))
@@ -463,7 +464,8 @@ def _screen_overall(db, base, as_of, sort, limit, offset) -> ScreenerResult:
         kr_sec = sector_map.get(u.stock_code)
         if u.market not in idx_cache:
             idx_cache[u.market] = _index_flow(u.market)
-        dsc = _stock_topdown_score(kr_sec, flows, idx_cache[u.market])
+        rs = float(u.rs_rating) if u.rs_rating else None
+        dsc = _stock_topdown_score(kr_sec, flows, idx_cache[u.market], rs)
         overall = analysis_scoring.overall([gsc, vsc, tsc, dsc])
         if overall is None:
             continue

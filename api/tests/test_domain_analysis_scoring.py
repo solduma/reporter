@@ -92,3 +92,16 @@ def test_value_score_absolute_band():
     only_pbr = s.value_score(per=None, pbr=0.5, ev_ebitda=None, roe=None, div_yield=None,
                              per_rank=None, pbr_rank=1.0, ev_rank=None)
     assert only_pbr == 100.0
+
+
+def test_topdown_stock_rs_differentiates():
+    # 같은 섹터 flow 라도 종목 RS 가 다르면 탑다운 점수가 갈린다(섹터별 뭉침 보정).
+    base = {"us_flow": 50.0, "kr_flow": 50.0, "kr_index_flow": 50.0}
+    hi = s.topdown_flow_score(**base, stock_rs=90.0)
+    lo = s.topdown_flow_score(**base, stock_rs=10.0)
+    assert hi > lo
+    # stock_rs 없으면 섹터만으로(하위호환).
+    none_rs = s.topdown_flow_score(**base)
+    assert none_rs is not None and lo < none_rs < hi
+    # 섹터 전무 + RS 만 있으면 RS 만으로.
+    assert s.topdown_flow_score(None, None, None, stock_rs=80.0) == 80.0

@@ -21,13 +21,17 @@ __all__ = ["build_topdown", "growth_score", "llm_comment", "overall", "topdown_f
 
 
 def build_topdown(
-    theme_names: list[str], market: str | None, session=None, code: str | None = None
+    theme_names: list[str],
+    market: str | None,
+    session=None,
+    code: str | None = None,
+    stock_rs: float | None = None,
 ) -> tuple[dict, float | None]:
-    """종목 테마 → 국내/미국 섹터 flow(수급) + 국내 지수로 탑다운 뷰·점수를 만든다.
+    """종목 테마 → 국내/미국 섹터 flow(수급) + 국내 지수 + 종목 상대강도로 탑다운 뷰·점수를 만든다.
 
-    theme_names 로 대표 국내 섹터를 고르고, 그 섹터의 국내 ETF flow 와 대응 미국
-    ETF flow(선행)를 조합한다. 섹터를 특정 못 하면 지수 방향만으로 점수를 낸다(지수는 항상
-    반영 — 섹터 flow 가 없을 땐 가중치가 지수 방향에 100% 재정규화된다).
+    theme_names 로 대표 국내 섹터를 고르고, 그 섹터의 국내 ETF flow 와 대응 미국 ETF flow(선행),
+    국내 지수 수급을 조합한다. 여기에 종목 자체 RS(stock_rs)를 섞어 같은 섹터 종목도 변별한다.
+    섹터를 특정 못 해도 지수 수급·종목 RS 는 항상 반영(가중치 재정규화).
     """
     kr_sector = sector_etf.stock_kr_sector(code, theme_names)
     us_sector = sector_etf.kr_sector_to_us(kr_sector)
@@ -41,11 +45,12 @@ def build_topdown(
     # 지수 수급 점수(0~100) — 방향 bool 이 아니라 지수 일봉 flow. 종목 시장에 맞는 지수(코스닥/코스피).
     idx_symbol = "KOSDAQ" if market == "KOSDAQ" else "KOSPI"
     kr_index_flow = sector_flow.index_flow_score(idx_symbol, session)
-    # 지수 수급은 항상 반영. 섹터 flow 를 못 구하면 지수 수급만으로(가중치 재정규화) 점수를 낸다.
+    # 섹터 로테이션(미국·국내·지수) + 종목 RS(종목별 변별). 계산 가능한 것만 가중 평균.
     score = topdown_flow_score(
         us_f.flow_score if us_f else None,
         kr_f.flow_score if kr_f else None,
         kr_index_flow,
+        stock_rs,
     )
     view = {
         "kr_sector": kr_sector,
@@ -54,6 +59,7 @@ def build_topdown(
         "us_sector_flow": us_f.flow_score if us_f else None,
         "us_sector_return_3m": us_f.return_3m if us_f else None,
         "kr_index_flow": kr_index_flow,  # 종목 시장 지수의 수급 점수(0~100)
+        "stock_rs": stock_rs,  # 종목 상대강도(RS Rating 1~99) — 종목 수급 변별 항
         "kr_indices": [
             {"name": q.name, "change_ratio": q.change_ratio, "rising": q.rising} for q in kr_idx
         ],

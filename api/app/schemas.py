@@ -277,6 +277,7 @@ class TopDownView(BaseModel):
     us_sector_flow: float | None  # 미국 섹터 ETF flow(선행)
     us_sector_return_3m: float | None
     kr_index_flow: float | None = None  # 종목 시장 지수(코스피/코스닥) 수급 점수(0~100)
+    stock_rs: float | None = None  # 종목 상대강도(RS Rating 1~99) — 탑다운 종목 변별 항
     kr_indices: list[dict]  # [{name, change_ratio, rising}]
 
 
