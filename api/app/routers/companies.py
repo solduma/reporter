@@ -23,6 +23,7 @@ from app.schemas import (
     CompanyTrend,
     ElliottPivot,
     ElliottView,
+    ElliottWaveSegment,
     FinancialPeriodOut,
     JudgmentOut,
     PeerOut,
@@ -369,6 +370,15 @@ def company_trend(
             labeled=result.elliott.labeled,
             confidence=result.elliott.confidence,
             direction=result.elliott.direction,
+            segments=[
+                ElliottWaveSegment(
+                    start_date=s.start_date, end_date=s.end_date, kind=s.kind, degree=s.degree,
+                    direction=s.direction, labels=s.labels, confidence=s.confidence,
+                )
+                for s in result.elliott.segments
+            ],
+            current_position=result.elliott.current_position,
+            invalidation_price=result.elliott.invalidation_price,
             note=result.elliott.note,
         ),
         secular=SecularView(

@@ -287,11 +287,24 @@ export interface ElliottPivot {
   label: string; // '0'~'5' 또는 ''
 }
 
-export interface ElliottView {
-  pivots: ElliottPivot[];
-  labeled: boolean; // 5파 라벨 노출 여부
+export interface ElliottWaveSegment {
+  start_date: string; // YYYY-MM-DD
+  end_date: string;
+  kind: "impulse" | "correction";
+  degree: "major" | "minor";
+  direction: "up" | "down";
+  labels: string[]; // ['0'..'5'] 또는 ['0','A','B','C']
   confidence: number; // 0~1
-  direction?: "up" | "down" | "none"; // 검출된 임펄스 방향
+}
+
+export interface ElliottView {
+  pivots: ElliottPivot[]; // 세부(minor) 피벗(라벨 in-place)
+  labeled: boolean; // 세그먼트를 하나라도 검출했는지
+  confidence: number; // 0~1 (최근 세그먼트 신뢰도)
+  direction?: "up" | "down" | "none"; // 최근 세그먼트 방향
+  segments?: ElliottWaveSegment[]; // 전 구간 파동 세그먼트(major+minor)
+  current_position?: string; // 현재 파동 위치(추정 문구)
+  invalidation_price?: number | null; // 현재 카운트 무효화 경계
   note: string;
 }
 

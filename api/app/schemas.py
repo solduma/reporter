@@ -153,13 +153,28 @@ class ElliottPivot(BaseModel):
     label: str  # '0'~'5' 또는 '' (미라벨)
 
 
-class ElliottView(BaseModel):
-    """엘리엇 파동 추정(실험적) — ZigZag 피벗 + 선택적 5파 라벨(상승/하락)."""
+class ElliottWaveSegment(BaseModel):
+    """전 구간 내 한 파동 세그먼트(임펄스 5레그 또는 조정 3레그) — 등급·방향·라벨."""
 
-    pivots: list[ElliottPivot]
-    labeled: bool  # 5파 라벨 노출 여부
+    start_date: str  # YYYY-MM-DD
+    end_date: str
+    kind: str  # impulse | correction
+    degree: str  # major | minor
+    direction: str  # up | down
+    labels: list[str]  # ['0','1'..'5'] 또는 ['0','A','B','C']
     confidence: float  # 0~1
-    direction: str = "none"  # up | down | none (검출된 임펄스 방향)
+
+
+class ElliottView(BaseModel):
+    """엘리엇 파동 추정(실험적) — 전 구간 임펄스+조정 세그먼트 체인 + 프랙탈 등급 + 현재 위치."""
+
+    pivots: list[ElliottPivot]  # 세부(minor) 피벗(라벨 in-place)
+    labeled: bool  # 세그먼트를 하나라도 검출했는지
+    confidence: float  # 0~1 (최근 세그먼트 신뢰도)
+    direction: str = "none"  # up | down | none (최근 세그먼트 방향)
+    segments: list[ElliottWaveSegment] = []  # 전 구간 파동 세그먼트(major+minor)
+    current_position: str = ""  # 현재 파동 위치(추정 문구)
+    invalidation_price: float | None = None  # 현재 카운트 무효화 경계
     note: str
 
 
