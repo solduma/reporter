@@ -287,6 +287,12 @@ export interface ElliottPivot {
   label: string; // '0'~'5' 또는 ''
 }
 
+export interface ElliottWavePoint {
+  date: string; // YYYY-MM-DD
+  price: number;
+  label: string; // '0'~'5'
+}
+
 export interface ElliottWaveSegment {
   start_date: string; // YYYY-MM-DD
   end_date: string;
@@ -294,6 +300,7 @@ export interface ElliottWaveSegment {
   direction: "up" | "down"; // 실제 가격 진행 방향
   labels: string[]; // leg=[] , impulse=['0'..'5']
   confidence: number; // 0~1 (impulse 만 유효)
+  points?: ElliottWavePoint[]; // impulse 만: 라벨 6점(자체 피벗)
 }
 
 export interface ElliottView {

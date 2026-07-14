@@ -380,16 +380,20 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
     rangeTouchedRef.current = false;
   }, [code]);
 
-  // 라벨된 엘리엇 임펄스(일봉)의 시작일 — 기본 뷰를 여기까지 넓혀 파동이 잘려 안 보이는 걸 막는다.
-  const elliottStart = useMemo(() => {
-    const pv = trend.data?.elliott?.labeled ? trend.data.elliott.pivots : null;
-    const labeled = pv?.filter((p) => p.label !== "");
-    return labeled && labeled.length > 0 ? labeled[0].date.slice(0, 10) : null;
+  // 가장 최근 엘리엇 임펄스의 시작일 — 기본 뷰를 여기까지만 넓혀 '현재' 파동 구조가 잘려 안 보이는
+  // 걸 막는다(과거 임펄스 전체로 넓히지 않아 뷰가 과하게 커지지 않음).
+  const recentImpulseStart = useMemo(() => {
+    const imps = (trend.data?.elliott?.segments ?? []).filter((s) => s.layer === "impulse");
+    if (imps.length === 0) {
+      return null;
+    }
+    const latest = imps.reduce((a, b) => (b.end_date > a.end_date ? b : a));
+    return latest.start_date.slice(0, 10);
   }, [trend.data]);
 
-  // 종목 봉이 로드되면 date-range 기본값을 최근 3개월로 초기화(범위 밖이면 클램프). 단 라벨된
-  // 엘리엇 5파가 3개월 밖 과거에 있으면 그 시작일까지 뷰를 넓혀 파동이 보이게 한다. 엘리엇은 봉보다
-  // 늦게 도착할 수 있어(trend 조회) 사용자가 직접 조정하기 전까지는 자동 초기화가 다시 적용된다.
+  // 종목 봉이 로드되면 date-range 기본값을 최근 3개월로 초기화(범위 밖이면 클램프). 단 가장 최근
+  // 엘리엇 임펄스가 3개월 밖에서 시작하면 그 지점까지만 뷰를 넓혀 현재 파동이 보이게 한다. 엘리엇은
+  // 봉보다 늦게 도착할 수 있어(trend 조회) 사용자가 직접 조정하기 전까지 자동 초기화가 재적용된다.
   useEffect(() => {
     if (dateAxis.length === 0 || rangeTouchedRef.current) {
       return;
@@ -398,12 +402,11 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
     const last = dateAxis[dateAxis.length - 1];
     const threeMoAgo = monthsAgoIso(3, new Date(`${last}T00:00:00Z`));
     let from = threeMoAgo < first ? first : threeMoAgo;
-    // 엘리엇 임펄스가 기본 뷰보다 과거에서 시작하면 그 지점까지 확장(축에 없으면 그 이상 첫 봉).
-    if (elliottStart && elliottStart < from) {
-      from = dateAxis.find((d) => d >= elliottStart) ?? first;
+    if (recentImpulseStart && recentImpulseStart < from) {
+      from = dateAxis.find((d) => d >= recentImpulseStart) ?? first;
     }
     setDateRange({ from, to: last });
-  }, [dateAxis, elliottStart]);
+  }, [dateAxis, recentImpulseStart]);
 
   // 모든 차트가 공유할 표시 구간(lightweight-charts Time).
   const chartRange: ChartRange | null = useMemo(

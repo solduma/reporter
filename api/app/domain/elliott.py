@@ -20,6 +20,10 @@ from dataclasses import dataclass, field
 ZIGZAG_THRESHOLD = 0.08
 # 기본 다리(leg) 등급 임계. 전 구간 상승/하락 다리를 균형있게 잡는다(하락 도배 방지).
 LEG_THRESHOLD = 0.06
+# 임펄스 스캔 다중 임계 — 큰 5파(2년 상승 등)는 굵은 임계에서만 잡히고, 세부 5파는 가는 임계에서
+# 잡힌다. 단일 임계는 종목 변동성에 민감해 인피니트의 상승 5파를 통째로 놓쳤다. 여러 임계를 훑어
+# 날짜구간 겹침 없이 고신뢰부터 채택한다.
+IMPULSE_THRESHOLDS = (0.05, 0.06, 0.08, 0.10)
 # 엄격 임펄스(강조 레이어) 스캔용 최소 피보나치 신뢰도. 하드룰 통과 후 이 이상만 5파로 강조.
 IMPULSE_MIN_CONFIDENCE = 0.45
 # 마지막 다리 이후 위치 판단에 쓰는 최근 다리 수 상한.
@@ -35,11 +39,20 @@ class Pivot:
 
 
 @dataclass
+class WavePoint:
+    """임펄스 세그먼트의 라벨 포인트(자체 피벗). 임계마다 피벗 집합이 달라 세그먼트가 직접 보유한다."""
+
+    date: str  # YYYY-MM-DD
+    price: float
+    label: str  # '0'~'5'
+
+
+@dataclass
 class WaveSegment:
     """파동 세그먼트. 두 레이어로 구성:
 
     - layer='leg': 기본 다리(단일 상승/하락 스윙) — 전 구간 흐름을 균형있게 보여준다.
-    - layer='impulse': 하드룰 통과 5파 임펄스(강조) — 라벨 1~5, 굵게 표시.
+    - layer='impulse': 하드룰 통과 5파 임펄스(강조) — points 6개(0~5)를 자체 보유, 굵게 표시.
     """
 
     start_date: str
@@ -48,6 +61,7 @@ class WaveSegment:
     direction: str  # up | down (실제 가격 진행 방향)
     labels: list[str]  # leg=[] , impulse=['0'..'5']
     confidence: float  # 0~1 (impulse 만 유효, leg 는 0)
+    points: list[WavePoint] = field(default_factory=list)  # impulse 만: 라벨 6점(자체 피벗)
 
 
 @dataclass
@@ -166,39 +180,44 @@ def _leg_segments(pivots: list[Pivot]) -> list[WaveSegment]:
     return segs
 
 
-def _find_impulses(pivots: list[Pivot]) -> list[WaveSegment]:
-    """전 피벗을 슬라이딩하며 하드룰 통과 5파 임펄스를 양방향 검출해 강조 세그먼트로 만든다.
+def _find_impulses(prices: list[tuple[str, float]]) -> list[WaveSegment]:
+    """여러 ZigZag 임계로 하드룰 통과 5파 임펄스를 양방향 검출해 강조 세그먼트로 만든다.
 
-    상승·하락 모두 스캔하고, 신뢰도 높은 것부터 겹치지 않게 채택한다(그리디 non-overlap). 채택된
-    임펄스의 6피벗에 0~5 라벨을 in-place 부여한다.
+    큰 5파는 굵은 임계에서만, 세부 5파는 가는 임계에서 잡히므로 임계마다 스캔한 뒤 날짜구간이
+    겹치지 않게 신뢰도 높은 것부터 채택한다. 임계마다 피벗 집합이 다르므로 각 세그먼트는 자기
+    라벨 6점(WavePoint)을 직접 보유한다(base pivots 에 라벨을 못 얹음).
     """
-    candidates: list[tuple[float, int, bool]] = []
-    for i in range(len(pivots) - 5):
-        for up in (True, False):
-            conf = _impulse_conf(pivots[i : i + 6], up)
-            if conf is not None and conf >= IMPULSE_MIN_CONFIDENCE:
-                candidates.append((conf, i, up))
-    candidates.sort(reverse=True)  # 최고 신뢰도 우선
+    # (신뢰도, 시작일, 끝일, up, 6점) 후보를 전 임계에서 모은다.
+    candidates: list[tuple[float, str, str, bool, list[Pivot]]] = []
+    for th in IMPULSE_THRESHOLDS:
+        piv = zigzag(prices, th)
+        for i in range(len(piv) - 5):
+            window = piv[i : i + 6]
+            for up in (True, False):
+                conf = _impulse_conf(window, up)
+                if conf is not None and conf >= IMPULSE_MIN_CONFIDENCE:
+                    candidates.append((conf, window[0].date, window[5].date, up, window))
+    candidates.sort(key=lambda c: -c[0])  # 최고 신뢰도 우선
 
-    used: set[int] = set()
-    chosen: list[tuple[int, bool, float]] = []
-    for conf, i, up in candidates:
-        span = range(i, i + 6)
-        if any(k in used for k in span):
+    chosen: list[tuple[float, str, str, bool, list[Pivot]]] = []
+    for cand in candidates:
+        _, sd, ed, _, _ = cand
+        # 이미 채택된 임펄스와 날짜구간이 겹치면 건너뛴다(중복·다른 임계 중복 방지).
+        if any(not (ed < cs or sd > ce) for _, cs, ce, _, _ in chosen):
             continue
-        chosen.append((i, up, conf))
-        used.update(span)
-    chosen.sort()  # 시간순
+        chosen.append(cand)
+    chosen.sort(key=lambda c: c[1])  # 시간순
 
     segs: list[WaveSegment] = []
-    for i, up, conf in chosen:
-        for offset, lab in enumerate(["0", "1", "2", "3", "4", "5"]):
-            pivots[i + offset].label = lab
+    for conf, sd, ed, up, window in chosen:
+        points = [
+            WavePoint(date=p.date, price=p.price, label=str(k)) for k, p in enumerate(window)
+        ]
         segs.append(
             WaveSegment(
-                start_date=pivots[i].date, end_date=pivots[i + 5].date, layer="impulse",
+                start_date=sd, end_date=ed, layer="impulse",
                 direction="up" if up else "down", labels=["0", "1", "2", "3", "4", "5"],
-                confidence=round(conf, 2),
+                confidence=round(conf, 2), points=points,
             )
         )
     return segs
@@ -209,27 +228,25 @@ def _current_position(
 ) -> tuple[str, float | None]:
     """가장 최근 임펄스 + 이후 진행 다리로 현재 파동 위치·무효화가격을 추정한다.
 
-    진행 다리가 _MAX_TRAILING_LEGS 초과면 복합/연장으로 보고 라벨을 유보한다(정직).
+    진행 다리(임펄스 끝 이후 leg 피벗 수)가 _MAX_TRAILING_LEGS 초과면 복합/연장으로 보고 유보한다.
     """
     if not impulses:
         return "뚜렷한 5파 미검출 — 스윙 흐름만 참고", None
-    last = impulses[-1]
-    end_idx = next((i for i, p in enumerate(pivots) if p.date == last.end_date), None)
-    if end_idx is None:
-        return "진행 중", None
-    trailing = (len(pivots) - 1) - end_idx  # 임펄스 종료 이후 진행 다리
+    last = max(impulses, key=lambda s: s.end_date)  # 가장 최근에 끝난 임펄스
+    end_price = last.points[-1].price if last.points else None
+    trailing = sum(1 for p in pivots if p.date > last.end_date)  # 임펄스 종료 이후 leg 피벗
     up = last.direction == "up"
     kind = "상승" if up else "하락"
     if trailing > _MAX_TRAILING_LEGS:
         return f"{kind} 5파 이후 복합 구간 — 라벨 유보", None
-    # 임펄스 방향과 무관하게: 5파 완성 후엔 반대 방향 조정(A·B·C)이 진행된다.
+    # 5파 완성 후엔 반대 방향 조정(A·B·C)이 진행된다.
     phases = {
         0: f"{kind} 5파 완성 — 반대 조정 시작 가능",
         1: "조정 A파 진행",
         2: "조정 B파 되돌림",
         3: "조정 C파 진행 — 추세 재개 주시",
     }
-    return phases[trailing], pivots[end_idx].price  # 5파 극점 재돌파 시 조정 무효
+    return phases[trailing], end_price  # 5파 극점 재돌파 시 조정 무효
 
 
 def analyze(
@@ -238,8 +255,8 @@ def analyze(
 ) -> ElliottResult:
     """종가 시계열을 두 레이어로 분석: 기본 다리(전 구간 상승/하락 흐름) + 강조 5파 임펄스.
 
-    기본 다리는 상승/하락을 균형있게 드러내고(하락 도배 방지), 그 위에 하드룰 통과 임펄스(양방향)를
-    강조로 얹는다. 최근 임펄스로 현재 파동 위치·무효화가격을 추정한다.
+    기본 다리는 상승/하락을 균형있게 드러내고(하락 도배 방지), 그 위에 다중 임계로 검출한 하드룰
+    통과 임펄스(양방향)를 강조로 얹는다. 최근 임펄스로 현재 파동 위치·무효화가격을 추정한다.
     """
     pivots = zigzag(prices, leg_threshold)
     if len(pivots) < 3:
@@ -249,12 +266,12 @@ def analyze(
         )
 
     leg_segs = _leg_segments(pivots)
-    impulses = _find_impulses(pivots)  # 임펄스 라벨 in-place 부여
+    impulses = _find_impulses(prices)  # 다중 임계 스캔, 세그먼트가 자체 라벨 포인트 보유
     segments = leg_segs + impulses  # 다리(기본) + 임펄스(강조)
 
     position, invalidation = _current_position(pivots, impulses)
     labeled = len(impulses) > 0
-    last = impulses[-1] if impulses else None
+    last = max(impulses, key=lambda s: s.end_date) if impulses else None  # 가장 최근 임펄스
     confidence = last.confidence if last else 0.0
     direction = last.direction if last else "none"
 

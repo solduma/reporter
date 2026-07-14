@@ -153,8 +153,16 @@ class ElliottPivot(BaseModel):
     label: str  # '0'~'5' 또는 '' (미라벨)
 
 
+class ElliottWavePoint(BaseModel):
+    """임펄스 세그먼트의 라벨 포인트(자체 피벗). 프론트가 이 점들로 선·라벨을 그린다."""
+
+    date: str  # YYYY-MM-DD
+    price: float
+    label: str  # '0'~'5'
+
+
 class ElliottWaveSegment(BaseModel):
-    """파동 세그먼트. layer=leg(기본 상승/하락 다리) 또는 impulse(강조 5파)."""
+    """파동 세그먼트. layer=leg(기본 상승/하락 다리) 또는 impulse(강조 5파, points 6개 보유)."""
 
     start_date: str  # YYYY-MM-DD
     end_date: str
@@ -162,16 +170,17 @@ class ElliottWaveSegment(BaseModel):
     direction: str  # up | down (실제 가격 진행 방향)
     labels: list[str]  # leg=[] , impulse=['0'..'5']
     confidence: float  # 0~1 (impulse 만 유효)
+    points: list[ElliottWavePoint] = []  # impulse 만: 라벨 6점(자체 피벗)
 
 
 class ElliottView(BaseModel):
-    """엘리엇 파동 추정(실험적) — 전 구간 임펄스+조정 세그먼트 체인 + 프랙탈 등급 + 현재 위치."""
+    """엘리엇 파동 추정(실험적) — 전 구간 상승/하락 다리 + 강조 5파 임펄스 + 현재 위치."""
 
-    pivots: list[ElliottPivot]  # 세부(minor) 피벗(라벨 in-place)
-    labeled: bool  # 세그먼트를 하나라도 검출했는지
-    confidence: float  # 0~1 (최근 세그먼트 신뢰도)
-    direction: str = "none"  # up | down | none (최근 세그먼트 방향)
-    segments: list[ElliottWaveSegment] = []  # 전 구간 파동 세그먼트(major+minor)
+    pivots: list[ElliottPivot]  # 기본 다리 피벗(스윙 흐름)
+    labeled: bool  # 강조 임펄스를 하나라도 검출했는지
+    confidence: float  # 0~1 (최근 임펄스 신뢰도)
+    direction: str = "none"  # up | down | none (최근 임펄스 방향)
+    segments: list[ElliottWaveSegment] = []  # leg(기본) + impulse(강조) 세그먼트
     current_position: str = ""  # 현재 파동 위치(추정 문구)
     invalidation_price: float | None = None  # 현재 카운트 무효화 경계
     note: str
