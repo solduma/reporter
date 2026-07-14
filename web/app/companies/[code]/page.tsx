@@ -143,6 +143,8 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
   const [error, setError] = useState<string | null>(null);
   // date-range: 시작·종료일(ISO). null 이면 데이터 로드 후 최근 3개월로 초기화.
   const [dateRange, setDateRange] = useState<{ from: string; to: string } | null>(null);
+  // 사용자가 기간을 직접 조정했는지 — true 면 자동 초기화(엘리엇 확장 포함)가 덮어쓰지 않는다.
+  const rangeTouchedRef = useRef(false);
   // 밸류에이션 밴드 전용 기간(탑다운 슬라이더와 독립). null 이면 재무 로드 후 전체 구간으로 초기화.
   const [valuationRange, setValuationRange] = useState<{ from: string; to: string } | null>(null);
 
@@ -373,17 +375,35 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
     [stockCandles],
   );
 
-  // 종목 봉이 로드되면 date-range 기본값을 최근 3개월로 초기화(범위 밖이면 클램프).
+  // 종목이 바뀌면 '사용자 조정' 플래그를 초기화해 새 종목의 자동 기간(엘리엇 확장 포함)이 적용되게.
   useEffect(() => {
-    if (dateAxis.length === 0) {
+    rangeTouchedRef.current = false;
+  }, [code]);
+
+  // 라벨된 엘리엇 임펄스(일봉)의 시작일 — 기본 뷰를 여기까지 넓혀 파동이 잘려 안 보이는 걸 막는다.
+  const elliottStart = useMemo(() => {
+    const pv = trend.data?.elliott?.labeled ? trend.data.elliott.pivots : null;
+    const labeled = pv?.filter((p) => p.label !== "");
+    return labeled && labeled.length > 0 ? labeled[0].date.slice(0, 10) : null;
+  }, [trend.data]);
+
+  // 종목 봉이 로드되면 date-range 기본값을 최근 3개월로 초기화(범위 밖이면 클램프). 단 라벨된
+  // 엘리엇 5파가 3개월 밖 과거에 있으면 그 시작일까지 뷰를 넓혀 파동이 보이게 한다. 엘리엇은 봉보다
+  // 늦게 도착할 수 있어(trend 조회) 사용자가 직접 조정하기 전까지는 자동 초기화가 다시 적용된다.
+  useEffect(() => {
+    if (dateAxis.length === 0 || rangeTouchedRef.current) {
       return;
     }
     const first = dateAxis[0];
     const last = dateAxis[dateAxis.length - 1];
     const threeMoAgo = monthsAgoIso(3, new Date(`${last}T00:00:00Z`));
-    const from = threeMoAgo < first ? first : threeMoAgo;
-    setDateRange((prev) => prev ?? { from, to: last });
-  }, [dateAxis]);
+    let from = threeMoAgo < first ? first : threeMoAgo;
+    // 엘리엇 임펄스가 기본 뷰보다 과거에서 시작하면 그 지점까지 확장(축에 없으면 그 이상 첫 봉).
+    if (elliottStart && elliottStart < from) {
+      from = dateAxis.find((d) => d >= elliottStart) ?? first;
+    }
+    setDateRange({ from, to: last });
+  }, [dateAxis, elliottStart]);
 
   // 모든 차트가 공유할 표시 구간(lightweight-charts Time).
   const chartRange: ChartRange | null = useMemo(
@@ -394,6 +414,7 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
   // 어떤 비교차트를 스크롤·드래그하면 그 구간을 공유 date-range 로 반영해 나머지 차트·슬라이더도
   // 함께 움직인다. 같은 값이면 setState 를 건너뛰어(참조 안정) 재적용 루프를 끊는다.
   const handleChartRangeChange = useCallback((from: string, to: string) => {
+    rangeTouchedRef.current = true;
     setDateRange((prev) => (prev && prev.from === from && prev.to === to ? prev : { from, to }));
   }, []);
 
@@ -560,6 +581,7 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
     const last = dateAxis[dateAxis.length - 1];
     const target = agoIso(new Date(`${last}T00:00:00Z`), unit, amount);
     const from = dateAxis.find((d) => d >= target) ?? dateAxis[0];
+    rangeTouchedRef.current = true;
     setDateRange({ from, to: last });
   };
 
@@ -608,7 +630,10 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
           dates={dateAxis}
           from={dateRange.from}
           to={dateRange.to}
-          onChange={(from, to) => setDateRange({ from, to })}
+          onChange={(from, to) => {
+            rangeTouchedRef.current = true;
+            setDateRange({ from, to });
+          }}
         />
       ) : null}
       {rangePresetButtons}
