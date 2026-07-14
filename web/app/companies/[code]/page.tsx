@@ -380,14 +380,16 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
     rangeTouchedRef.current = false;
   }, [code]);
 
-  // 가장 최근 엘리엇 임펄스의 시작일 — 기본 뷰를 여기까지만 넓혀 '현재' 파동 구조가 잘려 안 보이는
-  // 걸 막는다(과거 임펄스 전체로 넓히지 않아 뷰가 과하게 커지지 않음).
+  // 가장 최근 추진(motive) 파동의 시작일 — 기본 뷰를 여기까지만 넓혀 '현재' 파동 구조가 잘려 안
+  // 보이는 걸 막는다(전 구간으로 넓히지 않아 뷰가 과하게 커지지 않음).
   const recentImpulseStart = useMemo(() => {
-    const imps = (trend.data?.elliott?.segments ?? []).filter((s) => s.layer === "impulse");
-    if (imps.length === 0) {
+    const motives = (trend.data?.elliott?.segments ?? []).filter(
+      (s) => s.degree === "primary" && s.phase === "motive",
+    );
+    if (motives.length === 0) {
       return null;
     }
-    const latest = imps.reduce((a, b) => (b.end_date > a.end_date ? b : a));
+    const latest = motives.reduce((a, b) => (b.end_date > a.end_date ? b : a));
     return latest.start_date.slice(0, 10);
   }, [trend.data]);
 

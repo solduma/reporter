@@ -374,9 +374,10 @@ def company_trend(
             direction=result.elliott.direction,
             segments=[
                 ElliottWaveSegment(
-                    start_date=s.start_date, end_date=s.end_date, layer=s.layer,
-                    direction=s.direction, phase=s.phase, labels=s.labels,
-                    confidence=s.confidence,
+                    start_date=s.start_date, end_date=s.end_date,
+                    start_price=s.start_price, end_price=s.end_price,
+                    degree=s.degree, phase=s.phase, direction=s.direction,
+                    bars=s.bars, wave_label=s.wave_label, confidence=s.confidence,
                     points=[
                         ElliottWavePoint(date=pt.date, price=pt.price, label=pt.label)
                         for pt in s.points
@@ -389,7 +390,10 @@ def company_trend(
             projection=(
                 ElliottProjection(
                     wave=result.elliott.projection.wave, low=result.elliott.projection.low,
-                    high=result.elliott.projection.high, basis=result.elliott.projection.basis,
+                    high=result.elliott.projection.high,
+                    bars_low=result.elliott.projection.bars_low,
+                    bars_high=result.elliott.projection.bars_high,
+                    basis=result.elliott.projection.basis,
                 )
                 if result.elliott.projection
                 else None

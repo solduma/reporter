@@ -296,18 +296,23 @@ export interface ElliottWavePoint {
 export interface ElliottWaveSegment {
   start_date: string; // YYYY-MM-DD
   end_date: string;
-  layer: "leg" | "impulse"; // leg=연속 위상 교대, impulse=강조 5파
+  start_price: number;
+  end_price: number;
+  degree: "primary" | "sub";
+  phase: "motive" | "corrective";
   direction: "up" | "down"; // 실제 가격 진행 방향
-  phase?: string; // leg: motive | corrective
-  labels?: string[]; // impulse=['0'..'5']
+  bars?: number; // 소요 봉 수
+  wave_label?: string; // '5파' | '3파'
   confidence?: number; // 0~1
-  points?: ElliottWavePoint[]; // impulse 만: 라벨 6점(자체 피벗)
+  points?: ElliottWavePoint[]; // 내부 하위 라벨(motive=1~5, corr=A~C)
 }
 
 export interface ElliottProjection {
-  wave: string; // 투영 대상(예: '조정')
+  wave: string; // 투영 대상(예: '다음 조정')
   low: number;
   high: number;
+  bars_low?: number; // 예상 소요 봉 수 하한
+  bars_high?: number; // 예상 소요 봉 수 상한
   basis: string; // 근거 문구
 }
 
