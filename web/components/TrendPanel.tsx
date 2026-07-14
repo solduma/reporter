@@ -250,7 +250,8 @@ export default function TrendPanel({ trend, status, message }: Props) {
             />
             {trend.elliott.labeled ? (
               <span className={styles.elliottBadge}>
-                5파 추정 · 신뢰도 {Math.round(trend.elliott.confidence * 100)}%
+                {trend.elliott.direction === "down" ? "하락" : "상승"} 5파 추정 · 신뢰도{" "}
+                {Math.round(trend.elliott.confidence * 100)}%
               </span>
             ) : (
               <span className={styles.elliottBadgeMuted}>패턴 미검출</span>

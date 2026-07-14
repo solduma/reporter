@@ -368,6 +368,7 @@ def company_trend(
             ],
             labeled=result.elliott.labeled,
             confidence=result.elliott.confidence,
+            direction=result.elliott.direction,
             note=result.elliott.note,
         ),
         secular=SecularView(
