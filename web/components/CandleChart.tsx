@@ -239,72 +239,39 @@ export default function CandleChart({
     // 엘리엇 파동 — 전 구간 상승 추진↔하락 조정이 중단없이 연결된 파동 체인. 한붓그리기(연결 폴리라인)
     // 로 그려 상승5파↔하락3파 톱니 구조가 드러나게 하고, 흰색 헤일로 + 진한 남색 선으로 MA(주황·틸·
     // 보라·자홍)·캔들과 확실히 분리한다. 파동 경계(1~5·A~C)와 하위 프랙탈 라벨을 마커로.
-    const primary = (elliott?.segments ?? []).filter((s) => s.degree === "primary");
-    if (elliott && primary.length >= 1) {
-      // 연결 폴리라인 정점: 시작 + 각 파동의 하위 전환점(1~5·A~C) + 파동 끝. 하위 피벗까지 포함해
-      // 대형 파동도 밋밋한 직선이 아니라 실제 톱니(파동 안의 작은 파동)로 그려진다. 시각 정합을 위해
-      // 같은 시각 중복은 제거하며 오름차순 유지.
-      const chainPts: { time: Time; value: number }[] = [
-        { time: primary[0].start_date.slice(0, 10) as Time, value: primary[0].start_price },
-      ];
-      for (const seg of primary) {
-        for (const pt of seg.points ?? []) {
-          chainPts.push({ time: pt.date.slice(0, 10) as Time, value: pt.price });
-        }
-        chainPts.push({ time: seg.end_date.slice(0, 10) as Time, value: seg.end_price });
-      }
-      const dedup = chainPts.filter((p, i) => i === 0 || p.time !== chainPts[i - 1].time);
-      // 헤일로(굵은 반투명 흰선)를 연속으로 깔아 MA·캔들 위로 도드라지게.
-      const halo = chart.addSeries(LineSeries, {
-        color: "rgba(255,255,255,0.9)", lineWidth: 4,
-        priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
-      });
-      halo.setData(dedup);
-      // 본선은 세그먼트별로 그려 신뢰도에 따라 스타일 차등: 고신뢰=실선 진남색, 저신뢰=점선 회색.
-      // (하드룰 검증 통과 파동만 진하게 — 저신뢰 다리가 진짜 임펄스처럼 안 보이게.)
-      for (const seg of primary) {
-        const strong = (seg.confidence ?? 0) >= 0.5;
-        const segPts: { time: Time; value: number }[] = [
+    // 엘리엇 파동 — 반복 사이클 1-2-3-4-5(추진)·A-B-C(조정). 각 다리(세그먼트)가 한 파동이고 그
+    // wave_label(1~5·A~C)을 끝점에 표시한다. 사이클 다리를 이어 흰 헤일로 + 진남색 선으로 그려
+    // MA·캔들과 분리. 추진=파랑 라벨(위), 조정=빨강 라벨(아래).
+    const segs = elliott?.segments ?? [];
+    if (elliott && segs.length >= 1) {
+      const markers: SeriesMarker<Time>[] = [];
+      // 라벨된 파동 다리를 세그먼트별로 그린다(사이 유보 구간은 선 없음 → 사이클이 시각적으로 분리).
+      // 흰 헤일로를 아래에 깔아 MA·캔들 위로 도드라지게.
+      for (const seg of segs) {
+        const pts = [
           { time: seg.start_date.slice(0, 10) as Time, value: seg.start_price },
-          ...(seg.points ?? []).map((pt) => ({ time: pt.date.slice(0, 10) as Time, value: pt.price })),
           { time: seg.end_date.slice(0, 10) as Time, value: seg.end_price },
-        ].filter((p, i, arr) => i === 0 || p.time !== arr[i - 1].time);
-        if (segPts.length < 2) {
-          continue;
-        }
-        const line = chart.addSeries(LineSeries, {
-          color: strong ? "#1e293b" : "rgba(100,116,139,0.7)",
-          lineWidth: 2,
-          lineStyle: strong ? 0 : 2, // 저신뢰=점선
+        ];
+        const halo = chart.addSeries(LineSeries, {
+          color: "rgba(255,255,255,0.9)", lineWidth: 4,
           priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
         });
-        line.setData(segPts);
-      }
-
-      // 마커: 파동 경계(추진 끝=상승5파 파랑 위, 조정 끝=하락3파 빨강 아래) + 하위 전환점(1~5·A~C
-      // 회색). 경계와 하위 라벨이 같은 x 에 겹치지 않게, 하위는 파동 끝점 직전까지만(백엔드에서 이미
-      // 끝점 제외). 저신뢰 경계는 흐린 색.
-      const markers: SeriesMarker<Time>[] = [];
-      for (const seg of primary) {
-        const strong = (seg.confidence ?? 0) >= 0.5;
+        halo.setData(pts);
+        // 추진=진남색, 조정=자홍(방향 아닌 위상으로 색 구분 — MA 와 안 겹치는 톤).
+        const line = chart.addSeries(LineSeries, {
+          color: seg.phase === "motive" ? "#1e293b" : "#9333ea",
+          lineWidth: 2,
+          priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+        });
+        line.setData(pts);
+        // 파동 번호(1~5·A~C)를 끝점에. 상승 다리=위, 하락 다리=아래.
         markers.push({
           time: seg.end_date.slice(0, 10) as Time,
           position: seg.direction === "up" ? "aboveBar" : "belowBar",
-          shape: seg.phase === "motive" ? "arrowUp" : "arrowDown",
-          color: seg.phase === "motive"
-            ? (strong ? "#1d4ed8" : "#93b4f0")
-            : (strong ? "#dc2626" : "#f0a3a3"),
-          text: seg.phase === "motive" ? "5" : "C",
+          shape: "circle",
+          color: seg.phase === "motive" ? "#1d4ed8" : "#9333ea",
+          text: seg.wave_label,
         });
-        for (const pt of seg.points ?? []) {
-          markers.push({
-            time: pt.date.slice(0, 10) as Time,
-            position: seg.direction === "up" ? "belowBar" : "aboveBar",
-            shape: "circle",
-            color: "#64748b",
-            text: pt.label,
-          });
-        }
       }
       markers.sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
       createSeriesMarkers(candleSeries, markers);
