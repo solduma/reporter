@@ -50,8 +50,9 @@ def _impulse_prices() -> list[tuple[str, float]]:
 
 def test_label_impulse_valid_five_wave():
     pivots = elliott.zigzag(_impulse_prices(), threshold=0.08)
-    labeled, conf = elliott.label_impulse(pivots)
+    labeled, conf, direction = elliott.label_impulse(pivots)
     assert labeled is True
+    assert direction == "up"
     assert conf >= elliott.MIN_LABEL_CONFIDENCE
     # 라벨 0~5 부여.
     labels = [p.label for p in pivots[-6:]]
@@ -68,7 +69,7 @@ def test_label_impulse_rule2_violation_when_wave2_retraces_fully():
         elliott.Pivot("d4", 250.0, "low"),
         elliott.Pivot("d5", 350.0, "high"),
     ]
-    labeled, _ = elliott.label_impulse(pivots)
+    labeled, _, _ = elliott.label_impulse(pivots)
     assert labeled is False
 
 
@@ -82,8 +83,38 @@ def test_label_impulse_rule_overlap_violation():
         elliott.Pivot("d4", 190.0, "low"),  # < p1(200) → 중첩
         elliott.Pivot("d5", 350.0, "high"),
     ]
-    labeled, _ = elliott.label_impulse(pivots)
+    labeled, _, _ = elliott.label_impulse(pivots)
     assert labeled is False
+
+
+def test_label_impulse_detects_bear_five_wave():
+    # 하락 5파(고-저-고-저-고-저) — 상승 임펄스를 부호만 뒤집은 이상적 피보 비율.
+    p0, p1 = 300.0, 200.0  # w1 = 100 하락
+    p2 = p1 + 55.9  # 2파 반등 0.559
+    p3 = p2 - 161.8  # 3파 하락 1.618
+    p4 = p3 + 61.8  # 4파 반등 0.382
+    p5 = p4 - 100.0  # 5파 하락
+    pivots = [
+        elliott.Pivot("d0", p0, "high"),
+        elliott.Pivot("d1", p1, "low"),
+        elliott.Pivot("d2", p2, "high"),
+        elliott.Pivot("d3", p3, "low"),
+        elliott.Pivot("d4", p4, "high"),
+        elliott.Pivot("d5", p5, "low"),
+    ]
+    labeled, conf, direction = elliott.label_impulse(pivots)
+    assert labeled is True
+    assert direction == "down"
+    assert conf >= elliott.MIN_LABEL_CONFIDENCE
+
+
+def test_label_impulse_scans_window_not_only_last_six():
+    # 유효 5파 뒤에 미확정 스윙 피벗이 더 붙어도(마지막 6개가 아님) 슬라이딩으로 찾아낸다.
+    imp = elliott.zigzag(_impulse_prices(), threshold=0.08)  # 6피벗 상승 임펄스
+    trailing = [elliott.Pivot("d6", imp[-1].price * 0.9, "low")]  # 진행 중 조정 스윙
+    labeled, _, direction = elliott.label_impulse(imp + trailing)
+    assert labeled is True  # 마지막 6개만 봤다면 못 찾았을 케이스
+    assert direction == "up"
 
 
 def test_analyze_returns_pivots_even_without_label():
@@ -92,4 +123,5 @@ def test_analyze_returns_pivots_even_without_label():
     res = elliott.analyze(prices, threshold=0.08)
     assert res.pivots
     assert res.labeled is False
+    assert res.direction == "none"
     assert "스윙" in res.note or "부족" in res.note

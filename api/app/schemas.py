@@ -154,11 +154,12 @@ class ElliottPivot(BaseModel):
 
 
 class ElliottView(BaseModel):
-    """엘리엇 파동 추정(실험적) — ZigZag 피벗 + 선택적 5파 라벨."""
+    """엘리엇 파동 추정(실험적) — ZigZag 피벗 + 선택적 5파 라벨(상승/하락)."""
 
     pivots: list[ElliottPivot]
     labeled: bool  # 5파 라벨 노출 여부
     confidence: float  # 0~1
+    direction: str = "none"  # up | down | none (검출된 임펄스 방향)
     note: str
 
 

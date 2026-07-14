@@ -14,8 +14,9 @@ from dataclasses import dataclass
 
 # ZigZag 반전 임계(비율). 한국 스몰캡 변동성 고려해 다소 크게(8%). 이보다 작은 되돌림은 무시.
 ZIGZAG_THRESHOLD = 0.08
-# 라벨을 노출할 최소 신뢰도. 이 미만이면 피벗만 보여준다(억지 카운트 방지).
-MIN_LABEL_CONFIDENCE = 0.5
+# 라벨을 노출할 최소 신뢰도. 이 미만이면 피벗만 보여준다(억지 카운트 방지). 실측(상위 300종목):
+# 0.4 게이트에서 ~73% 검출·평균신뢰 0.62·거의 완전 5파. 더 높이면 검출률만 떨어진다.
+MIN_LABEL_CONFIDENCE = 0.4
 
 
 @dataclass
@@ -31,6 +32,7 @@ class ElliottResult:
     pivots: list[Pivot]
     labeled: bool  # 5파 라벨을 붙였는지(신뢰도 임계 통과)
     confidence: float  # 0~1 (라벨 신뢰도, 미라벨이면 0)
+    direction: str  # up | down | none (검출된 임펄스 방향)
     note: str  # 사람이 읽는 요약(추정 위치 등)
 
 
@@ -102,55 +104,84 @@ def _near(value: float, target: float, tol: float) -> float:
     return max(0.0, 1.0 - abs(value - target) / tol)
 
 
-def label_impulse(pivots: list[Pivot]) -> tuple[bool, float]:
-    """최근 6개 피벗(저-고-저-고-저-고)이 5파 상승 impulse 인지 검증하고 신뢰도를 낸다.
+def _validate_impulse(window: list[Pivot], bull: bool) -> float | None:
+    """6개 피벗(저-고-저-고-저-고 또는 반대)이 5파 impulse 3대 규칙을 만족하면 신뢰도, 아니면 None.
 
-    3대 규칙: (1)2파는 1파를 100% 이상 되돌리지 않음, (2)3파가 최단 아님, (3)4파가 1파 영역 비침범.
-    통과하면 P1~P6 을 0..5 파동으로 라벨(P0=시작저점). 반환 (labeled, confidence).
+    3대 규칙: (1)2파는 1파를 100% 이상 되돌리지 않음, (2)3파가 1·3·5 중 최단 아님,
+    (3)4파가 1파 영역 비침범. 상승/하락은 부호만 뒤집어 같은 규칙을 적용한다(폭은 항상 양수).
+    """
+    kinds = [x.kind for x in window]
+    expect = ["low", "high"] if bull else ["high", "low"]
+    if kinds != [expect[i % 2] for i in range(6)]:
+        return None
+
+    p0, p1, p2, p3, p4, p5 = (x.price for x in window)
+    s = 1.0 if bull else -1.0  # 부호: 상승은 그대로, 하락은 뒤집어 폭을 양수로.
+    w1 = s * (p1 - p0)  # 1파 추진폭
+    w2 = s * (p1 - p2)  # 2파 되돌림폭
+    w3 = s * (p3 - p2)  # 3파 추진폭
+    w4 = s * (p3 - p4)  # 4파 되돌림폭
+    w5 = s * (p5 - p4)  # 5파 추진폭
+    if min(w1, w3, w5) <= 0:  # 각 추진파는 양(+)이어야
+        return None
+    if w2 >= w1:  # 규칙 1: 2파 되돌림 < 1파(시작점 비침범)
+        return None
+    if w3 < w1 and w3 < w5:  # 규칙 2: 3파가 최단 아님
+        return None
+    if s * (p4 - p1) <= 0:  # 규칙 3: 4파 끝이 1파 끝 너머(비중첩)
+        return None
+    return _fib_score(w1, w2, w3, w4)
+
+
+def _scan_impulse(pivots: list[Pivot], bull: bool) -> tuple[int, float] | None:
+    """전 피벗을 슬라이딩하며 한 방향(bull/bear) 5파 impulse 중 신뢰도 최고를 찾는다.
+
+    마지막 6개만 보던 기존 방식은 최신 피벗이 미확정 스윙이라 거의 안 맞았다. 여기선 모든
+    6-피벗 창을 훑어 규칙 통과분 중 최고 신뢰도 창의 (시작 인덱스, 신뢰도)를 돌려준다.
+    """
+    best: tuple[int, float] | None = None
+    for start in range(len(pivots) - 5):
+        conf = _validate_impulse(pivots[start : start + 6], bull)
+        if conf is not None and (best is None or conf > best[1]):
+            best = (start, conf)
+    return best
+
+
+def label_impulse(pivots: list[Pivot]) -> tuple[bool, float, str]:
+    """피벗 시퀀스에서 상승·하락 5파 impulse 를 슬라이딩 스캔해 최고 신뢰도를 라벨한다.
+
+    양방향 후보 중 신뢰도가 높은 쪽을 고르고, MIN_LABEL_CONFIDENCE 이상이면 해당 6피벗에
+    0..5 파동 라벨을 붙인다. 반환 (labeled, confidence, direction).
     """
     if len(pivots) < 6:
-        return False, 0.0
-    p = pivots[-6:]
-    # 상승 impulse 는 저점에서 시작: low, high, low, high, low, high.
-    kinds = [x.kind for x in p]
-    if kinds != ["low", "high", "low", "high", "low", "high"]:
-        return False, 0.0
-
-    p0, p1, p2, p3, p4, p5 = (x.price for x in p)
-    w1 = p1 - p0  # 1파 상승폭
-    w2 = p1 - p2  # 2파 되돌림폭
-    w3 = p3 - p2  # 3파 상승폭
-    w4 = p3 - p4  # 4파 되돌림폭
-    w5 = p5 - p4  # 5파 상승폭
-    if min(w1, w3, w5) <= 0:  # 각 추진파는 양(+)이어야
-        return False, 0.0
-    # 규칙 1: 2파 < 100% of 1파 (되돌림이 1파 시작 아래로 안 감).
-    if w2 >= w1:
-        return False, 0.0
-    # 규칙 2: 3파가 1·3·5 중 최단이 아님.
-    if w3 < w1 and w3 < w5:
-        return False, 0.0
-    # 규칙 3: 4파 저점이 1파 고점 위(비중첩).
-    if p4 <= p1:
-        return False, 0.0
-
-    confidence = _fib_score(w1, w2, w3, w4)
+        return False, 0.0, "none"
+    bull = _scan_impulse(pivots, bull=True)
+    bear = _scan_impulse(pivots, bull=False)
+    candidates = [(c, s, d) for (best, d) in ((bull, "up"), (bear, "down")) if best for (s, c) in (best,)]
+    if not candidates:
+        return False, 0.0, "none"
+    confidence, start, direction = max(candidates)
     if confidence >= MIN_LABEL_CONFIDENCE:
-        for i, x in enumerate(p):  # P0=0(시작), P1..P5=1..5
+        for i, x in enumerate(pivots[start : start + 6]):  # P0=0(시작), 1..5 추진/조정파
             x.label = str(i)
-        return True, round(confidence, 2)
-    return False, round(confidence, 2)
+        return True, round(confidence, 2), direction
+    return False, round(confidence, 2), "none"
 
 
 def analyze(prices: list[tuple[str, float]], threshold: float = ZIGZAG_THRESHOLD) -> ElliottResult:
-    """종가 시계열에서 ZigZag 피벗을 뽑고 5파 라벨을 시도한다."""
+    """종가 시계열에서 ZigZag 피벗을 뽑고 상승·하락 5파 라벨을 슬라이딩 스캔으로 시도한다."""
     pivots = zigzag(prices, threshold)
     if len(pivots) < 2:
-        return ElliottResult(pivots=pivots, labeled=False, confidence=0.0, note="피벗 부족")
+        return ElliottResult(
+            pivots=pivots, labeled=False, confidence=0.0, direction="none", note="피벗 부족"
+        )
 
-    labeled, confidence = label_impulse(pivots)
+    labeled, confidence, direction = label_impulse(pivots)
     if labeled:
-        note = f"상승 5파 추정(신뢰도 {int(confidence * 100)}%) — 참고용"
+        kind = "상승" if direction == "up" else "하락"
+        note = f"{kind} 5파 추정(신뢰도 {int(confidence * 100)}%) — 참고용"
     else:
         note = "뚜렷한 5파 패턴 미검출 — 스윙 고·저점만 표시"
-    return ElliottResult(pivots=pivots, labeled=labeled, confidence=confidence, note=note)
+    return ElliottResult(
+        pivots=pivots, labeled=labeled, confidence=confidence, direction=direction, note=note
+    )

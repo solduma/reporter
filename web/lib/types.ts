@@ -291,6 +291,7 @@ export interface ElliottView {
   pivots: ElliottPivot[];
   labeled: boolean; // 5파 라벨 노출 여부
   confidence: number; // 0~1
+  direction?: "up" | "down" | "none"; // 검출된 임펄스 방향
   note: string;
 }
 
