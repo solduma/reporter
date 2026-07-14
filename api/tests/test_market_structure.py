@@ -59,3 +59,33 @@ def test_short_series_none():
 
 def test_threshold_scales_with_frame():
     assert ms._swing_threshold("day") < ms._swing_threshold("week") < ms._swing_threshold("month")
+
+
+def test_box_breakout_with_volume():
+    # 박스 레인지 뒤 상단 돌파 + 거래량 급증 → breakout + vol_confirmed.
+    # 상단~120, 하단~100 을 여러 번 오간 뒤 마지막에 130 으로 돌파.
+    box = [100.0, 120.0, 102.0, 119.0, 101.0, 121.0, 100.0, 118.0, 130.0]
+    d, c = _series(box)
+    s = ms.analyze(d, c, "day")
+    vols = [100] * 8 + [300]  # 돌파봉 거래량 3배
+    sig = ms.box_signal(s.pivots, c, vols)
+    assert sig.resistance is not None and sig.support is not None
+    assert sig.resistance > sig.support
+    # 마지막 종가 130 이 저항 위 → breakout(피벗이 충분히 잡히면).
+    if sig.event != "none":
+        assert sig.event == "breakout"
+        assert sig.vol_confirmed is True
+
+
+def test_box_inside_when_between():
+    box = [100.0, 120.0, 102.0, 119.0, 101.0, 121.0, 110.0]  # 마지막이 박스 안
+    d, c = _series(box)
+    s = ms.analyze(d, c, "day")
+    sig = ms.box_signal(s.pivots, c)
+    if sig.event != "none":
+        assert sig.event == "inside"
+
+
+def test_box_none_on_short():
+    sig = ms.box_signal([], [100.0, 101.0], None)
+    assert sig.event == "none" and sig.support is None

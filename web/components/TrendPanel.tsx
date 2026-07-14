@@ -42,6 +42,11 @@ const SETUP_CHIP: Record<string, { label: string; cls: string }> = {
   stage1_to_2: { label: "매수 조짐(HL)", cls: styles.volAccum },
   stage3_to_4: { label: "매도 조짐(LH)", cls: styles.volDistrib },
 };
+// 박스권 돌파/이탈 타점 — 상단 돌파=매수, 하단 이탈=매도(거래량 확정 시 강조).
+const BOX_CHIP: Record<string, { label: string; cls: string }> = {
+  breakout: { label: "박스 상단 돌파", cls: styles.volAccum },
+  breakdown: { label: "박스 하단 이탈", cls: styles.volDistrib },
+};
 
 function StageBadge({ f }: { f: StageFrame }) {
   const style = f.stage ? STAGE_STYLE[f.stage] : null;
@@ -51,6 +56,9 @@ function StageBadge({ f }: { f: StageFrame }) {
   const brk = f.breakout ? BREAKOUT_CHIP[f.breakout] : null;
   const struct = f.structure && f.structure !== "none" ? STRUCTURE_CHIP[f.structure] : null;
   const setup = f.setup && f.setup !== "none" ? SETUP_CHIP[f.setup] : null;
+  const box = f.box_event && (f.box_event === "breakout" || f.box_event === "breakdown")
+    ? BOX_CHIP[f.box_event]
+    : null;
   return (
     <div className={styles.stageItem}>
       <span className={styles.frameLabel}>
@@ -66,6 +74,11 @@ function StageBadge({ f }: { f: StageFrame }) {
         {brk ? <span className={`${styles.volChip} ${brk.cls}`}>{brk.label}</span> : null}
         {struct ? <span className={styles.volatChip}>{struct}</span> : null}
         {setup ? <span className={`${styles.volChip} ${setup.cls}`}>{setup.label}</span> : null}
+        {box ? (
+          <span className={`${styles.volChip} ${box.cls}`}>
+            {box.label}{f.box_vol_confirmed ? " ⚡" : ""}
+          </span>
+        ) : null}
       </span>
       {style ? <span className={styles.stageHint}>{style.hint}</span> : null}
       {typeof f.channel_pos === "number" ? (

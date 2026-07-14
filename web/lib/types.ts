@@ -241,6 +241,11 @@ export interface StageFrame {
   last_high?: "HH" | "LH" | "none" | null; // 최근 고점이 직전 대비
   last_low?: "HL" | "LL" | "none" | null; // 최근 저점이 직전 대비
   setup?: "stage1_to_2" | "stage3_to_4" | "none" | null; // 국면 전환 조짐 타점
+  // 박스권(수평 지지/저항) + 최신봉 돌파/이탈 — 현재 매수/매도 타점
+  box_support?: number | null; // 박스 하단(지지)
+  box_resistance?: number | null; // 박스 상단(저항)
+  box_event?: "breakout" | "breakdown" | "inside" | "none" | null;
+  box_vol_confirmed?: boolean; // 돌파/이탈 봉 거래량 확정
 }
 
 export interface SecularView {

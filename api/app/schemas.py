@@ -126,6 +126,11 @@ class StageFrame(BaseModel):
     last_high: str | None = None  # HH | LH | none (최근 고점이 직전 대비)
     last_low: str | None = None  # HL | LL | none (최근 저점이 직전 대비)
     setup: str | None = None  # stage1_to_2 | stage3_to_4 | none (국면 전환 조짐 타점)
+    # 박스권(수평 지지/저항) + 최신봉 돌파/이탈 이벤트 — 현재 매수/매도 타점.
+    box_support: float | None = None  # 박스 하단(지지)
+    box_resistance: float | None = None  # 박스 상단(저항)
+    box_event: str | None = None  # breakout | breakdown | inside | none (최신봉 vs 박스경계)
+    box_vol_confirmed: bool = False  # 돌파/이탈 봉 거래량이 평균 대비 확정 배수↑
 
 
 class StageSegment(BaseModel):
