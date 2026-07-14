@@ -236,6 +236,11 @@ export interface StageFrame {
   low_confidence?: boolean; // 이력 부족(장기 프레임 등)이면 true
   channel_pos?: number | null; // Donchian 채널 내 위치 0~100(고점권=100)
   breakout?: "up" | "down" | "none" | null; // 신 N기간 고/저 돌파 + 볼륨 확인
+  // 시장 구조(스윙 고·저) — 매수/매도 타점 근거
+  structure?: "up" | "down" | "range" | "none" | null; // HH/HL/LH/LL 관계
+  last_high?: "HH" | "LH" | "none" | null; // 최근 고점이 직전 대비
+  last_low?: "HL" | "LL" | "none" | null; // 최근 저점이 직전 대비
+  setup?: "stage1_to_2" | "stage3_to_4" | "none" | null; // 국면 전환 조짐 타점
 }
 
 export interface SecularView {
