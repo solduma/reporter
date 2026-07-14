@@ -245,18 +245,29 @@ export default function TrendPanel({ trend, status, message }: Props) {
           <div className={styles.blockHead}>
             <span className={styles.blockTitle}>엘리엇 파동 (추정)</span>
             <InfoDot
-              what="주가 스윙 고·저점(피벗)과 상승 5파 추정. 차트에 보라 점선·번호로 표시."
-              guide="해석이 갈리는 보조지표라 참고용. 확정 신호가 아니며 매매 판단 근거로 삼지 마세요."
+              what="전 구간을 추진(임펄스 1~5)·조정(A~C) 파동으로 나눠 표시. 굵은 실선=큰 파동, 가는 선=세부 파동, 실선=추진·점선=조정. 차트에 보라 선·번호로."
+              guide="해석이 갈리는 보조지표라 참고용. 안 맞는 구간은 라벨하지 않고 스윙만 표시합니다. 확정 신호가 아니며 매매 판단 근거로 삼지 마세요."
             />
             {trend.elliott.labeled ? (
               <span className={styles.elliottBadge}>
-                {trend.elliott.direction === "down" ? "하락" : "상승"} 5파 추정 · 신뢰도{" "}
+                {trend.elliott.direction === "down" ? "하락 추세" : "상승 추세"} · 신뢰도{" "}
                 {Math.round(trend.elliott.confidence * 100)}%
               </span>
             ) : (
               <span className={styles.elliottBadgeMuted}>패턴 미검출</span>
             )}
           </div>
+          {trend.elliott.current_position ? (
+            <p className={styles.elliottPosition}>
+              <span className={styles.elliottPositionLabel}>현재 위치</span>
+              {trend.elliott.current_position}
+              {typeof trend.elliott.invalidation_price === "number" ? (
+                <span className={styles.elliottInval}>
+                  무효화 {trend.elliott.invalidation_price.toLocaleString("ko-KR")}
+                </span>
+              ) : null}
+            </p>
+          ) : null}
           <p className={styles.elliottNote}>{trend.elliott.note}</p>
         </div>
       ) : null}
