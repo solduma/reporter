@@ -50,6 +50,21 @@ def test_impulse_conf_bear_is_mirror():
     assert elliott._impulse_conf(w, up=True) is None
 
 
+def test_impulse_conf_rejects_r2_only():
+    # R2 단독 위반: 3파(45)가 1·3·5 중 최단. R1(2파<1파)·R3(4파가 1파 끝 비중첩)는 만족.
+    # R2 검사를 지우면 통과하므로(비등가 뮤턴트) 규칙이 실제로 작동하는지 가드한다.
+    w = _piv([("0", 100.0, "low"), ("1", 200.0, "high"), ("2", 150.0, "low"),
+              ("3", 245.0, "high"), ("4", 240.0, "low"), ("5", 500.0, "high")])
+    assert elliott._impulse_conf(w, up=True) is None  # R2 위반으로 거부
+
+
+def test_impulse_conf_rejects_r3_only():
+    # R3 단독 위반: 4파 저점(180)이 1파 고점(200)을 침범(중첩). R1·R2는 만족.
+    w = _piv([("0", 100.0, "low"), ("1", 200.0, "high"), ("2", 170.0, "low"),
+              ("3", 370.0, "high"), ("4", 180.0, "low"), ("5", 430.0, "high")])
+    assert elliott._impulse_conf(w, up=True) is None  # R3 위반으로 거부
+
+
 # ── 사이클 라벨링 ────────────────────────────────────────────────────────
 
 def _bull_cycle_prices() -> list[tuple[str, float]]:
@@ -63,7 +78,7 @@ def _bull_cycle_prices() -> list[tuple[str, float]]:
 def test_label_cycles_produces_12345abc():
     prices = _bull_cycle_prices()
     piv = elliott.zigzag(prices, 0.05)
-    labeled = elliott._label_cycles(piv, up_trend=True)
+    labeled = elliott._label_cycles(piv)
     labels = [lab for _, lab, _, _ in labeled if lab]
     # 1~5 임펄스가 순서대로 나온다(각 다리 = 한 파동, '5파' 문자열 아님).
     assert labels[:5] == ["1", "2", "3", "4", "5"]
@@ -102,6 +117,32 @@ def test_bull_correction_labeled_and_downward():
     assert by["B"].direction == "up"
 
 
+def _odd_motive_dirs(r: elliott.ElliottResult) -> set[str]:
+    # 홀수 파동(1·3·5)만 추진의 실제 방향을 담는다. 2·4파는 어느 상승 임펄스든 항상 down 이라
+    # 전체 motive 방향집합으로 판정하면 하락 임펄스가 0개여도 통과하는 헛된 단정이 된다.
+    return {s.direction for s in r.segments if s.phase == "motive" and s.wave_label in ("1", "3", "5")}
+
+
+def test_down_trend_labels_down_motive():
+    # 사용자 버그 회귀 가드: 하락 추세의 추진은 하락 5파여야 한다(전역/방향 고정으로 상승 라벨 금지).
+    dn = [300.0, 200.0, 235.9, 74.1, 135.9, 35.9]  # 하락 5파
+    cor = [120.0, 80.0, 150.0]  # 조정 A↑B↓C↑(하락장 반전)
+    dn2 = [100.0, 66.6, 78.4, 24.7, 45.2, 12.0]  # 재하락 5파
+    prices = [(f"d{i:03d}", v) for i, v in enumerate(dn + cor + dn2)]
+    dirs = _odd_motive_dirs(elliott.analyze(prices, leg_threshold=0.05))
+    assert dirs == {"down"}  # 하락 추세엔 하락 추진만
+
+
+def test_up_trend_labels_up_motive():
+    # 대칭 가드: 상승 추세의 추진은 상승 5파여야 한다(상승 파동에 조정 3파 오라벨 금지).
+    up = [100.0, 200.0, 144.1, 305.9, 244.1, 344.1]  # 상승 5파
+    cor = [280.0, 320.0, 250.0]  # 조정 A↓B↑C↓
+    up2 = [350.0, 450.0, 394.1, 555.9, 494.1, 594.1]  # 재상승 5파
+    prices = [(f"d{i:03d}", v) for i, v in enumerate(up + cor + up2)]
+    dirs = _odd_motive_dirs(elliott.analyze(prices, leg_threshold=0.05))
+    assert dirs == {"up"}  # 상승 추세엔 상승 추진만
+
+
 def test_bear_cycle_directions_mirrored():
     # 하락 사이클: 추진 5파 하락(1↓3↓5↓, 2↑4↑), 조정 3파 상승(A↑B↓C↑).
     p = [300.0, 200.0, 235.9, 74.1, 135.9, 35.9]  # 하락 임펄스 1~5
@@ -123,6 +164,20 @@ def test_analyze_projection_zone_and_bars():
     assert r.projection is not None
     assert r.projection.low < r.projection.high
     assert r.projection.bars_low >= 1 and r.projection.bars_high >= r.projection.bars_low
+
+
+def test_projection_direction_opposes_last_motive():
+    # 투영 부호 가드: 상승 추진 완성 뒤 다음 조정 zone 은 마지막가 아래, 하락 추진 뒤엔 위.
+    # (조정 방향·투영 부호를 결정하는 last_motive_up 부기가 뒤집히면 이 단정이 깨진다.)
+    up = [(f"d{i:02d}", v) for i, v in enumerate([100.0, 200.0, 144.1, 305.9, 244.1, 344.1])]
+    ru = elliott.analyze(up, leg_threshold=0.05)
+    assert ru.segments[-1].direction == "up"
+    assert ru.projection is not None and ru.projection.high < ru.segments[-1].end_price
+
+    dn = [(f"d{i:02d}", v) for i, v in enumerate([300.0, 200.0, 235.9, 74.1, 135.9, 35.9])]
+    rd = elliott.analyze(dn, leg_threshold=0.05)
+    assert rd.segments[-1].direction == "down"
+    assert rd.projection is not None and rd.projection.low > rd.segments[-1].end_price
 
 
 def test_analyze_insufficient_pivots():
