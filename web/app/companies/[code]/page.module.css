@@ -268,3 +268,27 @@
   background: var(--accent);
   color: #fff;
 }
+
+/* 데이트레인지 퀵 프리셋 버튼(1주~10년) — 슬라이더 옆 컴팩트 pill. */
+.rangePresets {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.rangePreset {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.rangePreset:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}

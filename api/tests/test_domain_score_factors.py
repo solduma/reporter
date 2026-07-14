@@ -49,10 +49,11 @@ def test_trend_factors_alignment_label():
 
 
 def test_topdown_factors_flow_normalization():
-    fs = sf.topdown_factors(us_flow=90.0, kr_flow=None, kr_index_rising=True)
+    fs = sf.topdown_factors(us_flow=90.0, kr_flow=None, kr_index_flow=60.0)
     assert _by_label(fs, "미국 섹터 수급(선행)").norm == 0.9
     assert _by_label(fs, "국내 섹터 수급").norm is None
-    assert _by_label(fs, "국내 지수 방향").value == "상승"
+    idx = _by_label(fs, "국내 지수 수급")
+    assert idx.norm == 0.6 and idx.value == "60.0점"
 
 
 def test_factors_payload_shape():

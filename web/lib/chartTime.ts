@@ -36,3 +36,16 @@ export function monthsAgoIso(months: number, from: Date): string {
   d.setMonth(d.getMonth() - months);
   return d.toISOString().slice(0, 10);
 }
+
+// 기간 프리셋 단위(일/월/년) 만큼 이전 'YYYY-MM-DD'. 데이트레인지 퀵버튼(1주~10년)용.
+export function agoIso(from: Date, unit: "day" | "month" | "year", amount: number): string {
+  const d = new Date(from);
+  if (unit === "day") {
+    d.setDate(d.getDate() - amount);
+  } else if (unit === "month") {
+    d.setMonth(d.getMonth() - amount);
+  } else {
+    d.setFullYear(d.getFullYear() - amount);
+  }
+  return d.toISOString().slice(0, 10);
+}

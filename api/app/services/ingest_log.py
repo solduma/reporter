@@ -65,6 +65,11 @@ def _summarize(job: str, result: dict) -> tuple[int, str]:
         return rows, (
             f"뉴스 {result.get('news', 0)} · 분류 {result.get('classified', 0)} · 종목이벤트 {rows}"
         )
+    if job == "disclosures":
+        rows = int(result.get("new", 0))
+        return rows, (
+            f"조회 {result.get('synced', 0)}종목 · 신규공시 {rows} · 남음 {result.get('remaining', 0)}"
+        )
     # 수동 트리거 등: 결과를 그대로 문자열화.
     return 0, str(result)[:200]
 

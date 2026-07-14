@@ -123,20 +123,21 @@ def value_score_abs(
 
 # ── 탑다운 축(수급 섹터 flow) ─────────────────────────────────────────
 def topdown_flow_score(
-    us_flow: float | None, kr_flow: float | None, kr_index_rising: bool | None
+    us_flow: float | None, kr_flow: float | None, kr_index_flow: float | None
 ) -> float | None:
     """수급 섹터 flow 기반 탑다운 점수(0~100).
 
-    미국 동일섹터 flow(선행, 가중 큼) + 국내 동일섹터 flow + 국내 지수 방향(보조).
-    섹터 flow 를 못 구하면 지수 방향만으로 폴백(계산 가능한 것만 가중 평균).
+    미국 동일섹터 flow(선행, 가중 큼) + 국내 동일섹터 flow + 국내 지수 수급(보조).
+    세 항 모두 0~100 수급 점수(지수도 방향 bool 이 아니라 지수 일봉 flow 점수). 섹터 flow 를 못
+    구하면 지수 수급만으로 폴백(계산 가능한 것만 가중 평균).
     """
     parts: list[tuple[float, float]] = []
     if us_flow is not None:
         parts.append((us_flow / 100, 0.45))  # 미국 섹터 선행
     if kr_flow is not None:
         parts.append((kr_flow / 100, 0.40))  # 국내 섹터 수급
-    if kr_index_rising is not None:
-        parts.append((1.0 if kr_index_rising else 0.0, 0.15))  # 지수 방향 보조
+    if kr_index_flow is not None:
+        parts.append((kr_index_flow / 100, 0.15))  # 국내 지수 수급(보조)
     return _weighted(parts)
 
 

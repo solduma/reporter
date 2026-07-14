@@ -227,8 +227,8 @@ def company_analysis(
     topdown_view, topdown_sc = analysis.build_topdown(theme_names, market, code=code)
     kr_sec = topdown_view["kr_sector"]
     us_sec = topdown_view["us_sector"]
-    kr_rising = next((k["rising"] for k in topdown_view["kr_indices"]
-                      if k["name"] == ("코스닥" if market == "KOSDAQ" else "코스피")), None)
+    kr_index_flow = topdown_view["kr_index_flow"]
+    idx_label = "국내 코스닥 수급" if market == "KOSDAQ" else "국내 코스피 수급"
     topdown_axis = AnalysisAxis(
         key="topdown",
         label="탑다운",
@@ -242,17 +242,14 @@ def company_analysis(
                 "label": f"미국 {us_sec} 수급(선행)" if us_sec else "미국 섹터(선행)",
                 "value": _flow_label(topdown_view["us_sector_flow"]),
             },
-        ]
-        + [
-            {"label": k["name"], "value": _signed(k["change_ratio"], k["rising"])}
-            for k in topdown_view["kr_indices"]
+            {"label": idx_label, "value": _flow_label(kr_index_flow)},
         ],
         method=score_factors.TOPDOWN_METHOD,
         factors=_factors(
             score_factors.topdown_factors(
                 topdown_view["us_sector_flow"],
                 topdown_view["kr_sector_flow"],
-                kr_rising,
+                kr_index_flow,
             )
         ),
     )
@@ -426,16 +423,6 @@ def _comment_context(db: Session, code: str) -> analysis.CommentContext:
         report_notes=report_notes,
         disclosure_notes=disclosure_notes,
     )
-
-
-def _signed(ratio: str, rising: bool | None) -> str:
-    r = (ratio or "").strip()
-    if not r:
-        return "—"
-    if r.startswith(("+", "-")):
-        return f"{r}%"
-    sign = "+" if rising is True else "-" if rising is False else ""
-    return f"{sign}{r}%"
 
 
 @router.get("/{code}/financials", response_model=list[FinancialPeriodOut])

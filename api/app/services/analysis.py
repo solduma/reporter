@@ -20,13 +20,6 @@ logger = logging.getLogger(__name__)
 __all__ = ["build_topdown", "growth_score", "llm_comment", "overall", "topdown_flow_score"]
 
 
-def _index_dir(quotes, name: str) -> bool | None:
-    for q in quotes:
-        if q.name == name:
-            return q.rising
-    return None
-
-
 def build_topdown(
     theme_names: list[str], market: str | None, session=None, code: str | None = None
 ) -> tuple[dict, float | None]:
@@ -45,12 +38,14 @@ def build_topdown(
     us_f = us_flows.get(us_sector) if us_sector else None
 
     kr_idx = us_market.fetch_kr_indices(session)
-    kr_ref = "코스닥" if market == "KOSDAQ" else "코스피"
-    # 지수 방향은 항상 반영. 섹터 flow 를 못 구하면 지수 방향만으로(가중치 재정규화) 점수를 낸다.
+    # 지수 수급 점수(0~100) — 방향 bool 이 아니라 지수 일봉 flow. 종목 시장에 맞는 지수(코스닥/코스피).
+    idx_symbol = "KOSDAQ" if market == "KOSDAQ" else "KOSPI"
+    kr_index_flow = sector_flow.index_flow_score(idx_symbol, session)
+    # 지수 수급은 항상 반영. 섹터 flow 를 못 구하면 지수 수급만으로(가중치 재정규화) 점수를 낸다.
     score = topdown_flow_score(
         us_f.flow_score if us_f else None,
         kr_f.flow_score if kr_f else None,
-        _index_dir(kr_idx, kr_ref),
+        kr_index_flow,
     )
     view = {
         "kr_sector": kr_sector,
@@ -58,6 +53,7 @@ def build_topdown(
         "us_sector": us_sector,
         "us_sector_flow": us_f.flow_score if us_f else None,
         "us_sector_return_3m": us_f.return_3m if us_f else None,
+        "kr_index_flow": kr_index_flow,  # 종목 시장 지수의 수급 점수(0~100)
         "kr_indices": [
             {"name": q.name, "change_ratio": q.change_ratio, "rising": q.rising} for q in kr_idx
         ],
