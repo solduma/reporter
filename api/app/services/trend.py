@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
-from app.domain import elliott, relative_strength, stage
+from app.domain import elliott, market_structure, relative_strength, stage
 from app.services import candle_service
 
 # 종목 시장 → 벤치마크 지수 심볼(price_candles 에 지수 봉이 이 코드로 저장됨).
@@ -34,6 +34,7 @@ class TrendResult:
     stages: dict[str, stage.StageResult]  # frame(short/mid/long) → 국면
     low_confidence: dict[str, bool]  # frame → 이력 부족(리샘플 봉 < 최소치)이면 True
     segments_by_frame: dict[str, list[dict]]  # frame → 국면 구간 [{stage, from, to}] (배경밴드)
+    structure_by_frame: dict[str, market_structure.SwingStructure]  # frame → 스윙 구조·전환 조짐
     rs: relative_strength.RelativeStrength
     benchmark: str  # 사용한 벤치마크 지수
     elliott: elliott.ElliottResult  # 엘리엇 파동 추정(실험적)
@@ -57,6 +58,7 @@ def compute_trend(db: Session, code: str, market: str | None) -> TrendResult:
     stages: dict[str, stage.StageResult] = {}
     low_confidence: dict[str, bool] = {}
     segments_by_frame: dict[str, list[dict]] = {}
+    structure_by_frame: dict[str, market_structure.SwingStructure] = {}
     secular = stage.SecularContext(None, None, None, None)
     for name, frame in stage.FRAMES.items():
         b = stage.resample_ohlcv(dates, highs, lows, closes, volumes, frame.bar)
@@ -68,6 +70,7 @@ def compute_trend(db: Session, code: str, market: str | None) -> TrendResult:
             b.closes, b.dates, frame.ma_period, frame.slope_lookback, frame.min_run,
             b.volumes, b.highs, b.lows,
         )
+        structure_by_frame[name] = market_structure.analyze(b.dates, b.closes, frame.bar)
 
     # secular 오버레이 — 데이터 허락 최장 월봉 MA 대비 위치(프레임과 별개, 항상 월봉 기준).
     monthly = stage.resample_ohlcv(dates, highs, lows, closes, volumes, "month")
@@ -86,6 +89,7 @@ def compute_trend(db: Session, code: str, market: str | None) -> TrendResult:
         stages=stages,
         low_confidence=low_confidence,
         segments_by_frame=segments_by_frame,
+        structure_by_frame=structure_by_frame,
         rs=rs,
         benchmark=benchmark,
         elliott=wave,

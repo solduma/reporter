@@ -121,6 +121,11 @@ class StageFrame(BaseModel):
     low_confidence: bool = False  # 이력 부족(리샘플 봉 < 최소치)이면 True
     channel_pos: float | None = None  # Donchian 채널 내 위치 0~100(고점권=100)
     breakout: str | None = None  # up | down | none (신 N기간 고/저 돌파 + 볼륨 확인)
+    # 시장 구조(스윙 고·저) — 매수/매도 타점 근거.
+    structure: str | None = None  # up | down | range | none (HH/HL/LH/LL 관계)
+    last_high: str | None = None  # HH | LH | none (최근 고점이 직전 대비)
+    last_low: str | None = None  # HL | LL | none (최근 저점이 직전 대비)
+    setup: str | None = None  # stage1_to_2 | stage3_to_4 | none (국면 전환 조짐 타점)
 
 
 class StageSegment(BaseModel):

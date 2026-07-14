@@ -335,6 +335,10 @@ def company_trend(
                 low_confidence=result.low_confidence[frame],
                 channel_pos=result.stages[frame].channel_pos,
                 breakout=result.stages[frame].breakout,
+                structure=result.structure_by_frame[frame].trend,
+                last_high=result.structure_by_frame[frame].last_high,
+                last_low=result.structure_by_frame[frame].last_low,
+                setup=result.structure_by_frame[frame].setup,
             )
             for frame in ("short", "mid", "long")
         ],
