@@ -249,20 +249,14 @@ export default function CandleChart({
       });
       swingLine.setData(elliott.pivots.map((p) => ({ time: p.date.slice(0, 10) as Time, value: p.price })));
 
-      // 강조 레이어: 검출된 5파 임펄스만 굵은 실선으로 겹쳐 그려 파동 구조를 도드라지게 한다.
-      const impulses = (elliott.segments ?? []).filter((s) => s.layer === "impulse");
+      // 강조 레이어: 검출된 5파 임펄스만 굵은 실선으로 겹쳐 그린다. 임펄스는 자체 라벨 6점(points)을
+      // 보유하므로(임계마다 피벗이 달라 base pivots 와 별개) 그 점으로 선·라벨을 그린다.
+      const impulses = (elliott.segments ?? []).filter(
+        (s) => s.layer === "impulse" && (s.points?.length ?? 0) >= 2,
+      );
+      const markers: SeriesMarker<Time>[] = [];
       for (const seg of impulses) {
-        const from = seg.start_date.slice(0, 10);
-        const to = seg.end_date.slice(0, 10);
-        const data = elliott.pivots
-          .filter((p) => {
-            const d = p.date.slice(0, 10);
-            return d >= from && d <= to;
-          })
-          .map((p) => ({ time: p.date.slice(0, 10) as Time, value: p.price }));
-        if (data.length < 2) {
-          continue;
-        }
+        const pts = seg.points ?? [];
         const line = chart.addSeries(LineSeries, {
           // 상승 임펄스=진보라, 하락 임펄스=자홍 — 방향을 색으로 구분.
           color: seg.direction === "up" ? "rgba(109, 40, 217, 0.95)" : "rgba(190, 24, 93, 0.9)",
@@ -271,20 +265,21 @@ export default function CandleChart({
           lastValueVisible: false,
           crosshairMarkerVisible: false,
         });
-        line.setData(data as { time: Time; value: number }[]);
+        line.setData(pts.map((pt) => ({ time: pt.date.slice(0, 10) as Time, value: pt.price })));
+        // 라벨 마커(1~5) — '0'(시작점) 생략. 직전 점보다 높으면 고점(위)·낮으면 저점(아래).
+        for (let i = 1; i < pts.length; i += 1) {
+          markers.push({
+            time: pts[i].date.slice(0, 10) as Time,
+            position: pts[i].price >= pts[i - 1].price ? "aboveBar" : "belowBar",
+            shape: "circle",
+            color: seg.direction === "up" ? "#6d28d9" : "#be185d",
+            text: pts[i].label,
+          });
+        }
       }
-
-      // 임펄스 라벨 마커(1~5) — '0'(시작점)은 생략.
-      const markers: SeriesMarker<Time>[] = elliott.pivots
-        .filter((p) => p.label !== "" && p.label !== "0")
-        .map((p) => ({
-          time: p.date.slice(0, 10) as Time,
-          position: p.kind === "high" ? "aboveBar" : "belowBar",
-          shape: "circle",
-          color: "#8b5cf6",
-          text: p.label,
-        }));
       if (markers.length > 0) {
+        // 마커는 시간 오름차순이어야 한다(여러 임펄스 병합 시).
+        markers.sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
         createSeriesMarkers(candleSeries, markers);
       }
     }

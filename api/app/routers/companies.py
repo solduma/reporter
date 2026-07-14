@@ -23,6 +23,7 @@ from app.schemas import (
     CompanyTrend,
     ElliottPivot,
     ElliottView,
+    ElliottWavePoint,
     ElliottWaveSegment,
     FinancialPeriodOut,
     JudgmentOut,
@@ -374,6 +375,10 @@ def company_trend(
                 ElliottWaveSegment(
                     start_date=s.start_date, end_date=s.end_date, layer=s.layer,
                     direction=s.direction, labels=s.labels, confidence=s.confidence,
+                    points=[
+                        ElliottWavePoint(date=pt.date, price=pt.price, label=pt.label)
+                        for pt in s.points
+                    ],
                 )
                 for s in result.elliott.segments
             ],

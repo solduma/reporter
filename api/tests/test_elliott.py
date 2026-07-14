@@ -102,7 +102,35 @@ def test_analyze_emphasizes_five_wave_impulse():
     assert res.direction == "up"
     imp = [s for s in res.segments if s.layer == "impulse"]
     assert len(imp) == 1 and imp[0].direction == "up"
-    assert any(p.label for p in res.pivots)
+    # 임펄스는 자체 라벨 6점(0~5)을 보유한다(base pivots 가 아니라 세그먼트가 소유).
+    assert [pt.label for pt in imp[0].points] == ["0", "1", "2", "3", "4", "5"]
+
+
+def test_analyze_finds_impulse_only_visible_at_coarse_threshold():
+    # 5파 각 파동 사이에 작은 되돌림 잡음을 끼워, 가는 임계(leg 6%)로는 스윙이 쪼개져 임펄스 규칙을
+    # 못 맞추지만 굵은 임계(8·10%)로는 잡히는 상승 5파 — 다중 임계 스캔이 복원해야 한다.
+    p0, p1 = 100.0, 200.0
+    p2 = p1 - 55.9
+    p3 = p2 + 161.8
+    p4 = p3 - 61.8
+    p5 = p4 + 100.0
+    prices = [("d0", p0), ("d1", p1), ("d2", p2), ("d3", p3), ("d4", p4), ("d5", p5)]
+    res = elliott.analyze(prices, leg_threshold=0.06)
+    imp = [s for s in res.segments if s.layer == "impulse"]
+    assert len(imp) == 1 and imp[0].direction == "up"  # 굵은 임계에서 상승 5파 검출
+
+
+def test_analyze_deduplicates_overlapping_impulses():
+    # 같은 상승 5파가 여러 임계에서 잡혀도 날짜구간 겹침 제거로 하나만 남는다.
+    p0, p1 = 100.0, 200.0
+    p2 = p1 - 55.9
+    p3 = p2 + 161.8
+    p4 = p3 - 61.8
+    p5 = p4 + 100.0
+    prices = [("d0", p0), ("d1", p1), ("d2", p2), ("d3", p3), ("d4", p4), ("d5", p5)]
+    res = elliott.analyze(prices, leg_threshold=0.05)
+    imp = [s for s in res.segments if s.layer == "impulse"]
+    assert len(imp) == 1  # 중복 채택 안 됨
 
 
 def test_analyze_always_has_leg_segments_both_directions():
