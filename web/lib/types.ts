@@ -296,11 +296,19 @@ export interface ElliottWavePoint {
 export interface ElliottWaveSegment {
   start_date: string; // YYYY-MM-DD
   end_date: string;
-  layer: "leg" | "impulse"; // leg=기본 상승/하락 다리, impulse=강조 5파
+  layer: "leg" | "impulse"; // leg=연속 위상 교대, impulse=강조 5파
   direction: "up" | "down"; // 실제 가격 진행 방향
-  labels: string[]; // leg=[] , impulse=['0'..'5']
-  confidence: number; // 0~1 (impulse 만 유효)
+  phase?: string; // leg: motive | corrective
+  labels?: string[]; // impulse=['0'..'5']
+  confidence?: number; // 0~1
   points?: ElliottWavePoint[]; // impulse 만: 라벨 6점(자체 피벗)
+}
+
+export interface ElliottProjection {
+  wave: string; // 투영 대상(예: '조정')
+  low: number;
+  high: number;
+  basis: string; // 근거 문구
 }
 
 export interface ElliottView {
@@ -308,9 +316,10 @@ export interface ElliottView {
   labeled: boolean; // 세그먼트를 하나라도 검출했는지
   confidence: number; // 0~1 (최근 세그먼트 신뢰도)
   direction?: "up" | "down" | "none"; // 최근 세그먼트 방향
-  segments?: ElliottWaveSegment[]; // 전 구간 파동 세그먼트(major+minor)
+  segments?: ElliottWaveSegment[]; // leg(연속 위상) + impulse(강조) 세그먼트
   current_position?: string; // 현재 파동 위치(추정 문구)
   invalidation_price?: number | null; // 현재 카운트 무효화 경계
+  projection?: ElliottProjection | null; // 다음 파동 가격 목표 zone
   note: string;
 }
 

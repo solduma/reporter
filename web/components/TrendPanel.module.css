@@ -264,6 +264,32 @@
   color: var(--muted);
 }
 
+.elliottProjection {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: #6d28d9;
+  margin: 4px 0 0;
+}
+
+.elliottProjectionLabel {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #6d28d9;
+  background: rgba(139, 92, 246, 0.12);
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.elliottProjectionBasis {
+  font-size: 0.74rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+
 .elliottNote {
   font-size: 0.8rem;
   color: var(--muted);

@@ -22,6 +22,7 @@ from app.schemas import (
     CompanySummary,
     CompanyTrend,
     ElliottPivot,
+    ElliottProjection,
     ElliottView,
     ElliottWavePoint,
     ElliottWaveSegment,
@@ -374,7 +375,8 @@ def company_trend(
             segments=[
                 ElliottWaveSegment(
                     start_date=s.start_date, end_date=s.end_date, layer=s.layer,
-                    direction=s.direction, labels=s.labels, confidence=s.confidence,
+                    direction=s.direction, phase=s.phase, labels=s.labels,
+                    confidence=s.confidence,
                     points=[
                         ElliottWavePoint(date=pt.date, price=pt.price, label=pt.label)
                         for pt in s.points
@@ -384,6 +386,14 @@ def company_trend(
             ],
             current_position=result.elliott.current_position,
             invalidation_price=result.elliott.invalidation_price,
+            projection=(
+                ElliottProjection(
+                    wave=result.elliott.projection.wave, low=result.elliott.projection.low,
+                    high=result.elliott.projection.high, basis=result.elliott.projection.basis,
+                )
+                if result.elliott.projection
+                else None
+            ),
             note=result.elliott.note,
         ),
         secular=SecularView(
