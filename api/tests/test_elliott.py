@@ -120,8 +120,36 @@ def test_label_impulse_scans_window_not_only_last_six():
 def test_analyze_returns_pivots_even_without_label():
     # 라벨이 안 붙어도 피벗과 note 는 준다.
     prices = [("d1", 100.0), ("d2", 120.0), ("d3", 108.0), ("d4", 125.0)]
-    res = elliott.analyze(prices, threshold=0.08)
+    res = elliott.analyze(prices, thresholds=(0.08,))
     assert res.pivots
     assert res.labeled is False
     assert res.direction == "none"
     assert "스윙" in res.note or "부족" in res.note
+
+
+def test_analyze_multi_threshold_catches_what_single_misses():
+    # 되돌림 스윙이 ~6%(5%와 8% 사이)라 8% zigzag 는 병합해 못 잡고, 5% zigzag 는 유효 5파로 검출.
+    # 1파 +12%, 되돌림·확장은 피보 비율(2파 0.559→반전 5.99%, 4파 0.382→반전 5.95%).
+    p0, p1 = 100.0, 112.0
+    w1 = p1 - p0
+    p2 = p1 - 0.559 * w1
+    w3 = 1.618 * w1
+    p3 = p2 + w3
+    p4 = p3 - 0.382 * w3
+    p5 = p4 + w1
+    prices = [("d0", p0), ("d1", p1), ("d2", p2), ("d3", p3), ("d4", p4), ("d5", p5)]
+    single = elliott.analyze(prices, thresholds=(0.08,))
+    multi = elliott.analyze(prices, thresholds=(0.05, 0.06, 0.08, 0.10))
+    assert single.labeled is False  # 8% 단독은 스윙 병합으로 놓침
+    assert multi.labeled is True  # 멀티 임계가 5%에서 잡음
+    assert multi.direction == "up"
+    # 승리 임계의 피벗에 라벨이 정합하게 붙는다.
+    assert [p.label for p in multi.pivots if p.label] == ["0", "1", "2", "3", "4", "5"]
+
+
+def test_analyze_picks_highest_confidence_across_thresholds():
+    # 이상적 피보 5파 — 어느 임계로 봐도 잡히며, analyze 는 최고 신뢰도를 채택(라벨 정합).
+    res = elliott.analyze(_impulse_prices(), thresholds=(0.05, 0.08))
+    assert res.labeled is True
+    assert res.confidence >= elliott.MIN_LABEL_CONFIDENCE
+    assert res.direction == "up"
