@@ -14,32 +14,50 @@ def test_band_normalizes_and_clamps():
     assert s.band(99, 0, 10) == 1.0  # 상한 클램프
 
 
-def test_growth_score_four_factors():
-    # 매출·영업이익·EPS 만점(+60%↑) + OPM 개선 만점(+10pp↑) → 100.
-    assert s.growth_score(0.6, 0.6, False, 0.10, 0.6) == 100.0
-    assert s.growth_score(-0.2, -0.2, False, -0.10, -0.2) == 0.0
-    assert s.growth_score(None, None, False) is None  # 데이터 전무
+def test_growth_score_three_factors():
+    # 매출·EPS 만점(+60%↑) + 영업이익(흑자지속·마진 대폭개선) → 높은 점수.
+    hi = s.growth_score(0.6, "흑자지속", 0.30, 0.6)
+    assert hi is not None and hi >= 90
+    # 매출·EPS 최하 + 적자지속·마진 급락 → 0 근처.
+    lo = s.growth_score(-0.2, "적자지속", -0.30, -0.2)
+    assert lo is not None and lo <= 5
+    assert s.growth_score(None, None) is None  # 데이터 전무
 
 
 def test_growth_score_eps_dilution_filter():
-    # 같은 매출·영업이익 성장이라도 EPS 가 역성장(증자 희석)이면 점수가 낮아진다.
-    healthy = s.growth_score(0.4, 0.5, False, 0.03, 0.45)
-    diluted = s.growth_score(0.4, 0.5, False, 0.02, -0.1)
+    # 같은 매출·영업이익 상태라도 EPS 가 역성장(증자 희석)이면 점수가 낮아진다.
+    healthy = s.growth_score(0.4, "흑자지속", 0.03, 0.45)
+    diluted = s.growth_score(0.4, "흑자지속", 0.03, -0.1)
     assert diluted < healthy
 
 
-def test_op_yoy_norm_drops_on_turnaround():
-    # 흑전이면 영업이익 YoY 축이 빠지고(None), 마진 회복은 OPM 축이 흡수한다.
-    assert s.op_yoy_norm(None, True) is None
-    assert s.op_yoy_norm(0.6, False) == 1.0
-    assert s.op_yoy_norm(-0.2, False) == 0.0
+def test_op_margin_pp_score_tanh():
+    # tanh S-곡선: 0 → 0.5, 대칭, 극단은 포화(±1 근접). 0 근처가 극단보다 민감.
+    assert s.op_margin_pp_score(0.0) == 0.5
+    assert s.op_margin_pp_score(None) is None
+    up, down = s.op_margin_pp_score(0.08), s.op_margin_pp_score(-0.08)
+    assert round(up + down, 6) == 1.0  # 대칭
+    assert up > 0.85  # +8pp 는 크게 인정
+    assert s.op_margin_pp_score(0.50) > 0.99  # 극단 포화
+    # 0 근처 민감도 > 극단 민감도(같은 +5pp 증가라도 0 근처에서 더 크게 변함).
+    near = s.op_margin_pp_score(0.05) - s.op_margin_pp_score(0.0)
+    far = s.op_margin_pp_score(0.25) - s.op_margin_pp_score(0.20)
+    assert near > far
 
 
-def test_growth_score_turnaround_magnitude_via_opm():
-    # 흑전은 OPM 축(Δ영업이익률)이 규모를 반영 — 규모 큰 흑전이 작은 흑전보다 높다.
-    big = s.growth_score(0.3, None, True, 0.10, None)  # OPM +10pp 만점
-    small = s.growth_score(0.3, None, True, 0.0, None)  # OPM 보합 0.5
-    assert big > small
+def test_op_profit_norm_status_and_pp():
+    # 손익상태 기본점 + pp 결합. 보합(pp 0.5)일 때 상태 순서가 그대로 반영된다.
+    assert s.op_profit_norm("흑자전환", 0.0) == 0.75  # 0.5*1.0 + 0.5*0.5
+    assert s.op_profit_norm("흑자지속", 0.0) == 0.6   # 0.5*0.7 + 0.5*0.5
+    assert s.op_profit_norm("적자전환", 0.0) == 0.4
+    assert s.op_profit_norm("적자지속", 0.0) == 0.25
+    assert s.op_profit_norm(None, 0.1) is None  # 상태 없으면 축 제외
+    # pp 결측이면 상태 기본점만.
+    assert s.op_profit_norm("흑자지속", None) == 0.7
+    # 같은 상태에서 마진 개선 규모가 크면 점수도 높다(연속 변별).
+    assert s.op_profit_norm("흑자전환", 0.559) > s.op_profit_norm("흑자전환", 0.005)
+    # 적자지속이라도 마진 개선 중이면 적자전환(악화)보다 높을 수 있다.
+    assert s.op_profit_norm("적자지속", 0.05) > s.op_profit_norm("적자전환", -0.10)
 
 
 def test_overall_average():

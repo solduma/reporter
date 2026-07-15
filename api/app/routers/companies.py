@@ -136,8 +136,7 @@ def company_analysis(
     g = company_service.growth_metric(db, code)
     growth_sc = analysis.growth_score(
         g.revenue_yoy if g else None,
-        g.op_yoy if g else None,
-        g.op_turnaround if g else False,
+        g.op_status if g else None,
         g.op_margin_delta if g else None,
         g.eps_yoy if g else None,
     )
@@ -154,8 +153,7 @@ def company_analysis(
         factors=_factors(
             score_factors.growth_factors(
                 g.revenue_yoy if g else None,
-                g.op_yoy if g else None,
-                bool(g and g.op_turnaround),
+                g.op_status if g else None,
                 g.op_margin_delta if g else None,
                 g.eps_yoy if g else None,
             )

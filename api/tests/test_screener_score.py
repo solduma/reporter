@@ -22,8 +22,7 @@ class _U:
 @dataclass
 class _G:
     revenue_yoy: float | None
-    op_yoy: float | None
-    op_turnaround: bool
+    op_status: str | None = None
     op_margin_delta: float | None = None
     eps_yoy: float | None = None
 
@@ -58,17 +57,17 @@ def test_percentile_ranker_small_sample():
 
 
 def test_growth_score_ranks_high_growth_above_low():
-    # 절대 밴드(종목분석과 동일): 고YoY 가 저YoY 보다 높은 절대 점수.
-    high = screener._growth_score(_U(), _G(0.6, 0.6, False))
-    low = screener._growth_score(_U(), _G(0.0, 0.0, False))
+    # 절대 밴드(종목분석과 동일): 고성장(매출↑·흑자지속·마진개선)이 저성장보다 높은 절대 점수.
+    high = screener._growth_score(_U(), _G(0.6, "흑자지속", 0.10, 0.6))
+    low = screener._growth_score(_U(), _G(0.0, "적자지속", -0.10, 0.0))
     assert high is not None and low is not None and high > low
     assert 0 <= low <= 100 and 0 <= high <= 100
 
 
 def test_growth_score_turnaround_magnitude():
-    # 흑전은 영업이익 YoY 대신 OPM 개선(Δ영업이익률)으로 반영 — 규모 큰 흑전이 작은 흑전보다 높다.
-    big = screener._growth_score(_U(), _G(0.2, None, True, op_margin_delta=0.10))
-    small = screener._growth_score(_U(), _G(0.2, None, True, op_margin_delta=-0.05))
+    # 흑전은 손익상태+마진 개선(Δ영업이익률)으로 반영 — 규모 큰 흑전이 작은 흑전보다 높다.
+    big = screener._growth_score(_U(), _G(0.2, "흑자전환", op_margin_delta=0.10))
+    small = screener._growth_score(_U(), _G(0.2, "흑자전환", op_margin_delta=-0.05))
     assert big is not None and small is not None and big > small
 
 

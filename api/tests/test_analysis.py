@@ -5,24 +5,24 @@ from __future__ import annotations
 from app.services import analysis
 
 
-def test_growth_score_high_when_strong_yoy():
+def test_growth_score_high_when_strong():
     # 매출 +50%, EPS +60%, 흑자전환(OPM +30pp) → 높은 점수.
-    s = analysis.growth_score(0.5, None, True, 0.30, 0.6)
+    s = analysis.growth_score(0.5, "흑자전환", 0.30, 0.6)
     assert s is not None and s >= 80
 
 
 def test_growth_score_low_on_decline():
-    s = analysis.growth_score(-0.2, -0.2, False, -0.10, -0.2)
+    s = analysis.growth_score(-0.2, "적자지속", -0.30, -0.2)
     assert s is not None and s <= 10
 
 
 def test_growth_score_none_when_no_data():
-    assert analysis.growth_score(None, None, False) is None
+    assert analysis.growth_score(None, None) is None
 
 
-def test_growth_score_turnaround_via_opm():
-    # 흑전은 영업이익 YoY 가 빠지고 마진 회복(OPM)이 축을 채워 점수를 낸다.
-    s = analysis.growth_score(None, None, True, 0.30)
+def test_growth_score_turnaround_scored():
+    # 흑전은 손익상태(흑자전환)+마진 회복(OPM)으로 영업이익 축이 점수를 낸다.
+    s = analysis.growth_score(None, "흑자전환", 0.30)
     assert s is not None and s > 0
 
 
