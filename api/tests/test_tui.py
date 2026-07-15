@@ -12,8 +12,8 @@ from unittest.mock import MagicMock
 import pytest
 
 from app import tui
-from app.services import admin_status
-from app.services.server_control import ServerStatus
+from app.services import admin_status, server_control
+from app.services.server_control import ProdDeploy, ServerStatus
 
 
 @dataclass
@@ -106,6 +106,7 @@ async def test_tui_mounts_and_shows_status():
         assert {
             "ingest", "universe", "growth", "refresh", "prev", "next", "sort",
             "api_restart", "web_restart", "web_build",
+            "prod_preview", "prod_deploy",  # 배포(prod) 그룹
         } <= ids
 
 
@@ -288,3 +289,59 @@ async def test_web_build_button_runs_build(monkeypatch):
             if builds:
                 break
         assert builds == [True]
+
+
+# ── 프로덕션 배포(ProdDeploy) ────────────────────────────────────────────
+
+
+def _fake_git(monkeypatch, responses):
+    """server_control._git 를 (args 첫 토큰 → CompletedProcess) 매핑으로 목킹."""
+    import subprocess
+
+    calls = []
+
+    def fake(*args, timeout=60):
+        calls.append(args)
+        key = args[0]
+        rc, out = responses.get(key, (0, ""))
+        return subprocess.CompletedProcess(args, rc, stdout=out, stderr="")
+
+    monkeypatch.setattr(server_control, "_git", fake)
+    return calls
+
+
+def test_prod_deploy_pushes_when_main_ahead(monkeypatch):
+    # main 이 release 보다 앞서고 ff 가능 → origin/main:release push 트리거.
+    calls = _fake_git(monkeypatch, {
+        "fetch": (0, ""),
+        "merge-base": (0, ""),  # release 가 main 의 조상(ff 가능)
+        "log": (0, "abc123 feat: x\ndef456 fix: y"),
+        "push": (0, ""),
+    })
+    msg = ProdDeploy().deploy()
+    assert "release 배포 트리거됨 (2개 커밋" in msg
+    pushed = [c for c in calls if c[0] == "push"]
+    assert pushed and pushed[0] == ("push", "origin", "origin/main:refs/heads/release")
+
+
+def test_prod_deploy_noop_when_release_up_to_date(monkeypatch):
+    # release 가 이미 main 과 동일 → push 하지 않고 안내.
+    calls = _fake_git(monkeypatch, {
+        "fetch": (0, ""), "merge-base": (0, ""), "log": (0, ""),
+    })
+    msg = ProdDeploy().deploy()
+    assert "새 커밋 없음" in msg
+    assert not [c for c in calls if c[0] == "push"]
+
+
+def test_prod_deploy_refuses_non_fastforward(monkeypatch):
+    # release 가 main 의 조상이 아님(ff 불가) → push 거부.
+    _fake_git(monkeypatch, {"fetch": (0, ""), "merge-base": (1, "")})
+    msg = ProdDeploy().deploy()
+    assert "fast-forward 불가" in msg
+
+
+def test_prod_preview_lists_pending(monkeypatch):
+    _fake_git(monkeypatch, {"fetch": (0, ""), "log": (0, "abc feat: z")})
+    msg = ProdDeploy().preview()
+    assert "abc feat: z" in msg
