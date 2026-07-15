@@ -19,9 +19,9 @@ import type {
   Time,
   UTCTimestamp,
 } from "lightweight-charts";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-import { tsToDate } from "@/lib/chartTime";
+import { useChartRangeSync } from "@/lib/useChartRangeSync";
 import type { CandlePoint, Timeframe } from "@/lib/types";
 
 import styles from "./CandleChart.module.css";
@@ -125,19 +125,17 @@ export default function CandleChart({
   const [logScale, setLogScale] = useState(false);
   // 차트 인스턴스를 ref 로 보관해 range 변경 시 재생성 없이 재사용한다(재생성=화면 움찔거림 원인).
   const chartRef = useRef<IChartApi | null>(null);
-  // 프로그램적 setVisibleRange 가 유발하는 이벤트를 억제하는 시간창(ms 타임스탬프). 값 비교는
-  // 데이터 밀도별 스냅 차이(캔들=일·재무=분기)로 실패하고, 카운터는 이벤트가 0건이면 누수되므로,
-  // "방금 내가 설정했다" 직후 짧은 창 동안의 이벤트를 모두 삼켜 피드백 루프를 끊는다.
-  const suppressUntilRef = useRef(0);
-  const SUPPRESS_MS = 250;
-  // 드래그 중 이벤트가 프레임마다 쏟아져 상위 리렌더가 폭주하는 걸 막는다: rAF 로 한 프레임에 한 번만
-  // emit. 또 이 차트가 마지막으로 내보낸 구간을 기억해, 그게 range 로 되돌아오면 재적용을 건너뛴다
-  // (드래그 중인 차트는 이미 그 위치라 setVisibleRange 재호출이 곧 버벅임).
-  const emitRafRef = useRef(0);
-  const pendingRef = useRef<{ from: string; to: string } | null>(null);
-  const lastEmittedRef = useRef<{ from: string; to: string } | null>(null);
-  const onRangeChangeRef = useRef(onRangeChange);
-  onRangeChangeRef.current = onRangeChange;
+
+  // 봉 epoch(초) 오름차순 축 — 논리↔달력 변환의 기준(연동 차트 동기화용).
+  const epochs = useMemo(
+    () =>
+      data.map((p) =>
+        timeframe === "30m"
+          ? Date.parse(`${p.t}Z`) / 1000
+          : Date.parse(`${p.t.slice(0, 10)}T00:00:00Z`) / 1000,
+      ),
+    [data, timeframe],
+  );
 
   useEffect(() => {
     const container = containerRef.current;
@@ -222,14 +220,11 @@ export default function CandleChart({
     // 밴드 경계는 일봉 날짜라 주봉·분봉 축엔 정확히 없다 → 축 캔들 시각(epoch 초)을 넘겨
     // 가까운 봉으로 스냅해 칠하게 한다(일봉이 아니어도 오버레이 적용).
     if (stageBands && stageBands.length > 0) {
-      const axisEpochs = data.map((p) =>
-        timeframe === "30m" ? Date.parse(`${p.t}Z`) / 1000 : Date.parse(`${p.t.slice(0, 10)}T00:00:00Z`) / 1000,
-      );
       candleSeries.attachPrimitive(
         new StageBands(
           chart,
           stageBands.map((b) => ({ stage: b.stage, from: b.from, to: b.to })),
-          axisEpochs,
+          epochs,
         ),
       );
     }
@@ -241,75 +236,25 @@ export default function CandleChart({
       candleSeries.attachPrimitive(new TimeDividers(chart, dividers));
     }
 
-    // 초기 구간: range 있으면 그 구간(억제 표식 세움), 없으면 전체. 이후 range 변경은 아래 별도
-    // effect 가 재생성 없이 처리한다(range 를 이 effect deps 에 넣으면 매 동기화마다 차트가
-    // 파괴·재생성돼 화면이 움찔거림).
-    if (range) {
-      suppressUntilRef.current = Date.now() + SUPPRESS_MS;
-      try {
-        chart.timeScale().setVisibleRange({ from: range.from, to: range.to });
-      } catch {
-        chart.timeScale().fitContent();
-      }
-    } else {
-      chart.timeScale().fitContent();
-    }
-
-    // 사용자 스크롤·드래그로 구간이 바뀌면 알린다. 프로그램적 setVisibleRange 직후의 이벤트는
-    // 억제창으로 삼키고(피드백 루프 차단), 나머지는 rAF 로 프레임당 1회만 상위에 보고(리렌더 폭주 방지).
-    const onVisibleRangeChange = (r: { from: Time; to: Time } | null) => {
-      if (Date.now() < suppressUntilRef.current || !r || !onRangeChangeRef.current) {
-        return;
-      }
-      pendingRef.current = { from: tsToDate(r.from), to: tsToDate(r.to) };
-      if (emitRafRef.current) {
-        return;
-      }
-      emitRafRef.current = requestAnimationFrame(() => {
-        emitRafRef.current = 0;
-        const p = pendingRef.current;
-        if (p && onRangeChangeRef.current) {
-          lastEmittedRef.current = p;
-          onRangeChangeRef.current(p.from, p.to);
-        }
-      });
-    };
-    chart.timeScale().subscribeVisibleTimeRangeChange(onVisibleRangeChange);
     chartRef.current = chart;
 
     return () => {
-      if (emitRafRef.current) {
-        cancelAnimationFrame(emitRafRef.current);
-        emitRafRef.current = 0;
-      }
-      chart.timeScale().unsubscribeVisibleTimeRangeChange(onVisibleRangeChange);
       chart.remove();
       chartRef.current = null;
     };
-    // range 는 의도적으로 제외 — 아래 별도 effect 가 재생성 없이 반영한다(deps 에 넣으면 매 동기화마다
-    // 차트가 파괴·재생성돼 움찔거림). 초기 range 는 최초 마운트 시 위에서 1회 적용된다.
+    // range 는 의도적으로 제외 — 아래 동기화 훅이 재생성 없이 반영한다(deps 에 넣으면 매 동기화마다
+    // 차트가 파괴·재생성돼 움찔거림). 초기 range 는 훅이 마운트 시 적용한다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, timeframe, logScale, stageBands]);
 
-  // range 변경만 반영(차트 재생성 없이). 프로그램적 적용이라 직후 이벤트를 억제창으로 삼킨다.
-  useEffect(() => {
-    const chart = chartRef.current;
-    if (!chart || !range) {
-      return;
-    }
-    // 이 차트가 방금 내보낸 구간이 그대로 되돌아온 것이면 이미 그 위치라 재적용 불필요(자기 메아리).
-    // 드래그 중인 차트에 setVisibleRange 를 다시 걸지 않아 버벅임을 없앤다.
-    const last = lastEmittedRef.current;
-    if (last && last.from === tsToDate(range.from) && last.to === tsToDate(range.to)) {
-      return;
-    }
-    suppressUntilRef.current = Date.now() + SUPPRESS_MS;
-    try {
-      chart.timeScale().setVisibleRange({ from: range.from, to: range.to });
-    } catch {
-      /* 범위가 데이터 밖이면 무시 */
-    }
-  }, [range]);
+  // 연동 차트 동기화(논리 범위 기반 — 데이터 끝 너머 여백까지 전파). 차트 재생성 조건과 deps 를 맞춘다.
+  useChartRangeSync({
+    getChart: () => chartRef.current,
+    getEpochs: () => epochs,
+    range,
+    onRangeChange,
+    deps: [data, timeframe, logScale, stageBands],
+  });
 
   return (
     <div className={styles.wrap}>
