@@ -128,19 +128,30 @@ deploy_web() {
 [[ $WANT_WEB -eq 1 ]]    && deploy_web
 
 # ── 헬스체크 ─────────────────────────────────────────────────────────────
+# launchctl kickstart 후 서비스(특히 web=pnpm start)가 뜨는 데 수 초 걸린다. 고정 sleep 은
+# 타이밍에 취약해 정상 배포도 오탐 실패로 표시됐다 → 최대 ~30초 재시도 폴링으로 바꾼다.
+# want_codes: 성공으로 인정할 HTTP 코드(공백구분). 하나라도 맞으면 OK.
+_wait_http() {
+  local label="$1" url="$2" want_codes="$3" code
+  for _ in $(seq 1 15); do  # 2초 x 15 = 최대 30초
+    code="$(curl -s -m 10 -o /dev/null -w '%{http_code}' "$url" 2>/dev/null || echo 000)"
+    for want in $want_codes; do
+      if [[ "$code" == "$want" ]]; then
+        log "$label OK ($code)"
+        return 0
+      fi
+    done
+    sleep 2
+  done
+  warn "$label 헬스 실패 (last=$code)"
+  return 1
+}
+
 log "헬스체크"
 fail=0
-if [[ $WANT_API -eq 1 ]]; then
-  sleep 6
-  code="$(curl -s -m 10 -o /dev/null -w '%{http_code}' http://127.0.0.1:8010/api/screener?limit=1 || echo 000)"
-  [[ "$code" == "200" ]] && log "api OK ($code)" || { warn "api 헬스 실패 ($code)"; fail=1; }
-fi
-if [[ $WANT_WEB -eq 1 ]]; then
-  sleep 2
-  code="$(curl -s -m 10 -o /dev/null -w '%{http_code}' http://127.0.0.1:43000/ || echo 000)"
-  # 로그인 게이트로 307 리다이렉트가 정상.
-  [[ "$code" == "200" || "$code" == "307" ]] && log "web OK ($code)" || { warn "web 헬스 실패 ($code)"; fail=1; }
-fi
+[[ $WANT_API -eq 1 ]] && { _wait_http "api" "http://127.0.0.1:8010/api/screener?limit=1" "200" || fail=1; }
+# web 은 로그인 게이트로 307 리다이렉트가 정상(200 도 허용).
+[[ $WANT_WEB -eq 1 ]] && { _wait_http "web" "http://127.0.0.1:43000/" "200 307" || fail=1; }
 if [[ $WANT_WORKER -eq 1 ]]; then
   status="$(docker inspect -f '{{.State.Status}}' reporter-worker 2>/dev/null || echo missing)"
   [[ "$status" == "running" ]] && log "worker OK ($status)" || { warn "worker 상태 이상 ($status)"; fail=1; }
