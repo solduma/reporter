@@ -208,3 +208,79 @@ class ProdDeploy:
             f"release 배포 트리거됨 ({n}개 커밋 push) — GitHub Actions CD 가 self-hosted "
             f"runner 에서 배포합니다. 진행 상황: repo → Actions → CD."
         )
+
+    def cd_status(self) -> str:
+        """최근 CD(release 배포) run 상태를 gh CLI 로 조회한다(진행중/성공/실패 + 소요).
+
+        gh 미설치·미인증이면 안내 문자열. TUI 가 이걸 폴링해 '배포 완료됐는지' 를 바로 보여준다.
+        """
+        gh = shutil.which("gh")
+        if not gh:
+            return "gh CLI 미설치 — CD 상태 조회 불가(brew install gh)."
+        result = subprocess.run(
+            [gh, "run", "list", "--workflow=cd.yml", "--limit", "1",
+             "--json", "status,conclusion,displayTitle,createdAt,databaseId"],
+            cwd=_PROJECT_DIR, capture_output=True, text=True, timeout=20, check=False,
+        )
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout).strip().splitlines()
+            return "CD 상태 조회 실패: " + (detail[-1] if detail else "gh 인증 확인")
+        import json
+
+        runs = json.loads(result.stdout or "[]")
+        if not runs:
+            return "CD run 없음 — 아직 release 배포 이력이 없습니다."
+        r = runs[0]
+        status, concl = r.get("status"), r.get("conclusion")
+        title = (r.get("displayTitle") or "")[:48]
+        rid = r.get("databaseId")
+        if status != "completed":
+            return f"CD #{rid} [진행중 ● {status}] {title}"
+        mark = "✔ 성공" if concl == "success" else f"✖ {concl}"
+        return f"CD #{rid} [{mark}] {title}"
+
+
+def tail_service_log(key: str, lines: int = 40) -> str:
+    """서비스 로그 파일의 마지막 N 줄. key: api|web|launchd. 파일 없으면 안내 문자열.
+
+    api/web 은 launchd 가 logs/server_api.log·server_web.log 로, 배치는 launchd.log 로 남긴다.
+    worker(docker)는 파일이 아니라 docker logs 이므로 여기선 다루지 않는다(별도).
+    """
+    log_map = {
+        "api": _PROJECT_DIR / "logs" / "server_api.log",
+        "web": _PROJECT_DIR / "logs" / "server_web.log",
+        "launchd": _PROJECT_DIR / "logs" / "launchd.log",
+    }
+    path = log_map.get(key)
+    if path is None:
+        return f"알 수 없는 로그: {key} (api|web|launchd)"
+    if not path.is_file():
+        return f"로그 파일 없음: {path}"
+    # 큰 파일도 안전하게 — 끝에서부터 필요한 만큼만 읽는다.
+    try:
+        with path.open("rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            block = min(size, max(lines * 200, 4096))  # 줄당 대략치로 넉넉히
+            f.seek(size - block)
+            text = f.read().decode("utf-8", errors="replace")
+    except OSError as e:
+        return f"로그 읽기 실패: {e}"
+    return "\n".join(text.splitlines()[-lines:])
+
+
+def worker_log(lines: int = 40) -> str:
+    """worker(docker) 컨테이너 로그 마지막 N 줄. docker 미실행·컨테이너 없음이면 안내."""
+    docker = shutil.which("docker")
+    if not docker:
+        return "docker 미설치 — worker 로그 조회 불가."
+    result = subprocess.run(
+        [docker, "logs", "--tail", str(lines), "reporter-worker"],
+        capture_output=True, text=True, timeout=20, check=False,
+    )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip().splitlines()
+        return "worker 로그 조회 실패: " + (detail[-1] if detail else "컨테이너 확인")
+    # docker logs 는 stderr 로도 앱 로그를 낸다 → 둘 다 합쳐 마지막 N 줄.
+    combined = (result.stdout + result.stderr).splitlines()
+    return "\n".join(combined[-lines:]) or "(로그 없음)"
