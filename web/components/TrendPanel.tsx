@@ -239,57 +239,6 @@ export default function TrendPanel({ trend, status, message }: Props) {
         </div>
         <RsChart series={trend.rs_series} />
       </div>
-
-      {trend.elliott ? (
-        <div className={styles.elliottRow}>
-          <div className={styles.blockHead}>
-            <span className={styles.blockTitle}>엘리엇 파동 (추정)</span>
-            <InfoDot
-              what="추진 5파(1-2-3-4-5, 원)와 조정 3파(A-B-C, 사각)를 차트에 라벨. 상승 파동은 청록, 하락 파동은 주황으로 방향을 구분하고, 라벨은 상승 다리 끝(고점) 위·하락 다리 끝(저점) 아래에 붙습니다."
-              guide="해석이 갈리는 보조지표라 참고용. 엘리엇 3대 하드룰(2파 비침범·3파 최단금지·4파 비중첩)을 통과한 사이클만 라벨하고, 안 맞는 구간은 라벨 없이 옅은 스윙선으로만 이어 흐름을 표시합니다(억지 카운트 안 함). 확정 신호가 아니며 매매 판단 근거로 삼지 마세요."
-            />
-            {trend.elliott.labeled ? (
-              <span className={styles.elliottBadge}>
-                {trend.elliott.direction === "down" ? "하락" : "상승"} 추세 · 신뢰도{" "}
-                {Math.round(trend.elliott.confidence * 100)}%
-              </span>
-            ) : (
-              <span className={styles.elliottBadgeMuted}>뚜렷한 파동 없음</span>
-            )}
-          </div>
-          {trend.elliott.current_position ? (
-            <p className={styles.elliottPosition}>
-              <span className={styles.elliottPositionLabel}>현재 위치</span>
-              {trend.elliott.current_position}
-              {typeof trend.elliott.invalidation_price === "number" ? (
-                <span className={styles.elliottInval}>
-                  무효화 {trend.elliott.invalidation_price.toLocaleString("ko-KR")}
-                </span>
-              ) : null}
-            </p>
-          ) : null}
-          {trend.elliott.projection ? (
-            <p className={styles.elliottProjection}>
-              <span className={styles.elliottProjectionLabel}>
-                {trend.elliott.projection.wave}
-              </span>
-              {trend.elliott.projection.low.toLocaleString("ko-KR")}~
-              {trend.elliott.projection.high.toLocaleString("ko-KR")}
-              {trend.elliott.projection.bars_low && trend.elliott.projection.bars_high ? (
-                <span className={styles.elliottProjectionBasis}>
-                  {trend.elliott.projection.bars_low}~{trend.elliott.projection.bars_high}봉 ·{" "}
-                  {trend.elliott.projection.basis}
-                </span>
-              ) : (
-                <span className={styles.elliottProjectionBasis}>
-                  {trend.elliott.projection.basis}
-                </span>
-              )}
-            </p>
-          ) : null}
-          <p className={styles.elliottNote}>{trend.elliott.note}</p>
-        </div>
-      ) : null}
     </div>
   );
 }

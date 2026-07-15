@@ -380,20 +380,8 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
     rangeTouchedRef.current = false;
   }, [code]);
 
-  // 가장 최근 추진(motive) 파동의 시작일 — 기본 뷰를 여기까지만 넓혀 '현재' 파동 구조가 잘려 안
-  // 보이는 걸 막는다(전 구간으로 넓히지 않아 뷰가 과하게 커지지 않음).
-  const recentImpulseStart = useMemo(() => {
-    const motives = (trend.data?.elliott?.segments ?? []).filter((s) => s.phase === "motive");
-    if (motives.length === 0) {
-      return null;
-    }
-    const latest = motives.reduce((a, b) => (b.end_date > a.end_date ? b : a));
-    return latest.start_date.slice(0, 10);
-  }, [trend.data]);
-
-  // 종목 봉이 로드되면 date-range 기본값을 최근 3개월로 초기화(범위 밖이면 클램프). 단 가장 최근
-  // 엘리엇 임펄스가 3개월 밖에서 시작하면 그 지점까지만 뷰를 넓혀 현재 파동이 보이게 한다. 엘리엇은
-  // 봉보다 늦게 도착할 수 있어(trend 조회) 사용자가 직접 조정하기 전까지 자동 초기화가 재적용된다.
+  // 종목 봉이 로드되면 date-range 기본값을 최근 3개월로 초기화(범위 밖이면 클램프).
+  // 사용자가 직접 조정하기 전까지 자동 초기화가 재적용된다.
   useEffect(() => {
     if (dateAxis.length === 0 || rangeTouchedRef.current) {
       return;
@@ -401,12 +389,9 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
     const first = dateAxis[0];
     const last = dateAxis[dateAxis.length - 1];
     const threeMoAgo = monthsAgoIso(3, new Date(`${last}T00:00:00Z`));
-    let from = threeMoAgo < first ? first : threeMoAgo;
-    if (recentImpulseStart && recentImpulseStart < from) {
-      from = dateAxis.find((d) => d >= recentImpulseStart) ?? first;
-    }
+    const from = threeMoAgo < first ? first : threeMoAgo;
     setDateRange({ from, to: last });
-  }, [dateAxis, recentImpulseStart]);
+  }, [dateAxis]);
 
   // 모든 차트가 공유할 표시 구간(lightweight-charts Time).
   const chartRange: ChartRange | null = useMemo(
@@ -508,9 +493,6 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
     }));
   }, [timeframe, trend.data, stageFrame]);
 
-  // 엘리엇 파동 오버레이는 일봉 전용(피벗 날짜 축이 일봉과 맞음).
-  const elliott = timeframe === "day" ? (trend.data?.elliott ?? null) : null;
-
   const stockChart = useMemo(() => {
     if (loading && stockCandles.length === 0) {
       return <div className={styles.chartStatus}>불러오는 중…</div>;
@@ -526,10 +508,9 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
         showControls={false}
         onRangeChange={handleChartRangeChange}
         stageBands={stageBands}
-        elliott={elliott}
       />
     );
-  }, [loading, stockCandles, timeframe, chartRange, handleChartRangeChange, stageBands, elliott]);
+  }, [loading, stockCandles, timeframe, chartRange, handleChartRangeChange, stageBands]);
 
   // 국면 기간 토글 + 배경색 범례(종목 차트 위). 추세·탑다운 섹션에서 공용으로 얹는다.
   const stageLegendBar =

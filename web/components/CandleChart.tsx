@@ -22,7 +22,7 @@ import type {
 import { useEffect, useRef, useState } from "react";
 
 import { tsToDate } from "@/lib/chartTime";
-import type { CandlePoint, ElliottView, Timeframe } from "@/lib/types";
+import type { CandlePoint, Timeframe } from "@/lib/types";
 
 import styles from "./CandleChart.module.css";
 import { StageBands } from "./stageBands";
@@ -60,7 +60,6 @@ interface Props {
   // 여러 차트를 한 date-range 로 묶을 때 페이지가 이 콜백으로 공유 구간을 갱신한다.
   onRangeChange?: (from: string, to: string) => void;
   stageBands?: StageBand[]; // 와인스타인 국면 배경밴드(일봉 전용). 없으면 미표시.
-  elliott?: ElliottView | null; // 엘리엇 파동 추정(일봉 전용). 피벗 라인 + 라벨 마커.
 }
 
 // 30분봉의 t는 타임존 없는 벽시계 시각이라, UTC로 간주해 표기 시각이 그대로 보이도록 한다.
@@ -121,7 +120,6 @@ export default function CandleChart({
   showControls = true,
   onRangeChange,
   stageBands,
-  elliott,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [logScale, setLogScale] = useState(false);
@@ -236,103 +234,6 @@ export default function CandleChart({
       );
     }
 
-    // 엘리엇 파동 — 하드룰+피보를 통과한 사이클만 1-2-3-4-5(추진)·A-B-C(조정)로 라벨한다.
-    // (오픈소스 정석 재구현: 억지 채움 없이 검증된 파동만 표시.) 표현 규칙:
-    //  · 방향으로 색 구분 — 상승 파동=청록, 하락 파동=주황(캔들 빨/파·MA 와 안 겹치는 톤).
-    //  · 라벨 위치는 파동 끝 피벗 타입 — 상승 다리(끝=고점)는 위, 하락 다리(끝=저점)는 아래.
-    //  · 위상은 라벨 텍스트로 구분(숫자 1~5=추진, A~C=조정).
-    // 연속성 맥락: 검증 안 된 구간은 라벨 없이, 전체 피벗을 잇는 옅은 스윙선을 밑에 깔아 흐름 유지.
-    const EW_UP = "#0d9488"; // 상승 파동(청록)
-    const EW_DOWN = "#ea580c"; // 하락 파동(주황)
-    const segs = elliott?.segments ?? [];
-    const pivots = elliott?.pivots ?? [];
-    if (elliott && (segs.length >= 1 || pivots.length >= 2)) {
-      // 1) 전체 피벗을 잇는 옅은 스윙선(연속성 맥락). 라벨된 파동은 이 위에 진한 방향색으로 덧그린다.
-      if (pivots.length >= 2) {
-        const swing = chart.addSeries(LineSeries, {
-          color: "rgba(120,120,130,0.35)", lineWidth: 1, lineStyle: 2,
-          priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
-        });
-        swing.setData(
-          pivots.map((p) => ({ time: p.date.slice(0, 10) as Time, value: p.price })),
-        );
-      }
-      // 2) 검증된 파동 다리 — 방향색 실선 + 흰 헤일로.
-      const markers: SeriesMarker<Time>[] = [];
-      for (const seg of segs) {
-        const up = seg.direction === "up";
-        const pts = [
-          { time: seg.start_date.slice(0, 10) as Time, value: seg.start_price },
-          { time: seg.end_date.slice(0, 10) as Time, value: seg.end_price },
-        ];
-        const halo = chart.addSeries(LineSeries, {
-          color: "rgba(255,255,255,0.9)", lineWidth: 4,
-          priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
-        });
-        halo.setData(pts);
-        const line = chart.addSeries(LineSeries, {
-          color: up ? EW_UP : EW_DOWN,
-          lineWidth: 2,
-          priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
-        });
-        line.setData(pts);
-        // 라벨: 상승 다리 끝(고점)=위, 하락 다리 끝(저점)=아래. 조정(A~C)은 사각, 추진(1~5)은 원.
-        markers.push({
-          time: seg.end_date.slice(0, 10) as Time,
-          position: up ? "aboveBar" : "belowBar",
-          shape: seg.phase === "motive" ? "circle" : "square",
-          color: up ? EW_UP : EW_DOWN,
-          text: seg.wave_label,
-        });
-      }
-      markers.sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
-      if (markers.length > 0) {
-        createSeriesMarkers(candleSeries, markers);
-      }
-
-      // 다음 파동 목표 — 규모(가격 low~high) × 기간(now~now+예상봉수)을 미래 축까지 뻗는 2D zone 으로.
-      // 상·하한을 현재봉→미래봉까지 청록 점선으로 그려 "언제쯤 어디까지"를 사각 영역으로 보인다.
-      if (elliott.projection && data.length > 0 && timeframe !== "30m") {
-        const { low, high, bars_low, bars_high, wave } = elliott.projection;
-        const lastDate = data[data.length - 1].t.slice(0, 10);
-        // 미래 목표 시점 = 마지막봉 + 예상 봉수(달력일 근사: 봉수×1.4 로 주말 보정).
-        const future = new Date(`${lastDate}T00:00:00Z`);
-        future.setUTCDate(future.getUTCDate() + Math.round((bars_high || 10) * 1.4));
-        const futureDate = future.toISOString().slice(0, 10) as Time;
-        const nowT = lastDate as Time;
-        // 채움 밴드: BaselineSeries 의 baseValue=low, 라인=high → low~high 사이가 반투명 청록으로
-        // 채워진 사각 zone(규모×기간). 상·하한 경계선은 그 위에 점선으로 덧그린다.
-        const band = chart.addSeries(BaselineSeries, {
-          baseValue: { type: "price", price: low },
-          topFillColor1: "rgba(8,145,178,0.18)", topFillColor2: "rgba(8,145,178,0.18)",
-          topLineColor: "rgba(8,145,178,0.85)", bottomLineColor: "rgba(8,145,178,0)",
-          bottomFillColor1: "rgba(8,145,178,0)", bottomFillColor2: "rgba(8,145,178,0)",
-          lineWidth: 2, priceLineVisible: false, lastValueVisible: false,
-          crosshairMarkerVisible: false,
-        });
-        band.setData([
-          { time: nowT, value: high },
-          { time: futureDate, value: high },
-        ]);
-        const lowLine = chart.addSeries(LineSeries, {
-          color: "rgba(8,145,178,0.85)", lineWidth: 2, lineStyle: 2,
-          priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
-        });
-        lowLine.setData([
-          { time: nowT, value: low },
-          { time: futureDate, value: low },
-        ]);
-        const barTxt = bars_low && bars_high ? ` ${bars_low}~${bars_high}봉` : "";
-        candleSeries.createPriceLine({
-          price: high, color: "#0891b2", lineWidth: 1, lineStyle: 2,
-          axisLabelVisible: true, title: `${wave}${barTxt}`,
-        });
-        candleSeries.createPriceLine({
-          price: low, color: "#0891b2", lineWidth: 1, lineStyle: 2,
-          axisLabelVisible: true, title: "",
-        });
-      }
-    }
 
     // 시간 구분 수직선(붉은 점선): 30분봉=일 · 일봉=월 · 주봉=연 경계.
     const dividers = dividerTimes(data, timeframe);
@@ -388,7 +289,7 @@ export default function CandleChart({
     // range 는 의도적으로 제외 — 아래 별도 effect 가 재생성 없이 반영한다(deps 에 넣으면 매 동기화마다
     // 차트가 파괴·재생성돼 움찔거림). 초기 range 는 최초 마운트 시 위에서 1회 적용된다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, timeframe, logScale, stageBands, elliott]);
+  }, [data, timeframe, logScale, stageBands]);
 
   // range 변경만 반영(차트 재생성 없이). 프로그램적 적용이라 직후 이벤트를 억제창으로 삼킨다.
   useEffect(() => {
