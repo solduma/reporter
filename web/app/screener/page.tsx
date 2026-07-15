@@ -8,6 +8,7 @@ import { fetchScreener, fetchScreenerSectors } from "@/lib/api";
 import { GLOSSARY } from "@/lib/glossary";
 import { useAutoTour } from "@/lib/useAutoTour";
 import { useHeldCodes } from "@/lib/useHeldCodes";
+import { usePersistentState } from "@/lib/usePersistentState";
 import type {
   ScreenerMarket,
   ScreenerOpGrowth,
@@ -330,23 +331,25 @@ function ScreenerContent() {
   const [sector, setSector] = useState<string>(() => searchParams.get("sector") ?? "");
   const [sectors, setSectors] = useState<string[]>([]);
 
-  const [strategy, setStrategy] = useState<ScreenerStrategy>("overall");
+  // 필터 선택은 프리셋으로 강제하지 않고 localStorage 에 저장해 다음 방문에도 유지한다(기본값은
+  // 저장값이 없을 때만 적용). 페이지(offset)·UI 토글(filtersOpen)·런타임(result 등)은 저장 제외.
+  const [strategy, setStrategy] = usePersistentState<ScreenerStrategy>("screener.strategy", "overall");
   const [filtersOpen, setFiltersOpen] = useState<boolean>(false);
   // 시장: 성장주 발굴이 목표이므로 KOSDAQ을 기본값으로 둔다("전체"는 ""로 표현).
-  const [market, setMarket] = useState<ScreenerMarket | "">("KOSDAQ");
-  const [mktcapMax, setMktcapMax] = useState<number | undefined>(500_000_000_000);
-  const [mktcapMin, setMktcapMin] = useState<number | undefined>(undefined);
-  const [liqMin, setLiqMin] = useState<number>(0);
-  const [revYoyMin, setRevYoyMin] = useState<number | undefined>(undefined);
-  const [opGrowth, setOpGrowth] = useState<ScreenerOpGrowth | undefined>(undefined);
-  const [mom, setMom] = useState<MomKey>("none");
-  const [coverage, setCoverage] = useState<CoverageKey>("none");
+  const [market, setMarket] = usePersistentState<ScreenerMarket | "">("screener.market", "KOSDAQ");
+  const [mktcapMax, setMktcapMax] = usePersistentState<number | undefined>("screener.mktcapMax", 500_000_000_000);
+  const [mktcapMin, setMktcapMin] = usePersistentState<number | undefined>("screener.mktcapMin", undefined);
+  const [liqMin, setLiqMin] = usePersistentState<number>("screener.liqMin", 0);
+  const [revYoyMin, setRevYoyMin] = usePersistentState<number | undefined>("screener.revYoyMin", undefined);
+  const [opGrowth, setOpGrowth] = usePersistentState<ScreenerOpGrowth | undefined>("screener.opGrowth", undefined);
+  const [mom, setMom] = usePersistentState<MomKey>("screener.mom", "none");
+  const [coverage, setCoverage] = usePersistentState<CoverageKey>("screener.coverage", "none");
   // 가치 전략 필터
-  const [perMax, setPerMax] = useState<number | undefined>(undefined);
-  const [pbrMax, setPbrMax] = useState<number | undefined>(undefined);
-  const [roeMin, setRoeMin] = useState<number | undefined>(undefined);
-  const [divMin, setDivMin] = useState<number | undefined>(undefined);
-  const [sort, setSort] = useState<ScreenerSort>("score");
+  const [perMax, setPerMax] = usePersistentState<number | undefined>("screener.perMax", undefined);
+  const [pbrMax, setPbrMax] = usePersistentState<number | undefined>("screener.pbrMax", undefined);
+  const [roeMin, setRoeMin] = usePersistentState<number | undefined>("screener.roeMin", undefined);
+  const [divMin, setDivMin] = usePersistentState<number | undefined>("screener.divMin", undefined);
+  const [sort, setSort] = usePersistentState<ScreenerSort>("screener.sort", "score");
   const [offset, setOffset] = useState<number>(0);
 
   const [result, setResult] = useState<ScreenerResult | null>(null);
