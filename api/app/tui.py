@@ -32,7 +32,7 @@ from app.services import (
     universe_ingest,
 )
 from app.services.schedule_control import ScheduleControl
-from app.services.server_control import ServerControl, web_login_enabled
+from app.services.server_control import ProdDeploy, ServerControl, web_login_enabled
 
 
 class TimeEditScreen(ModalScreen[str | None]):
@@ -78,6 +78,40 @@ class TimeEditScreen(ModalScreen[str | None]):
         self.dismiss(None)
 
 
+class ConfirmScreen(ModalScreen[bool]):
+    """예/아니오 확인 모달. 확인 시 True, 취소 시 False 를 반환한다(라이브 영향 작업 게이트)."""
+
+    CSS = """
+    ConfirmScreen { align: center middle; }
+    #dialog { width: 60; height: auto; border: round $error; background: $surface; padding: 1 2; }
+    #dialog Static { margin-bottom: 1; }
+    #confirm_buttons { height: auto; align: center middle; }
+    #confirm_buttons Button { margin: 0 1; }
+    """
+    BINDINGS: ClassVar = [("escape", "cancel", "취소")]
+
+    def __init__(self, title: str, body: str) -> None:
+        super().__init__()
+        self._title = title
+        self._body = body
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="dialog"):
+            yield Static(f"[b]{self._title}[/b]\n\n{self._body}")
+            with Horizontal(id="confirm_buttons"):
+                yield Button("배포", id="ok", variant="error")
+                yield Button("취소", id="cancel", variant="primary")
+
+    def on_mount(self) -> None:
+        self.query_one("#cancel", Button).focus()  # 기본 포커스는 안전한 취소
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        self.dismiss(event.button.id == "ok")
+
+    def action_cancel(self) -> None:
+        self.dismiss(False)
+
+
 class _LogHandler(logging.Handler):
     """서비스 로거 → TUI Log 위젯으로 흘려보낸다.
 
@@ -104,6 +138,9 @@ class AdminTUI(App):
     #servers { height: auto; padding: 0 1; align: left middle; }
     #servers Button { margin: 0 1; min-width: 10; }
     #server_status { width: 1fr; height: auto; content-align: left middle; }
+    #deploy_bar { height: auto; padding: 0 1; align: left middle; }
+    #deploy_bar Button { margin: 0 1; min-width: 12; }
+    #deploy_hint { width: 1fr; height: auto; content-align: left middle; }
     #schedule_bar { height: auto; align: left middle; padding: 0 1; }
     #schedule_bar Button { margin: 0 1; }
     #schedule_hint { width: 1fr; content-align: left middle; }
@@ -140,6 +177,7 @@ class AdminTUI(App):
         self._page = 0  # 0-based
         self._total = 0
         self._servers = ServerControl()
+        self._prod = ProdDeploy()
         self._schedule = ScheduleControl()
         self._jobs_cache: list = []  # 스케줄 테이블 행 ↔ 잡 매핑용
 
@@ -157,6 +195,11 @@ class AdminTUI(App):
                 yield Button("WEB 빌드", id="web_build", variant="primary")
                 yield Button("API 재기동", id="api_restart", variant="warning")
                 yield Button("WEB 재기동", id="web_restart", variant="warning")
+            # 배포(prod): 로컬 직접 조작(위 dev)과 분리 — main→release push 로 CD(runner) 트리거.
+            with Horizontal(id="deploy_bar"):
+                yield Static(id="deploy_hint")
+                yield Button("배포 미리보기", id="prod_preview")
+                yield Button("release 배포 ▶", id="prod_deploy", variant="error")
             with Horizontal(id="schedule_bar"):
                 yield Static(id="schedule_hint")
                 yield Button("발송 on/off", id="job_toggle")
@@ -233,7 +276,12 @@ class AdminTUI(App):
                 mark = f"[yellow]○ 대기(재시작 중)  {s.url}[/yellow]"
             lines.append(f"{s.label}  {mark}")
         lines.append(self._login_gate_line())
-        self.query_one("#server_status", Static).update("서버 (launchd 관리)\n" + "\n".join(lines))
+        self.query_one("#server_status", Static).update(
+            "[b]로컬(dev)[/b] 서버 (launchd 관리)\n" + "\n".join(lines)
+        )
+        self.query_one("#deploy_hint", Static).update(
+            "[b]배포(prod)[/b] main→release push → CD(self-hosted runner) 자동 배포"
+        )
 
     @staticmethod
     def _login_gate_line() -> str:
@@ -484,6 +532,10 @@ class AdminTUI(App):
                 self._log_line("⚠ 빌드가 이미 실행 중입니다.")
                 return
             self._run_web_build()
+        elif bid == "prod_preview":
+            self._run_prod_preview()
+        elif bid == "prod_deploy":
+            self._confirm_prod_deploy()
         elif bid == "job_toggle":
             self.action_toggle_job()
         elif bid == "job_edit":
@@ -516,6 +568,53 @@ class AdminTUI(App):
     def _set_build_enabled(self, enabled: bool) -> None:
         self._build_running = not enabled
         self.query_one("#web_build", Button).disabled = not enabled
+
+    _deploy_running = False
+
+    @work(thread=True, exclusive=True, group="prod")
+    def _run_prod_preview(self) -> None:
+        """release 로 올릴 커밋을 미리 조회한다(부작용 없음, git fetch 만)."""
+        self.call_from_thread(self._log_line, "▶ 배포 미리보기(main→release 대상 조회)…")
+        try:
+            msg = self._prod.preview()
+        except Exception as e:
+            msg = f"✖ 배포 미리보기 실패: {e}"
+        self.call_from_thread(self._log_line, msg)
+
+    def _confirm_prod_deploy(self) -> None:
+        """release 배포는 라이브 영향이라 확인 다이얼로그를 거친다."""
+        if self._deploy_running:
+            self._log_line("⚠ 배포가 이미 진행 중입니다.")
+            return
+
+        def _on_confirm(ok: bool | None) -> None:
+            if ok:
+                self._run_prod_deploy()
+
+        self.push_screen(
+            ConfirmScreen(
+                "release 배포를 진행할까요?",
+                "main 의 커밋을 release 로 push 해 프로덕션 CD(자동 배포)를 트리거합니다.\n"
+                "라이브 서비스에 반영됩니다.",
+            ),
+            _on_confirm,
+        )
+
+    @work(thread=True, exclusive=True, group="prod")
+    def _run_prod_deploy(self) -> None:
+        """main→release push 로 CD 를 트리거한다(git push, 네트워크 작업이라 워커 스레드)."""
+        self.call_from_thread(self._set_deploy_enabled, False)
+        self.call_from_thread(self._log_line, "▶ release 배포 트리거 중(main→release push)…")
+        try:
+            msg = self._prod.deploy()
+        except Exception as e:
+            msg = f"✖ release 배포 실패: {e}"
+        self.call_from_thread(self._log_line, msg)
+        self.call_from_thread(self._set_deploy_enabled, True)
+
+    def _set_deploy_enabled(self, enabled: bool) -> None:
+        self._deploy_running = not enabled
+        self.query_one("#prod_deploy", Button).disabled = not enabled
 
     def _log_line(self, msg: str) -> None:
         self.query_one("#log", Log).write_line(f"[{datetime.now():%H:%M:%S}] {msg}")

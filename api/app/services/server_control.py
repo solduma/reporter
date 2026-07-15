@@ -17,8 +17,12 @@ from pathlib import Path
 
 _HOST = "127.0.0.1"
 _LABEL_PREFIX = "com.reporter.server"
-# api/app/services/server_control.py → 프로젝트 루트(../../../..)의 web 디렉토리.
-_WEB_DIR = Path(__file__).resolve().parents[3] / "web"
+# api/app/services/server_control.py → 프로젝트 루트(../../../..).
+_PROJECT_DIR = Path(__file__).resolve().parents[3]
+_WEB_DIR = _PROJECT_DIR / "web"
+# 프로덕션 배포 브랜치 — release push 가 self-hosted runner 의 CD(cd.yml)를 트리거한다.
+_PROD_BRANCH = "release"
+_DEV_BRANCH = "main"
 
 
 def web_login_enabled() -> bool | None:
@@ -150,3 +154,57 @@ class ServerControl:
             tail = "\n".join((result.stderr or result.stdout).strip().splitlines()[-5:])
             return f"WEB 빌드 실패:\n{tail}"
         return "WEB 빌드 완료 — 'WEB 재기동'을 눌러 반영하세요."
+
+
+def _git(*args: str, timeout: int = 60) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", *args], cwd=_PROJECT_DIR,
+        capture_output=True, text=True, timeout=timeout, check=False,
+    )
+
+
+class ProdDeploy:
+    """프로덕션 배포 — main 의 검증된 커밋을 release 로 올려 CD(self-hosted runner)를 트리거한다.
+
+    로컬 워킹트리를 직접 건드리는 dev 재기동(ServerControl)과 달리, prod 는 release 브랜치 push 로만
+    이뤄진다(개발/배포 분리). git push 후 실제 배포는 GitHub Actions runner 가 수행한다.
+    """
+
+    def preview(self) -> str:
+        """release 로 올릴 커밋을 미리 보여준다(배포 대상 파악용). 부작용 없음."""
+        if _git("fetch", "origin", _DEV_BRANCH, _PROD_BRANCH).returncode != 0:
+            return "git fetch 실패 — 네트워크/원격을 확인하세요."
+        log = _git("log", "--oneline", f"origin/{_PROD_BRANCH}..origin/{_DEV_BRANCH}")
+        pending = log.stdout.strip()
+        if not pending:
+            return "배포할 새 커밋 없음 — release 가 main 과 동일합니다."
+        return f"release 로 올릴 커밋(main 대비):\n{pending}"
+
+    def deploy(self) -> str:
+        """origin/main 을 release 로 fast-forward 하고 push 해 CD 를 트리거한다.
+
+        워킹트리 브랜치를 바꾸지 않도록 git push 의 로컬-refspec 기법(origin/main → release)을 쓴다.
+        release 가 main 의 조상이 아니면(직접 커밋 등) 거부하고 수동 처리를 안내한다.
+        """
+        if _git("fetch", "origin", _DEV_BRANCH, _PROD_BRANCH).returncode != 0:
+            return "git fetch 실패 — 네트워크/원격을 확인하세요."
+        # release 가 main 뒤에 있는지(ff 가능) 확인 — main 이 release 를 포함해야 한다.
+        anc = _git("merge-base", "--is-ancestor", f"origin/{_PROD_BRANCH}", f"origin/{_DEV_BRANCH}")
+        if anc.returncode != 0:
+            return (
+                f"release 가 main 의 조상이 아닙니다(fast-forward 불가). "
+                f"수동으로 정리하세요: git checkout {_PROD_BRANCH} && git merge {_DEV_BRANCH}"
+            )
+        pending = _git("log", "--oneline", f"origin/{_PROD_BRANCH}..origin/{_DEV_BRANCH}").stdout.strip()
+        if not pending:
+            return "배포할 새 커밋 없음 — release 가 이미 main 과 동일합니다."
+        # 워킹트리 전환 없이 origin/main 을 origin/release 로 push(로컬 refspec).
+        push = _git("push", "origin", f"origin/{_DEV_BRANCH}:refs/heads/{_PROD_BRANCH}", timeout=120)
+        if push.returncode != 0:
+            detail = (push.stderr or push.stdout).strip().splitlines()
+            return "release push 실패:\n" + "\n".join(detail[-4:])
+        n = len(pending.splitlines())
+        return (
+            f"release 배포 트리거됨 ({n}개 커밋 push) — GitHub Actions CD 가 self-hosted "
+            f"runner 에서 배포합니다. 진행 상황: repo → Actions → CD."
+        )
