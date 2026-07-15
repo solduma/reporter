@@ -28,50 +28,49 @@ def _weighted(parts: list[tuple[float, float]]) -> float | None:
     return round(sum(v * w for v, w in parts) / total_w * 100, 1)
 
 
-# ── 흑자전환 규모(공용) ───────────────────────────────────────────────
-# 흑자전환 가점을 '규모'로 스케일하는 밴드. Δ영업이익률(=회사 규모로 정규화한 흑전 폭)을
-# 3pp~30pp 에서 0~1 로 환산하고, 소규모 흑전도 흑전이므로 하한 0.2 를 둔다(최소 20% 가점).
-# 종목분석(0.15)·스크리너(0.10) 두 성장스코어가 같은 규모 규칙을 쓰도록 한 곳에서 소유한다.
-_TURN_MARGIN_BAND = (0.03, 0.30)
-_TURN_FLOOR = 0.2
-
-
-def turnaround_scale(op_margin_delta: float | None) -> float:
-    """흑자전환 가점 배수(0.2~1.0). Δ영업이익률이 클수록 1 에 가깝다.
-
-    Δ 미상(구 데이터·매출 결측)이면 1.0 — 규모를 모를 땐 기존 이진 흑전과 동일한 만점 가점으로
-    폴백해 회귀를 막는다. 흑자전환은 정의상 Δ>0 이므로 band 는 [0,1] 을 낸다.
-    """
-    if op_margin_delta is None:
-        return 1.0
-    scaled = band(op_margin_delta, *_TURN_MARGIN_BAND)
-    return _TURN_FLOOR + (1.0 - _TURN_FLOOR) * (scaled if scaled is not None else 0.0)
-
-
 # ── 성장 축(종목 분석) ────────────────────────────────────────────────
+# 성장 4요소 밴드(절대 구간→0~1). 매출·영업이익·EPS YoY 는 -20%~+60%, OPM 개선(Δ영업이익률)은
+# -10pp~+10pp(보합 0.5). 가중치는 리뷰 매트릭스(매출25·영업20·EPS15·OPM10, FCF 제외)를 합 1 로
+# 정규화 — 외형(매출) 최중, EPS 로 증자 희석 필터, OPM 으로 마진 퀄리티. 종목분석·스크리너 공용.
+_GROWTH_YOY_BAND = (-0.2, 0.6)
+_OPM_DELTA_BAND = (-0.10, 0.10)
+GROWTH_WEIGHTS = {"rev": 0.35, "op": 0.30, "eps": 0.20, "opm": 0.15}
+
+
+def op_yoy_norm(op_yoy: float | None, op_turnaround: bool) -> float | None:
+    """영업이익 성장 축 정규화값. 흑전은 op_yoy 비율이 정의 불가(직전 적자)라 None → 이 축이 빠지고,
+    마진 회복은 OPM 축(op_margin_delta)이 흡수한다. 비흑전은 op_yoy 를 -20%~+60% 밴드로."""
+    if op_turnaround:
+        return None
+    return band(op_yoy, *_GROWTH_YOY_BAND)
+
+
 def growth_score(
     revenue_yoy: float | None,
     op_yoy: float | None,
     op_turnaround: bool,
     op_margin_delta: float | None = None,
+    eps_yoy: float | None = None,
 ) -> float | None:
-    """성장 점수(0~100). 매출·영업이익 YoY 를 -20%~+60% 로 정규화 + 흑자전환 규모 가점.
+    """성장 점수(0~100). 매출·영업이익·EPS YoY + OPM 개선(Δ영업이익률)을 가중 평균.
 
-    흑자전환 가점(최대 0.15)은 Δ영업이익률 규모로 스케일(turnaround_scale) — 회사 규모 대비
-    흑전 폭이 클수록 큰 가점. 데이터가 전무하면 None. 스크리너 백분위 성장스코어와 달리 절대 구간 기반.
+    외형(매출)·내실(영업이익·OPM)·주주가치(EPS 희석)를 함께 본다. 흑전은 영업이익 YoY 가 빠지고
+    마진 회복이 OPM 축으로 반영된다. 계산 가능한 요소만 남은 가중치로 재정규화. 전무하면 None.
+    스크리너 백분위 성장스코어와 달리 절대 구간 기반.
     """
-    rev = band(revenue_yoy, -0.2, 0.6)
-    op = band(op_yoy, -0.2, 0.6)
+    w = GROWTH_WEIGHTS
     parts: list[tuple[float, float]] = []
-    if rev is not None:
-        parts.append((rev, 0.5))
-    if op is not None:
-        parts.append((op, 0.4))
-    if not parts and not op_turnaround:
+    for norm, weight in (
+        (band(revenue_yoy, *_GROWTH_YOY_BAND), w["rev"]),
+        (op_yoy_norm(op_yoy, op_turnaround), w["op"]),
+        (band(eps_yoy, *_GROWTH_YOY_BAND), w["eps"]),
+        (band(op_margin_delta, *_OPM_DELTA_BAND), w["opm"]),
+    ):
+        if norm is not None:
+            parts.append((norm, weight))
+    if not parts:
         return None
-    base = sum(v * w for v, w in parts) / sum(w for _, w in parts) if parts else 0.0
-    turn = 0.15 * turnaround_scale(op_margin_delta) if op_turnaround else 0.0
-    return round(clamp01(base + turn) * 100, 1)
+    return round(sum(v * wt for v, wt in parts) / sum(wt for _, wt in parts) * 100, 1)
 
 
 def overall(scores: list[float | None]) -> float | None:
@@ -97,6 +96,29 @@ def cheap_band(value: float | None, best: float, worst: float) -> float | None:
     return clamp01((worst - value) / (worst - best))
 
 
+def peg(per: float | None, eps_yoy: float | None) -> float | None:
+    """PEG = PER / EPS성장률(%). 성장 속도 대비 주가 비율. PER·EPS성장 둘 다 양수일 때만 유효.
+
+    적자(PER≤0)·역성장/정체(eps_yoy≤0)면 PEG 개념이 성립하지 않아 None(가치 축에서 제외).
+    """
+    if per is None or eps_yoy is None or per <= 0 or eps_yoy <= 0:
+        return None
+    return round(per / (eps_yoy * 100), 3)
+
+
+def peg_norm(peg_value: float | None) -> float | None:
+    """PEG → 0~1 정규화(낮을수록 1). PEG≤1.0 만점, ≥2.0 은 0(고평가). 리뷰 기준(1.0/1.5/2.0)과 정합.
+
+    None(성장주 아님·적자)은 None → 가치 축 기여 제외(재정규화로 흡수)."""
+    if peg_value is None:
+        return None
+    return clamp01((2.0 - peg_value) / (2.0 - 1.0))
+
+
+# 가치 축 가중치(합 1). 저PBR·저PER·저EV 저평가 + PEG(성장 대비 저평가) + ROE·배당 가점.
+VALUE_WEIGHTS = {"pbr": 0.30, "per": 0.25, "ev": 0.15, "peg": 0.15, "roe": 0.10, "div": 0.05}
+
+
 def value_score(
     per: float | None,
     pbr: float | None,
@@ -106,27 +128,31 @@ def value_score(
     per_rank: float | None,
     pbr_rank: float | None,
     ev_rank: float | None,
+    peg_rank: float | None = None,
 ) -> float | None:
-    """가치 점수(0~100). 저PBR·저PER·저EV/EBITDA 저평가 정규화 + 고ROE·고배당 가점.
+    """가치 점수(0~100). 저PBR·저PER·저EV/EBITDA 저평가 + PEG(성장 대비) 정규화 + 고ROE·고배당 가점.
 
-    per_rank/pbr_rank/ev_rank 는 저평가 정규화값(0~1, 낮을수록 1) — 호출측이 절대 밴드
-    (cheap_band, 화면 간 일치) 또는 백분위로 넘긴다. None 이면 해당 항목 제외.
-    절대 가점(ROE 15%↑ 만점, 배당 5%↑ 만점)은 밴드 없이 clamp. 결측은 재정규화로 흡수.
+    per_rank/pbr_rank/ev_rank/peg_rank 는 저평가 정규화값(0~1, 낮을수록 1) — 호출측이 절대 밴드
+    또는 백분위로 넘긴다. None 이면 해당 항목 제외. 절대 가점(ROE 15%↑ 만점, 배당 5%↑ 만점)은
+    밴드 없이 clamp. 결측은 재정규화로 흡수.
     """
+    w = VALUE_WEIGHTS
     parts: list[tuple[float, float]] = []
     if pbr_rank is not None:
-        parts.append((pbr_rank, 0.35))
+        parts.append((pbr_rank, w["pbr"]))
     if per_rank is not None:
-        parts.append((per_rank, 0.28))
+        parts.append((per_rank, w["per"]))
     if ev_rank is not None:
-        parts.append((ev_rank, 0.17))
+        parts.append((ev_rank, w["ev"]))
+    if peg_rank is not None:
+        parts.append((peg_rank, w["peg"]))
     if roe is not None:
-        parts.append((clamp01(roe / 15.0), 0.12))
+        parts.append((clamp01(roe / 15.0), w["roe"]))
     if div_yield is not None:
-        parts.append((clamp01(div_yield / 5.0), 0.08))
+        parts.append((clamp01(div_yield / 5.0), w["div"]))
     if not parts:
         return None
-    return round(sum(v * w for v, w in parts) / sum(w for _, w in parts) * 100, 1)
+    return round(sum(v * wt for v, wt in parts) / sum(wt for _, wt in parts) * 100, 1)
 
 
 def value_score_abs(
@@ -135,16 +161,19 @@ def value_score_abs(
     ev_ebitda: float | None,
     roe: float | None,
     div_yield: float | None,
-) -> tuple[float | None, tuple[float | None, float | None, float | None]]:
-    """절대 밴드 기반 가치 점수 + (per_norm, pbr_norm, ev_norm). 종목분석·스크리너 공용 진입점.
+    eps_yoy: float | None = None,
+) -> tuple[float | None, tuple[float | None, float | None, float | None, float | None]]:
+    """절대 밴드 기반 가치 점수 + (per_norm, pbr_norm, ev_norm, peg_norm). 종목분석·스크리너 공용.
 
-    반환한 norm 3튜플은 score_factors 분해에 그대로 넘겨 점수와 근거가 어긋나지 않게 한다.
+    반환한 norm 4튜플은 score_factors 분해에 그대로 넘겨 점수와 근거가 어긋나지 않게 한다.
+    PEG 는 per·eps_yoy 로 산출(성장주만 유효), 나머지는 절대 밴드 저평가 정규화.
     """
     per_r = cheap_band(per, *VALUE_BANDS["per"])
     pbr_r = cheap_band(pbr, *VALUE_BANDS["pbr"])
     ev_r = cheap_band(ev_ebitda, *VALUE_BANDS["ev_ebitda"])
-    score = value_score(per, pbr, ev_ebitda, roe, div_yield, per_r, pbr_r, ev_r)
-    return score, (per_r, pbr_r, ev_r)
+    peg_r = peg_norm(peg(per, eps_yoy))
+    score = value_score(per, pbr, ev_ebitda, roe, div_yield, per_r, pbr_r, ev_r, peg_r)
+    return score, (per_r, pbr_r, ev_r, peg_r)
 
 
 # ── 탑다운 축(수급 섹터 flow + 종목 수급) ────────────────────────────

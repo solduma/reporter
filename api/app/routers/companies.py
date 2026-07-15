@@ -139,6 +139,7 @@ def company_analysis(
         g.op_yoy if g else None,
         g.op_turnaround if g else False,
         g.op_margin_delta if g else None,
+        g.eps_yoy if g else None,
     )
     # 성장축은 점수 해석만 보여준다 — 원시 YoY 수치는 '성장 지표 스냅샷'이 단일 소유(중복 제거).
     growth_axis = AnalysisAxis(
@@ -156,6 +157,7 @@ def company_analysis(
                 g.op_yoy if g else None,
                 bool(g and g.op_turnaround),
                 g.op_margin_delta if g else None,
+                g.eps_yoy if g else None,
             )
         ),
     )
@@ -168,7 +170,9 @@ def company_analysis(
     ev = fin.ev_ebitda if fin else None
     roe = fin.roe if fin else None
     dy = fin.div_yield if fin else None
-    value_sc, (per_r, pbr_r, ev_r) = analysis_scoring.value_score_abs(per, pbr, ev, roe, dy)
+    eps_yoy = g.eps_yoy if g else None  # PEG 산출용(성장축과 동일 EPS YoY)
+    value_sc, (per_r, pbr_r, ev_r, peg_r) = analysis_scoring.value_score_abs(per, pbr, ev, roe, dy, eps_yoy)
+    peg_val = analysis_scoring.peg(per, eps_yoy)
     value_axis = AnalysisAxis(
         key="value",
         label="가치",
@@ -176,12 +180,13 @@ def company_analysis(
         metrics=[
             {"label": "PER", "value": f"{per:.1f}배" if per else "—"},
             {"label": "PBR", "value": f"{pbr:.2f}배" if pbr else "—"},
+            {"label": "PEG", "value": f"{peg_val:.2f}" if peg_val is not None else "—"},
             {"label": "ROE", "value": f"{roe:.1f}%" if roe is not None else "—"},
             {"label": "배당수익률", "value": f"{dy:.1f}%" if dy is not None else "—"},
         ],
         method=score_factors.VALUE_METHOD,
         factors=_factors(
-            score_factors.value_factors(per, pbr, ev, roe, dy, per_r, pbr_r, ev_r)
+            score_factors.value_factors(per, pbr, ev, roe, dy, per_r, pbr_r, ev_r, peg_r, peg_val)
         ),
     )
 
@@ -576,6 +581,7 @@ def company_growth(code: str, db: Session = Depends(get_session)) -> CompanyGrow
         op_turnaround=bool(g.op_turnaround) if g else False,
         op_status=g.op_status if g else None,
         op_margin_delta=g.op_margin_delta if g else None,
+        eps_yoy=g.eps_yoy if g else None,
         period=g.period if g else None,
         coverage_count=cov_count,
         buy_ratio=round(buy_count / cov_count, 2) if cov_count else None,

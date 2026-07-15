@@ -37,24 +37,28 @@ def test_growth_score_high_above_low():
     assert 0 <= low <= 100 and 0 <= high <= 100
 
 
-def test_growth_score_turnaround_bonus():
-    r = scoring.percentile_ranker([0.5, 0.5])
-    m = scoring.percentile_ranker([10.0, 10.0])
-    base = {"revenue_yoy": 0.5, "op_yoy": 0.5, "momentum_3m": 10.0,
-            "coverage_count": 0, "buy_count": 0, "rev_rank": r, "op_rank": r, "mom_rank": m}
-    assert scoring.growth_score(op_turnaround=True, **base) > scoring.growth_score(
-        op_turnaround=False, **base
-    )
-
-
 def test_growth_score_turnaround_magnitude():
+    # 흑전은 OPM(Δ영업이익률, 절대 밴드)이 마진 회복을 반영 — 규모 큰 흑전이 작은 흑전보다 높다.
     r = scoring.percentile_ranker([0.5, 0.5])
     m = scoring.percentile_ranker([10.0, 10.0])
-    base = {"revenue_yoy": 0.5, "op_yoy": 0.5, "momentum_3m": 10.0, "op_turnaround": True,
+    base = {"revenue_yoy": 0.5, "op_yoy": None, "momentum_3m": 10.0, "op_turnaround": True,
             "coverage_count": 0, "buy_count": 0, "rev_rank": r, "op_rank": r, "mom_rank": m}
-    big = scoring.growth_score(op_margin_delta=0.30, **base)  # 만점 가점(0.10)
-    small = scoring.growth_score(op_margin_delta=0.03, **base)  # 하한 가점(0.10*0.2)
+    big = scoring.growth_score(op_margin_delta=0.10, **base)  # OPM +10pp 만점
+    small = scoring.growth_score(op_margin_delta=0.0, **base)  # OPM 보합
     assert big > small
+
+
+def test_growth_score_eps_dilution():
+    # EPS 백분위를 넣으면 증자 희석(EPS 낮은 종목)이 성장 점수에서 감점된다.
+    r = scoring.percentile_ranker([0.5, 0.5])
+    m = scoring.percentile_ranker([10.0, 10.0])
+    eps_hi = scoring.percentile_ranker([0.0, 1.0])
+    base = {"revenue_yoy": 0.5, "op_yoy": 0.5, "momentum_3m": 10.0, "op_turnaround": False,
+            "coverage_count": 0, "buy_count": 0, "rev_rank": r, "op_rank": r, "mom_rank": m,
+            "eps_rank": eps_hi}
+    strong = scoring.growth_score(eps_yoy=1.0, **base)
+    diluted = scoring.growth_score(eps_yoy=0.0, **base)
+    assert strong > diluted
 
 
 def test_value_score_cheap_above_expensive():

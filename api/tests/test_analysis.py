@@ -6,13 +6,13 @@ from app.services import analysis
 
 
 def test_growth_score_high_when_strong_yoy():
-    # 매출 +50%, 영업이익 +60%, 흑자전환 → 높은 점수.
-    s = analysis.growth_score(0.5, 0.6, True)
+    # 매출 +50%, EPS +60%, 흑자전환(OPM +30pp) → 높은 점수.
+    s = analysis.growth_score(0.5, None, True, 0.30, 0.6)
     assert s is not None and s >= 80
 
 
 def test_growth_score_low_on_decline():
-    s = analysis.growth_score(-0.2, -0.2, False)
+    s = analysis.growth_score(-0.2, -0.2, False, -0.10, -0.2)
     assert s is not None and s <= 10
 
 
@@ -20,9 +20,9 @@ def test_growth_score_none_when_no_data():
     assert analysis.growth_score(None, None, False) is None
 
 
-def test_growth_score_turnaround_only():
-    # YoY 결측이라도 흑자전환이면 가점만으로 점수 산출.
-    s = analysis.growth_score(None, None, True)
+def test_growth_score_turnaround_via_opm():
+    # 흑전은 영업이익 YoY 가 빠지고 마진 회복(OPM)이 축을 채워 점수를 낸다.
+    s = analysis.growth_score(None, None, True, 0.30)
     assert s is not None and s > 0
 
 

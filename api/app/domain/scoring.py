@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from app.domain.analysis_scoring import turnaround_scale
+from app.domain.analysis_scoring import band, op_yoy_norm
 
 Ranker = Callable[[float | None], float]
 
@@ -57,19 +57,23 @@ def growth_score(
     op_rank: Ranker,
     mom_rank: Ranker,
     op_margin_delta: float | None = None,
+    eps_yoy: float | None = None,
+    eps_rank: Ranker | None = None,
 ) -> float:
-    """성장스코어(0~100). YoY 백분위 + 모멘텀 + 흑전 규모 + 센티먼트·커버리지 factor.
+    """성장스코어(0~100). 매출·영업이익·EPS 백분위 + OPM 개선 + 모멘텀 + 센티먼트·커버리지.
 
-    흑자전환 가점(최대 0.10)은 Δ영업이익률 규모로 스케일 — 종목분석 성장스코어와 동일 규칙.
+    영업이익은 흑전이면 op_yoy 가 정의 불가라 빠지고 마진 회복은 OPM(Δ영업이익률, 절대 밴드)이
+    흡수한다. EPS 백분위로 증자 희석을 거른다 — 종목분석 성장스코어와 동일 철학.
     """
     rev = rev_rank(revenue_yoy)
-    op = op_rank(op_yoy)
+    op = op_rank(op_yoy) if op_yoy_norm(op_yoy, op_turnaround) is not None else 0.0
+    eps = eps_rank(eps_yoy) if eps_rank is not None else 0.0
+    opm = band(op_margin_delta, -0.10, 0.10) or 0.0
     mom = mom_rank(momentum_3m)
-    turn_bonus = 0.10 * turnaround_scale(op_margin_delta) if op_turnaround else 0.0
     sentiment_factor = (buy_count / coverage_count) if coverage_count else 0.0
     coverage_factor = 1.0 if coverage_count else 0.0
     score = (
-        0.30 * rev + 0.25 * op + 0.15 * mom + turn_bonus
+        0.24 * rev + 0.20 * op + 0.13 * eps + 0.10 * opm + 0.13 * mom
         + 0.12 * sentiment_factor + 0.08 * coverage_factor
     )
     return round(min(score, 1.0) * 100, 1)

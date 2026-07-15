@@ -25,6 +25,7 @@ class _G:
     op_yoy: float | None
     op_turnaround: bool
     op_margin_delta: float | None = None
+    eps_yoy: float | None = None
 
 
 @dataclass
@@ -64,11 +65,11 @@ def test_growth_score_ranks_high_growth_above_low():
     assert 0 <= low <= 100 and 0 <= high <= 100
 
 
-def test_growth_score_turnaround_boosts():
-    # 흑자전환 가점(같은 YoY 라도 더 높음).
-    g_turn = _G(0.2, 0.2, True)
-    g_plain = _G(0.2, 0.2, False)
-    assert screener._growth_score(_U(), g_turn) > screener._growth_score(_U(), g_plain)
+def test_growth_score_turnaround_magnitude():
+    # 흑전은 영업이익 YoY 대신 OPM 개선(Δ영업이익률)으로 반영 — 규모 큰 흑전이 작은 흑전보다 높다.
+    big = screener._growth_score(_U(), _G(0.2, None, True, op_margin_delta=0.10))
+    small = screener._growth_score(_U(), _G(0.2, None, True, op_margin_delta=-0.05))
+    assert big is not None and small is not None and big > small
 
 
 def test_growth_score_null_growth_none():
