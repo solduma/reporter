@@ -50,7 +50,9 @@ def _stub(monkeypatch):
         monkeypatch.setattr(ingest, "get_llm", lambda settings: object())  # LLMPort 스텁(non-None)
         monkeypatch.setattr(ingest.analyzer, "summarize_reports", lambda c, m, reps: reps)
         # 뉴스는 기본적으로 없음(각 테스트가 필요 시 오버라이드).
-        monkeypatch.setattr(ingest.news, "collect", lambda kw, limit, session=None: [])
+        monkeypatch.setattr(
+            ingest.news, "collect", lambda kw, limit, session=None, max_age_hours=None: []
+        )
         monkeypatch.setattr(ingest.analyzer, "synthesize_forecast", lambda c, m, reps: _Briefing())
         monkeypatch.setattr(
             ingest.analyzer, "synthesize_closing_review", lambda c, m, reps: _Briefing()
@@ -145,12 +147,16 @@ def test_intraday_uses_live_quotes_and_news_not_research(_stub, monkeypatch):
     monkeypatch.setattr(ingest.us_market, "fetch_kr_indices", lambda s: [_Quote("코스피", "2,650", "0.45")])
     monkeypatch.setattr(ingest.us_market, "fetch_exchange_rates", lambda s: [_Quote("원/달러", "1,380", "-0.2")])
     monkeypatch.setattr(ingest.us_market, "fetch_us_indices", lambda s: [])
-    monkeypatch.setattr(ingest.news, "collect", lambda kw, limit, session=None: [_NewsItem("삼성전자 신고가")])
+    monkeypatch.setattr(
+        ingest.news, "collect",
+        lambda kw, limit, session=None, max_age_hours=None: [_NewsItem("삼성전자 신고가")],
+    )
     monkeypatch.setattr(ingest, "article", _FakeArticle)
 
-    def _capture_intraday(client, model, quote_lines, news_blocks):
+    def _capture_intraday(client, model, quote_lines, news_blocks, prev_summary=None):
         captured["quotes"] = quote_lines
         captured["news"] = news_blocks
+        captured["prev"] = prev_summary
         return _Briefing()
 
     monkeypatch.setattr(ingest.analyzer, "synthesize_intraday", _capture_intraday)
@@ -170,13 +176,42 @@ def test_intraday_returns_none_when_no_live_data(_stub, monkeypatch):
     monkeypatch.setattr(ingest.us_market, "fetch_kr_indices", lambda s: [])
     monkeypatch.setattr(ingest.us_market, "fetch_exchange_rates", lambda s: [])
     monkeypatch.setattr(ingest.us_market, "fetch_us_indices", lambda s: [])
-    monkeypatch.setattr(ingest.news, "collect", lambda kw, limit, session=None: [])
+    monkeypatch.setattr(
+        ingest.news, "collect", lambda kw, limit, session=None, max_age_hours=None: []
+    )
     db = _FakeSession()
     assert ingest.build_market_brief(db, _settings(), phase="intraday") is None
     assert db.added == []
 
 
-def test_backfill_target_date_uses_closing(_stub):
+def test_intraday_passes_prev_summary_for_contrast(_stub, monkeypatch):
+    # 장중 갱신 시 당일 직전 시황을 synthesize_intraday 에 prev_summary 로 넘겨 '장초→현재' 대조 유도.
+    captured = {}
+    monkeypatch.setattr(ingest, "crawl_categories", lambda cats, target_date=None: [])
+    monkeypatch.setattr(ingest.us_market, "fetch_kr_indices", lambda s: [_Quote("코스피", "2,650", "0.45")])
+    monkeypatch.setattr(ingest.us_market, "fetch_exchange_rates", lambda s: [])
+    monkeypatch.setattr(ingest.us_market, "fetch_us_indices", lambda s: [])
+    monkeypatch.setattr(
+        ingest.news, "collect",
+        lambda kw, limit, session=None, max_age_hours=None: [_NewsItem("장중 뉴스")],
+    )
+    monkeypatch.setattr(ingest, "article", _FakeArticle)
+
+    def _capture(client, model, quote_lines, news_blocks, prev_summary=None):
+        captured["prev"] = prev_summary
+        return _Briefing()
+
+    monkeypatch.setattr(ingest.analyzer, "synthesize_intraday", _capture)
+
+    # 당일 기존 시황이 있는 세션(update 경로) — 그 summary 가 prev 로 전달돼야 한다.
+    class _Existing:
+        summary = "장 초엔 강세로 출발"
+        phase = "intraday"
+
+    db = _FakeSession()
+    db.scalar = lambda stmt: _Existing()  # 기존 행 존재
+    ingest.build_market_brief(db, _settings(), phase="intraday")
+    assert captured["prev"] == "장 초엔 강세로 출발"
     # 과거 백필(target_date 지정)은 장중 실시간이 불가하므로 마감 리뷰 경로.
     _stub([_cr("국내주식 마감 시황 (26.07.08)")])
     db = _FakeSession()
