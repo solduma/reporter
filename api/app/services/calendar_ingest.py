@@ -79,7 +79,8 @@ def _to_out(ev: CalendarEvent, today: date) -> CalendarEventOut:
         event_date=ev.event_date, region=ev.region, kind=ev.kind, title=ev.title,
         importance=ev.importance, is_past=ev.event_date <= today,
         actual=ev.actual, previous=ev.previous, consensus=ev.consensus, unit=ev.unit,
-        impact_text=ev.impact_text, expectation_text=ev.expectation_text,
+        impact_text=ev.impact_text, impact_direction=ev.impact_direction,
+        expectation_text=ev.expectation_text,
     )
 
 

@@ -19,13 +19,18 @@ from app.adapters.llm import get_llm
 from app.config import Settings, get_settings
 from app.db.models import CalendarEvent
 from app.ports.llm import LLMError, LLMPort
+from app.services.sentiment import (
+    _extract_json,  # LLM 응답에서 JSON 관대 추출(코드펜스·잡텍스트 허용)
+)
 
 logger = logging.getLogger(__name__)
 
 _PAST_SYSTEM = (
     "너는 매크로·시장 이벤트가 지수에 미친 영향을 사후 분석하는 애널리스트다. 지난 이벤트의 실제치와 "
-    "직전치를 근거로, 그 결과가 시장(특히 지수)에 어떻게·왜 작용했는지 2~3문장으로 간결히 설명한다. "
-    "과장·단정을 피하고, 수치가 서프라이즈였는지(예상 대비)까지는 단정하지 않는다. 모르면 아는 척하지 않는다."
+    "직전치를 근거로, 그 결과가 시장(특히 지수)에 어떻게·왜 작용했는지 설명하고, 지수에 미친 방향을 "
+    "판정한다. 지수에 긍정적이었으면 positive, 부정적이었으면 negative, 뚜렷하지 않거나 판단 어려우면 "
+    "neutral. 과장·단정을 피하고 모르면 아는 척하지 않는다. 반드시 아래 JSON 형식만 출력한다.\n"
+    '{"impact": "지수 영향·이유를 2~3문장으로", "direction": "positive|negative|neutral"}'
 )
 _FUTURE_SYSTEM = (
     "너는 다가올 매크로·시장 이벤트에 대한 시장의 일반적 기대와 관전 포인트를 정리하는 애널리스트다. "
@@ -33,7 +38,7 @@ _FUTURE_SYSTEM = (
     "지수에 어떤 의미인지'를 2~3문장으로 설명한다. 확정 예측이 아니라 관전 포인트임을 분명히 한다."
 )
 
-_MODEL_TAG = "calendar-v2"  # 프롬프트/모델 개정 시 올려 전건 재생성 유도(v2: 오늘날짜·과거미래 명시)
+_MODEL_TAG = "calendar-v3"  # 개정 시 올려 재생성 유도(v3: 과거 JSON {impact,direction} 방향 분류)
 
 
 def _inputs_hash(ev: CalendarEvent, is_past: bool) -> str:
@@ -67,16 +72,32 @@ def _prompt(ev: CalendarEvent, is_past: bool, today: date) -> str:
     return "\n".join(lines) + "\n\n" + tail
 
 
+_DIRECTIONS = {"positive", "negative", "neutral"}
+
+
 def _generate_one(
     client: LLMPort, model: str, ev: CalendarEvent, is_past: bool, today: date
-) -> str | None:
+) -> tuple[str, str | None] | None:
+    """LLM 텍스트 생성. 반환 (text, direction). 미래 이벤트는 direction=None.
+
+    과거 이벤트는 JSON {impact, direction} 으로 받아 방향까지 분류(프론트 색칠용).
+    """
     system = _PAST_SYSTEM if is_past else _FUTURE_SYSTEM
     try:
-        text = client.chat(model, system, _prompt(ev, is_past, today), temperature=0.3).strip()
+        raw = client.chat(model, system, _prompt(ev, is_past, today), temperature=0.3).strip()
     except LLMError as e:
         logger.warning("calendar LLM failed for %s: %s", ev.title, e)
         return None
-    return text or None
+    if not is_past:
+        return (raw, None) if raw else None
+    # 과거: JSON {impact, direction}. 파싱 실패 시 원문을 text 로, 방향은 neutral 로 폴백.
+    data = _extract_json(raw)
+    if data and data.get("impact"):
+        direction = str(data.get("direction", "")).lower()
+        if direction not in _DIRECTIONS:
+            direction = "neutral"
+        return str(data["impact"]).strip(), direction
+    return (raw, "neutral") if raw else None
 
 
 def generate_pending(
@@ -105,11 +126,13 @@ def generate_pending(
         existing = ev.impact_text if is_past else ev.expectation_text
         if existing and ev.inputs_hash == h:
             continue  # 최신 — 재생성 불필요
-        text = _generate_one(client, settings.insight_model, ev, is_past, today)
-        if text is None:
+        result = _generate_one(client, settings.insight_model, ev, is_past, today)
+        if result is None:
             continue
+        text, direction = result
         if is_past:
             ev.impact_text = text
+            ev.impact_direction = direction
         else:
             ev.expectation_text = text
         ev.inputs_hash = h

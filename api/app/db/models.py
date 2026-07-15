@@ -653,6 +653,8 @@ class CalendarEvent(Base):
     unit: Mapped[str | None] = mapped_column(String(16))  # %, K, pt 등
     # LLM 생성 텍스트(해시 캐싱).
     impact_text: Mapped[str | None] = mapped_column(Text)  # 지난 이벤트: 지수 영향·이유
+    # 지난 이벤트 지수 영향 방향(LLM 분류): positive|negative|neutral. 프론트 색칠용.
+    impact_direction: Mapped[str | None] = mapped_column(String(8))
     expectation_text: Mapped[str | None] = mapped_column(Text)  # 미래 이벤트: 시장 기대치
     inputs_hash: Mapped[str | None] = mapped_column(String(64))  # LLM 입력 해시(재생성 판정)
     # 출처 추적(멱등 upsert 키).
