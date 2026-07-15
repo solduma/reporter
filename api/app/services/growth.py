@@ -19,13 +19,18 @@ class GrowthMetric:
     period: str  # 기준 분기(최신 실적)
     revenue_yoy: float | None  # 매출 YoY (0.28 = +28%)
     op_yoy: float | None  # 영업이익 YoY
-    op_turnaround: bool  # 직전 동기 적자 → 당기 흑자
-    op_status: str | None  # 흑자전환|흑자지속|적자전환|적자지속 (직전 대비 손익 상태)
+    op_turnaround: bool  # 직전 동기 영업적자 → 당기 흑자(스크리너 필터용)
+    op_status: str | None  # 흑자전환|흑자지속|적자전환|적자지속 (영업손익 상태)
     # 영업이익률 변화(당기 - 직전동기, 비율). 매출로 나눈 이익률이라 회사 규모 무관하게 마진 개선
-    # 폭을 비교한다(0.559 = +55.9pp). 전 종목 OPM 개선 축 + 흑전 규모(op_yoy 정의 불가 시 대체)에 쓴다.
+    # 폭을 비교한다(0.559 = +55.9pp). 영업이익 성장 축(상태+마진 pp)에 쓴다.
     op_margin_delta: float | None = None
-    # 주당순이익 YoY. 증자로 주식 수가 늘어 주주가치가 희석되는 '속 빈 강정' 성장을 걸러내는 축.
-    eps_yoy: float | None = None
+    eps_yoy: float | None = None  # 주당순이익 YoY(참고용, 스냅샷 표시)
+    # 순이익·EBITDA 도 영업이익과 동일하게 손익상태 4단계 + 마진 증감 pp 로 성장 축을 만든다
+    # (적자→흑자 등 상태 변화가 있어 YoY 비율로는 왜곡되므로).
+    net_status: str | None = None
+    net_margin_delta: float | None = None
+    ebitda_status: str | None = None
+    ebitda_margin_delta: float | None = None
 
 
 def _key(period: str) -> tuple[int, int] | None:
@@ -79,40 +84,47 @@ def compute_growth(stock_code: str, periods: list) -> GrowthMetric | None:
     ly, lm = _key(latest.period)
     prior = next((p for p in actuals if _key(p.period) == (ly - 1, lm)), None)
 
-    op_status = _op_status(
-        prior.operating_income if prior else None,
-        latest.operating_income,
+    prior_rev = prior.revenue if prior else None
+    latest_ebitda = getattr(latest, "ebitda", None)
+    prior_ebitda = getattr(prior, "ebitda", None) if prior else None
+
+    op_status = _profit_status(
+        prior.operating_income if prior else None, latest.operating_income
     )
-    op_turnaround = op_status == "흑자전환"
+    net_status = _profit_status(prior.net_income if prior else None, latest.net_income)
+    ebitda_status = _profit_status(prior_ebitda, latest_ebitda)
 
     return GrowthMetric(
         stock_code=stock_code,
         period=latest.period,
         revenue_yoy=_yoy(latest.revenue, prior.revenue) if prior else None,
         op_yoy=_yoy(latest.operating_income, prior.operating_income) if prior else None,
-        op_turnaround=op_turnaround,
+        op_turnaround=op_status == "흑자전환",
         op_status=op_status,
         op_margin_delta=_margin_delta(
-            latest.operating_income, latest.revenue,
-            prior.operating_income, prior.revenue,
+            latest.operating_income, latest.revenue, prior.operating_income, prior_rev
         ) if prior else None,
-        eps_yoy=_yoy(
-            getattr(latest, "eps", None),
-            getattr(prior, "eps", None),
+        eps_yoy=_yoy(getattr(latest, "eps", None), getattr(prior, "eps", None)) if prior else None,
+        net_status=net_status,
+        net_margin_delta=_margin_delta(
+            latest.net_income, latest.revenue, prior.net_income, prior_rev
+        ) if prior else None,
+        ebitda_status=ebitda_status,
+        ebitda_margin_delta=_margin_delta(
+            latest_ebitda, latest.revenue, prior_ebitda, prior_rev
         ) if prior else None,
     )
 
 
-def _op_status(prior_op: float | None, latest_op: float | None) -> str | None:
-    """직전 동기 대비 영업이익 손익 상태. 0 은 적자(비흑자)로 본다. 결측이면 None.
+def _profit_status(prior_v: float | None, latest_v: float | None) -> str | None:
+    """직전 동기 대비 이익 손익 상태(영업이익·순이익·EBITDA 공용). 0 은 적자(비흑자)로 본다.
 
-    흑자전환(적자→흑자)·흑자지속·적자전환(흑자→적자)·적자지속 4상태로 나눠, '흑자전환 아님'이
-    계속흑자·적자전환·계속적자를 뭉개던 표시 손실을 없앤다.
+    흑자전환(적자→흑자)·흑자지속·적자전환(흑자→적자)·적자지속 4상태. 결측이면 None.
     """
-    if prior_op is None or latest_op is None:
+    if prior_v is None or latest_v is None:
         return None
-    prior_pos = prior_op > 0
-    latest_pos = latest_op > 0
+    prior_pos = prior_v > 0
+    latest_pos = latest_v > 0
     if prior_pos and latest_pos:
         return "흑자지속"
     if not prior_pos and latest_pos:

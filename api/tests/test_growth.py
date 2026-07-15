@@ -12,6 +12,9 @@ class _Fin:
     period: str
     revenue: float | None
     operating_income: float | None
+    net_income: float | None = None
+    eps: float | None = None
+    ebitda: float | None = None
 
 
 def test_yoy_computed_against_same_quarter_prior_year():
@@ -64,6 +67,26 @@ def test_margin_delta_none_when_revenue_nonpositive():
     # 매출 0/음수/결측이면 이익률 정의 불가 → None(YoY 처럼 왜곡 방지).
     m = growth.compute_growth("A", [_Fin("2025.03", 0.0, -5.0), _Fin("2026.03", 100.0, 8.0)])
     assert m.op_margin_delta is None
+
+
+def test_net_and_ebitda_status_and_margin():
+    # 순이익·EBITDA 도 영업이익과 동일하게 손익상태 4단계 + 마진 증감을 낸다.
+    fins = [
+        _Fin("2025.03", 100.0, -5.0, net_income=-8.0, ebitda=-2.0),
+        _Fin("2026.03", 100.0, 8.0, net_income=6.0, ebitda=12.0),
+    ]
+    m = growth.compute_growth("A", fins)
+    assert m.net_status == "흑자전환"  # 순이익 -8 → +6
+    assert m.net_margin_delta == round(6 / 100 - (-8 / 100), 4)  # +14pp
+    assert m.ebitda_status == "흑자전환"  # EBITDA -2 → +12
+    assert m.ebitda_margin_delta == round(12 / 100 - (-2 / 100), 4)  # +14pp
+
+
+def test_net_ebitda_status_none_without_data():
+    # 순이익·EBITDA 결측이면 상태·마진 None(축 제외).
+    m = growth.compute_growth("A", [_Fin("2025.03", 100.0, 10.0), _Fin("2026.03", 120.0, 12.0)])
+    assert m.net_status is None and m.net_margin_delta is None
+    assert m.ebitda_status is None and m.ebitda_margin_delta is None
 
 
 def test_op_status_four_states():

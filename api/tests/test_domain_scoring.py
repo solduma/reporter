@@ -47,16 +47,19 @@ def test_growth_score_turnaround_magnitude():
     assert big > small
 
 
-def test_growth_score_eps_dilution():
-    # EPS 백분위를 넣으면 증자 희석(EPS 낮은 종목)이 성장 점수에서 감점된다.
+def test_growth_score_net_and_ebitda_matter():
+    # 순이익·EBITDA 축도 손익상태+마진으로 반영 — 이익 지표가 나쁘면 성장 점수가 낮아진다.
     r = scoring.percentile_ranker([0.5, 0.5])
     m = scoring.percentile_ranker([10.0, 10.0])
-    eps_hi = scoring.percentile_ranker([0.0, 1.0])
     base = {"revenue_yoy": 0.5, "op_status": "흑자지속", "momentum_3m": 10.0, "op_margin_delta": 0.03,
-            "coverage_count": 0, "buy_count": 0, "rev_rank": r, "mom_rank": m, "eps_rank": eps_hi}
-    strong = scoring.growth_score(eps_yoy=1.0, **base)
-    diluted = scoring.growth_score(eps_yoy=0.0, **base)
-    assert strong > diluted
+            "coverage_count": 0, "buy_count": 0, "rev_rank": r, "mom_rank": m}
+    strong = scoring.growth_score(
+        net_status="흑자지속", net_margin_delta=0.03, ebitda_status="흑자지속", ebitda_margin_delta=0.03, **base
+    )
+    weak = scoring.growth_score(
+        net_status="적자전환", net_margin_delta=-0.05, ebitda_status="적자전환", ebitda_margin_delta=-0.05, **base
+    )
+    assert strong > weak
 
 
 def test_value_score_cheap_above_expensive():

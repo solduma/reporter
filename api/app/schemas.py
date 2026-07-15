@@ -283,8 +283,13 @@ class CompanyGrowth(BaseModel):
     op_yoy: float | None
     op_turnaround: bool
     op_status: str | None  # 흑자전환|흑자지속|적자전환|적자지속
-    op_margin_delta: float | None = None  # 영업이익률 변화(흑자전환 규모, 0.559=+55.9pp)
-    eps_yoy: float | None = None  # 주당순이익 YoY(증자 희석 필터)
+    op_margin_delta: float | None = None  # 영업이익률 변화(0.559=+55.9pp)
+    eps_yoy: float | None = None  # 주당순이익 YoY
+    # 순이익·EBITDA 도 영업이익과 동일하게 손익상태 + 마진 증감으로 성장 지표에 표시.
+    net_status: str | None = None
+    net_margin_delta: float | None = None
+    ebitda_status: str | None = None
+    ebitda_margin_delta: float | None = None
     period: str | None
     coverage_count: int  # 최근 1년 리포트 수
     buy_ratio: float | None  # 최근 1년 BUY 비율

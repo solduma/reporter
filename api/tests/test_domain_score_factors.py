@@ -9,28 +9,34 @@ def _by_label(factors, label):
     return next(f for f in factors if f.label == label)
 
 
-def test_growth_factors_three_elements():
-    # 매출 YoY + 영업이익(상태+pp 결합) + EPS YoY. 가중치 매출0.4·영업0.35·EPS0.25.
-    fs = sf.growth_factors(revenue_yoy=0.6, op_status="흑자지속", op_margin_delta=0.05, eps_yoy=0.3)
-    rev = _by_label(fs, "매출 YoY")
+def test_growth_factors_seven_elements():
+    # 매출 YoY + 각 이익의 상태·마진율 증감 분리(7요소). 상태는 배지, 마진은 pp 표기.
+    fs = sf.growth_factors(
+        revenue_yoy=0.6, op_status="흑자지속", op_margin_delta=0.05,
+        net_status="흑자전환", net_margin_delta=0.04,
+        ebitda_status="적자지속", ebitda_margin_delta=0.06,
+    )
+    assert _by_label(fs, "매출 YoY").norm == 1.0
     op = _by_label(fs, "영업이익")
-    eps = _by_label(fs, "EPS YoY")
-    assert rev.norm == 1.0 and rev.weight == 0.4 and rev.value == "+60%"
-    assert op.weight == 0.35 and "흑자지속" in op.value and "+5.0pp" in op.value
-    assert eps.weight == 0.25 and eps.value == "+30%"
+    opm = _by_label(fs, "영업이익률(OPM) 증감")
+    assert op.value == "흑자지속" and op.norm == 0.7 and op.weight == 0.16
+    assert opm.value == "+5.0pp" and opm.weight == 0.14
+    assert _by_label(fs, "순이익").value == "흑자전환" and _by_label(fs, "순이익").norm == 1.0
+    assert _by_label(fs, "순이익률(NPM) 증감").value == "+4.0pp"
+    assert _by_label(fs, "EBITDA").value == "적자지속" and _by_label(fs, "EBITDA").norm == 0.0
+    assert _by_label(fs, "EBITDA마진 증감").value == "+6.0pp"
 
 
-def test_growth_factors_turnaround_shows_status_and_pp():
-    # 흑전은 영업이익 행 하나에 상태 + 규모(pp)를 함께 표기. 별도 정의불가 행 없음.
-    fs = sf.growth_factors(0.3, "흑자전환", 0.30, None)
+def test_growth_factors_status_and_margin_separated():
+    # 상태 행과 마진 행이 분리 노출되고 각각 점수·근거가 일치한다(마진 이중계산 없음).
+    fs = sf.growth_factors(0.3, "흑자전환", 0.30)
     labels = [f.label for f in fs]
-    assert "영업이익 YoY" not in labels  # 정의불가 YoY 행 없음
-    op = _by_label(fs, "영업이익")
-    assert op.value == "흑자전환 +30.0pp"
-    assert op.norm == sf.op_profit_norm("흑자전환", 0.30)  # 점수·근거 일치
-    # 규모 큰 흑전이 작은 흑전보다 norm 높음.
-    big = _by_label(sf.growth_factors(0.3, "흑자전환", 0.30), "영업이익").norm
-    small = _by_label(sf.growth_factors(0.3, "흑자전환", 0.005), "영업이익").norm
+    assert "영업이익 YoY" not in labels
+    assert _by_label(fs, "영업이익").norm == sf.status_norm("흑자전환")  # 상태 축
+    assert _by_label(fs, "영업이익률(OPM) 증감").norm == sf.margin_pp_score(0.30)  # 마진 축
+    # 마진 개선폭이 크면 OPM 행 norm 이 높다.
+    big = _by_label(sf.growth_factors(0.3, "흑자전환", 0.30), "영업이익률(OPM) 증감").norm
+    small = _by_label(sf.growth_factors(0.3, "흑자전환", 0.005), "영업이익률(OPM) 증감").norm
     assert big > small
 
 

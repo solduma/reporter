@@ -24,7 +24,10 @@ class _G:
     revenue_yoy: float | None
     op_status: str | None = None
     op_margin_delta: float | None = None
-    eps_yoy: float | None = None
+    net_status: str | None = None
+    net_margin_delta: float | None = None
+    ebitda_status: str | None = None
+    ebitda_margin_delta: float | None = None
 
 
 @dataclass
@@ -58,8 +61,12 @@ def test_percentile_ranker_small_sample():
 
 def test_growth_score_ranks_high_growth_above_low():
     # 절대 밴드(종목분석과 동일): 고성장(매출↑·흑자지속·마진개선)이 저성장보다 높은 절대 점수.
-    high = screener._growth_score(_U(), _G(0.6, "흑자지속", 0.10, 0.6))
-    low = screener._growth_score(_U(), _G(0.0, "적자지속", -0.10, 0.0))
+    high = screener._growth_score(
+        _U(), _G(0.6, "흑자지속", 0.10, "흑자지속", 0.10, "흑자지속", 0.10)
+    )
+    low = screener._growth_score(
+        _U(), _G(0.0, "적자지속", -0.10, "적자지속", -0.10, "적자지속", -0.10)
+    )
     assert high is not None and low is not None and high > low
     assert 0 <= low <= 100 and 0 <= high <= 100
 
