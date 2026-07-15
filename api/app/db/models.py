@@ -626,3 +626,39 @@ class Holding(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class CalendarEvent(Base):
+    """경제/실적 캘린더 이벤트 — 매크로 지표 발표·주요기업 실적·중대일(FOMC·선거 등).
+
+    forward event_date 를 가지는 유일한 테이블(다른 event 계열은 모두 과거 발생일). 지나간
+    이벤트는 actual/previous + LLM impact_text(지수 영향·이유), 도래 전 이벤트는 consensus +
+    LLM expectation_text(시장 기대치)를 담는다. LLM 텍스트는 inputs_hash 로 재생성 여부 판정
+    (analysis_comment 캐싱 패턴). (source, source_key) 로 멱등 upsert.
+    """
+
+    __tablename__ = "calendar_event"
+    __table_args__ = (UniqueConstraint("source", "source_key", name="uq_calendar_event"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    event_date: Mapped[date] = mapped_column(Date, index=True)  # 발표·발생 예정/실제일
+    region: Mapped[str] = mapped_column(String(8), default="US")  # US | KR | GLOBAL
+    kind: Mapped[str] = mapped_column(String(16), default="macro")  # macro|earnings|fomc|election|geo
+    title: Mapped[str] = mapped_column(String(200))  # 예: "미국 CPI (6월)"
+    importance: Mapped[int] = mapped_column(SmallInteger, default=2)  # 1(낮음)~3(높음)
+    # 수치(있을 때만) — 문자열로 원표기 보존(단위·부호·% 다양).
+    actual: Mapped[str | None] = mapped_column(String(32))  # 실제치(지난 이벤트)
+    previous: Mapped[str | None] = mapped_column(String(32))  # 직전치
+    consensus: Mapped[str | None] = mapped_column(String(32))  # 시장 예상치(있으면)
+    unit: Mapped[str | None] = mapped_column(String(16))  # %, K, pt 등
+    # LLM 생성 텍스트(해시 캐싱).
+    impact_text: Mapped[str | None] = mapped_column(Text)  # 지난 이벤트: 지수 영향·이유
+    expectation_text: Mapped[str | None] = mapped_column(Text)  # 미래 이벤트: 시장 기대치
+    inputs_hash: Mapped[str | None] = mapped_column(String(64))  # LLM 입력 해시(재생성 판정)
+    # 출처 추적(멱등 upsert 키).
+    source: Mapped[str] = mapped_column(String(24), default="manual")  # fred|manual|nasdaq|...
+    source_key: Mapped[str] = mapped_column(String(64))  # 출처 내 고유키(release_id+date 등)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )

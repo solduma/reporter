@@ -2,6 +2,7 @@ import type {
   BroadcastDetail,
   BroadcastKind,
   BroadcastRef,
+  CalendarView,
   CandlePoint,
   ChartTimeframe,
   CompanyAnalysis,
@@ -66,6 +67,21 @@ export function fetchMarketBrief(): Promise<MarketBrief> {
 
 export function fetchMarketOverview(): Promise<MarketOverview> {
   return getJson<MarketOverview>("/api/market/overview");
+}
+
+export function fetchCalendar(params?: {
+  region?: string;
+  kind?: string;
+  pastDays?: number;
+  futureDays?: number;
+}): Promise<CalendarView> {
+  const q = new URLSearchParams();
+  if (params?.region) q.set("region", params.region);
+  if (params?.kind) q.set("kind", params.kind);
+  if (params?.pastDays !== undefined) q.set("past_days", String(params.pastDays));
+  if (params?.futureDays !== undefined) q.set("future_days", String(params.futureDays));
+  const qs = q.toString();
+  return getJson<CalendarView>(`/api/calendar${qs ? `?${qs}` : ""}`);
 }
 
 export function searchStocks(q: string, limit = 10): Promise<StockSearchHit[]> {

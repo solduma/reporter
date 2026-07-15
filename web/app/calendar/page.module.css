@@ -1,0 +1,195 @@
+.page {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 3rem;
+}
+
+.h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin: 0 0 0.25rem;
+}
+
+.sub {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin: 0 0 1.25rem;
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.filterGroup {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.filterLabel {
+  font-size: 0.82rem;
+  color: var(--muted);
+  margin-right: 0.2rem;
+}
+
+.chip {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 0.28rem 0.75rem;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+
+.chip:hover {
+  border-color: var(--accent);
+}
+
+.chipOn {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.status,
+.error {
+  padding: 2rem 0;
+  text-align: center;
+  color: var(--muted);
+}
+
+.error {
+  color: var(--sell);
+}
+
+.columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+}
+
+@media (max-width: 760px) {
+  .columns {
+    grid-template-columns: 1fr;
+  }
+}
+
+.colTitle {
+  font-size: 1.05rem;
+  font-weight: 700;
+  margin: 0 0 0.75rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 2px solid var(--border);
+}
+
+.count {
+  color: var(--muted);
+  font-weight: 500;
+  font-size: 0.85rem;
+}
+
+.card {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 0.8rem 0.9rem;
+  margin-bottom: 0.7rem;
+}
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.4rem;
+}
+
+.date {
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.region {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.stars {
+  margin-left: auto;
+  color: #eab308;
+  font-size: 0.8rem;
+  letter-spacing: -1px;
+}
+
+.kindBadge {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.1rem 0.45rem;
+  border-radius: 4px;
+  color: #fff;
+}
+
+.kindMacro {
+  background: #2b6cc0;
+}
+.kindEarnings {
+  background: #0d9488;
+}
+.kindFomc {
+  background: #c02b2b;
+}
+.kindElection {
+  background: #7c3aed;
+}
+.kindGeo {
+  background: #ea580c;
+}
+
+.title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin-bottom: 0.35rem;
+}
+
+.metrics {
+  display: flex;
+  gap: 0.9rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+  margin-bottom: 0.4rem;
+}
+
+.metrics b {
+  color: var(--text);
+}
+
+.impact,
+.expect {
+  font-size: 0.85rem;
+  line-height: 1.5;
+  margin: 0.3rem 0 0;
+  padding: 0.5rem 0.6rem;
+  border-radius: 6px;
+}
+
+.impact {
+  background: var(--sell-bg);
+}
+
+.expect {
+  background: var(--accent-soft);
+}
+
+.impactLabel,
+.expectLabel {
+  display: inline-block;
+  font-weight: 700;
+  font-size: 0.75rem;
+  margin-right: 0.4rem;
+  opacity: 0.75;
+}

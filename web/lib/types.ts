@@ -612,3 +612,28 @@ export interface PortfolioView {
   summary: PortfolioSummary;
   sectors: SectorWeight[];
 }
+
+// 경제/실적 캘린더
+export type CalendarRegion = "US" | "KR" | "GLOBAL";
+export type CalendarKind = "macro" | "earnings" | "fomc" | "election" | "geo";
+
+export interface CalendarEvent {
+  event_date: string; // YYYY-MM-DD
+  region: CalendarRegion;
+  kind: CalendarKind;
+  title: string;
+  importance: number; // 1~3
+  is_past: boolean;
+  actual: string | null;
+  previous: string | null;
+  consensus: string | null;
+  unit: string | null;
+  impact_text: string | null; // 과거: 지수 영향·이유(LLM)
+  expectation_text: string | null; // 미래: 시장 기대치(LLM)
+}
+
+export interface CalendarView {
+  as_of: string;
+  past: CalendarEvent[]; // 최신순
+  upcoming: CalendarEvent[]; // 임박순
+}

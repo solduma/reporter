@@ -39,6 +39,8 @@ class Settings(BaseSettings):
     # 외부 데이터 소스 키 (7단계 DART 공시 / 4단계 관세청 무역통계)
     dart_api_key: str = ""
     customs_api_key: str = ""
+    # 경제 캘린더 — FRED(미국 매크로 발표일·실적치, 무료 키). 미설정 시 수동 고정일정만.
+    fred_api_key: str = ""
 
     # SEC EDGAR(US 재무) — 무인증이나 연락처 명시 User-Agent 필수(SEC 정책). 기본값은 일반 표기.
     sec_user_agent: str = "reporter research contact@example.com"
