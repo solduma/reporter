@@ -219,11 +219,12 @@ def _label_cycles(pivots: list[Pivot]) -> list[tuple[int, str, str, float]]:
     i = 0
     last_motive_up: bool | None = None  # 직전 추진 방향(다음 조정 방향 결정용)
     while i < n - 1:
-        # 1) i 부터 창 내에서 **가장 이른** 유효 5파 임펄스를 채택(연속성 우선 — 앞선 유효 임펄스를
-        #    최고신뢰 뒤 창에 뺏겨 유실하지 않도록). 같은 시작점에선 상승·하락 중 최고신뢰 방향 선택.
+        # 1) i 부터 **전 구간에서 가장 이른** 유효 5파 임펄스를 찾는다(창 제한 없음 — 규칙 통과 지점이
+        #    멀리 있어도 놓치지 않고 다음 유효 지점까지 탐색). 그 앞 어긋난 다리는 유보(빈 라벨).
+        #    같은 시작점에선 상승·하락 중 최고신뢰 방향 채택.
         imp = None  # (st, conf, up)
-        for st in range(i, min(i + _SCAN_WINDOW, n - 5)):
-            best_dir = None  # (conf, up) — 이 시작점에서 더 잘 맞는 방향
+        for st in range(i, n - 5):
+            best_dir = None  # (conf, up)
             for cand_up in (True, False):
                 c = _impulse_conf(pivots[st : st + 6], cand_up)
                 if c is not None and (best_dir is None or c > best_dir[0]):
@@ -231,31 +232,32 @@ def _label_cycles(pivots: list[Pivot]) -> list[tuple[int, str, str, float]]:
             if best_dir is not None:
                 imp = (st, best_dir[0], best_dir[1])
                 break  # 가장 이른 유효 시작점에서 멈춘다
-        if imp is not None:
-            st, conf, up = imp
-            for k in range(i, st):  # 임펄스 앞 어긋난 다리는 유보(빈 라벨)
+        if imp is None:
+            for k in range(i, n - 1):  # 남은 구간에 유효 임펄스 없음 → 모두 유보하고 종료
                 out.append((k, "", "", 0.0))
-            for k, lab in enumerate(["1", "2", "3", "4", "5"]):
-                out.append((st + k, lab, "motive", round(conf, 2)))
-            last_motive_up = up
-            i = st + 5
-            # 2) 임펄스 끝에서 곧바로 조정(A-B-C)을 이어 찾는다 — 가장 이른 유효분(피벗 공유 → 연결).
-            cor = None
-            for st2 in range(i, min(i + _SCAN_WINDOW, n - 3)):
-                c = _correction_conf(pivots[st2 : st2 + 4], down=bool(last_motive_up))
-                if c is not None:
-                    cor = (st2, c)
-                    break  # 가장 이른 유효 조정에서 멈춘다
-            if cor is not None:
-                st2, cconf = cor
-                for k in range(i, st2):
-                    out.append((k, "", "", 0.0))
-                for k, lab in enumerate(["A", "B", "C"]):
-                    out.append((st2 + k, lab, "corrective", round(cconf, 2)))
-                i = st2 + 3
-        else:
-            out.append((i, "", "", 0.0))  # 통과 임펄스 없음 → 이 다리 유보
-            i += 1
+            break
+        st, conf, up = imp
+        for k in range(i, st):  # 임펄스 앞 어긋난 다리는 유보(빈 라벨)
+            out.append((k, "", "", 0.0))
+        for k, lab in enumerate(["1", "2", "3", "4", "5"]):
+            out.append((st + k, lab, "motive", round(conf, 2)))
+        last_motive_up = up
+        i = st + 5
+        # 2) 임펄스 끝에서 곧바로 조정(A-B-C)을 이어 찾는다 — 임펄스와 피벗 공유가 원칙이라 정렬
+        #    유연성만 허용(작은 창). 창 내에 유효 조정이 없으면 다음 임펄스 탐색으로 넘어간다.
+        cor = None
+        for st2 in range(i, min(i + _SCAN_WINDOW, n - 3)):
+            c = _correction_conf(pivots[st2 : st2 + 4], down=bool(last_motive_up))
+            if c is not None:
+                cor = (st2, c)
+                break  # 가장 이른 유효 조정에서 멈춘다
+        if cor is not None:
+            st2, cconf = cor
+            for k in range(i, st2):
+                out.append((k, "", "", 0.0))
+            for k, lab in enumerate(["A", "B", "C"]):
+                out.append((st2 + k, lab, "corrective", round(cconf, 2)))
+            i = st2 + 3
     return out
 
 
