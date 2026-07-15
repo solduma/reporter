@@ -13,6 +13,7 @@ from app.db.session import init_db
 from app.routers import (
     admin,
     broadcasts,
+    calendar,
     companies,
     industries,
     market,
@@ -63,6 +64,7 @@ app.include_router(broadcasts.router)
 app.include_router(portfolio.router)
 app.include_router(realtime.router)
 app.include_router(us.router)
+app.include_router(calendar.router)
 app.include_router(us.screener_router)
 
 

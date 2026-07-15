@@ -540,3 +540,28 @@ class PortfolioView(BaseModel):
     holdings: list[HoldingOut]
     summary: PortfolioSummaryOut
     sectors: list[SectorWeightOut]
+
+
+class CalendarEventOut(BaseModel):
+    """캘린더 이벤트 한 건. is_past 로 과거/미래 구분, 그에 따라 impact/expectation 중 하나가 찬다."""
+
+    event_date: date
+    region: str  # US | KR | GLOBAL
+    kind: str  # macro | earnings | fomc | election | geo
+    title: str
+    importance: int  # 1~3
+    is_past: bool
+    actual: str | None = None
+    previous: str | None = None
+    consensus: str | None = None
+    unit: str | None = None
+    impact_text: str | None = None  # 과거: 지수 영향·이유(LLM)
+    expectation_text: str | None = None  # 미래: 시장 기대치(LLM)
+
+
+class CalendarView(BaseModel):
+    """캘린더 조회 결과 — 조회 구간 + 과거/미래로 나눈 이벤트 목록."""
+
+    as_of: date
+    past: list[CalendarEventOut]  # 최신순(가까운 과거 먼저)
+    upcoming: list[CalendarEventOut]  # 임박순(가까운 미래 먼저)
