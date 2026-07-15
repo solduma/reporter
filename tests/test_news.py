@@ -1,3 +1,4 @@
+from datetime import UTC
 from unittest.mock import MagicMock
 
 import requests
@@ -63,3 +64,47 @@ def test_query_is_url_encoded():
     # 공백이 인코딩되어 그대로 노출되지 않는다
     assert "삼성 전자" not in url
     assert "%" in url
+
+
+# ── pubDate 파싱 + 최신성 필터·정렬 (장중 시황 최신성 회귀 가드) ──────────
+
+_RSS_DATED = b"""<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel>
+  <item><title>old</title><link>http://n/old</link>
+    <pubDate>Wed, 15 Jul 2026 00:00:00 GMT</pubDate></item>
+  <item><title>fresh</title><link>http://n/fresh</link>
+    <pubDate>Wed, 15 Jul 2026 09:00:00 GMT</pubDate></item>
+</channel></rss>"""
+
+
+def test_search_parses_pubdate():
+    session = _session_returning(_RSS_DATED)
+    items = news.search("증시", session=session)
+    assert items[0].published_at is not None
+    assert items[0].published_at.tzinfo is not None  # tz-aware
+    # 두 기사의 시각이 다르게 파싱됨
+    assert items[0].published_at != items[1].published_at
+
+
+def test_collect_sorts_newest_first_and_filters_old(monkeypatch):
+    from datetime import datetime
+    now = datetime(2026, 7, 15, 10, 0, tzinfo=UTC)
+
+    old = news.NewsItem("old", "s", "l1", published_at=datetime(2026, 7, 15, 0, 0, tzinfo=UTC))
+    fresh = news.NewsItem("fresh", "s", "l2", published_at=datetime(2026, 7, 15, 9, 30, tzinfo=UTC))
+    monkeypatch.setattr(news, "search", lambda kw, limit=5, session=None: [old, fresh])
+
+    class _FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return now
+
+    monkeypatch.setattr(news, "datetime", _FixedDatetime)
+
+    # 필터 없음: 최신순 정렬(fresh 먼저)
+    out = news.collect(["증시"], 10)
+    assert [i.title for i in out] == ["fresh", "old"]
+
+    # 최근 2시간 필터: old(10시간 전) 제외, fresh(30분 전) 유지
+    out2 = news.collect(["증시"], 10, max_age_hours=2)
+    assert [i.title for i in out2] == ["fresh"]

@@ -163,6 +163,8 @@ _MARKET_CLOSE_HOUR = 16
 # 뉴스 종합 시 본문까지 크롤할 상위 기사 수(headless 라 무거워 소수만). pipeline 과 동일 정책.
 _NEWS_ARTICLE_TOP = 3
 _INTRADAY_NEWS_LIMIT = 8
+# 장중 뉴스 최신성 창(시간). 장 초 뉴스가 계속 상위를 점하지 않도록 이보다 오래된 기사는 제외.
+_INTRADAY_NEWS_MAX_AGE_H = 8.0
 
 
 def _market_phase(now: datetime) -> str:
@@ -192,9 +194,12 @@ def _news_blocks(items, session: requests.Session) -> list[str]:
     return blocks
 
 
-def _build_intraday(settings: Settings, session: requests.Session) -> tuple[str, int] | None:
-    """장중: 리서치 제외. 실시간 지수·환율 + 장중 뉴스로 '지금 장 상황'을 종합한다.
+def _build_intraday(
+    settings: Settings, session: requests.Session, prev_summary: str | None = None
+) -> tuple[str, int] | None:
+    """장중: 리서치 제외. 실시간 지수·환율 + **최신** 장중 뉴스로 '지금 장 상황'을 종합한다.
 
+    prev_summary(직전 시황)를 주면 '장 초엔 이랬으나 지금은' 식 대조를 하게 한다.
     (요약 텍스트, source_count) 또는 근거를 전혀 못 구하면 None.
     """
     quotes = [
@@ -202,7 +207,11 @@ def _build_intraday(settings: Settings, session: requests.Session) -> tuple[str,
         *us_market.fetch_exchange_rates(session),
         *us_market.fetch_us_indices(session),  # 간밤 미국 마감(참고)
     ]
-    items = news.collect(news.MARKET_NEWS_KEYWORDS, _INTRADAY_NEWS_LIMIT, session)
+    # 최근 창 안의 뉴스만 최신순으로(장 초 뉴스 고정 방지).
+    items = news.collect(
+        news.MARKET_NEWS_KEYWORDS, _INTRADAY_NEWS_LIMIT, session,
+        max_age_hours=_INTRADAY_NEWS_MAX_AGE_H,
+    )
     if not quotes and not items:
         return None
     quote_lines = [_quote_line(q) for q in quotes]
@@ -210,7 +219,9 @@ def _build_intraday(settings: Settings, session: requests.Session) -> tuple[str,
     client = get_llm(settings)
     if client is None:
         return None
-    briefing = analyzer.synthesize_intraday(client, settings.insight_model, quote_lines, blocks)
+    briefing = analyzer.synthesize_intraday(
+        client, settings.insight_model, quote_lines, blocks, prev_summary=prev_summary
+    )
     return briefing.text, len(quotes) + len(items)
 
 
@@ -290,18 +301,19 @@ def build_market_brief(
     if phase is None:
         phase = "closing" if target_date else _market_phase(datetime.now())
 
+    market_date = _to_date(target_date) if target_date else datetime.now().date()
+    existing = db.scalar(select(DailyMarketInfo).where(DailyMarketInfo.market_date == market_date))
+
     session = requests.Session()
     if phase == "intraday":
-        built = _build_intraday(settings, session)
+        # 직전 시황(당일 기존 브리핑)을 넘겨 '장 초→현재' 대조를 유도. 첫 장중 갱신이면 None.
+        prev = existing.summary if existing else None
+        built = _build_intraday(settings, session, prev_summary=prev)
     else:
         built = _build_research(settings, phase, target_date, session)
     if built is None:
         return None
     summary_text, source_count = built
-
-    # market_date = 수집 실행일(지정일 우선). 리스트 최상단 발행일에 의존하지 않는다.
-    market_date = _to_date(target_date) if target_date else datetime.now().date()
-    existing = db.scalar(select(DailyMarketInfo).where(DailyMarketInfo.market_date == market_date))
     if existing:
         existing.summary = summary_text
         existing.source_count = source_count
