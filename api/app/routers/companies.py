@@ -21,10 +21,6 @@ from app.schemas import (
     CompanyGrowth,
     CompanySummary,
     CompanyTrend,
-    ElliottPivot,
-    ElliottProjection,
-    ElliottView,
-    ElliottWaveSegment,
     FinancialPeriodOut,
     JudgmentOut,
     PeerOut,
@@ -363,38 +359,7 @@ def company_trend(
         rs_latest=result.rs.latest,
         rs_outperforming=result.rs.outperforming,
         rs_rating=snap.rs_rating if snap else None,
-        elliott=ElliottView(
-            pivots=[
-                ElliottPivot(date=pv.date, price=pv.price, kind=pv.kind, label=pv.label)
-                for pv in result.elliott.pivots
-            ],
-            labeled=result.elliott.labeled,
-            confidence=result.elliott.confidence,
-            direction=result.elliott.direction,
-            segments=[
-                ElliottWaveSegment(
-                    start_date=s.start_date, end_date=s.end_date,
-                    start_price=s.start_price, end_price=s.end_price,
-                    phase=s.phase, direction=s.direction,
-                    wave_label=s.wave_label, bars=s.bars, confidence=s.confidence,
-                )
-                for s in result.elliott.segments
-            ],
-            current_position=result.elliott.current_position,
-            invalidation_price=result.elliott.invalidation_price,
-            projection=(
-                ElliottProjection(
-                    wave=result.elliott.projection.wave, low=result.elliott.projection.low,
-                    high=result.elliott.projection.high,
-                    bars_low=result.elliott.projection.bars_low,
-                    bars_high=result.elliott.projection.bars_high,
-                    basis=result.elliott.projection.basis,
-                )
-                if result.elliott.projection
-                else None
-            ),
-            note=result.elliott.note,
-        ),
+        elliott=None,  # 엘리엇 파동 노출 제거(부적절 배치 잦음 → 연구 과제). 필드는 하위호환 유지.
         secular=SecularView(
             ma_months=result.secular.ma_months,
             position=result.secular.position,
