@@ -31,44 +31,52 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 UID_NUM="$(id -u)"
 
 # ── 대상 결정 ────────────────────────────────────────────────────────────
-declare -A WANT=([api]=0 [web]=0 [worker]=0)
+# macOS 기본 /bin/bash 는 3.2 라 연관배열(declare -A)을 지원하지 않는다 → 일반 변수 3개로.
+WANT_API=0
+WANT_WEB=0
+WANT_WORKER=0
 
 if [[ $# -gt 0 ]]; then
   for t in "$@"; do
     case "$t" in
-      api|web|worker) WANT[$t]=1 ;;
+      api)    WANT_API=1 ;;
+      web)    WANT_WEB=1 ;;
+      worker) WANT_WORKER=1 ;;
       *) die "알 수 없는 대상: $t (api|web|worker)" ;;
     esac
   done
   log "대상(명시): $*"
 else
   base="${DEPLOY_BASE:-HEAD~1}"
-  if ! git rev-parse --verify "$base" >/dev/null 2>&1; then
+  # 브랜치 최초 생성 push 는 before 가 40개 0 → diff 불가이므로 전체 폴백.
+  if [[ "$base" =~ ^0+$ ]] || ! git rev-parse --verify "$base" >/dev/null 2>&1; then
     warn "diff 기준 '$base' 없음 → 전체 배포로 폴백"
-    WANT[api]=1; WANT[web]=1; WANT[worker]=1
+    WANT_API=1; WANT_WEB=1; WANT_WORKER=1
   else
     changed="$(git diff --name-only "$base" HEAD)"
     log "변경 파일($base..HEAD):"; echo "$changed" | sed 's/^/    /'
     while IFS= read -r f; do
       [[ -z "$f" ]] && continue
       case "$f" in
-        web/*)                              WANT[web]=1 ;;
-        api/app/routers/*|api/app/schemas*) WANT[api]=1 ;;
-        api/app/domain/*|api/app/services/*|src/*) WANT[api]=1; WANT[worker]=1 ;;
-        infra/*|pyproject.toml|uv.lock)     WANT[worker]=1 ;;
-        api/*)                              WANT[api]=1 ;;
+        web/*)                              WANT_WEB=1 ;;
+        api/app/routers/*|api/app/schemas*) WANT_API=1 ;;
+        api/app/domain/*|api/app/services/*|src/*) WANT_API=1; WANT_WORKER=1 ;;
+        infra/*|pyproject.toml|uv.lock)     WANT_WORKER=1 ;;
+        api/*)                              WANT_API=1 ;;
       esac
     done <<< "$changed"
   fi
 fi
 
-targets=()
-for t in api web worker; do [[ ${WANT[$t]} -eq 1 ]] && targets+=("$t"); done
-if [[ ${#targets[@]} -eq 0 ]]; then
+targets=""
+[[ $WANT_API -eq 1 ]]    && targets="$targets api"
+[[ $WANT_WEB -eq 1 ]]    && targets="$targets web"
+[[ $WANT_WORKER -eq 1 ]] && targets="$targets worker"
+if [[ -z "$targets" ]]; then
   log "배포 대상 없음 — 종료."
   exit 0
 fi
-log "배포 대상: ${targets[*]}"
+log "배포 대상:$targets"
 
 # ── 배포 동작 ────────────────────────────────────────────────────────────
 deploy_worker() {
@@ -92,25 +100,25 @@ deploy_web() {
 }
 
 # worker → api → web 순(도메인 코드가 worker/api 공유이므로 서버 먼저 안정화).
-[[ ${WANT[worker]} -eq 1 ]] && deploy_worker
-[[ ${WANT[api]} -eq 1 ]]    && deploy_api
-[[ ${WANT[web]} -eq 1 ]]    && deploy_web
+[[ $WANT_WORKER -eq 1 ]] && deploy_worker
+[[ $WANT_API -eq 1 ]]    && deploy_api
+[[ $WANT_WEB -eq 1 ]]    && deploy_web
 
 # ── 헬스체크 ─────────────────────────────────────────────────────────────
 log "헬스체크"
 fail=0
-if [[ ${WANT[api]} -eq 1 ]]; then
+if [[ $WANT_API -eq 1 ]]; then
   sleep 6
   code="$(curl -s -m 10 -o /dev/null -w '%{http_code}' http://127.0.0.1:8010/api/screener?limit=1 || echo 000)"
   [[ "$code" == "200" ]] && log "api OK ($code)" || { warn "api 헬스 실패 ($code)"; fail=1; }
 fi
-if [[ ${WANT[web]} -eq 1 ]]; then
+if [[ $WANT_WEB -eq 1 ]]; then
   sleep 2
   code="$(curl -s -m 10 -o /dev/null -w '%{http_code}' http://127.0.0.1:43000/ || echo 000)"
   # 로그인 게이트로 307 리다이렉트가 정상.
   [[ "$code" == "200" || "$code" == "307" ]] && log "web OK ($code)" || { warn "web 헬스 실패 ($code)"; fail=1; }
 fi
-if [[ ${WANT[worker]} -eq 1 ]]; then
+if [[ $WANT_WORKER -eq 1 ]]; then
   status="$(docker inspect -f '{{.State.Status}}' reporter-worker 2>/dev/null || echo missing)"
   [[ "$status" == "running" ]] && log "worker OK ($status)" || { warn "worker 상태 이상 ($status)"; fail=1; }
 fi
