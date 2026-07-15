@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AnalysisPanel from "@/components/AnalysisPanel";
 import { MA_DEFS } from "@/components/CandleChart";
 import type { ChartRange } from "@/components/CandleChart";
+import CompanySnapshot from "@/components/CompanySnapshot";
 import CompanyTimeline from "@/components/CompanyTimeline";
 import DateRangeSlider from "@/components/DateRangeSlider";
 import GrowthMetrics from "@/components/GrowthMetrics";
@@ -646,7 +647,16 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
 
       {error ? <p className={styles.error}>API 연결 실패: {error}</p> : null}
 
-      {/* 순서: ① 테크노펀더멘탈 종합(최상단) → ② 성장 → ③ 가치 → ④ 추세 → ⑤ 탑다운 → 동일업종 → 타임라인.
+      {/* 종목 일반 정보(시총·현재가·모멘텀·커버리지) — 성장 지표와 무관한 기본 스냅샷을 최상단에. */}
+      <section className={styles.chartCard}>
+        <div className={styles.growthHead}>
+          <h2 className={styles.sectionTitle}>종목 정보</h2>
+          <span className={styles.growthTag}>시세 · 커버리지</span>
+        </div>
+        <CompanySnapshot code={code} />
+      </section>
+
+      {/* 순서: ① 종목 정보(최상단) → ② 테크노펀더멘탈 종합 → ③ 성장 → ④ 가치 → ⑤ 추세 → ⑥ 탑다운 → 동일업종 → 타임라인.
           각 지표 카드에 해당 축의 테크노펀더멘탈 점수 + 계산 근거(요소별 값·기여도)를 얹는다. */}
       <section className={styles.chartCard} data-tour="analysis">
         <div className={styles.growthHead}>
