@@ -80,17 +80,21 @@ _DB_TABLES = [
 
 
 def db_status(db: Session) -> list[TableStatus]:
-    """주요 테이블별 행수 + 최신 업데이트 시각(적재 현황 패널용)."""
-    out: list[TableStatus] = []
+    """주요 테이블별 행수 + 최신 업데이트 시각. 최신 업데이트 내림차순 정렬(신선한 것 위로).
+
+    latest 컬럼이 date/datetime 이 섞여 문자열 비교가 부정확할 수 있어, 정렬은 원본 값을 ISO
+    문자열로 통일해 수행한다(값 없음은 맨 아래). 표시 문자열은 기존처럼 분까지 자른다.
+    """
+    rows_out: list[tuple[str, TableStatus]] = []
     for name, model, ts_col in _DB_TABLES:
-        rows = db.scalar(select(func.count()).select_from(model)) or 0
+        count = db.scalar(select(func.count()).select_from(model)) or 0
         latest = db.scalar(select(func.max(ts_col)))
-        # 날짜/시각을 분까지만 간결히.
-        latest_str = "—"
-        if latest is not None:
-            latest_str = str(latest)[:16]
-        out.append(TableStatus(name=name, rows=rows, latest=latest_str))
-    return out
+        latest_str = str(latest)[:16] if latest is not None else "—"
+        # 정렬 키: 있으면 ISO 문자열(date/datetime 모두 사전식=시간순 일치), 없으면 빈 문자열(최하).
+        sort_key = latest.isoformat() if latest is not None else ""
+        rows_out.append((sort_key, TableStatus(name=name, rows=count, latest=latest_str)))
+    rows_out.sort(key=lambda x: x[0], reverse=True)
+    return [ts for _, ts in rows_out]
 
 
 def backfill_progress(db: Session) -> tuple[int, int]:
