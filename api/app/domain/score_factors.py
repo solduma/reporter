@@ -75,12 +75,21 @@ def growth_factors(
     eps_yoy: float | None = None,
 ) -> list[Factor]:
     w = GROWTH_WEIGHTS
-    return [
-        Factor("매출 YoY", _pct(revenue_yoy), band(revenue_yoy, -0.2, 0.6), w["rev"]),
-        Factor("영업이익 YoY", _pct(op_yoy), op_yoy_norm(op_yoy, op_turnaround), w["op"]),
-        Factor("EPS YoY", _pct(eps_yoy), band(eps_yoy, -0.2, 0.6), w["eps"]),
-        Factor("영업이익률 개선", _pp(op_margin_delta), band(op_margin_delta, -0.10, 0.10), w["opm"]),
-    ]
+    factors = [Factor("매출 YoY", _pct(revenue_yoy), band(revenue_yoy, -0.2, 0.6), w["rev"])]
+    # 흑전은 직전 적자라 영업이익·EPS YoY 비율이 정의 불가 → 항상 '—'로 남아 '기여 0'처럼 보이므로
+    # 그 행을 숨기고, 영업이익 회복은 OPM 축을 '영업이익 회복(흑전)'으로 라벨링해 노출한다. 가중치는
+    # growth_score 와 동일하게 OPM(0.15) 그대로 유지(근거·점수 불일치 방지 — 축은 재정규화로 흡수).
+    if op_turnaround:
+        factors.append(
+            Factor("영업이익 회복(흑전)", _pp(op_margin_delta), band(op_margin_delta, -0.10, 0.10), w["opm"])
+        )
+    else:
+        factors += [
+            Factor("영업이익 YoY", _pct(op_yoy), op_yoy_norm(op_yoy, op_turnaround), w["op"]),
+            Factor("EPS YoY", _pct(eps_yoy), band(eps_yoy, -0.2, 0.6), w["eps"]),
+            Factor("영업이익률 개선", _pp(op_margin_delta), band(op_margin_delta, -0.10, 0.10), w["opm"]),
+        ]
+    return factors
 
 
 # ── 가치 축 분해 (analysis_scoring.value_score 와 동일 규칙) ─────────

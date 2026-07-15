@@ -22,14 +22,16 @@ def test_growth_factors_four_elements():
     assert opm.weight == 0.15 and opm.value == "+5.0pp"
 
 
-def test_growth_factors_turnaround_fills_opm():
-    # 흑전이면 영업이익 YoY 축은 None(탈락)이고, 마진 회복이 OPM 축(Δ영업이익률)에 pp 로 반영.
-    big = _by_label(sf.growth_factors(0.3, None, True, 0.30, None), "영업이익률 개선")
-    small = _by_label(sf.growth_factors(0.3, None, True, 0.0, None), "영업이익률 개선")
-    op = _by_label(sf.growth_factors(0.3, None, True, 0.30, None), "영업이익 YoY")
-    assert big.norm == 1.0 and big.value == "+30.0pp"  # +30pp → 상단 클램프(밴드 ±10pp)
+def test_growth_factors_turnaround_merges_op_into_recovery():
+    # 흑전은 정의 불가한 '영업이익 YoY'·'EPS YoY' 행을 숨기고, 영업이익 회복을 '영업이익 회복(흑전)'
+    # 한 행(가중치 OPM 0.15)으로 노출 — pp 로 규모 표기. 매출 행은 그대로.
+    fs_big = sf.growth_factors(0.3, None, True, 0.30, None)
+    labels = [f.label for f in fs_big]
+    assert "영업이익 YoY" not in labels and "EPS YoY" not in labels
+    rec = _by_label(fs_big, "영업이익 회복(흑전)")
+    assert rec.norm == 1.0 and rec.value == "+30.0pp" and rec.weight == 0.15
+    small = _by_label(sf.growth_factors(0.3, None, True, 0.0, None), "영업이익 회복(흑전)")
     assert small.norm == 0.5 and small.value == "+0.0pp"  # 보합
-    assert op.norm is None  # 흑전 → 영업이익 YoY 축 탈락
 
 
 def test_value_factors_missing_is_none():
