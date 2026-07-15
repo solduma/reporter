@@ -39,6 +39,8 @@ _COLUMN_MIGRATIONS = (
     "ALTER TABLE growth_metric ADD COLUMN IF NOT EXISTS op_status VARCHAR(8)",
     # 공시 동기화 깊이(과거 하한) — 얕은 배치 후에도 온디맨드 2년 조회가 실제 fetch 되게(#318).
     "ALTER TABLE disclosure_sync_state ADD COLUMN IF NOT EXISTS synced_from DATE",
+    # 캘린더 지난 이벤트 지수영향 방향(positive|negative|neutral) — 프론트 색칠용(#367).
+    "ALTER TABLE calendar_event ADD COLUMN IF NOT EXISTS impact_direction VARCHAR(8)",
 )
 
 

@@ -629,6 +629,7 @@ export interface CalendarEvent {
   consensus: string | null;
   unit: string | null;
   impact_text: string | null; // 과거: 지수 영향·이유(LLM)
+  impact_direction: "positive" | "negative" | "neutral" | null; // 과거: 지수 영향 방향(색칠)
   expectation_text: string | null; // 미래: 시장 기대치(LLM)
 }
 

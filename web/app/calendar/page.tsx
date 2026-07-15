@@ -17,6 +17,13 @@ const KIND_META: Record<CalendarKind, { label: string; cls: string }> = {
 };
 const REGION_LABEL: Record<CalendarRegion, string> = { US: "🇺🇸 미국", KR: "🇰🇷 한국", GLOBAL: "🌐 글로벌" };
 
+// 지나간 이벤트 지수 영향 방향별 색칠 — 긍정 초록·부정 빨강·중립 노랑.
+const IMPACT_CLS: Record<string, string> = {
+  positive: styles.impactPositive,
+  negative: styles.impactNegative,
+  neutral: styles.impactNeutral,
+};
+
 const REGION_FILTERS: { value: CalendarRegion | ""; label: string }[] = [
   { value: "", label: "전체" },
   { value: "US", label: "미국" },
@@ -59,9 +66,11 @@ function EventCard({ ev }: { ev: CalendarEvent }) {
           {ev.previous && <span>직전 {ev.previous}</span>}
         </div>
       )}
-      {/* LLM 텍스트: 과거=영향·이유, 미래=기대치. 아직 생성 전이면 생략. */}
+      {/* LLM 텍스트: 과거=영향·이유(지수 영향 방향으로 색칠), 미래=기대치. 아직 생성 전이면 생략. */}
       {ev.is_past && ev.impact_text && (
-        <p className={styles.impact}><span className={styles.impactLabel}>지수 영향</span>{ev.impact_text}</p>
+        <p className={`${styles.impact} ${IMPACT_CLS[ev.impact_direction ?? "neutral"]}`}>
+          <span className={styles.impactLabel}>지수 영향</span>{ev.impact_text}
+        </p>
       )}
       {!ev.is_past && ev.expectation_text && (
         <p className={styles.expect}><span className={styles.expectLabel}>시장 기대</span>{ev.expectation_text}</p>

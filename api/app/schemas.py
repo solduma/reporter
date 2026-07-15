@@ -556,6 +556,7 @@ class CalendarEventOut(BaseModel):
     consensus: str | None = None
     unit: str | None = None
     impact_text: str | None = None  # 과거: 지수 영향·이유(LLM)
+    impact_direction: str | None = None  # 과거: 지수 영향 방향 positive|negative|neutral(색칠)
     expectation_text: str | None = None  # 미래: 시장 기대치(LLM)
 
 

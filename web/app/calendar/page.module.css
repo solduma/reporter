@@ -177,8 +177,18 @@
   border-radius: 6px;
 }
 
-.impact {
-  background: var(--sell-bg);
+/* 지나간 이벤트 지수 영향 방향별 색칠 — 긍정 초록·부정 빨강·중립 노랑. */
+.impactPositive {
+  background: rgba(22, 163, 74, 0.12);
+  border-left: 3px solid #16a34a;
+}
+.impactNegative {
+  background: rgba(220, 38, 38, 0.1);
+  border-left: 3px solid #dc2626;
+}
+.impactNeutral {
+  background: rgba(234, 179, 8, 0.13);
+  border-left: 3px solid #eab308;
 }
 
 .expect {
