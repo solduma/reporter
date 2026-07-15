@@ -5,7 +5,7 @@ import type { IChartApi, LineData, Time } from "lightweight-charts";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { ChartRange } from "@/components/CandleChart";
-import { tsToDate } from "@/lib/chartTime";
+import { useChartRangeSync } from "@/lib/useChartRangeSync";
 import type { FinancialPeriod } from "@/lib/types";
 
 import styles from "./FinancialsLineChart.module.css";
@@ -78,15 +78,8 @@ function autoHeight(activeCount: number): number {
 export default function FinancialsLineChart({ data, range = null, onRangeChange }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [active, setActive] = useState<Set<string>>(new Set(["operating_income"]));
-  // 차트 재사용 + 억제창 + rAF emit 스로틀 + 자기 메아리 skip. CandleChart 와 동일 패턴.
+  // 차트 인스턴스를 ref 로 보관해 range 변경 시 재생성 없이 재사용(연동 동기화는 useChartRangeSync).
   const chartRef = useRef<IChartApi | null>(null);
-  const suppressUntilRef = useRef(0);
-  const SUPPRESS_MS = 250;
-  const emitRafRef = useRef(0);
-  const pendingRef = useRef<{ from: string; to: string } | null>(null);
-  const lastEmittedRef = useRef<{ from: string; to: string } | null>(null);
-  const onRangeChangeRef = useRef(onRangeChange);
-  onRangeChangeRef.current = onRangeChange;
 
   // period → 일자 매핑 + 오름차순 정렬(시간축 요구). 지표별 라인 데이터 미리 계산.
   const seriesData = useMemo(() => {
@@ -108,6 +101,21 @@ export default function FinancialsLineChart({ data, range = null, onRangeChange 
     (m) => active.has(m.key) && seriesData[m.key]?.length > 0,
   ).length;
   const chartHeight = autoHeight(renderedCount);
+
+  // 연동 동기화용 봉 epoch(초) 축 — 그려지는 지표들의 시각 합집합(오름차순). 논리 인덱스는 차트에
+  // 올라간 모든 시리즈의 병합 시각 기준이라, 켜진 지표의 날짜 합집합으로 축을 만든다.
+  const epochs = useMemo(() => {
+    const set = new Set<number>();
+    for (const m of METRICS) {
+      if (!active.has(m.key)) {
+        continue;
+      }
+      for (const pt of seriesData[m.key] ?? []) {
+        set.add(Date.parse(`${pt.time as string}T00:00:00Z`) / 1000);
+      }
+    }
+    return Array.from(set).sort((a, b) => a - b);
+  }, [seriesData, active]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -159,68 +167,28 @@ export default function FinancialsLineChart({ data, range = null, onRangeChange 
       any = true;
     }
 
-    // 초기 구간(억제창 세움). 이후 range 변경은 아래 별도 effect 가 재생성 없이 처리.
-    if (any && range) {
-      suppressUntilRef.current = Date.now() + SUPPRESS_MS;
-      try {
-        chart.timeScale().setVisibleRange({ from: range.from, to: range.to });
-      } catch {
-        chart.timeScale().fitContent();
-      }
-    } else if (any) {
+    // range 없거나 그린 시리즈가 없으면 fitContent. range 있으면 아래 동기화 훅이 적용한다.
+    if (!range || !any) {
       chart.timeScale().fitContent();
     }
-
-    const onVisibleRangeChange = (r: { from: Time; to: Time } | null) => {
-      if (Date.now() < suppressUntilRef.current || !r || !onRangeChangeRef.current) {
-        return;
-      }
-      pendingRef.current = { from: tsToDate(r.from), to: tsToDate(r.to) };
-      if (emitRafRef.current) {
-        return;
-      }
-      emitRafRef.current = requestAnimationFrame(() => {
-        emitRafRef.current = 0;
-        const p = pendingRef.current;
-        if (p && onRangeChangeRef.current) {
-          lastEmittedRef.current = p;
-          onRangeChangeRef.current(p.from, p.to);
-        }
-      });
-    };
-    chart.timeScale().subscribeVisibleTimeRangeChange(onVisibleRangeChange);
     chartRef.current = chart;
 
     return () => {
-      if (emitRafRef.current) {
-        cancelAnimationFrame(emitRafRef.current);
-        emitRafRef.current = 0;
-      }
-      chart.timeScale().unsubscribeVisibleTimeRangeChange(onVisibleRangeChange);
       chart.remove();
       chartRef.current = null;
     };
-    // range 의도적 제외(아래 별도 effect 가 재생성 없이 반영). CandleChart 와 동일.
+    // range 의도적 제외(아래 동기화 훅이 재생성 없이 반영). CandleChart 와 동일.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seriesData, active]);
 
-  // range 변경만 반영(차트 재생성 없이). 자기가 방금 내보낸 구간이면 이미 그 위치라 skip.
-  useEffect(() => {
-    const chart = chartRef.current;
-    if (!chart || !range) {
-      return;
-    }
-    const last = lastEmittedRef.current;
-    if (last && last.from === tsToDate(range.from) && last.to === tsToDate(range.to)) {
-      return;
-    }
-    suppressUntilRef.current = Date.now() + SUPPRESS_MS;
-    try {
-      chart.timeScale().setVisibleRange({ from: range.from, to: range.to });
-    } catch {
-      /* 범위가 데이터 밖이면 무시 */
-    }
-  }, [range]);
+  // 연동 차트 동기화(논리 범위 기반). 차트 재생성 조건(seriesData·active)과 deps 를 맞춘다.
+  useChartRangeSync({
+    getChart: () => chartRef.current,
+    getEpochs: () => epochs,
+    range,
+    onRangeChange,
+    deps: [seriesData, active],
+  });
 
   const toggle = (key: string) =>
     setActive((prev) => {

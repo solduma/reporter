@@ -5,7 +5,7 @@ import type { IChartApi, LineData, Time } from "lightweight-charts";
 import { useEffect, useMemo, useRef } from "react";
 
 import type { ChartRange } from "@/components/CandleChart";
-import { tsToDate } from "@/lib/chartTime";
+import { useChartRangeSync } from "@/lib/useChartRangeSync";
 import type { FinancialPeriod } from "@/lib/types";
 
 import styles from "./MultipleBandChart.module.css";
@@ -61,15 +61,8 @@ function BandChart({
   onRangeChange?: (from: string, to: string) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  // 차트 재사용 + 억제창 + rAF emit 스로틀 + 자기 메아리 skip. CandleChart 와 동일 패턴.
+  // 차트 인스턴스를 ref 로 보관해 range 변경 시 재생성 없이 재사용(연동 동기화는 useChartRangeSync).
   const chartRef = useRef<IChartApi | null>(null);
-  const suppressUntilRef = useRef(0);
-  const SUPPRESS_MS = 250;
-  const emitRafRef = useRef(0);
-  const pendingRef = useRef<{ from: string; to: string } | null>(null);
-  const lastEmittedRef = useRef<{ from: string; to: string } | null>(null);
-  const onRangeChangeRef = useRef(onRangeChange);
-  onRangeChangeRef.current = onRangeChange;
 
   const { line, bands } = useMemo(() => {
     const pts = data
@@ -95,6 +88,13 @@ function BandChart({
       },
     };
   }, [data, metric]);
+
+  // 연동 동기화용 봉 epoch(초) 축 — 메인 라인의 분기말 시각(오름차순). 밴드 수평선은 첫·끝만 써서
+  // 논리 인덱스 병합에 영향 없다(라인 시각의 부분집합).
+  const epochs = useMemo(
+    () => line.map((pt) => Date.parse(`${pt.time as string}T00:00:00Z`) / 1000),
+    [line],
+  );
 
   useEffect(() => {
     const container = containerRef.current;
@@ -156,69 +156,28 @@ function BandChart({
     });
     main.setData(line);
 
-    // 초기 구간(억제창 세움). 이후 range 변경은 아래 별도 effect 가 재생성 없이 처리.
-    if (range) {
-      suppressUntilRef.current = Date.now() + SUPPRESS_MS;
-      try {
-        chart.timeScale().setVisibleRange({ from: range.from, to: range.to });
-      } catch {
-        chart.timeScale().fitContent();
-      }
-    } else {
+    // range 없으면 fitContent. range 있으면 아래 동기화 훅이 적용한다.
+    if (!range) {
       chart.timeScale().fitContent();
     }
-
-    // 사용자 스크롤·드래그로 구간이 바뀌면(억제창 밖) rAF 로 프레임당 1회만 알린다 → 3개 밴드 연동.
-    const onVisibleRangeChange = (r: { from: Time; to: Time } | null) => {
-      if (Date.now() < suppressUntilRef.current || !r || !onRangeChangeRef.current) {
-        return;
-      }
-      pendingRef.current = { from: tsToDate(r.from), to: tsToDate(r.to) };
-      if (emitRafRef.current) {
-        return;
-      }
-      emitRafRef.current = requestAnimationFrame(() => {
-        emitRafRef.current = 0;
-        const p = pendingRef.current;
-        if (p && onRangeChangeRef.current) {
-          lastEmittedRef.current = p;
-          onRangeChangeRef.current(p.from, p.to);
-        }
-      });
-    };
-    chart.timeScale().subscribeVisibleTimeRangeChange(onVisibleRangeChange);
     chartRef.current = chart;
 
     return () => {
-      if (emitRafRef.current) {
-        cancelAnimationFrame(emitRafRef.current);
-        emitRafRef.current = 0;
-      }
-      chart.timeScale().unsubscribeVisibleTimeRangeChange(onVisibleRangeChange);
       chart.remove();
       chartRef.current = null;
     };
-    // range 의도적 제외(아래 별도 effect 가 재생성 없이 반영). CandleChart 와 동일.
+    // range 의도적 제외(아래 동기화 훅이 재생성 없이 반영). CandleChart 와 동일.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [line, bands]);
 
-  // range 변경만 반영(차트 재생성 없이). 자기가 방금 내보낸 구간이면 이미 그 위치라 skip.
-  useEffect(() => {
-    const chart = chartRef.current;
-    if (!chart || !range) {
-      return;
-    }
-    const last = lastEmittedRef.current;
-    if (last && last.from === tsToDate(range.from) && last.to === tsToDate(range.to)) {
-      return;
-    }
-    suppressUntilRef.current = Date.now() + SUPPRESS_MS;
-    try {
-      chart.timeScale().setVisibleRange({ from: range.from, to: range.to });
-    } catch {
-      /* 범위가 데이터 밖이면 무시 */
-    }
-  }, [range]);
+  // 연동 차트 동기화(논리 범위 기반). 차트 재생성 조건(line·bands)과 deps 를 맞춘다.
+  useChartRangeSync({
+    getChart: () => chartRef.current,
+    getEpochs: () => epochs,
+    range,
+    onRangeChange,
+    deps: [line, bands],
+  });
 
   return (
     <figure className={styles.figure}>
