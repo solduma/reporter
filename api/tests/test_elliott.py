@@ -205,28 +205,28 @@ def _many_pivots() -> list[tuple[str, float]]:
     return [(f"d{i:03d}", v) for i, v in enumerate(vals)]
 
 
-def test_chain_is_gapless():
-    # 연속 체인의 핵심 불변식: 라벨된 다리가 피벗 인덱스로 끊김 없이 이어진다(갭 0).
-    # (정렬 보정으로 사이클 사이에 연결용 저신뢰 다리가 낄 수 있어 위상이 정확히 5-3-5-3은 아님.)
-    piv = elliott.zigzag(_many_pivots(), 0.05)
-    labeled = [(si, lab) for si, lab, _, _ in elliott._label_cycles(piv) if lab]
-    idxs = [si for si, _ in labeled]
-    assert idxs == list(range(len(piv) - 1))  # 갭 없이 전 다리 라벨(마지막 피벗 제외)
+def test_only_validated_cycles_labeled():
+    # 재설계 핵심: 억지 채움 없이 하드룰 통과 사이클만 라벨. 라벨된 세그먼트는 5파(1-5)·
+    # 3파(A-C) 블록을 이루고, 각 추진 세트는 정확히 1-2-3-4-5 순서다(제멋대로 라벨 방지).
+    r = elliott.analyze(_many_pivots(), leg_threshold=0.05)
+    labels = [s.wave_label for s in r.segments]
+    assert labels  # 이상적 사이클이면 최소 한 세트는 검출
+    # 추진 라벨은 1~5, 조정은 A~C 만(유효 심볼).
+    assert all(lab in {"1", "2", "3", "4", "5", "A", "B", "C"} for lab in labels)
+    # 첫 추진 세트가 1로 시작해 순서대로(1,2,3,4,5) 나온다.
+    motive_first5 = [s.wave_label for s in r.segments if s.phase == "motive"][:5]
+    assert motive_first5 == ["1", "2", "3", "4", "5"]
 
 
 def test_high_confidence_motive_and_correction_both_present():
-    # 정렬 유연성 회귀 가드: 이상적 사이클엔 고신뢰 추진과 조정이 모두 검출돼야 한다.
-    # (정렬 없이 고정 진행하면 추진이 전부 저신뢰로 격하되던 회귀를 막는다.)
+    # 이상적 사이클엔 추진과 조정이 모두 검출된다(하드룰 통과 → 라벨).
     r = elliott.analyze(_many_pivots(), leg_threshold=0.05)
-    hi = [s for s in r.segments if s.confidence >= 0.4]
-    assert any(s.phase == "motive" for s in hi)  # 고신뢰 추진 존재
-    assert any(s.phase == "corrective" for s in hi)  # 고신뢰 조정 존재
+    assert any(s.phase == "motive" for s in r.segments)
+    assert any(s.phase == "corrective" for s in r.segments)
 
 
-def test_filler_blocks_are_low_confidence():
-    # 하드룰 미달 '연결용' 블록은 저신뢰(_FILLER_CONF) 이하, 신뢰도는 항상 0~1.
+def test_confidence_in_range():
+    # 모든 세그먼트 신뢰도는 0~1(피보 점수). 라벨된 것만 나오므로 빈 라벨 세그먼트는 없다.
     r = elliott.analyze(_many_pivots(), leg_threshold=0.05)
     assert all(0.0 <= s.confidence <= 1.0 for s in r.segments)
-    # 연결용 저신뢰와 고신뢰가 공존(차등이 실제로 일어남).
-    confs = [s.confidence for s in r.segments]
-    assert min(confs) <= elliott._FILLER_CONF and max(confs) > elliott._FILLER_CONF
+    assert all(s.wave_label for s in r.segments)  # 유보(빈 라벨)는 세그먼트로 안 나온다
