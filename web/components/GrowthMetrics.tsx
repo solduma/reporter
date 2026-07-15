@@ -200,6 +200,20 @@ export default function GrowthMetrics({ code }: { code: string }) {
       </div>
 
       <div className={styles.tile}>
+        <span className={styles.label}>EPS YoY</span>
+        <span
+          className={
+            g.eps_yoy === null
+              ? `${styles.value} ${styles.muted}`
+              : `${styles.value} ${growthClass(g.eps_yoy)}`
+          }
+        >
+          {formatYoy(g.eps_yoy)}
+        </span>
+        <span className={styles.sub}>주당순이익 성장</span>
+      </div>
+
+      <div className={styles.tile}>
         <span className={styles.label}>리포트 커버리지</span>
         <span
           className={

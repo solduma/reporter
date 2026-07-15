@@ -284,6 +284,7 @@ class CompanyGrowth(BaseModel):
     op_turnaround: bool
     op_status: str | None  # 흑자전환|흑자지속|적자전환|적자지속
     op_margin_delta: float | None = None  # 영업이익률 변화(흑자전환 규모, 0.559=+55.9pp)
+    eps_yoy: float | None = None  # 주당순이익 YoY(증자 희석 필터)
     period: str | None
     coverage_count: int  # 최근 1년 리포트 수
     buy_ratio: float | None  # 최근 1년 BUY 비율

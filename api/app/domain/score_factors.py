@@ -13,7 +13,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.domain.analysis_scoring import band, clamp01, turnaround_scale
+from app.domain.analysis_scoring import (
+    GROWTH_WEIGHTS,
+    VALUE_WEIGHTS,
+    band,
+    clamp01,
+    op_yoy_norm,
+)
 
 
 @dataclass(frozen=True)
@@ -48,10 +54,17 @@ def _num(value: float | None, suffix: str = "", digits: int = 1) -> str:
 
 # ── 성장 축 분해 (analysis_scoring.growth_score 와 동일 규칙) ──────────────
 GROWTH_METHOD = (
-    "매출·영업이익 YoY 를 -20%~+60% 구간으로 0~1 정규화 후 가중 평균(매출 0.5·영업익 0.4), "
-    "흑자전환이면 규모(Δ영업이익률 3~30pp)로 스케일한 최대 +0.15 가점. 데이터 없는 요소는 제외하고 "
-    "남은 가중치로 재정규화."
+    "매출·영업이익·EPS YoY 를 -20%~+60% 로, 영업이익률 개선(Δ)을 -10pp~+10pp 로 0~1 정규화 후 "
+    "가중 평균(매출 0.35·영업익 0.30·EPS 0.20·OPM개선 0.15). EPS 로 증자 희석을, OPM 으로 마진 "
+    "퀄리티를 본다. 흑자전환이면 영업이익 YoY 는 빠지고 마진 회복이 OPM 축에 반영. 결측 요소는 "
+    "제외하고 남은 가중치로 재정규화."
 )
+
+# Δ영업이익률(pp) 표시. band(-10pp,+10pp) 라 부호와 함께 pp 로 보여준다.
+def _pp(value: float | None) -> str:
+    if value is None:
+        return "—"
+    return f"{value * 100:+.1f}pp"
 
 
 def growth_factors(
@@ -59,25 +72,22 @@ def growth_factors(
     op_yoy: float | None,
     op_turnaround: bool,
     op_margin_delta: float | None = None,
+    eps_yoy: float | None = None,
 ) -> list[Factor]:
-    # 흑자전환 가점 규모: Δ영업이익률로 스케일한 배수(0.2~1.0)를 norm 으로 노출.
-    turn_norm = turnaround_scale(op_margin_delta) if op_turnaround else None
-    turn_val = (
-        f"+{op_margin_delta * 100:.1f}pp"
-        if op_turnaround and op_margin_delta is not None
-        else "적용" if op_turnaround else "—"
-    )
+    w = GROWTH_WEIGHTS
     return [
-        Factor("매출 YoY", _pct(revenue_yoy), band(revenue_yoy, -0.2, 0.6), 0.5),
-        Factor("영업이익 YoY", _pct(op_yoy), band(op_yoy, -0.2, 0.6), 0.4),
-        Factor("흑자전환 가점(규모)", turn_val, turn_norm, 0.15),
+        Factor("매출 YoY", _pct(revenue_yoy), band(revenue_yoy, -0.2, 0.6), w["rev"]),
+        Factor("영업이익 YoY", _pct(op_yoy), op_yoy_norm(op_yoy, op_turnaround), w["op"]),
+        Factor("EPS YoY", _pct(eps_yoy), band(eps_yoy, -0.2, 0.6), w["eps"]),
+        Factor("영업이익률 개선", _pp(op_margin_delta), band(op_margin_delta, -0.10, 0.10), w["opm"]),
     ]
 
 
-# ── 가치 축 분해 (scoring.value_score 와 동일 규칙, 절대기준 변형) ─────────
+# ── 가치 축 분해 (analysis_scoring.value_score 와 동일 규칙) ─────────
 VALUE_METHOD = (
-    "저PBR·저PER·저EV/EBITDA 를 후보군 내 저평가 백분위(낮을수록 1)로 환산해 가중 평균"
-    "(PBR 0.35·PER 0.28·EV/EBITDA 0.17), 고ROE(15%↑)·고배당(5%↑) 가점."
+    "저PBR·저PER·저EV/EBITDA 를 저평가 정규화(낮을수록 1)하고, PEG(PER/EPS성장률, ≤1 만점~≥2 는 0)로 "
+    "성장 대비 저평가를 함께 본다. 가중 평균(PBR 0.30·PER 0.25·EV/EBITDA 0.15·PEG 0.15) + "
+    "고ROE(15%↑)·고배당(5%↑) 가점. 결측 요소는 제외하고 남은 가중치로 재정규화."
 )
 
 
@@ -90,17 +100,21 @@ def value_factors(
     per_rank: float | None,
     pbr_rank: float | None,
     ev_rank: float | None,
+    peg_rank: float | None = None,
+    peg_value: float | None = None,
 ) -> list[Factor]:
-    """가치 요소 분해. per_rank/pbr_rank/ev_rank 는 저평가 백분위(0~1, 낮을수록 1) — 호출측이
-    후보군 랭커로 계산해 넘긴다. 단독(후보군 없음)일 땐 None → 해당 요소 기여 0."""
+    """가치 요소 분해. per_rank/pbr_rank/ev_rank/peg_rank 는 저평가 정규화값(0~1, 낮을수록 1) —
+    호출측이 절대 밴드/백분위로 계산해 넘긴다. 단독(후보군 없음)일 땐 None → 해당 요소 기여 0."""
+    w = VALUE_WEIGHTS
     roe_norm = None if roe is None else clamp01(roe / 15.0)
     div_norm = None if div_yield is None else clamp01(div_yield / 5.0)
     return [
-        Factor("저PBR 백분위", _num(pbr, "배"), pbr_rank, 0.35),
-        Factor("저PER 백분위", _num(per, "배"), per_rank, 0.28),
-        Factor("저EV/EBITDA 백분위", _num(ev_ebitda, "배"), ev_rank, 0.17),
-        Factor("ROE 가점", _num(roe, "%"), roe_norm, 0.12),
-        Factor("배당수익률 가점", _num(div_yield, "%"), div_norm, 0.08),
+        Factor("저PBR", _num(pbr, "배"), pbr_rank, w["pbr"]),
+        Factor("저PER", _num(per, "배"), per_rank, w["per"]),
+        Factor("저EV/EBITDA", _num(ev_ebitda, "배"), ev_rank, w["ev"]),
+        Factor("PEG", _num(peg_value, "", 2), peg_rank, w["peg"]),
+        Factor("ROE 가점", _num(roe, "%"), roe_norm, w["roe"]),
+        Factor("배당수익률 가점", _num(div_yield, "%"), div_norm, w["div"]),
     ]
 
 

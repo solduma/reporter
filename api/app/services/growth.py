@@ -21,9 +21,11 @@ class GrowthMetric:
     op_yoy: float | None  # 영업이익 YoY
     op_turnaround: bool  # 직전 동기 적자 → 당기 흑자
     op_status: str | None  # 흑자전환|흑자지속|적자전환|적자지속 (직전 대비 손익 상태)
-    # 영업이익률 변화(당기 - 직전동기, 비율). 흑자전환 '규모'를 회사 규모로 정규화한 척도 —
-    # 매출로 나눈 이익률이라 대형·소형주 무관하게 회복 폭을 비교할 수 있다(0.559 = +55.9pp).
+    # 영업이익률 변화(당기 - 직전동기, 비율). 매출로 나눈 이익률이라 회사 규모 무관하게 마진 개선
+    # 폭을 비교한다(0.559 = +55.9pp). 전 종목 OPM 개선 축 + 흑전 규모(op_yoy 정의 불가 시 대체)에 쓴다.
     op_margin_delta: float | None = None
+    # 주당순이익 YoY. 증자로 주식 수가 늘어 주주가치가 희석되는 '속 빈 강정' 성장을 걸러내는 축.
+    eps_yoy: float | None = None
 
 
 def _key(period: str) -> tuple[int, int] | None:
@@ -64,7 +66,7 @@ def _margin_delta(
 
 
 def compute_growth(stock_code: str, periods: list) -> GrowthMetric | None:
-    """financials 행 리스트(각 .period/.revenue/.operating_income)로 성장지표를 만든다.
+    """financials 행 리스트(각 .period/.revenue/.operating_income/.eps)로 성장지표를 만든다.
 
     실적(추정치 제외) 분기 중 최신을 기준으로, 1년 전 동분기(4기 전)와 비교한다.
     """
@@ -93,6 +95,10 @@ def compute_growth(stock_code: str, periods: list) -> GrowthMetric | None:
         op_margin_delta=_margin_delta(
             latest.operating_income, latest.revenue,
             prior.operating_income, prior.revenue,
+        ) if prior else None,
+        eps_yoy=_yoy(
+            getattr(latest, "eps", None),
+            getattr(prior, "eps", None),
         ) if prior else None,
     )
 
