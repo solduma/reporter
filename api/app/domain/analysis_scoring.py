@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+import math
+
 
 def clamp01(value: float) -> float:
     """0~1 로 클램프."""
@@ -29,42 +31,66 @@ def _weighted(parts: list[tuple[float, float]]) -> float | None:
 
 
 # ── 성장 축(종목 분석) ────────────────────────────────────────────────
-# 성장 4요소 밴드(절대 구간→0~1). 매출·영업이익·EPS YoY 는 -20%~+60%, OPM 개선(Δ영업이익률)은
-# -10pp~+10pp(보합 0.5). 가중치는 리뷰 매트릭스(매출25·영업20·EPS15·OPM10, FCF 제외)를 합 1 로
-# 정규화 — 외형(매출) 최중, EPS 로 증자 희석 필터, OPM 으로 마진 퀄리티. 종목분석·스크리너 공용.
+# 성장 3요소 밴드(절대 구간→0~1). 매출·EPS YoY 는 -20%~+60%. 영업이익 축은 손익상태 4단계 기본점 +
+# 영업이익률 증감 pp 연속점(tanh)의 결합(op_profit_norm) — YoY 비율(흑전 시 정의 불가)을 대체한다.
+# 가중치: 외형(매출) 최중, 영업이익(내실·방향) 다음, EPS 로 증자 희석 필터. 종목분석·스크리너 공용.
 _GROWTH_YOY_BAND = (-0.2, 0.6)
-_OPM_DELTA_BAND = (-0.10, 0.10)
-GROWTH_WEIGHTS = {"rev": 0.35, "op": 0.30, "eps": 0.20, "opm": 0.15}
+GROWTH_WEIGHTS = {"rev": 0.40, "op": 0.35, "eps": 0.25}
+
+# 손익 상태 4단계 기본점(0~1). 방향(적자→흑자 전환)을 크게 인정, 상태 악화는 강하게 감점.
+OP_STATUS_BASE = {"흑자전환": 1.0, "흑자지속": 0.7, "적자전환": 0.3, "적자지속": 0.0}
+# 영업이익률 증감 pp → 연속점의 tanh 스케일(k). 분포상 대부분 ±5pp 라 k=0.08(8pp)면 그 구간이
+# 민감하게 갈리고 극단(±수십 pp)은 완만히 포화(두꺼운 꼬리에 강건). 선형 밴드의 중앙 뭉침·극단
+# 클램프 문제를 함께 해소한다.
+_OPM_TANH_K = 0.08
+# 상태 기본점과 pp 연속점의 결합 비중. 상태로 큰 방향을, pp 로 규모·변별을 반영.
+_OP_STATUS_W = 0.5
 
 
-def op_yoy_norm(op_yoy: float | None, op_turnaround: bool) -> float | None:
-    """영업이익 성장 축 정규화값. 흑전은 op_yoy 비율이 정의 불가(직전 적자)라 None → 이 축이 빠지고,
-    마진 회복은 OPM 축(op_margin_delta)이 흡수한다. 비흑전은 op_yoy 를 -20%~+60% 밴드로."""
-    if op_turnaround:
+def op_margin_pp_score(op_margin_delta: float | None) -> float | None:
+    """영업이익률 증감(Δ, 비율) → 0~1 연속점. tanh S-곡선: 0 근처는 민감, ±수십 pp 는 포화.
+
+    Δ=0 → 0.5, +8pp → 0.88, +20pp → 0.98(포화), -8pp → 0.12. None 은 None."""
+    if op_margin_delta is None:
         return None
-    return band(op_yoy, *_GROWTH_YOY_BAND)
+    return 0.5 * (1.0 + math.tanh(op_margin_delta / _OPM_TANH_K))
+
+
+def op_profit_norm(op_status: str | None, op_margin_delta: float | None) -> float | None:
+    """영업이익 축 정규화값(0~1) = 손익상태 기본점 + 영업이익률 증감 pp 연속점의 가중 결합.
+
+    흑전/흑자지속/적자전환/적자지속 4단계로 방향을 주고, tanh pp 점수로 규모·개선폭을 변별한다.
+    상태가 없으면(직전 동기 결측) None → 축 제외. pp 결측 시 상태 기본점만으로 폴백.
+    """
+    if op_status is None:
+        return None
+    base = OP_STATUS_BASE.get(op_status)
+    if base is None:
+        return None
+    pp = op_margin_pp_score(op_margin_delta)
+    if pp is None:
+        return base  # pp 결측 → 상태 기본점만
+    return _OP_STATUS_W * base + (1.0 - _OP_STATUS_W) * pp
 
 
 def growth_score(
     revenue_yoy: float | None,
-    op_yoy: float | None,
-    op_turnaround: bool,
+    op_status: str | None,
     op_margin_delta: float | None = None,
     eps_yoy: float | None = None,
 ) -> float | None:
-    """성장 점수(0~100). 매출·영업이익·EPS YoY + OPM 개선(Δ영업이익률)을 가중 평균.
+    """성장 점수(0~100). 매출·EPS YoY + 영업이익(상태+pp) 을 가중 평균(매출 0.4·영업익 0.35·EPS 0.25).
 
-    외형(매출)·내실(영업이익·OPM)·주주가치(EPS 희석)를 함께 본다. 흑전은 영업이익 YoY 가 빠지고
-    마진 회복이 OPM 축으로 반영된다. 계산 가능한 요소만 남은 가중치로 재정규화. 전무하면 None.
+    영업이익 축은 손익상태 4단계 기본점과 영업이익률 증감 pp 연속점(tanh)의 결합이라, 흑전·적전
+    구분 없이 방향과 규모를 함께 반영한다. 계산 가능한 요소만 남은 가중치로 재정규화. 전무하면 None.
     스크리너 백분위 성장스코어와 달리 절대 구간 기반.
     """
     w = GROWTH_WEIGHTS
     parts: list[tuple[float, float]] = []
     for norm, weight in (
         (band(revenue_yoy, *_GROWTH_YOY_BAND), w["rev"]),
-        (op_yoy_norm(op_yoy, op_turnaround), w["op"]),
+        (op_profit_norm(op_status, op_margin_delta), w["op"]),
         (band(eps_yoy, *_GROWTH_YOY_BAND), w["eps"]),
-        (band(op_margin_delta, *_OPM_DELTA_BAND), w["opm"]),
     ):
         if norm is not None:
             parts.append((norm, weight))

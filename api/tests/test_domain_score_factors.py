@@ -9,29 +9,29 @@ def _by_label(factors, label):
     return next(f for f in factors if f.label == label)
 
 
-def test_growth_factors_four_elements():
-    # 비흑전: 매출·영업이익·EPS YoY + OPM 개선 4요소. 가중치 매출0.35·영업0.30·EPS0.20·OPM0.15.
-    fs = sf.growth_factors(revenue_yoy=0.6, op_yoy=-0.2, op_turnaround=False, op_margin_delta=0.05, eps_yoy=0.3)
+def test_growth_factors_three_elements():
+    # 매출 YoY + 영업이익(상태+pp 결합) + EPS YoY. 가중치 매출0.4·영업0.35·EPS0.25.
+    fs = sf.growth_factors(revenue_yoy=0.6, op_status="흑자지속", op_margin_delta=0.05, eps_yoy=0.3)
     rev = _by_label(fs, "매출 YoY")
-    op = _by_label(fs, "영업이익 YoY")
+    op = _by_label(fs, "영업이익")
     eps = _by_label(fs, "EPS YoY")
-    opm = _by_label(fs, "영업이익률 개선")
-    assert rev.norm == 1.0 and rev.weight == 0.35 and rev.value == "+60%"
-    assert op.norm == 0.0 and op.weight == 0.30  # -20% → 하단
-    assert eps.weight == 0.20 and eps.value == "+30%"
-    assert opm.weight == 0.15 and opm.value == "+5.0pp"
+    assert rev.norm == 1.0 and rev.weight == 0.4 and rev.value == "+60%"
+    assert op.weight == 0.35 and "흑자지속" in op.value and "+5.0pp" in op.value
+    assert eps.weight == 0.25 and eps.value == "+30%"
 
 
-def test_growth_factors_turnaround_merges_op_into_recovery():
-    # 흑전은 정의 불가한 '영업이익 YoY'·'EPS YoY' 행을 숨기고, 영업이익 회복을 '영업이익 회복(흑전)'
-    # 한 행(가중치 OPM 0.15)으로 노출 — pp 로 규모 표기. 매출 행은 그대로.
-    fs_big = sf.growth_factors(0.3, None, True, 0.30, None)
-    labels = [f.label for f in fs_big]
-    assert "영업이익 YoY" not in labels and "EPS YoY" not in labels
-    rec = _by_label(fs_big, "영업이익 회복(흑전)")
-    assert rec.norm == 1.0 and rec.value == "+30.0pp" and rec.weight == 0.15
-    small = _by_label(sf.growth_factors(0.3, None, True, 0.0, None), "영업이익 회복(흑전)")
-    assert small.norm == 0.5 and small.value == "+0.0pp"  # 보합
+def test_growth_factors_turnaround_shows_status_and_pp():
+    # 흑전은 영업이익 행 하나에 상태 + 규모(pp)를 함께 표기. 별도 정의불가 행 없음.
+    fs = sf.growth_factors(0.3, "흑자전환", 0.30, None)
+    labels = [f.label for f in fs]
+    assert "영업이익 YoY" not in labels  # 정의불가 YoY 행 없음
+    op = _by_label(fs, "영업이익")
+    assert op.value == "흑자전환 +30.0pp"
+    assert op.norm == sf.op_profit_norm("흑자전환", 0.30)  # 점수·근거 일치
+    # 규모 큰 흑전이 작은 흑전보다 norm 높음.
+    big = _by_label(sf.growth_factors(0.3, "흑자전환", 0.30), "영업이익").norm
+    small = _by_label(sf.growth_factors(0.3, "흑자전환", 0.005), "영업이익").norm
+    assert big > small
 
 
 def test_value_factors_missing_is_none():

@@ -66,8 +66,7 @@ def _growth_score(u, g) -> float | None:
     (필터를 바꿔도·상세로 넘어가도 같은 숫자). 모멘텀·커버리지 factor 는 정렬 축이라 점수에서 제외."""
     return analysis_scoring.growth_score(
         g.revenue_yoy if g else None,
-        g.op_yoy if g else None,
-        bool(g and g.op_turnaround),
+        g.op_status if g else None,
         g.op_margin_delta if g else None,
         g.eps_yoy if g else None,
     )

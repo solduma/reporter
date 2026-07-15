@@ -18,7 +18,7 @@ from app.domain.analysis_scoring import (
     VALUE_WEIGHTS,
     band,
     clamp01,
-    op_yoy_norm,
+    op_profit_norm,
 )
 
 
@@ -54,13 +54,12 @@ def _num(value: float | None, suffix: str = "", digits: int = 1) -> str:
 
 # ── 성장 축 분해 (analysis_scoring.growth_score 와 동일 규칙) ──────────────
 GROWTH_METHOD = (
-    "매출·영업이익·EPS YoY 를 -20%~+60% 로, 영업이익률 개선(Δ)을 -10pp~+10pp 로 0~1 정규화 후 "
-    "가중 평균(매출 0.35·영업익 0.30·EPS 0.20·OPM개선 0.15). EPS 로 증자 희석을, OPM 으로 마진 "
-    "퀄리티를 본다. 흑자전환이면 영업이익 YoY 는 빠지고 마진 회복이 OPM 축에 반영. 결측 요소는 "
-    "제외하고 남은 가중치로 재정규화."
+    "매출·EPS YoY 를 -20%~+60% 로 정규화하고, 영업이익은 손익상태 4단계 기본점(흑전 1.0·흑자지속 "
+    "0.7·적자전환 0.3·적자지속 0)과 영업이익률 증감 pp 연속점(tanh)의 결합으로 본다. 가중 평균"
+    "(매출 0.4·영업익 0.35·EPS 0.25) — EPS 로 증자 희석을 거른다. 결측 요소는 제외하고 재정규화."
 )
 
-# Δ영업이익률(pp) 표시. band(-10pp,+10pp) 라 부호와 함께 pp 로 보여준다.
+# Δ영업이익률(pp) 표시. 부호와 함께 pp 로 보여준다.
 def _pp(value: float | None) -> str:
     if value is None:
         return "—"
@@ -69,27 +68,21 @@ def _pp(value: float | None) -> str:
 
 def growth_factors(
     revenue_yoy: float | None,
-    op_yoy: float | None,
-    op_turnaround: bool,
+    op_status: str | None,
     op_margin_delta: float | None = None,
     eps_yoy: float | None = None,
 ) -> list[Factor]:
+    # 영업이익 축은 손익상태 + 영업이익률 증감 pp 결합(op_profit_norm) 하나. 값 표시는 상태 + pp
+    # 규모를 함께 보여준다(예: "흑자전환 +55.9pp"). 흑전/적전 구분 없이 방향과 규모가 한 행에 반영.
+    op_val = op_status or "—"
+    if op_margin_delta is not None:
+        op_val = f"{op_val} {_pp(op_margin_delta)}"
     w = GROWTH_WEIGHTS
-    factors = [Factor("매출 YoY", _pct(revenue_yoy), band(revenue_yoy, -0.2, 0.6), w["rev"])]
-    # 흑전은 직전 적자라 영업이익·EPS YoY 비율이 정의 불가 → 항상 '—'로 남아 '기여 0'처럼 보이므로
-    # 그 행을 숨기고, 영업이익 회복은 OPM 축을 '영업이익 회복(흑전)'으로 라벨링해 노출한다. 가중치는
-    # growth_score 와 동일하게 OPM(0.15) 그대로 유지(근거·점수 불일치 방지 — 축은 재정규화로 흡수).
-    if op_turnaround:
-        factors.append(
-            Factor("영업이익 회복(흑전)", _pp(op_margin_delta), band(op_margin_delta, -0.10, 0.10), w["opm"])
-        )
-    else:
-        factors += [
-            Factor("영업이익 YoY", _pct(op_yoy), op_yoy_norm(op_yoy, op_turnaround), w["op"]),
-            Factor("EPS YoY", _pct(eps_yoy), band(eps_yoy, -0.2, 0.6), w["eps"]),
-            Factor("영업이익률 개선", _pp(op_margin_delta), band(op_margin_delta, -0.10, 0.10), w["opm"]),
-        ]
-    return factors
+    return [
+        Factor("매출 YoY", _pct(revenue_yoy), band(revenue_yoy, -0.2, 0.6), w["rev"]),
+        Factor("영업이익", op_val, op_profit_norm(op_status, op_margin_delta), w["op"]),
+        Factor("EPS YoY", _pct(eps_yoy), band(eps_yoy, -0.2, 0.6), w["eps"]),
+    ]
 
 
 # ── 가치 축 분해 (analysis_scoring.value_score 와 동일 규칙) ─────────
