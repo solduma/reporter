@@ -68,7 +68,10 @@ def _growth_score(u, g) -> float | None:
         g.revenue_yoy if g else None,
         g.op_status if g else None,
         g.op_margin_delta if g else None,
-        g.eps_yoy if g else None,
+        g.net_status if g else None,
+        g.net_margin_delta if g else None,
+        g.ebitda_status if g else None,
+        g.ebitda_margin_delta if g else None,
     )
 
 

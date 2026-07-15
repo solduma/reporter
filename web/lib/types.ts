@@ -209,8 +209,12 @@ export interface CompanyGrowth {
   op_yoy: number | null; // 영업이익 YoY 비율
   op_turnaround: boolean; // 흑자전환 여부(적자→흑자)
   op_status: string | null; // 흑자전환|흑자지속|적자전환|적자지속
-  op_margin_delta: number | null; // 영업이익률 변화(흑자전환 규모, 0.559=+55.9pp)
-  eps_yoy: number | null; // 주당순이익 YoY(증자 희석 필터)
+  op_margin_delta: number | null; // 영업이익률 변화(0.559=+55.9pp)
+  eps_yoy: number | null; // 주당순이익 YoY
+  net_status: string | null; // 순이익 손익상태
+  net_margin_delta: number | null; // 순이익률 변화
+  ebitda_status: string | null; // EBITDA 손익상태
+  ebitda_margin_delta: number | null; // EBITDA마진 변화
   period: string | null; // 기준 분기 "YYYY.MM"
   coverage_count: number; // 최근 90일 리포트 수
   buy_ratio: number | null; // 최근 90일 BUY 비율 0~1

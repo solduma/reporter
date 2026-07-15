@@ -20,7 +20,7 @@ function formatYoy(ratio: number | null): string {
   return `${sign}${pct.toFixed(1)}%`;
 }
 
-// 영업이익률 변화 비율(0.559)을 pp("+55.9pp")로 표기 — 흑자전환 규모.
+// 이익률 변화 비율(0.559)을 pp("+55.9pp")로 표기.
 function formatPp(ratio: number | null): string | null {
   if (ratio === null) {
     return null;
@@ -30,7 +30,7 @@ function formatPp(ratio: number | null): string | null {
   return `${sign}${pp.toFixed(1)}pp`;
 }
 
-// 성장 지표(매출·영업이익) 색: 개선 초록 / 악화 빨강
+// 성장 지표 색: 개선 초록 / 악화 빨강
 function growthClass(value: number | null): string {
   if (value === null || value === 0) {
     return styles.flat;
@@ -38,8 +38,8 @@ function growthClass(value: number | null): string {
   return value > 0 ? styles.gpos : styles.gneg;
 }
 
-// 영업손익 4상태 배지: 흑자전환은 강조(turnaround), 흑자지속은 초록, 적자전환/적자지속은 빨강.
-function opStatusClass(status: string): string {
+// 손익 4상태 배지: 흑자전환은 강조, 흑자지속은 초록, 적자전환/적자지속은 빨강.
+function statusClass(status: string): string {
   if (status === "흑자전환") {
     return styles.turnaround;
   }
@@ -47,6 +47,30 @@ function opStatusClass(status: string): string {
     return `${styles.statusBadge} ${styles.statusPos}`;
   }
   return `${styles.statusBadge} ${styles.statusNeg}`;
+}
+
+// 이익 지표 타일(영업이익·순이익·EBITDA 공용) — 손익상태 배지 + 이익률 증감 pp.
+// 성장 점수의 영업이익/순이익/EBITDA 축과 동일한 상태+마진 표현이라 근거와 화면이 일치한다.
+function ProfitTile({
+  label,
+  status,
+  marginDelta,
+}: {
+  label: string;
+  status: string | null;
+  marginDelta: number | null;
+}) {
+  const pp = formatPp(marginDelta);
+  return (
+    <div className={styles.tile}>
+      <span className={styles.label}>{label}</span>
+      <span className={pp === null ? `${styles.value} ${styles.muted}` : `${styles.value} ${growthClass(marginDelta)}`}>
+        {pp ?? "—"}
+      </span>
+      {status ? <span className={statusClass(status)}>{status}</span> : null}
+      <span className={styles.sub}>이익률 증감</span>
+    </div>
+  );
 }
 
 export default function GrowthMetrics({ code }: { code: string }) {
@@ -107,45 +131,9 @@ export default function GrowthMetrics({ code }: { code: string }) {
         {periodLabel ? <span className={styles.sub}>{periodLabel}</span> : null}
       </div>
 
-      <div className={styles.tile}>
-        <span className={styles.label}>영업이익 YoY</span>
-        {/* 흑자전환은 직전 적자라 YoY 비율이 없다(왜곡) → 대신 흑자전환 규모(Δ영업이익률 pp)를 보여준다. */}
-        {g.op_turnaround && g.op_margin_delta !== null ? (
-          <span className={`${styles.value} ${styles.gpos}`}>{formatPp(g.op_margin_delta)}</span>
-        ) : (
-          <span
-            className={
-              g.op_yoy === null
-                ? `${styles.value} ${styles.muted}`
-                : `${styles.value} ${growthClass(g.op_yoy)}`
-            }
-          >
-            {formatYoy(g.op_yoy)}
-          </span>
-        )}
-        {g.op_status ? (
-          <span className={opStatusClass(g.op_status)}>{g.op_status}</span>
-        ) : null}
-        {g.op_turnaround && g.op_margin_delta !== null ? (
-          <span className={styles.sub}>이익률 개선폭</span>
-        ) : periodLabel ? (
-          <span className={styles.sub}>{periodLabel}</span>
-        ) : null}
-      </div>
-
-      <div className={styles.tile}>
-        <span className={styles.label}>EPS YoY</span>
-        <span
-          className={
-            g.eps_yoy === null
-              ? `${styles.value} ${styles.muted}`
-              : `${styles.value} ${growthClass(g.eps_yoy)}`
-          }
-        >
-          {formatYoy(g.eps_yoy)}
-        </span>
-        <span className={styles.sub}>주당순이익 성장</span>
-      </div>
+      <ProfitTile label="영업이익" status={g.op_status} marginDelta={g.op_margin_delta} />
+      <ProfitTile label="순이익" status={g.net_status} marginDelta={g.net_margin_delta} />
+      <ProfitTile label="EBITDA" status={g.ebitda_status} marginDelta={g.ebitda_margin_delta} />
     </div>
   );
 }

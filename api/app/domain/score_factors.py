@@ -18,7 +18,8 @@ from app.domain.analysis_scoring import (
     VALUE_WEIGHTS,
     band,
     clamp01,
-    op_profit_norm,
+    margin_pp_score,
+    status_norm,
 )
 
 
@@ -54,12 +55,13 @@ def _num(value: float | None, suffix: str = "", digits: int = 1) -> str:
 
 # ── 성장 축 분해 (analysis_scoring.growth_score 와 동일 규칙) ──────────────
 GROWTH_METHOD = (
-    "매출·EPS YoY 를 -20%~+60% 로 정규화하고, 영업이익은 손익상태 4단계 기본점(흑전 1.0·흑자지속 "
-    "0.7·적자전환 0.3·적자지속 0)과 영업이익률 증감 pp 연속점(tanh)의 결합으로 본다. 가중 평균"
-    "(매출 0.4·영업익 0.35·EPS 0.25) — EPS 로 증자 희석을 거른다. 결측 요소는 제외하고 재정규화."
+    "매출 YoY 를 -20%~+60% 로 정규화하고, 영업이익·순이익·EBITDA 는 각각 손익상태(규모·방향: 흑전 "
+    "1.0·흑자지속 0.7·적자전환 0.3·적자지속 0)와 마진율 증감 pp(수익성, tanh)를 독립 요소로 본다. "
+    "가중 평균 — 매출 0.24, 각 이익 상태:마진 ≈ 0.16:0.14(영업)·0.13:0.11(순)·0.12:0.10(EBITDA). "
+    "결측 요소는 제외하고 재정규화."
 )
 
-# Δ영업이익률(pp) 표시. 부호와 함께 pp 로 보여준다.
+# 이익률 증감(pp) 표시. 부호와 함께 pp 로 보여준다.
 def _pp(value: float | None) -> str:
     if value is None:
         return "—"
@@ -70,18 +72,21 @@ def growth_factors(
     revenue_yoy: float | None,
     op_status: str | None,
     op_margin_delta: float | None = None,
-    eps_yoy: float | None = None,
+    net_status: str | None = None,
+    net_margin_delta: float | None = None,
+    ebitda_status: str | None = None,
+    ebitda_margin_delta: float | None = None,
 ) -> list[Factor]:
-    # 영업이익 축은 손익상태 + 영업이익률 증감 pp 결합(op_profit_norm) 하나. 값 표시는 상태 + pp
-    # 규모를 함께 보여준다(예: "흑자전환 +55.9pp"). 흑전/적전 구분 없이 방향과 규모가 한 행에 반영.
-    op_val = op_status or "—"
-    if op_margin_delta is not None:
-        op_val = f"{op_val} {_pp(op_margin_delta)}"
+    # 각 이익을 상태(규모·방향)와 마진율 증감(수익성) 두 요소로 분리 — 마진 이중계산 없이 명시 노출.
     w = GROWTH_WEIGHTS
     return [
         Factor("매출 YoY", _pct(revenue_yoy), band(revenue_yoy, -0.2, 0.6), w["rev"]),
-        Factor("영업이익", op_val, op_profit_norm(op_status, op_margin_delta), w["op"]),
-        Factor("EPS YoY", _pct(eps_yoy), band(eps_yoy, -0.2, 0.6), w["eps"]),
+        Factor("영업이익", op_status or "—", status_norm(op_status), w["op_status"]),
+        Factor("영업이익률(OPM) 증감", _pp(op_margin_delta), margin_pp_score(op_margin_delta), w["op_margin"]),
+        Factor("순이익", net_status or "—", status_norm(net_status), w["net_status"]),
+        Factor("순이익률(NPM) 증감", _pp(net_margin_delta), margin_pp_score(net_margin_delta), w["net_margin"]),
+        Factor("EBITDA", ebitda_status or "—", status_norm(ebitda_status), w["ebitda_status"]),
+        Factor("EBITDA마진 증감", _pp(ebitda_margin_delta), margin_pp_score(ebitda_margin_delta), w["ebitda_margin"]),
     ]
 
 

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from app.domain.analysis_scoring import op_profit_norm
+from app.domain.analysis_scoring import margin_pp_score, status_norm
 
 Ranker = Callable[[float | None], float]
 
@@ -55,23 +55,30 @@ def growth_score(
     rev_rank: Ranker,
     mom_rank: Ranker,
     op_margin_delta: float | None = None,
-    eps_yoy: float | None = None,
-    eps_rank: Ranker | None = None,
+    net_status: str | None = None,
+    net_margin_delta: float | None = None,
+    ebitda_status: str | None = None,
+    ebitda_margin_delta: float | None = None,
 ) -> float:
-    """성장스코어(0~100). 매출·EPS 백분위 + 영업이익(상태+pp) + 모멘텀 + 센티먼트·커버리지.
+    """성장스코어(0~100). 매출 백분위 + 영업/순/EBITDA 의 손익상태·마진율 증감 + 모멘텀 + 센티먼트·커버리지.
 
-    영업이익 축은 손익상태 4단계 + 영업이익률 증감 pp(tanh)의 결합(op_profit_norm) — 흑전·적전을
-    방향과 규모로 함께 변별한다. EPS 백분위로 증자 희석을 거른다 — 종목분석 성장스코어와 동일 철학.
+    각 이익을 상태(방향·규모)와 마진율 증감(수익성) 독립 요소로 분리 — 종목분석 성장스코어와 동일 철학.
+    None 은 0 으로(백분위 스코어라 결측=최하위). EBITDA 는 데이터 없으면 0 기여.
     """
     rev = rev_rank(revenue_yoy)
-    op = op_profit_norm(op_status, op_margin_delta) or 0.0
-    eps = eps_rank(eps_yoy) if eps_rank is not None else 0.0
+    op_s = status_norm(op_status) or 0.0
+    op_m = margin_pp_score(op_margin_delta) or 0.0
+    net_s = status_norm(net_status) or 0.0
+    net_m = margin_pp_score(net_margin_delta) or 0.0
+    eb_s = status_norm(ebitda_status) or 0.0
+    eb_m = margin_pp_score(ebitda_margin_delta) or 0.0
     mom = mom_rank(momentum_3m)
     sentiment_factor = (buy_count / coverage_count) if coverage_count else 0.0
     coverage_factor = 1.0 if coverage_count else 0.0
     score = (
-        0.26 * rev + 0.28 * op + 0.13 * eps + 0.13 * mom
-        + 0.12 * sentiment_factor + 0.08 * coverage_factor
+        0.20 * rev
+        + 0.11 * op_s + 0.09 * op_m + 0.08 * net_s + 0.07 * net_m + 0.06 * eb_s + 0.05 * eb_m
+        + 0.13 * mom + 0.12 * sentiment_factor + 0.08 * coverage_factor
     )
     return round(min(score, 1.0) * 100, 1)
 

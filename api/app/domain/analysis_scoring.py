@@ -31,66 +31,70 @@ def _weighted(parts: list[tuple[float, float]]) -> float | None:
 
 
 # ── 성장 축(종목 분석) ────────────────────────────────────────────────
-# 성장 3요소 밴드(절대 구간→0~1). 매출·EPS YoY 는 -20%~+60%. 영업이익 축은 손익상태 4단계 기본점 +
-# 영업이익률 증감 pp 연속점(tanh)의 결합(op_profit_norm) — YoY 비율(흑전 시 정의 불가)을 대체한다.
-# 가중치: 외형(매출) 최중, 영업이익(내실·방향) 다음, EPS 로 증자 희석 필터. 종목분석·스크리너 공용.
+# 성장은 '규모(외형·이익 손익상태)'와 '수익성(마진율 증감)'을 분리해 본다. 매출은 외형 YoY(-20%~+60%).
+# 영업이익·순이익·EBITDA 는 각각 ① 손익상태 4단계(적자→흑자 전환 등 방향·규모, YoY 비율이 왜곡되는
+# 흑전도 담음)와 ② 마진율(그 이익/매출) 증감 pp 연속점(tanh, 수익성 개선)을 독립 요소로 둔다. 이렇게
+# 나누면 마진이 이중 계산되지 않고 OPM·NPM·EBITDA마진이 명시 항목이 된다.
+# 가중치(합 1.0): 매출 0.24. 각 이익은 상태:마진 ≈ 0.16:0.14(영업)·0.13:0.11(순)·0.12:0.10(EBITDA)
+# — 외형·본업 수익력을 최중, 상관 높은 이익들은 분산해 개별 변동 과민 방지.
+# NOTE: EBITDA 는 현재 재무 스크랩(네이버)에 없어 대부분 None → 재정규화로 흡수돼 실질 매출·영업·
+# 순이익 축으로 동작한다. D&A/EBITDA 소스 확보 시 자동 활성(스코어·프론트 스캐폴딩은 완비).
 _GROWTH_YOY_BAND = (-0.2, 0.6)
-GROWTH_WEIGHTS = {"rev": 0.40, "op": 0.35, "eps": 0.25}
+GROWTH_WEIGHTS = {
+    "rev": 0.24,
+    "op_status": 0.16, "op_margin": 0.14,
+    "net_status": 0.13, "net_margin": 0.11,
+    "ebitda_status": 0.12, "ebitda_margin": 0.10,
+}
 
 # 손익 상태 4단계 기본점(0~1). 방향(적자→흑자 전환)을 크게 인정, 상태 악화는 강하게 감점.
-OP_STATUS_BASE = {"흑자전환": 1.0, "흑자지속": 0.7, "적자전환": 0.3, "적자지속": 0.0}
-# 영업이익률 증감 pp → 연속점의 tanh 스케일(k). 분포상 대부분 ±5pp 라 k=0.08(8pp)면 그 구간이
+PROFIT_STATUS_BASE = {"흑자전환": 1.0, "흑자지속": 0.7, "적자전환": 0.3, "적자지속": 0.0}
+# 마진율 증감 pp → 연속점의 tanh 스케일(k). 분포상 대부분 ±5pp 라 k=0.08(8pp)면 그 구간이
 # 민감하게 갈리고 극단(±수십 pp)은 완만히 포화(두꺼운 꼬리에 강건). 선형 밴드의 중앙 뭉침·극단
 # 클램프 문제를 함께 해소한다.
-_OPM_TANH_K = 0.08
-# 상태 기본점과 pp 연속점의 결합 비중. 상태로 큰 방향을, pp 로 규모·변별을 반영.
-_OP_STATUS_W = 0.5
+_MARGIN_TANH_K = 0.08
 
 
-def op_margin_pp_score(op_margin_delta: float | None) -> float | None:
-    """영업이익률 증감(Δ, 비율) → 0~1 연속점. tanh S-곡선: 0 근처는 민감, ±수십 pp 는 포화.
+def margin_pp_score(margin_delta: float | None) -> float | None:
+    """마진율 증감(Δ, 비율) → 0~1 연속점. tanh S-곡선: 0 근처는 민감, ±수십 pp 는 포화.
 
     Δ=0 → 0.5, +8pp → 0.88, +20pp → 0.98(포화), -8pp → 0.12. None 은 None."""
-    if op_margin_delta is None:
+    if margin_delta is None:
         return None
-    return 0.5 * (1.0 + math.tanh(op_margin_delta / _OPM_TANH_K))
+    return 0.5 * (1.0 + math.tanh(margin_delta / _MARGIN_TANH_K))
 
 
-def op_profit_norm(op_status: str | None, op_margin_delta: float | None) -> float | None:
-    """영업이익 축 정규화값(0~1) = 손익상태 기본점 + 영업이익률 증감 pp 연속점의 가중 결합.
-
-    흑전/흑자지속/적자전환/적자지속 4단계로 방향을 주고, tanh pp 점수로 규모·개선폭을 변별한다.
-    상태가 없으면(직전 동기 결측) None → 축 제외. pp 결측 시 상태 기본점만으로 폴백.
-    """
-    if op_status is None:
+def status_norm(status: str | None) -> float | None:
+    """손익상태 4단계 → 0~1 기본점(규모·방향 축). 미상이면 None → 축 제외."""
+    if status is None:
         return None
-    base = OP_STATUS_BASE.get(op_status)
-    if base is None:
-        return None
-    pp = op_margin_pp_score(op_margin_delta)
-    if pp is None:
-        return base  # pp 결측 → 상태 기본점만
-    return _OP_STATUS_W * base + (1.0 - _OP_STATUS_W) * pp
+    return PROFIT_STATUS_BASE.get(status)
 
 
 def growth_score(
     revenue_yoy: float | None,
     op_status: str | None,
     op_margin_delta: float | None = None,
-    eps_yoy: float | None = None,
+    net_status: str | None = None,
+    net_margin_delta: float | None = None,
+    ebitda_status: str | None = None,
+    ebitda_margin_delta: float | None = None,
 ) -> float | None:
-    """성장 점수(0~100). 매출·EPS YoY + 영업이익(상태+pp) 을 가중 평균(매출 0.4·영업익 0.35·EPS 0.25).
+    """성장 점수(0~100). 매출 YoY + 영업/순/EBITDA 의 손익상태(규모)·마진율 증감(수익성) 가중 평균.
 
-    영업이익 축은 손익상태 4단계 기본점과 영업이익률 증감 pp 연속점(tanh)의 결합이라, 흑전·적전
-    구분 없이 방향과 규모를 함께 반영한다. 계산 가능한 요소만 남은 가중치로 재정규화. 전무하면 None.
-    스크리너 백분위 성장스코어와 달리 절대 구간 기반.
+    각 이익을 상태(방향·규모)와 마진율 증감(수익성) 독립 요소로 분리해, 마진 이중 계산 없이
+    OPM·NPM·EBITDA마진을 명시 반영한다. 계산 가능한 요소만 남은 가중치로 재정규화. 전무하면 None.
     """
     w = GROWTH_WEIGHTS
     parts: list[tuple[float, float]] = []
     for norm, weight in (
         (band(revenue_yoy, *_GROWTH_YOY_BAND), w["rev"]),
-        (op_profit_norm(op_status, op_margin_delta), w["op"]),
-        (band(eps_yoy, *_GROWTH_YOY_BAND), w["eps"]),
+        (status_norm(op_status), w["op_status"]),
+        (margin_pp_score(op_margin_delta), w["op_margin"]),
+        (status_norm(net_status), w["net_status"]),
+        (margin_pp_score(net_margin_delta), w["net_margin"]),
+        (status_norm(ebitda_status), w["ebitda_status"]),
+        (margin_pp_score(ebitda_margin_delta), w["ebitda_margin"]),
     ):
         if norm is not None:
             parts.append((norm, weight))
