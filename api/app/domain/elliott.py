@@ -192,83 +192,60 @@ def _correction_conf(window: list[Pivot], down: bool) -> float | None:
 _SCAN_WINDOW = 8
 
 
-# 하드룰+피보를 통과 못 한 '연결용' 블록의 저신뢰값. 프론트는 이 미만을 옅은/점선으로 차등.
-_FILLER_CONF = 0.15
-
-
 def _label_cycles(pivots: list[Pivot]) -> list[tuple[int, str, str, float]]:
-    """피벗열을 좌→우로 반복 사이클 [1,2,3,4,5]-[A,B,C] 로 **중단 없이** 라벨한다.
+    """피벗열을 좌→우로 스캔하며 **하드룰+피보를 통과한 사이클만** 1-2-3-4-5 / A-B-C 로 라벨한다.
 
-    각 다리(pivots[i]→pivots[i+1])가 사이클 내 한 파동. 추진 5파↔조정 3파를 갭 없이 교대로
-    이어붙여 전 구간을 채운다(추진 다음에 조정, 조정 다음에 다시 추진이 끊김 없이 연결).
+    각 다리(pivots[i]→pivots[i+1])가 사이클 내 한 파동. 추진(5파)을 먼저 찾고, 통과하면 그 끝에서
+    이어서 조정(A-B-C)을 찾는다 — 검증된 추진↔조정은 피벗을 공유해 자연히 연결된다. 통과 블록이
+    없으면 **억지로 채우지 않고** 그 다리를 라벨 없이 건너뛴다(빈 라벨 → 차트엔 옅은 스윙선만, 마커
+    없음). 억지 5-3 채움을 없애 '제멋대로 라벨'을 방지하고, 오탐 대신 유보를 택한다(정직).
 
-    정렬 유연성: 각 블록에서 앞으로 최대 _SCAN_WINDOW 피벗 내 하드룰(R1/R2/R3)+피보 통과 임펄스/
-    조정을 찾아 **고신뢰**(그 판정 방향)로 라벨하고, 그 앞의 어긋난 다리는 직전 위상의 '연결용'
-    저신뢰로 채워 연속성을 유지한다. 창 내에 통과 블록이 없으면 순가격 방향으로 저신뢰 라벨.
-    → 전역 추세 고정 없이, 억지 없이 신뢰도로만 정직하게 차등. 라벨은 항상 유효 파동 번호(빈칸 없음).
-    반환: (start_pivot_i, wave_label, phase, confidence).
+    추진은 상승·하락을 모두 시험해 최고 신뢰 방향을 채택(전역 추세 고정 없음). 조정은 직전 추진의
+    반대 방향으로 검증. 반환: (start_pivot_i, wave_label, phase, confidence). 빈 라벨은 유보 다리.
     """
     n = len(pivots)
     out: list[tuple[int, str, str, float]] = []
     i = 0
-    expect_motive = True
-    last_motive_up: bool | None = None  # 직전 추진 방향(조정 방향 결정용)
-    # 연결용(어긋난 앞 다리) 채울 때 쓸 직전 위상 라벨 순환자.
-    filler_seq = {"motive": ["1", "2", "3", "4", "5"], "corrective": ["A", "B", "C"]}
+    last_motive_up: bool | None = None  # 직전 추진 방향(다음 조정 방향 결정용)
     while i < n - 1:
-        if expect_motive:
-            best = None  # (st, conf, up)
-            for st in range(i, min(i + _SCAN_WINDOW, n - 5)):
-                for cand_up in (True, False):
-                    c = _impulse_conf(pivots[st : st + 6], cand_up)
-                    if c is not None and (best is None or c > best[1]):
-                        best = (st, c, cand_up)
-            if best is not None:
-                st, conf, up = best
-                _fill_gap(out, i, st, "corrective", filler_seq)  # 앞 다리=직전 조정 연장(저신뢰)
-                for k, lab in enumerate(["1", "2", "3", "4", "5"]):
-                    out.append((st + k, lab, "motive", round(conf, 2)))
-                last_motive_up = up
-                i = st + 5
-            else:  # 창 내 통과 임펄스 없음 → 순가격 방향 저신뢰 5파
-                legs = min(5, n - 1 - i)
-                up = pivots[i + legs].price >= pivots[i].price
-                for k, lab in enumerate(["1", "2", "3", "4", "5"][:legs]):
-                    out.append((i + k, lab, "motive", _FILLER_CONF))
-                last_motive_up = up
-                i += legs
-        else:
-            best = None  # (st, conf)
-            for st in range(i, min(i + _SCAN_WINDOW, n - 3)):
-                c = _correction_conf(pivots[st : st + 4], down=bool(last_motive_up))
-                if c is not None and (best is None or c > best[1]):
-                    best = (st, c)
-            if best is not None:
-                st, conf = best
-                _fill_gap(out, i, st, "motive", filler_seq)  # 앞 다리=직전 추진 연장(저신뢰)
+        # 1) i 부터 창 내에서 **가장 이른** 유효 5파 임펄스를 채택(연속성 우선 — 앞선 유효 임펄스를
+        #    최고신뢰 뒤 창에 뺏겨 유실하지 않도록). 같은 시작점에선 상승·하락 중 최고신뢰 방향 선택.
+        imp = None  # (st, conf, up)
+        for st in range(i, min(i + _SCAN_WINDOW, n - 5)):
+            best_dir = None  # (conf, up) — 이 시작점에서 더 잘 맞는 방향
+            for cand_up in (True, False):
+                c = _impulse_conf(pivots[st : st + 6], cand_up)
+                if c is not None and (best_dir is None or c > best_dir[0]):
+                    best_dir = (c, cand_up)
+            if best_dir is not None:
+                imp = (st, best_dir[0], best_dir[1])
+                break  # 가장 이른 유효 시작점에서 멈춘다
+        if imp is not None:
+            st, conf, up = imp
+            for k in range(i, st):  # 임펄스 앞 어긋난 다리는 유보(빈 라벨)
+                out.append((k, "", "", 0.0))
+            for k, lab in enumerate(["1", "2", "3", "4", "5"]):
+                out.append((st + k, lab, "motive", round(conf, 2)))
+            last_motive_up = up
+            i = st + 5
+            # 2) 임펄스 끝에서 곧바로 조정(A-B-C)을 이어 찾는다 — 가장 이른 유효분(피벗 공유 → 연결).
+            cor = None
+            for st2 in range(i, min(i + _SCAN_WINDOW, n - 3)):
+                c = _correction_conf(pivots[st2 : st2 + 4], down=bool(last_motive_up))
+                if c is not None:
+                    cor = (st2, c)
+                    break  # 가장 이른 유효 조정에서 멈춘다
+            if cor is not None:
+                st2, cconf = cor
+                for k in range(i, st2):
+                    out.append((k, "", "", 0.0))
                 for k, lab in enumerate(["A", "B", "C"]):
-                    out.append((st + k, lab, "corrective", round(conf, 2)))
-                i = st + 3
-            else:  # 창 내 통과 조정 없음 → 저신뢰 3파
-                legs = min(3, n - 1 - i)
-                for k, lab in enumerate(["A", "B", "C"][:legs]):
-                    out.append((i + k, lab, "corrective", _FILLER_CONF))
-                i += legs
-        expect_motive = not expect_motive
+                    out.append((st2 + k, lab, "corrective", round(cconf, 2)))
+                i = st2 + 3
+        else:
+            out.append((i, "", "", 0.0))  # 통과 임펄스 없음 → 이 다리 유보
+            i += 1
     return out
-
-
-def _fill_gap(
-    out: list[tuple[int, str, str, float]],
-    start: int,
-    stop: int,
-    phase: str,
-    filler_seq: dict[str, list[str]],
-) -> None:
-    """[start, stop) 어긋난 다리를 직전 위상(phase)의 연결용 저신뢰 라벨로 채운다(연속성 유지)."""
-    labels = filler_seq[phase]
-    for k in range(start, stop):
-        out.append((k, labels[(k - start) % len(labels)], phase, _FILLER_CONF))
 
 
 def _build_segments(

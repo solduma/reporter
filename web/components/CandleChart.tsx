@@ -236,56 +236,59 @@ export default function CandleChart({
       );
     }
 
-    // 엘리엇 파동 — 전 구간 상승 추진↔하락 조정이 중단없이 연결된 파동 체인. 한붓그리기(연결 폴리라인)
-    // 로 그려 상승5파↔하락3파 톱니 구조가 드러나게 하고, 흰색 헤일로 + 진한 남색 선으로 MA(주황·틸·
-    // 보라·자홍)·캔들과 확실히 분리한다. 파동 경계(1~5·A~C)와 하위 프랙탈 라벨을 마커로.
-    // 엘리엇 파동 — 반복 사이클 1-2-3-4-5(추진)·A-B-C(조정). 각 다리(세그먼트)가 한 파동이고 그
-    // wave_label(1~5·A~C)을 끝점에 표시한다. 사이클 다리를 이어 흰 헤일로 + 진남색 선으로 그려
-    // MA·캔들과 분리. 추진=파랑 라벨(위), 조정=빨강 라벨(아래).
+    // 엘리엇 파동 — 하드룰+피보를 통과한 사이클만 1-2-3-4-5(추진)·A-B-C(조정)로 라벨한다.
+    // (오픈소스 정석 재구현: 억지 채움 없이 검증된 파동만 표시.) 표현 규칙:
+    //  · 방향으로 색 구분 — 상승 파동=청록, 하락 파동=주황(캔들 빨/파·MA 와 안 겹치는 톤).
+    //  · 라벨 위치는 파동 끝 피벗 타입 — 상승 다리(끝=고점)는 위, 하락 다리(끝=저점)는 아래.
+    //  · 위상은 라벨 텍스트로 구분(숫자 1~5=추진, A~C=조정).
+    // 연속성 맥락: 검증 안 된 구간은 라벨 없이, 전체 피벗을 잇는 옅은 스윙선을 밑에 깔아 흐름 유지.
+    const EW_UP = "#0d9488"; // 상승 파동(청록)
+    const EW_DOWN = "#ea580c"; // 하락 파동(주황)
     const segs = elliott?.segments ?? [];
-    if (elliott && segs.length >= 1) {
+    const pivots = elliott?.pivots ?? [];
+    if (elliott && (segs.length >= 1 || pivots.length >= 2)) {
+      // 1) 전체 피벗을 잇는 옅은 스윙선(연속성 맥락). 라벨된 파동은 이 위에 진한 방향색으로 덧그린다.
+      if (pivots.length >= 2) {
+        const swing = chart.addSeries(LineSeries, {
+          color: "rgba(120,120,130,0.35)", lineWidth: 1, lineStyle: 2,
+          priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+        });
+        swing.setData(
+          pivots.map((p) => ({ time: p.date.slice(0, 10) as Time, value: p.price })),
+        );
+      }
+      // 2) 검증된 파동 다리 — 방향색 실선 + 흰 헤일로.
       const markers: SeriesMarker<Time>[] = [];
-      // 파동 다리를 갭 없이 이어 그린다(추진 5파↔조정 3파가 끊김 없이 연결). 각 다리는 신뢰도로
-      // 차등: 하드룰+피보 통과(고신뢰)는 진한 실선 + 라벨, 연결용(저신뢰)은 옅은 점선 + 라벨 생략
-      // → 사용자가 "진짜 카운트"와 "연결용 추정"을 한눈에 구분. 흰 헤일로로 MA·캔들과 분리.
-      const CONF_HI = 0.4; // 이 미만은 연결용(저신뢰) — 억지 카운트 아님을 옅게 표시
       for (const seg of segs) {
-        const strong = (seg.confidence ?? 0) >= CONF_HI;
+        const up = seg.direction === "up";
         const pts = [
           { time: seg.start_date.slice(0, 10) as Time, value: seg.start_price },
           { time: seg.end_date.slice(0, 10) as Time, value: seg.end_price },
         ];
-        if (strong) {
-          const halo = chart.addSeries(LineSeries, {
-            color: "rgba(255,255,255,0.9)", lineWidth: 4,
-            priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
-          });
-          halo.setData(pts);
-        }
-        // 추진=진남색, 조정=자홍(방향 아닌 위상으로 색 구분). 저신뢰는 옅은 톤 + 점선.
-        const motive = seg.phase === "motive";
+        const halo = chart.addSeries(LineSeries, {
+          color: "rgba(255,255,255,0.9)", lineWidth: 4,
+          priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+        });
+        halo.setData(pts);
         const line = chart.addSeries(LineSeries, {
-          color: strong
-            ? (motive ? "#1e293b" : "#9333ea")
-            : (motive ? "rgba(30,41,59,0.35)" : "rgba(147,51,234,0.35)"),
-          lineWidth: strong ? 2 : 1,
-          lineStyle: strong ? 0 : 2, // 0=실선, 2=점선(연결용)
+          color: up ? EW_UP : EW_DOWN,
+          lineWidth: 2,
           priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
         });
         line.setData(pts);
-        // 파동 번호는 고신뢰 다리에만(저신뢰는 라벨 생략 — 차트가 번호로 뒤덮이지 않게).
-        if (strong) {
-          markers.push({
-            time: seg.end_date.slice(0, 10) as Time,
-            position: seg.direction === "up" ? "aboveBar" : "belowBar",
-            shape: "circle",
-            color: motive ? "#1d4ed8" : "#9333ea",
-            text: seg.wave_label,
-          });
-        }
+        // 라벨: 상승 다리 끝(고점)=위, 하락 다리 끝(저점)=아래. 조정(A~C)은 사각, 추진(1~5)은 원.
+        markers.push({
+          time: seg.end_date.slice(0, 10) as Time,
+          position: up ? "aboveBar" : "belowBar",
+          shape: seg.phase === "motive" ? "circle" : "square",
+          color: up ? EW_UP : EW_DOWN,
+          text: seg.wave_label,
+        });
       }
       markers.sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
-      createSeriesMarkers(candleSeries, markers);
+      if (markers.length > 0) {
+        createSeriesMarkers(candleSeries, markers);
+      }
 
       // 다음 파동 목표 — 규모(가격 low~high) × 기간(now~now+예상봉수)을 미래 축까지 뻗는 2D zone 으로.
       // 상·하한을 현재봉→미래봉까지 청록 점선으로 그려 "언제쯤 어디까지"를 사각 영역으로 보인다.
