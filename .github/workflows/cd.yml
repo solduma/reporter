@@ -1,0 +1,54 @@
+name: CD
+
+# release 브랜치 push 시 self-hosted runner(프로덕션 맥)에서 변경 대상만 배포한다.
+# 프로덕션은 이 맥의 launchd(api/web) + docker(worker)에서 돈다 — 클라우드 러너로는 접근 불가라
+# self-hosted runner 가 로컬에서 git pull + build + 재시작을 수행한다.
+#
+# 배포 흐름:
+#   1) main 에서 검증 완료된 변경을 release 로 병합(또는 push)
+#   2) 이 워크플로가 self-hosted runner 에서 트리거
+#   3) 직전 배포 커밋(이전 release HEAD)과의 diff 로 worker/api/web 중 필요한 것만 배포
+#
+# 필요: 프로덕션 맥에 self-hosted runner 등록(label: self-hosted, macOS, reporter-prod).
+#       설치법은 scripts/README-cd.md 참조.
+
+on:
+  push:
+    branches: [release]
+  workflow_dispatch:  # 수동 재배포(전체) 트리거
+    inputs:
+      targets:
+        description: "배포 대상(공백구분: api web worker). 비우면 diff 자동 판단"
+        required: false
+        default: ""
+
+concurrency:
+  group: cd-release  # 동시 배포 방지 — 이전 배포가 끝나야 다음이 시작
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, macOS, reporter-prod]
+    steps:
+      - name: Checkout (전체 이력 — diff 판단에 이전 커밋 필요)
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Deploy
+        env:
+          # push 이벤트면 직전 커밋(before)과 diff, 수동 트리거면 targets 입력 사용.
+          DEPLOY_BASE: ${{ github.event.before }}
+          MANUAL_TARGETS: ${{ github.event.inputs.targets }}
+        run: |
+          set -euo pipefail
+          if [ -n "${MANUAL_TARGETS}" ]; then
+            echo "수동 배포 대상: ${MANUAL_TARGETS}"
+            bash scripts/deploy.sh ${MANUAL_TARGETS}
+          else
+            # github.event.before 가 0..0(브랜치 최초 생성)이면 deploy.sh 가 전체 폴백.
+            bash scripts/deploy.sh
+          fi
