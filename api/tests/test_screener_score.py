@@ -24,6 +24,7 @@ class _G:
     revenue_yoy: float | None
     op_yoy: float | None
     op_turnaround: bool
+    op_margin_delta: float | None = None
 
 
 @dataclass

@@ -135,6 +135,7 @@ def company_analysis(
         g.revenue_yoy if g else None,
         g.op_yoy if g else None,
         g.op_turnaround if g else False,
+        g.op_margin_delta if g else None,
     )
     # 성장축은 점수 해석만 보여준다 — 원시 YoY 수치는 '성장 지표 스냅샷'이 단일 소유(중복 제거).
     growth_axis = AnalysisAxis(
@@ -151,6 +152,7 @@ def company_analysis(
                 g.revenue_yoy if g else None,
                 g.op_yoy if g else None,
                 bool(g and g.op_turnaround),
+                g.op_margin_delta if g else None,
             )
         ),
     )
@@ -570,6 +572,7 @@ def company_growth(code: str, db: Session = Depends(get_session)) -> CompanyGrow
         op_yoy=g.op_yoy if g else None,
         op_turnaround=bool(g.op_turnaround) if g else False,
         op_status=g.op_status if g else None,
+        op_margin_delta=g.op_margin_delta if g else None,
         period=g.period if g else None,
         coverage_count=cov_count,
         buy_ratio=round(buy_count / cov_count, 2) if cov_count else None,

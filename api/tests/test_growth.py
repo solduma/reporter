@@ -49,6 +49,21 @@ def test_turnaround_flag():
     assert m.op_turnaround is True
     assert m.op_status == "흑자전환"
     assert m.op_yoy is None  # 직전이 음수라 비율은 None
+    # 흑자전환 규모 = Δ영업이익률: 8/120 - (-5/100) = 0.0667 + 0.05 = 0.1167
+    assert m.op_margin_delta == 0.1167
+
+
+def test_margin_delta_normalizes_by_company_size():
+    # 같은 절대 흑자(+8)라도 매출 규모가 작을수록 이익률 개선폭(규모)이 크다.
+    small = growth.compute_growth("S", [_Fin("2025.03", 50.0, -5.0), _Fin("2026.03", 50.0, 8.0)])
+    large = growth.compute_growth("L", [_Fin("2025.03", 500.0, -5.0), _Fin("2026.03", 500.0, 8.0)])
+    assert small.op_margin_delta > large.op_margin_delta  # 회사 규모 대비 흑전 폭 반영
+
+
+def test_margin_delta_none_when_revenue_nonpositive():
+    # 매출 0/음수/결측이면 이익률 정의 불가 → None(YoY 처럼 왜곡 방지).
+    m = growth.compute_growth("A", [_Fin("2025.03", 0.0, -5.0), _Fin("2026.03", 100.0, 8.0)])
+    assert m.op_margin_delta is None
 
 
 def test_op_status_four_states():

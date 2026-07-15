@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from app.domain.analysis_scoring import turnaround_scale
+
 Ranker = Callable[[float | None], float]
 
 
@@ -54,12 +56,16 @@ def growth_score(
     rev_rank: Ranker,
     op_rank: Ranker,
     mom_rank: Ranker,
+    op_margin_delta: float | None = None,
 ) -> float:
-    """성장스코어(0~100). YoY 백분위 + 모멘텀 + 흑전 + 센티먼트·커버리지 factor."""
+    """성장스코어(0~100). YoY 백분위 + 모멘텀 + 흑전 규모 + 센티먼트·커버리지 factor.
+
+    흑자전환 가점(최대 0.10)은 Δ영업이익률 규모로 스케일 — 종목분석 성장스코어와 동일 규칙.
+    """
     rev = rev_rank(revenue_yoy)
     op = op_rank(op_yoy)
     mom = mom_rank(momentum_3m)
-    turn_bonus = 0.10 if op_turnaround else 0.0
+    turn_bonus = 0.10 * turnaround_scale(op_margin_delta) if op_turnaround else 0.0
     sentiment_factor = (buy_count / coverage_count) if coverage_count else 0.0
     coverage_factor = 1.0 if coverage_count else 0.0
     score = (

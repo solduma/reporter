@@ -44,6 +44,16 @@ function formatYoy(ratio: number | null): string {
   return `${sign}${pct.toFixed(1)}%`;
 }
 
+// 영업이익률 변화 비율(0.559)을 pp("+55.9pp")로 표기 — 흑자전환 규모.
+function formatPp(ratio: number | null): string | null {
+  if (ratio === null) {
+    return null;
+  }
+  const pp = ratio * 100;
+  const sign = pp > 0 ? "+" : "";
+  return `${sign}${pp.toFixed(1)}pp`;
+}
+
 // 등락률 색: 한국 관행 — 상승 빨강 / 하락 파랑
 function changeClass(pct: number | null): string {
   if (pct === null || pct === 0) {
@@ -165,19 +175,28 @@ export default function GrowthMetrics({ code }: { code: string }) {
 
       <div className={styles.tile}>
         <span className={styles.label}>영업이익 YoY</span>
-        <span
-          className={
-            g.op_yoy === null
-              ? `${styles.value} ${styles.muted}`
-              : `${styles.value} ${growthClass(g.op_yoy)}`
-          }
-        >
-          {formatYoy(g.op_yoy)}
-        </span>
+        {/* 흑자전환은 직전 적자라 YoY 비율이 없다(왜곡) → 대신 흑자전환 규모(Δ영업이익률 pp)를 보여준다. */}
+        {g.op_turnaround && g.op_margin_delta !== null ? (
+          <span className={`${styles.value} ${styles.gpos}`}>{formatPp(g.op_margin_delta)}</span>
+        ) : (
+          <span
+            className={
+              g.op_yoy === null
+                ? `${styles.value} ${styles.muted}`
+                : `${styles.value} ${growthClass(g.op_yoy)}`
+            }
+          >
+            {formatYoy(g.op_yoy)}
+          </span>
+        )}
         {g.op_status ? (
           <span className={opStatusClass(g.op_status)}>{g.op_status}</span>
         ) : null}
-        {periodLabel ? <span className={styles.sub}>{periodLabel}</span> : null}
+        {g.op_turnaround && g.op_margin_delta !== null ? (
+          <span className={styles.sub}>이익률 개선폭</span>
+        ) : periodLabel ? (
+          <span className={styles.sub}>{periodLabel}</span>
+        ) : null}
       </div>
 
       <div className={styles.tile}>

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.domain.analysis_scoring import band, clamp01
+from app.domain.analysis_scoring import band, clamp01, turnaround_scale
 
 
 @dataclass(frozen=True)
@@ -49,22 +49,28 @@ def _num(value: float | None, suffix: str = "", digits: int = 1) -> str:
 # ── 성장 축 분해 (analysis_scoring.growth_score 와 동일 규칙) ──────────────
 GROWTH_METHOD = (
     "매출·영업이익 YoY 를 -20%~+60% 구간으로 0~1 정규화 후 가중 평균(매출 0.5·영업익 0.4), "
-    "흑자전환이면 +0.15 가점. 데이터 없는 요소는 제외하고 남은 가중치로 재정규화."
+    "흑자전환이면 규모(Δ영업이익률 3~30pp)로 스케일한 최대 +0.15 가점. 데이터 없는 요소는 제외하고 "
+    "남은 가중치로 재정규화."
 )
 
 
 def growth_factors(
-    revenue_yoy: float | None, op_yoy: float | None, op_turnaround: bool
+    revenue_yoy: float | None,
+    op_yoy: float | None,
+    op_turnaround: bool,
+    op_margin_delta: float | None = None,
 ) -> list[Factor]:
+    # 흑자전환 가점 규모: Δ영업이익률로 스케일한 배수(0.2~1.0)를 norm 으로 노출.
+    turn_norm = turnaround_scale(op_margin_delta) if op_turnaround else None
+    turn_val = (
+        f"+{op_margin_delta * 100:.1f}pp"
+        if op_turnaround and op_margin_delta is not None
+        else "적용" if op_turnaround else "—"
+    )
     return [
         Factor("매출 YoY", _pct(revenue_yoy), band(revenue_yoy, -0.2, 0.6), 0.5),
         Factor("영업이익 YoY", _pct(op_yoy), band(op_yoy, -0.2, 0.6), 0.4),
-        Factor(
-            "흑자전환 가점",
-            "적용" if op_turnaround else "—",
-            1.0 if op_turnaround else None,
-            0.15,
-        ),
+        Factor("흑자전환 가점(규모)", turn_val, turn_norm, 0.15),
     ]
 
 
