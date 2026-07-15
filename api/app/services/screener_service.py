@@ -115,17 +115,21 @@ def screen(
     cov_count = func.coalesce(cov.c.coverage_count, 0)
     buy_count = func.coalesce(cov.c.buy_count, 0)
 
+    # 유니버스 확정은 '상장·거래 중'(close_price 존재)로 판단한다. 거래대금(trading_value)은
+    # 유동성 하한에만 쓰되, 배치가 거래대금을 못 채운 날(결측)에도 정상 상장주가 전멸하지 않도록
+    # '값이 있을 때만' 적용한다(결측은 통과). trading_value>0 를 하드 조건으로 두면 배치 결측 시
+    # 정상주까지 탈락하는 회귀가 있었다(2026-07-15).
     conds = [
         U.snapshot_date == as_of,
         U.market_cap.is_not(None),
-        U.trading_value > 0,
+        U.close_price.is_not(None),
     ]
     if mktcap_max is not None:
         conds.append(U.market_cap <= mktcap_max)
     if mktcap_min is not None:
         conds.append(U.market_cap >= mktcap_min)
-    if liq_min is not None:
-        conds.append(U.trading_value >= liq_min)
+    if liq_min is not None:  # 거래대금 결측·0(배치 미집계)은 통과, 양의 값이 있으면 하한 적용
+        conds.append(or_(U.trading_value.is_(None), U.trading_value <= 0, U.trading_value >= liq_min))
     if market:
         conds.append(U.market == market)
     if sector:
