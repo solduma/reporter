@@ -65,6 +65,20 @@ def test_impulse_conf_rejects_r3_only():
     assert elliott._impulse_conf(w, up=True) is None  # R3 위반으로 거부
 
 
+def test_impulse_conf_rejects_oversized_wave5():
+    # 비율 게이트(EWA 하드화): 5파(300)가 1파(100)의 2배 이상 → 과대 5파 배제. 3대 하드룰은 통과.
+    w = _piv([("0", 100.0, "low"), ("1", 200.0, "high"), ("2", 150.0, "low"),
+              ("3", 400.0, "high"), ("4", 350.0, "low"), ("5", 650.0, "high")])
+    assert elliott._impulse_conf(w, up=True) is None  # 5파 과대로 거부
+
+
+def test_impulse_conf_rejects_shallow_wave2():
+    # 비율 게이트: 2파(10)가 1파(100)의 0.2 미만 → 너무 얕은 2파 배제. 3대 하드룰은 통과.
+    w = _piv([("0", 100.0, "low"), ("1", 200.0, "high"), ("2", 190.0, "low"),
+              ("3", 400.0, "high"), ("4", 350.0, "low"), ("5", 450.0, "high")])
+    assert elliott._impulse_conf(w, up=True) is None  # 2파 얕음으로 거부
+
+
 # ── 사이클 라벨링 ────────────────────────────────────────────────────────
 
 def _bull_cycle_prices() -> list[tuple[str, float]]:
