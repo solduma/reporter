@@ -211,7 +211,7 @@ export default function GrowthMetrics({ code }: { code: string }) {
         {g.coverage_count > 0 && buyLabel ? (
           <span className={`${styles.sub} ${styles.buyTag}`}>{buyLabel}</span>
         ) : (
-          <span className={styles.sub}>최근 90일</span>
+          <span className={styles.sub}>최근 1년</span>
         )}
       </div>
     </div>

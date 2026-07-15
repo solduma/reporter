@@ -44,6 +44,9 @@ from app.services import (
 
 router = APIRouter(prefix="/api/companies", tags=["companies"])
 
+# 성장 스냅샷 리포트 커버리지 집계 창(일). 최근 1년치 리서치 커버리지·BUY 비율을 본다.
+_COVERAGE_DAYS = 365
+
 # 도메인 강도 분류 → 한글 라벨(표현은 라우터 edge 책임).
 _FLOW_TAG = {"strong": "강함", "moderate": "보통", "weak": "약함"}
 
@@ -557,7 +560,7 @@ def company_growth(code: str, db: Session = Depends(get_session)) -> CompanyGrow
     """종목 성장지표 — universe 스냅샷(시총·모멘텀) + growth_metric(YoY) + 커버리지."""
     u = company_service.growth_snapshot(db, code)
     g = company_service.growth_metric(db, code)
-    cov_count, buy_count = company_service.coverage_counts(db, code, date.today() - timedelta(days=90))
+    cov_count, buy_count = company_service.coverage_counts(db, code, date.today() - timedelta(days=_COVERAGE_DAYS))
     # 성장지표는 스냅샷에 없는 종목이면 이름도 리포트 폴백만(레거시 동작 보존 — 시세 필드와 일관).
     name = u.stock_name if u else company_service.report_stock_name(db, code)
     return CompanyGrowth(
