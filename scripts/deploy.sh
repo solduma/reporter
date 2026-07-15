@@ -19,16 +19,30 @@
 
 set -euo pipefail
 
-PROJECT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$PROJECT"
-
 log()  { printf '\033[1;36m[deploy]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[deploy]\033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[1;31m[deploy] %s\033[0m\n' "$*" >&2; exit 1; }
 
-# launchctl/pnpm/docker 를 self-hosted runner 환경에서도 찾도록 PATH 보강.
+# launchctl/pnpm/docker/uv 를 self-hosted runner 환경에서도 찾도록 PATH 보강.
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 UID_NUM="$(id -u)"
+
+# 실제 프로덕션 워킹트리 — launchd(api/web)·docker(worker)·.env 가 모두 이 경로를 기준으로 동작한다.
+# CD runner 는 저장소를 자체 작업공간(_work/...)에 별도 clone 하므로, 배포는 반드시 이 실 워킹트리에서
+# git 동기화 후 수행해야 실서비스 코드가 바뀐다(runner 작업공간엔 .env 도 없다). env 로 override 가능.
+PROD_DIR="${PROD_DIR:-$HOME/workspace/reporter}"
+PROD_BRANCH="${PROD_BRANCH:-release}"
+[[ -d "$PROD_DIR/.git" ]] || die "프로덕션 워킹트리를 찾을 수 없습니다: $PROD_DIR (PROD_DIR 로 지정)"
+cd "$PROD_DIR"
+
+# 실 워킹트리를 release 최신으로 동기화(reset --hard — 배포 서버라 로컬 변경 없음 전제).
+# 명시 대상(수동 배포) 시엔 이미 동기화됐다고 보고 건너뛸 수 있으나, 항상 맞추는 게 안전하다.
+log "프로덕션 워킹트리 동기화: $PROD_DIR ($PROD_BRANCH)"
+git fetch origin "$PROD_BRANCH" --quiet || die "git fetch 실패"
+SYNC_OLD="$(git rev-parse HEAD)"
+git reset --hard "origin/$PROD_BRANCH" --quiet || die "git reset 실패"
+SYNC_NEW="$(git rev-parse HEAD)"
+log "동기화 완료: ${SYNC_OLD:0:8} → ${SYNC_NEW:0:8}"
 
 # ── 대상 결정 ────────────────────────────────────────────────────────────
 # macOS 기본 /bin/bash 는 3.2 라 연관배열(declare -A)을 지원하지 않는다 → 일반 변수 3개로.
@@ -47,22 +61,31 @@ if [[ $# -gt 0 ]]; then
   done
   log "대상(명시): $*"
 else
-  base="${DEPLOY_BASE:-HEAD~1}"
-  # 브랜치 최초 생성 push 는 before 가 40개 0 → diff 불가이므로 전체 폴백.
+  # diff 기준: DEPLOY_BASE(CD 가 이전 release HEAD 를 넘김) 우선, 없으면 이번 동기화 이전 커밋.
+  base="${DEPLOY_BASE:-$SYNC_OLD}"
+  # 브랜치 최초 생성 push 는 before 가 40개 0 · 동기화로 변경 없음 → 상황별 처리.
   if [[ "$base" =~ ^0+$ ]] || ! git rev-parse --verify "$base" >/dev/null 2>&1; then
     warn "diff 기준 '$base' 없음 → 전체 배포로 폴백"
     WANT_API=1; WANT_WEB=1; WANT_WORKER=1
   else
     changed="$(git diff --name-only "$base" HEAD)"
+    if [[ -z "$changed" ]]; then
+      log "변경 파일 없음($base..HEAD) — 이미 최신. 배포 생략."
+      exit 0
+    fi
     log "변경 파일($base..HEAD):"; echo "$changed" | sed 's/^/    /'
+    # worker(app.scheduler)는 api/ 를 이미지에 내장해 도메인·services 를 실행하므로, 그쪽 변경은
+    # worker 도 재빌드한다. 단 worker 가 안 쓰는 게 명백한 API 전용 파일(tui·server_control·routers·
+    # schemas)은 worker 제외해 불필요한 docker 재빌드(수 분)를 피한다.
     while IFS= read -r f; do
       [[ -z "$f" ]] && continue
       case "$f" in
-        web/*)                              WANT_WEB=1 ;;
-        api/app/routers/*|api/app/schemas*) WANT_API=1 ;;
-        api/app/domain/*|api/app/services/*|src/*) WANT_API=1; WANT_WORKER=1 ;;
-        infra/*|pyproject.toml|uv.lock)     WANT_WORKER=1 ;;
-        api/*)                              WANT_API=1 ;;
+        web/*)                                        WANT_WEB=1 ;;
+        api/app/tui.py|api/app/services/server_control.py) WANT_API=1 ;;
+        api/app/routers/*|api/app/schemas*)           WANT_API=1 ;;
+        api/app/domain/*|api/app/services/*|src/*)    WANT_API=1; WANT_WORKER=1 ;;
+        infra/*|pyproject.toml|uv.lock)               WANT_WORKER=1 ;;
+        api/*)                                        WANT_API=1 ;;
       esac
     done <<< "$changed"
   fi
