@@ -19,8 +19,27 @@ def test_growth_score_matches_legacy_band():
     assert s.growth_score(0.6, 0.6, False) == 100.0
     assert s.growth_score(-0.2, -0.2, False) == 0.0
     assert s.growth_score(None, None, False) is None  # 데이터 전무
-    # 흑자전환만 있어도 점수(가점 0.15).
+    # 흑자전환 규모 미상(Δ None)이면 기존 이진 가점과 동일(폴백 만점 배수).
     assert s.growth_score(None, None, True) == 15.0
+
+
+def test_turnaround_scale_by_magnitude():
+    # Δ 미상은 1.0(폴백). 3pp 이하는 하한 0.2, 30pp 이상은 만점 1.0, 중간은 선형.
+    assert s.turnaround_scale(None) == 1.0
+    assert s.turnaround_scale(0.0) == 0.2  # 3pp 미만 → band 0 → 하한
+    assert s.turnaround_scale(0.03) == 0.2  # 밴드 하단
+    assert s.turnaround_scale(0.30) == 1.0  # 밴드 상단(만점)
+    mid = s.turnaround_scale(0.165)  # 중간(3~30pp 의 절반)
+    assert 0.59 < mid < 0.61
+
+
+def test_growth_score_turnaround_magnitude_matters():
+    # 규모 큰 흑전(+30pp)이 규모 작은 흑전(+3pp)보다 높은 가점을 받는다.
+    big = s.growth_score(None, None, True, 0.30)
+    small = s.growth_score(None, None, True, 0.03)
+    assert big == 15.0  # 만점 가점
+    assert small == 3.0  # 0.15 * 0.2 하한
+    assert big > small
 
 
 def test_overall_average():

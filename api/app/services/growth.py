@@ -21,6 +21,9 @@ class GrowthMetric:
     op_yoy: float | None  # 영업이익 YoY
     op_turnaround: bool  # 직전 동기 적자 → 당기 흑자
     op_status: str | None  # 흑자전환|흑자지속|적자전환|적자지속 (직전 대비 손익 상태)
+    # 영업이익률 변화(당기 - 직전동기, 비율). 흑자전환 '규모'를 회사 규모로 정규화한 척도 —
+    # 매출로 나눈 이익률이라 대형·소형주 무관하게 회복 폭을 비교할 수 있다(0.559 = +55.9pp).
+    op_margin_delta: float | None = None
 
 
 def _key(period: str) -> tuple[int, int] | None:
@@ -40,6 +43,24 @@ def _yoy(curr: float | None, prior: float | None) -> float | None:
     if curr is None or prior is None or prior <= 0:
         return None
     return round((curr - prior) / prior, 4)
+
+
+def _margin_delta(
+    latest_op: float | None,
+    latest_rev: float | None,
+    prior_op: float | None,
+    prior_rev: float | None,
+) -> float | None:
+    """영업이익률 변화(당기 - 직전동기). 매출 정규화라 회사 규모와 무관한 흑자전환 규모 척도.
+
+    매출이 0/음수/결측이면 이익률을 정의할 수 없어 None. 흑자전환뿐 아니라 모든 손익 상태에서
+    이익률 개선 폭을 담지만, 스코어는 흑자전환에 한해 이 값을 가점 규모로 쓴다.
+    """
+    if latest_rev is None or prior_rev is None or latest_rev <= 0 or prior_rev <= 0:
+        return None
+    if latest_op is None or prior_op is None:
+        return None
+    return round(latest_op / latest_rev - prior_op / prior_rev, 4)
 
 
 def compute_growth(stock_code: str, periods: list) -> GrowthMetric | None:
@@ -69,6 +90,10 @@ def compute_growth(stock_code: str, periods: list) -> GrowthMetric | None:
         op_yoy=_yoy(latest.operating_income, prior.operating_income) if prior else None,
         op_turnaround=op_turnaround,
         op_status=op_status,
+        op_margin_delta=_margin_delta(
+            latest.operating_income, latest.revenue,
+            prior.operating_income, prior.revenue,
+        ) if prior else None,
     )
 
 

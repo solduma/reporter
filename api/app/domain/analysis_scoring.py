@@ -28,11 +28,37 @@ def _weighted(parts: list[tuple[float, float]]) -> float | None:
     return round(sum(v * w for v, w in parts) / total_w * 100, 1)
 
 
-# ── 성장 축(종목 분석) ────────────────────────────────────────────────
-def growth_score(revenue_yoy: float | None, op_yoy: float | None, op_turnaround: bool) -> float | None:
-    """성장 점수(0~100). 매출·영업이익 YoY 를 -20%~+60% 로 정규화 + 흑자전환 가점.
+# ── 흑자전환 규모(공용) ───────────────────────────────────────────────
+# 흑자전환 가점을 '규모'로 스케일하는 밴드. Δ영업이익률(=회사 규모로 정규화한 흑전 폭)을
+# 3pp~30pp 에서 0~1 로 환산하고, 소규모 흑전도 흑전이므로 하한 0.2 를 둔다(최소 20% 가점).
+# 종목분석(0.15)·스크리너(0.10) 두 성장스코어가 같은 규모 규칙을 쓰도록 한 곳에서 소유한다.
+_TURN_MARGIN_BAND = (0.03, 0.30)
+_TURN_FLOOR = 0.2
 
-    데이터가 전무하면 None. 스크리너의 백분위 growth_score(scoring.py)와 달리 절대 구간 기반.
+
+def turnaround_scale(op_margin_delta: float | None) -> float:
+    """흑자전환 가점 배수(0.2~1.0). Δ영업이익률이 클수록 1 에 가깝다.
+
+    Δ 미상(구 데이터·매출 결측)이면 1.0 — 규모를 모를 땐 기존 이진 흑전과 동일한 만점 가점으로
+    폴백해 회귀를 막는다. 흑자전환은 정의상 Δ>0 이므로 band 는 [0,1] 을 낸다.
+    """
+    if op_margin_delta is None:
+        return 1.0
+    scaled = band(op_margin_delta, *_TURN_MARGIN_BAND)
+    return _TURN_FLOOR + (1.0 - _TURN_FLOOR) * (scaled if scaled is not None else 0.0)
+
+
+# ── 성장 축(종목 분석) ────────────────────────────────────────────────
+def growth_score(
+    revenue_yoy: float | None,
+    op_yoy: float | None,
+    op_turnaround: bool,
+    op_margin_delta: float | None = None,
+) -> float | None:
+    """성장 점수(0~100). 매출·영업이익 YoY 를 -20%~+60% 로 정규화 + 흑자전환 규모 가점.
+
+    흑자전환 가점(최대 0.15)은 Δ영업이익률 규모로 스케일(turnaround_scale) — 회사 규모 대비
+    흑전 폭이 클수록 큰 가점. 데이터가 전무하면 None. 스크리너 백분위 성장스코어와 달리 절대 구간 기반.
     """
     rev = band(revenue_yoy, -0.2, 0.6)
     op = band(op_yoy, -0.2, 0.6)
@@ -44,7 +70,7 @@ def growth_score(revenue_yoy: float | None, op_yoy: float | None, op_turnaround:
     if not parts and not op_turnaround:
         return None
     base = sum(v * w for v, w in parts) / sum(w for _, w in parts) if parts else 0.0
-    turn = 0.15 if op_turnaround else 0.0
+    turn = 0.15 * turnaround_scale(op_margin_delta) if op_turnaround else 0.0
     return round(clamp01(base + turn) * 100, 1)
 
 

@@ -47,6 +47,16 @@ def test_growth_score_turnaround_bonus():
     )
 
 
+def test_growth_score_turnaround_magnitude():
+    r = scoring.percentile_ranker([0.5, 0.5])
+    m = scoring.percentile_ranker([10.0, 10.0])
+    base = {"revenue_yoy": 0.5, "op_yoy": 0.5, "momentum_3m": 10.0, "op_turnaround": True,
+            "coverage_count": 0, "buy_count": 0, "rev_rank": r, "op_rank": r, "mom_rank": m}
+    big = scoring.growth_score(op_margin_delta=0.30, **base)  # 만점 가점(0.10)
+    small = scoring.growth_score(op_margin_delta=0.03, **base)  # 하한 가점(0.10*0.2)
+    assert big > small
+
+
 def test_value_score_cheap_above_expensive():
     per = scoring.cheap_ranker([3.0, 10.0, 30.0])
     pbr = scoring.cheap_ranker([0.3, 1.0, 3.0])

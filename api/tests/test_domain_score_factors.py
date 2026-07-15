@@ -10,14 +10,23 @@ def _by_label(factors, label):
 
 
 def test_growth_factors_norm_and_weight():
+    # 규모 미상(Δ None)이면 폴백 만점 배수 → norm 1.0, value "적용".
     fs = sf.growth_factors(revenue_yoy=0.6, op_yoy=-0.2, op_turnaround=True)
     rev = _by_label(fs, "매출 YoY")
     op = _by_label(fs, "영업이익 YoY")
-    turn = _by_label(fs, "흑자전환 가점")
+    turn = _by_label(fs, "흑자전환 가점(규모)")
     assert rev.norm == 1.0 and rev.weight == 0.5  # +60% → 상단 클램프
     assert op.norm == 0.0  # -20% → 하단
     assert turn.norm == 1.0 and turn.value == "적용"
     assert rev.value == "+60%"
+
+
+def test_growth_factors_turnaround_magnitude():
+    # Δ영업이익률이 있으면 규모로 스케일한 norm(0.2~1.0)과 pp 표기.
+    big = _by_label(sf.growth_factors(0.3, None, True, 0.30), "흑자전환 가점(규모)")
+    small = _by_label(sf.growth_factors(0.3, None, True, 0.03), "흑자전환 가점(규모)")
+    assert big.norm == 1.0 and big.value == "+30.0pp"
+    assert small.norm == 0.2 and small.value == "+3.0pp"
 
 
 def test_value_factors_missing_is_none():

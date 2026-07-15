@@ -336,6 +336,8 @@ class GrowthMetric(Base):
     op_yoy: Mapped[float | None] = mapped_column(Float)
     op_turnaround: Mapped[bool] = mapped_column(default=False)
     op_status: Mapped[str | None] = mapped_column(String(8))  # 흑자전환|흑자지속|적자전환|적자지속
+    # 영업이익률 변화(당기-직전동기, 비율). 흑자전환 규모를 회사 규모로 정규화한 값(스코어 가점용).
+    op_margin_delta: Mapped[float | None] = mapped_column(Float)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
