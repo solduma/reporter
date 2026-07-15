@@ -103,11 +103,15 @@ async def test_tui_mounts_and_shows_status():
         assert table.row_count == 50  # 페이지당 _PREVIEW_LIMIT
 
         ids = {b.id for b in app.query(Button)}
+        # 탭 구조: 배치(batch_*)·서버·배포·로그뷰어·프리뷰 버튼이 모두 존재.
         assert {
-            "ingest", "universe", "growth", "refresh", "prev", "next", "sort",
+            "prev", "next", "sort",
             "api_restart", "web_restart", "web_build",
-            "prod_preview", "prod_deploy",  # 배포(prod) 그룹
+            "prod_preview", "prod_deploy", "cd_status",
+            "log_api", "log_web", "log_worker", "log_launchd",
         } <= ids
+        # scheduler.MANUAL_BATCHES 로 생성한 배치 버튼(batch_ingest_cycle 등)
+        assert any(bid and bid.startswith("batch_") for bid in ids)
 
 
 async def test_ingest_history_shows_no_failure_summary():
@@ -191,34 +195,37 @@ async def test_cycle_sort_resets_page():
         assert app._sort_keys[app._sort_idx] in str(app.query_one("#preview_info", Static).render())
 
 
-async def test_running_job_disables_buttons(monkeypatch):
-    # 잡 실행 중엔 트리거 버튼이 비활성화돼 이중 크롤/GLM 을 막아야 한다
+async def test_running_batch_disables_buttons(monkeypatch):
+    # 배치 실행 중엔 배치 버튼이 비활성화돼 이중 크롤/GLM 을 막아야 한다(_busy 상호배제).
     import threading
 
     release = threading.Event()
+    first = tui.MANUAL_BATCHES[0]  # (key, label, fn)
+    key = first[0]
 
-    def _slow_snapshot(db, snapshot_date, markets=("KOSDAQ", "KOSPI")):
-        release.wait(2)  # 잡이 도는 동안 상태 검사
-        return 4295
+    def _slow(settings=None):
+        release.wait(2)
+        return {"ok": True}
 
-    monkeypatch.setattr(tui.universe_ingest, "snapshot_universe", _slow_snapshot)
+    # 레지스트리의 첫 배치 함수를 느린 스텁으로 교체(실 크롤 방지).
+    monkeypatch.setattr(tui, "MANUAL_BATCHES", [(key, first[1], _slow)])
 
     app = tui.AdminTUI()
     async with app.run_test() as pilot:
         await pilot.pause(0.2)
         from textual.widgets import Button
 
-        await pilot.click("#universe")
+        app.action_show_tab("tab_ops")  # 배치 버튼은 '운영' 탭에 있음
+        await pilot.pause(0.2)
+        await pilot.click(f"#batch_{key}")
         await pilot.pause(0.3)
-        # 실행 중: 세 잡 버튼 모두 비활성화
-        assert app._job_running is True
-        assert all(app.query_one(f"#{b}", Button).disabled for b in tui.AdminTUI._JOB_BUTTONS)
+        assert app._busy is True
+        assert app.query_one(f"#batch_{key}", Button).disabled
 
         release.set()
-        await pilot.pause(0.5)
-        # 완료 후: 재활성화
-        assert app._job_running is False
-        assert not any(app.query_one(f"#{b}", Button).disabled for b in tui.AdminTUI._JOB_BUTTONS)
+        await pilot.pause(0.6)
+        assert app._busy is False
+        assert not app.query_one(f"#batch_{key}", Button).disabled
 
 
 async def test_server_buttons_and_status(monkeypatch):
@@ -255,6 +262,8 @@ async def test_server_buttons_and_status(monkeypatch):
         info = app.query_one("#server_status", Static)
         assert "실행중" in str(info.render())  # 로드+실행 중
 
+        app.action_show_tab("tab_deploy")  # 서버 버튼은 '서버/배포' 탭에 있음
+        await pilot.pause(0.2)
         await pilot.click("#api_restart")
         await pilot.pause(0.2)
         assert restarts == ["api"]  # 재기동을 launchctl 위임으로 호출
@@ -282,6 +291,8 @@ async def test_web_build_button_runs_build(monkeypatch):
     app = tui.AdminTUI()
     async with app.run_test() as pilot:
         await pilot.pause(0.3)
+        app.action_show_tab("tab_deploy")  # WEB 빌드 버튼은 '서버/배포' 탭에 있음
+        await pilot.pause(0.2)
         await pilot.click("#web_build")
         # 워커 스레드 빌드 완료 대기
         for _ in range(20):
@@ -345,3 +356,120 @@ def test_prod_preview_lists_pending(monkeypatch):
     _fake_git(monkeypatch, {"fetch": (0, ""), "log": (0, "abc feat: z")})
     msg = ProdDeploy().preview()
     assert "abc feat: z" in msg
+
+
+# ── 탭 전환 ──────────────────────────────────────────────────────────────
+
+
+async def test_tab_switching():
+    # 숫자키/액션으로 탭이 전환되고, 각 탭의 대표 위젯이 마운트돼 있다.
+    app = tui.AdminTUI()
+    async with app.run_test() as pilot:
+        await pilot.pause(0.3)
+        from textual.widgets import TabbedContent
+
+        tabs = app.query_one(TabbedContent)
+        assert tabs.active == "tab_overview"  # 기본 개요 탭
+        for tid in ("tab_ops", "tab_deploy", "tab_schedule", "tab_stocks"):
+            app.action_show_tab(tid)
+            await pilot.pause(0.1)
+            assert tabs.active == tid
+
+
+# ── 종목 검색 ────────────────────────────────────────────────────────────
+
+
+async def test_stock_search_single_hit_shows_detail(monkeypatch):
+    # 정확 매칭 1건이면 상세(현재가·모멘텀·재무·테마)를 렌더.
+    monkeypatch.setattr(
+        tui.company_service, "search_candidates",
+        lambda db, q: [("005930", "삼성전자", "KOSPI", 500_000_000_000_000)],
+    )
+    from app.services.server_control import ServerStatus  # noqa: F401 (fixture 재사용)
+
+    class _Snap:
+        close_price = 60000
+        momentum_3m = 12.5
+        rs_rating = 88
+
+    class _GM:
+        revenue_yoy = 0.15
+
+    class _Fin:
+        period = "2026.03"
+
+    monkeypatch.setattr(tui.company_service, "latest_snapshot", lambda db, code: _Snap())
+    monkeypatch.setattr(tui.company_service, "growth_metric", lambda db, code: _GM())
+    monkeypatch.setattr(tui.company_service, "financials_rows", lambda db, code: [_Fin()])
+    monkeypatch.setattr(tui.company_service, "theme_names", lambda db, code: ["반도체", "HBM"])
+
+    app = tui.AdminTUI()
+    async with app.run_test() as pilot:
+        await pilot.pause(0.3)
+        from textual.widgets import Input, Static
+
+        app.action_show_tab("tab_stocks")
+        await pilot.pause(0.1)
+        app.query_one("#search_input", Input)  # 탭에 마운트 확인
+        app._run_stock_search("005930")  # 검색 워커 트리거(엔터 이벤트와 동일 경로)
+        # 워커 스레드 검색 완료 대기
+        for _ in range(30):
+            await pilot.pause(0.1)
+            if "삼성전자" in str(app.query_one("#detail", Static).render()):
+                break
+        detail = str(app.query_one("#detail", Static).render())
+        assert "삼성전자" in detail and "88" in detail and "반도체" in detail
+
+
+async def test_stock_search_multi_hit_lists_candidates(monkeypatch):
+    # 다중 매칭이면 후보 목록을 보여준다(상세 아님).
+    monkeypatch.setattr(
+        tui.company_service, "search_candidates",
+        lambda db, q: [
+            ("005930", "삼성전자", "KOSPI", 5e14),
+            ("005935", "삼성전자우", "KOSPI", 1e14),
+        ],
+    )
+    app = tui.AdminTUI()
+    async with app.run_test() as pilot:
+        await pilot.pause(0.3)
+        from textual.widgets import Input, Static
+
+        app.action_show_tab("tab_stocks")
+        await pilot.pause(0.1)
+        app.query_one("#search_input", Input)  # 탭에 마운트 확인
+        app._run_stock_search("삼성")
+        for _ in range(30):
+            await pilot.pause(0.1)
+            if "후보" in str(app.query_one("#detail", Static).render()):
+                break
+        assert "후보 2건" in str(app.query_one("#detail", Static).render())
+
+
+# ── CD 상태 조회 ─────────────────────────────────────────────────────────
+
+
+def test_cd_status_reports_success(monkeypatch):
+    import subprocess
+
+    def fake_run(cmd, **kw):
+        out = '[{"status":"completed","conclusion":"success","displayTitle":"deploy x","createdAt":"","databaseId":42}]'
+        return subprocess.CompletedProcess(cmd, 0, stdout=out, stderr="")
+
+    monkeypatch.setattr(server_control.shutil, "which", lambda name: "/usr/bin/gh")
+    monkeypatch.setattr(server_control.subprocess, "run", fake_run)
+    msg = ProdDeploy().cd_status()
+    assert "✔ 성공" in msg and "#42" in msg
+
+
+def test_cd_status_reports_in_progress(monkeypatch):
+    import subprocess
+
+    def fake_run(cmd, **kw):
+        out = '[{"status":"in_progress","conclusion":null,"displayTitle":"deploy y","createdAt":"","databaseId":43}]'
+        return subprocess.CompletedProcess(cmd, 0, stdout=out, stderr="")
+
+    monkeypatch.setattr(server_control.shutil, "which", lambda name: "/usr/bin/gh")
+    monkeypatch.setattr(server_control.subprocess, "run", fake_run)
+    msg = ProdDeploy().cd_status()
+    assert "진행중" in msg

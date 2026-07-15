@@ -248,6 +248,23 @@ def run_us_disclosure_batch(settings: Settings | None = None) -> dict:
         session.close()
 
 
+# 수동 실행 가능한 배치 레지스트리 — (key, 표시명, 함수). TUI '운영' 탭이 이 목록으로 버튼을 만든다.
+# 함수는 (settings) → dict 시그니처로 통일돼 있어 TUI 가 일괄 실행·이력 기록한다.
+MANUAL_BATCHES: list[tuple[str, str, object]] = [
+    ("ingest_cycle", "리포트·시황 수집", run_ingest_cycle),
+    ("candle_batch", "일봉 수집", run_candle_batch),
+    ("intraday_refresh", "30분봉 갱신", run_intraday_refresh),
+    ("nightly_batch", "성장·RS 야간배치", run_nightly_batch),
+    ("news_events", "뉴스·종목이벤트", run_news_events),
+    ("disclosure_batch", "공시 수집", run_disclosure_batch),
+    ("financials_backfill", "재무 백필(10년)", run_financials_backfill),
+    ("report_backfill", "리포트 백필(10년)", run_report_backfill),
+    ("backfill_progressive", "일봉 백필(10년)", run_backfill_progressive),
+    ("us_universe", "US 유니버스", run_us_universe_batch),
+    ("us_disclosure", "US 공시(8-K)", run_us_disclosure_batch),
+]
+
+
 def build_scheduler(settings: Settings | None = None) -> BlockingScheduler:
     """잡이 등록된 스케줄러를 반환한다 (start 는 호출자가)."""
     settings = settings or get_settings()
