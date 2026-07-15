@@ -136,9 +136,11 @@ def _fib_score(w1: float, w2: float, w3: float, w4: float) -> float:
 
 
 def _impulse_conf(window: list[Pivot], up: bool) -> float | None:
-    """6피벗이 5파 임펄스 3대 하드룰을 통과하면 피보 점수, 아니면 None. 상승/하락 미러.
+    """6피벗이 5파 임펄스 규칙을 통과하면 피보 점수, 아니면 None. 상승/하락 미러.
 
     3대 하드룰: R1 2파는 1파 시작 비침범, R2 3파 최단 아님, R3 4파가 1파 끝 비중첩.
+    추가 비율 게이트(ElliottWaveAnalyzer 대조로 하드화 — 극단적으로 찌그러진 카운트 배제):
+    2파>=0.2x1파, 3파>=1/3x1파, 3파>2파, 5파<2x1파. 규칙 위반은 라벨하지 않는다(오탐 방지).
     """
     kinds = [x.kind for x in window]
     expect = ["low", "high"] if up else ["high", "low"]
@@ -151,11 +153,20 @@ def _impulse_conf(window: list[Pivot], up: bool) -> float | None:
     )
     if min(w1, w3, w5) <= 0:
         return None
-    if w2 >= w1:  # R1
+    if w2 >= w1:  # R1: 2파가 1파 시작 침범(≥100% 되돌림)
         return None
-    if w3 < w1 and w3 < w5:  # R2
+    if w3 < w1 and w3 < w5:  # R2: 3파 최단 금지
         return None
-    if s * (p4 - p1) <= 0:  # R3
+    if s * (p4 - p1) <= 0:  # R3: 4파가 1파 끝 침범(중첩)
+        return None
+    # 비율 게이트(교과서적 형태 강제) — 위반 시 유보.
+    if w2 < 0.2 * w1:  # 2파 너무 얕음
+        return None
+    if w3 < w1 / 3.0:  # 3파 너무 짧음
+        return None
+    if w3 <= w2:  # 3파가 2파보다 길어야
+        return None
+    if w5 >= 2.0 * w1:  # 5파 과대(연장 상한)
         return None
     return _fib_score(w1, w2, w3, w4)
 
