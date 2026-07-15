@@ -33,7 +33,8 @@
 .links {
   display: flex;
   align-items: center;
-  gap: 4px;
+  flex-wrap: nowrap; /* 데스크톱: 항목이 많아도 한 줄 유지(넘치면 960px 이하에서 햄버거로 전환) */
+  gap: 2px;
   list-style: none;
   margin: 0;
   padding: 0;
@@ -54,9 +55,10 @@
 
 .link {
   display: inline-block;
-  padding: 8px 14px;
+  padding: 7px 11px;
   border-radius: 999px;
-  font-size: 0.92rem;
+  font-size: 0.88rem;
+  white-space: nowrap; /* 링크 라벨 자체가 줄바꿈되지 않게 */
   color: var(--muted);
   transition: background 0.15s ease, color 0.15s ease;
 }
@@ -119,13 +121,14 @@
 
 .logout {
   display: inline-block;
-  padding: 8px 14px;
+  padding: 7px 11px;
   margin-left: 4px;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: transparent;
-  font-size: 0.92rem;
+  font-size: 0.88rem;
   font-family: inherit;
+  white-space: nowrap;
   color: var(--muted);
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease;
@@ -136,8 +139,9 @@
   color: var(--sell);
 }
 
-/* 모바일: 링크를 햄버거 뒤 드롭다운으로. 데스크톱(≥721px)은 위 가로 배치 유지. */
-@media (max-width: 720px) {
+/* 태블릿·좁은 데스크톱: 링크를 햄버거 뒤 드롭다운으로. 항목이 많아 960px 이하는 가로배치 시
+   줄바꿈이 나므로 이 폭부터 햄버거로 전환한다. 데스크톱(≥961px)은 위 가로 배치 유지. */
+@media (max-width: 960px) {
   .menuToggle {
     display: inline-flex;
     align-items: center;
