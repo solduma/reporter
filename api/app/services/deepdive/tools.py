@@ -67,16 +67,10 @@ def _recent_periodic_rcept(ctx: ToolContext) -> tuple[str, str] | None:
 
 # ── 도구 구현 ─────────────────────────────────────────────────────────
 def tool_recent_periodic_report(ctx: ToolContext, args: dict) -> dict:
-    """최신 정기보고서(사업/반기/분기 중 접수 최신)의 본문 발췌 + 종류."""
-    try:
-        picked = _recent_periodic_rcept(ctx)
-    except dart.DartQuotaExceeded:
-        # 한도초과는 매핑·데이터 문제가 아닌 일시적 제약(자정 리셋). 다른 지표로 판단하도록 안내.
-        return {
-            "available": False,
-            "note": "DART 일일 조회한도 초과로 원문 발췌 불가(일시적). 매핑·데이터 문제 아님 — "
-            "다른 도구(financials·reports 등)로 분석 진행.",
-        }
+    """최신 정기보고서(사업/반기/분기 중 접수 최신)의 본문 발췌 + 종류.
+
+    DART 한도초과는 삼키지 않고 전파해 딥다이브를 중단시킨다(불완전한 데이터로 분석 강행 방지)."""
+    picked = _recent_periodic_rcept(ctx)  # DartQuotaExceeded → 전파(중단)
     if not picked:
         return {"available": False, "note": "해당 기업의 정기보고서를 찾지 못함(발췌 생략, 다른 도구로 진행)"}
     rcept, kind = picked
@@ -112,7 +106,9 @@ def tool_disclosures(ctx: ToolContext, args: dict) -> dict:
         rows = dart.fetch_disclosures(
             ctx.settings.dart_api_key, ctx.corp_code, ctx.code, begin, end, ctx.session
         )
-    except Exception as e:  # 외부 IO 경계 방어
+    except dart.DartQuotaExceeded:
+        raise  # DART 한도초과는 딥다이브 중단(dispatch 가 전파)
+    except Exception as e:  # 그 외 외부 IO 경계 방어
         logger.warning("deepdive disclosures failed %s: %s", ctx.code, e)
         return {"available": False, "note": "공시 조회 실패"}
     items = [
@@ -138,6 +134,8 @@ def tool_ownership(ctx: ToolContext, args: dict) -> dict:
         return {"available": False, "note": "DART 키·매핑 없음"}
     try:
         changes = dart.fetch_ownership_changes(ctx.settings.dart_api_key, ctx.corp_code, ctx.session)
+    except dart.DartQuotaExceeded:
+        raise  # DART 한도초과는 딥다이브 중단
     except Exception as e:
         logger.warning("deepdive ownership failed %s: %s", ctx.code, e)
         return {"available": False, "note": "소유변동 조회 실패"}
@@ -385,7 +383,9 @@ def tool_event_search(ctx: ToolContext, args: dict) -> dict:
                     disclosures.append({"rcept_no": d.rcept_no, "report_nm": d.report_nm,
                                         "rcept_dt": d.rcept_dt.isoformat()})
         except dart.DartQuotaExceeded:
-            disclosures = []  # 한도초과는 일시적 — 뉴스만으로 진행
+            # event_search 는 뉴스가 주 소스이고 DART 공시는 보조라 여기선 중단하지 않고 뉴스로 진행.
+            # (정기보고서·공시가 핵심인 overview·redflags 단계는 dispatch 가 전파해 중단됨.)
+            disclosures = []
         except Exception as e:
             logger.warning("event disclosures failed %s: %s", ctx.code, e)
 
@@ -431,13 +431,18 @@ TOOLS: dict[str, tuple] = {
 
 
 def dispatch(name: str, ctx: ToolContext, args: dict) -> dict:
-    """도구 이름으로 실행. 미지의 도구·예외는 오류 dict(에이전트 루프가 다음 판단에 반영)."""
+    """도구 이름으로 실행. 미지의 도구·일반 예외는 오류 dict(에이전트 루프가 다음 판단에 반영).
+
+    단 DART 한도초과(DartQuotaExceeded)는 삼키지 않고 전파한다 — 삼키면 LLM 이 DART 도구를 상한까지
+    재시도하며 매 호출이 스로틀·타임아웃을 겪어 딥다이브가 오래 매달린다. 즉시 중단이 옳다."""
     entry = TOOLS.get(name)
     if not entry:
         return {"error": f"unknown tool: {name}", "available_tools": list(TOOLS)}
     try:
         return entry[0](ctx, args or {})
-    except Exception as e:  # 도구 실패가 루프를 죽이지 않게
+    except dart.DartQuotaExceeded:
+        raise  # 상위(run_stage→run_job)가 딥다이브를 중단·실패 처리
+    except Exception as e:  # 그 외 도구 실패는 루프를 죽이지 않게 오류 dict
         logger.warning("deepdive tool %s failed %s: %s", name, ctx.code, e)
         return {"error": f"tool {name} failed: {e}"}
 

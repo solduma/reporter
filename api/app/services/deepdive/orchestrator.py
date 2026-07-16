@@ -16,6 +16,7 @@ import requests
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.adapters.dart import DartQuotaExceeded
 from app.adapters.llm.factory import get_llm
 from app.config import Settings, get_settings
 from app.db.models import DeepDiveJob, DeepDiveReport
@@ -27,9 +28,10 @@ logger = logging.getLogger(__name__)
 _NARRATIVE_SYSTEM = (
     "너는 5단계 딥다이브 분석 결과를 종합해 사람이 읽는 투자 보고서를 쓰는 애널리스트다. 각 단계 "
     "구조화 결과를 근거로, 개요→재무 특이점→사업모델→투자 아이디어·리스크→밸류에이션·결론 순의 "
-    "마크다운 보고서를 쓴다. 투자 아이디어 절에서는 thesis 의 **catalysts(미래 촉매: 신규 수주·대형 "
-    "계약·증설·인수 등 예정 이벤트)**와 **event_risks(소송·유상증자·우발부채·리콜 등)**를 출처·예상 영향과 "
-    "함께 반드시 짚는다(구체 이벤트가 있으면 누락 금지). 밸류에이션은 8개 방식(PER·PBR·EV/EBITDA·DCF·DDM·"
+    "마크다운 보고서를 쓴다. 투자 아이디어 절에서는 thesis 의 **catalysts(아직 실현 안 된 미래 촉매: 신규 "
+    "수주·대형 계약·증설·인수 등 예정 이벤트)**와 **event_risks(현재 유효한 소송·유상증자·우발부채·리콜 등)**를 "
+    "출처·예상 영향과 함께 짚는다(구체 이벤트가 있으면 누락 금지). 이미 종료·반영된 과거 이벤트는 서술하지 "
+    "않는다. 밸류에이션은 8개 방식(PER·PBR·EV/EBITDA·DCF·DDM·"
     "자산가치·Fama-French·APT)의 목표가와 신뢰도 가중 최종 목표가(final_target_price)를 종합하되, 방식 간 "
     "편차가 크면 어느 방식을 왜 더 신뢰하는지 밝힌다. 과장 없이 데이터에 근거하고, 마지막에 한 줄 결론"
     "(투자 성격·최종 목표가·업사이드)을 남긴다."
@@ -101,6 +103,11 @@ def run_job(db: Session, job: DeepDiveJob, settings: Settings | None = None) -> 
         job.finished_at = datetime.now(UTC)
         db.commit()
         logger.info("deepdive done %s (job %d)", code, job.id)
+    except DartQuotaExceeded:
+        # DART 한도초과: 불완전 데이터로 강행하지 않고 즉시 중단(재시도 매달림 방지). 자정 리셋 후 재실행.
+        db.rollback()
+        logger.warning("deepdive aborted (DART quota) %s", code)
+        _fail(db, job, "DART 일일 조회한도 초과로 중단(자정 리셋 후 재실행). 부분 데이터로 강행 안 함.")
     except LLMError as e:
         db.rollback()
         _fail(db, job, f"LLM 오류: {e}")
