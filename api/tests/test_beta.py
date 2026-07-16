@@ -71,3 +71,34 @@ def test_hml_beta_value_vs_growth():
 def test_premiums_are_sane_constants():
     assert 0.02 <= beta.RISK_FREE <= 0.05
     assert 0.04 <= beta.MARKET_PREMIUM <= 0.08
+
+
+# ── H-Model 감쇠기간 앙상블(ROE 초과수익 × 해자) ─────────────────────────
+def test_fade_years_high_spread_and_strong_moat_longer():
+    # 고ROE(30%)+강해자 → 상한(20년). 저ROE(5%)+약해자 → 하한(3년).
+    long_y, _ = beta.fade_years(0.30, 0.08, "강")
+    short_y, _ = beta.fade_years(0.05, 0.08, "약")
+    assert long_y == beta.FADE_YEARS_MAX
+    assert short_y == beta.FADE_YEARS_MIN
+    assert long_y > short_y
+
+
+def test_fade_years_moat_multiplier():
+    # 같은 ROE 라도 해자 등급이 감쇠기간을 조정(강>중>약).
+    strong, _ = beta.fade_years(0.107, 0.079, "강")
+    mid, _ = beta.fade_years(0.107, 0.079, "중")
+    weak, _ = beta.fade_years(0.107, 0.079, "약")
+    assert strong > mid > weak
+
+
+def test_fade_years_accepts_percent_roe():
+    # ROE 가 % 단위(10.7)로 들어와도 소수(0.107)와 동일 결과.
+    a, _ = beta.fade_years(10.7, 0.079, "중")
+    b, _ = beta.fade_years(0.107, 0.079, "중")
+    assert a == b
+
+
+def test_fade_years_default_when_missing():
+    y, steps = beta.fade_years(None, 0.08, "강")
+    assert y == beta.DEFAULT_FADE_YEARS
+    assert "기본" in steps[0]

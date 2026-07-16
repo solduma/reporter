@@ -128,11 +128,25 @@ def test_h_model_reflects_growth_differential():
     # H-Model: 단기 고성장일수록 목표배수↑(성장을 자르지 않고 감쇠 프리미엄 반영).
     factors = [v.FactorExposure("시장", 1.0, 0.06)]  # Re 9%
     lo = v.apt_valuation(forward_eps=1000, risk_free=0.03, factors=factors, earnings_growth=0.03,
-                         equity_value=1000, net_debt=0, current_price=12000)
+                         equity_value=1000, net_debt=0, roe=0.12, moat="중", current_price=12000)
     hi = v.apt_valuation(forward_eps=1000, risk_free=0.03, factors=factors, earnings_growth=0.25,
-                         equity_value=1000, net_debt=0, current_price=12000)
+                         equity_value=1000, net_debt=0, roe=0.12, moat="중", current_price=12000)
     assert hi.assumptions["implied_target_per"] > lo.assumptions["implied_target_per"]
     assert hi.assumptions["growth_high"] == 0.25  # 고성장 자체는 유지(캡 아님)
+
+
+def test_h_model_fade_years_from_ensemble():
+    # 감쇠기간(H)이 상수 아님: 강한 해자·고ROE 가 약한 해자·저ROE 보다 목표배수↑(H↑).
+    factors = [v.FactorExposure("시장", 1.0, 0.06)]
+    strong = v.fama_french_valuation(forward_eps=1000, risk_free=0.03, factors=factors,
+                                     earnings_growth=0.15, equity_value=1000, net_debt=0,
+                                     roe=0.25, moat="강", current_price=12000)
+    weak = v.fama_french_valuation(forward_eps=1000, risk_free=0.03, factors=factors,
+                                   earnings_growth=0.15, equity_value=1000, net_debt=0,
+                                   roe=0.05, moat="약", current_price=12000)
+    assert strong.assumptions["fade_years"] > weak.assumptions["fade_years"]
+    assert strong.assumptions["implied_target_per"] > weak.assumptions["implied_target_per"]
+    assert strong.assumptions["moat"] == "강"
 
 
 def test_factor_model_low_beta_floored_no_explosion():

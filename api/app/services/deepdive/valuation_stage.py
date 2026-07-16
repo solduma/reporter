@@ -161,6 +161,7 @@ def collect_anchors(series: list[dict], price: dict) -> dict:
         "current_pbr": _latest_pointintime(rows, "pbr"),
         "current_ev_ebitda": ev_ebitda,
         "div_yield_pct": _latest_pointintime(rows, "div_yield"),
+        "roe_pct": _latest_pointintime(rows, "roe"),  # H-Model 감쇠기간 정량 기준선
         "shares": shares, "net_debt_eok": net_debt,
     }
 
@@ -239,6 +240,7 @@ def _t_fama_french(a: dict, anc: dict) -> val.ValuationResult:
         risk_free=_pick(a.get("risk_free"), fb.get("risk_free")),
         factors=factors, earnings_growth=_num(a.get("earnings_growth")),
         equity_value=anc.get("market_cap_eok"), net_debt=anc.get("net_debt_eok"),
+        roe=anc.get("roe_pct"), moat=anc.get("moat"),
         current_price=anc.get("current_price"),
     )
 
@@ -262,8 +264,26 @@ def _t_apt(a: dict, anc: dict) -> val.ValuationResult:
         risk_free=_pick(a.get("risk_free"), fb.get("risk_free")),
         factors=factors, earnings_growth=_num(a.get("earnings_growth")),
         equity_value=anc.get("market_cap_eok"), net_debt=anc.get("net_debt_eok"),
+        roe=anc.get("roe_pct"), moat=anc.get("moat"),
         current_price=anc.get("current_price"),
     )
+
+
+def _grade_moat(business: dict) -> str | None:
+    """business 단계의 해자 서술(prose)을 강|중|약 등급으로. 키워드 기반(LLM 자유서술 → 정성 배수용).
+
+    '네트워크·독점·규제·특허·전환비용·진입장벽' 등 강한 신호 → 강. '경쟁 심화·범용·낮은' → 약. 기본 중.
+    """
+    text = str(business.get("moat") or "")
+    if not text:
+        return None
+    strong = ("네트워크", "독점", "규제", "특허", "전환비용", "진입장벽", "높은 점유", "과점", "브랜드", "락인")
+    weak = ("경쟁 심화", "범용", "낮은 진입", "치열", "제한적", "약한", "쉽게 모방")
+    if any(k in text for k in weak):
+        return "약"
+    if sum(k in text for k in strong) >= 2:
+        return "강"
+    return "중"
 
 
 # 방식 도구 레지스트리: name → (계산 함수, 파라미터 JSON 스키마 properties).
@@ -361,6 +381,8 @@ def run_valuation(llm: LLMPort, model: str, ctx: ToolContext, prior: dict, serie
     anchors = collect_anchors(series, price)
     # 실데이터 요인 베타(지수 일봉 회귀 + 시총/PBR 프록시) — Fama-French·APT 가 LLM 추정 대신 사용.
     anchors["factor_betas"] = compute_factor_betas(ctx, anchors, price.get("market"))
+    # 해자 등급(business 단계 서술 → 강|중|약) — H-Model 감쇠기간 정성 배수(ROE 초과수익과 앙상블).
+    anchors["moat"] = _grade_moat(prior.get("business", {}) or {})
     peers = dispatch("peers", ctx, {})
     tools = _build_tools()
 
