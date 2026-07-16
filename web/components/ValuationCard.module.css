@@ -1,0 +1,234 @@
+.card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* 최종 목표가 — 상단 강조 */
+.finalRow {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.finalMain {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.finalLabel {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.finalPrice {
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: var(--accent);
+  letter-spacing: -0.01em;
+}
+
+.finalUpside {
+  font-size: 1.05rem;
+  font-weight: 800;
+}
+
+.finalMeta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.entryCase {
+  padding: 0.15rem 0.5rem;
+  border-radius: 6px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.conclusion {
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+.conclusion :global(p) {
+  margin: 0;
+}
+
+/* 방식별 collapse 목록 */
+.methods {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.method {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.method[open] {
+  background: var(--surface);
+}
+
+.methodSummary {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.methodSummary::-webkit-details-marker {
+  display: none;
+}
+
+.methodName {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.methodTarget {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text);
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.methodUpside {
+  font-size: 0.8rem;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.na {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.up {
+  color: var(--buy);
+}
+
+.down {
+  color: var(--sell);
+}
+
+/* 신뢰도 배지 */
+.conf {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.1rem 0.4rem;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  min-width: 1.4rem;
+  text-align: center;
+}
+
+.conf상 {
+  background: var(--buy-bg);
+  color: var(--buy);
+  border-color: var(--buy-bg);
+}
+
+.conf중 {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent-soft);
+}
+
+.conf하 {
+  background: var(--bg);
+  color: var(--muted);
+}
+
+.methodBody {
+  padding: 4px 14px 14px;
+  border-top: 1px solid var(--border);
+}
+
+.process {
+  margin: 10px 0 0;
+  padding-left: 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.83rem;
+  color: var(--text);
+}
+
+.process li {
+  line-height: 1.5;
+}
+
+.note {
+  margin: 10px 0 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.chip {
+  font-size: 0.74rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.chipKey {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+@media (max-width: 640px) {
+  .methodSummary {
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      "name conf"
+      "target target";
+    row-gap: 4px;
+  }
+  .methodName {
+    grid-area: name;
+  }
+  .conf {
+    grid-area: conf;
+  }
+  .methodTarget {
+    grid-area: target;
+  }
+}

@@ -80,7 +80,7 @@ def tool_recent_periodic_report(ctx: ToolContext, args: dict) -> dict:
 
 
 def tool_financials(ctx: ToolContext, args: dict) -> dict:
-    """분기·연간 재무 시계열(매출·영업이익·순이익·EPS·PER/PBR 등)."""
+    """분기·연간 재무 시계열(매출·영업이익·순이익·EPS·PER/PBR·배당·EV/EBITDA 등)."""
     rows = company_service.financials_rows(ctx.db, ctx.code)
     out = [
         {
@@ -88,6 +88,7 @@ def tool_financials(ctx: ToolContext, args: dict) -> dict:
             "revenue": r.revenue, "operating_income": r.operating_income,
             "net_income": r.net_income, "eps": r.eps, "bps": r.bps,
             "per": r.per, "pbr": r.pbr, "roe": r.roe, "ebitda": r.ebitda,
+            "dps": r.dps, "div_yield": r.div_yield, "psr": r.psr, "ev_ebitda": r.ev_ebitda,
         }
         for r in rows
     ]

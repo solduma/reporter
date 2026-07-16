@@ -27,7 +27,10 @@ logger = logging.getLogger(__name__)
 _NARRATIVE_SYSTEM = (
     "너는 5단계 딥다이브 분석 결과를 종합해 사람이 읽는 투자 보고서를 쓰는 애널리스트다. 각 단계 "
     "구조화 결과를 근거로, 개요→재무 특이점→사업모델→투자 아이디어·리스크→밸류에이션·결론 순의 "
-    "마크다운 보고서를 쓴다. 과장 없이 데이터에 근거하고, 마지막에 한 줄 결론(투자 성격·업사이드)을 남긴다."
+    "마크다운 보고서를 쓴다. 밸류에이션은 8개 방식(PER·PBR·EV/EBITDA·DCF·DDM·자산가치·Fama-French·"
+    "APT)의 목표가와 신뢰도 가중 최종 목표가(final_target_price)를 종합해 서술하되, 방식 간 편차가 크면 "
+    "어느 방식을 왜 더 신뢰하는지 밝힌다. 과장 없이 데이터에 근거하고, 마지막에 한 줄 결론(투자 성격·"
+    "최종 목표가·업사이드)을 남긴다."
 )
 
 
@@ -108,7 +111,8 @@ def run_job(db: Session, job: DeepDiveJob, settings: Settings | None = None) -> 
 def _finalize(llm: LLMPort, model: str, code: str, prior: dict, rep: DeepDiveReport) -> None:
     """5단계 결과 → 통합 마크다운 보고서 + verdict/upside. 서술 실패해도 구조화 결과는 보존."""
     val = prior.get("valuation", {}) or {}
-    upside = val.get("upside_pct")
+    # 신 밸류에이션(다중 방식 blend)은 final_upside_pct, 구 스키마는 upside_pct.
+    upside = val.get("final_upside_pct", val.get("upside_pct"))
     entry = val.get("entry_case")
     rep.upside_pct = float(upside) if isinstance(upside, (int, float)) else None
     if rep.upside_pct is not None:

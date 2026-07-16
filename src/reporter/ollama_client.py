@@ -47,3 +47,27 @@ class OllamaClient:
         if not content:  # 공백만 있는 응답도 빈 응답으로 간주
             raise OllamaError(f"Ollama 응답에 content 가 없습니다: {data}")
         return content
+
+    def chat_tools(
+        self, model: str, messages: list[dict], tools: list[dict], temperature: float = 0.2
+    ) -> dict:
+        """멀티턴 도구호출. messages·tools 를 그대로 전달하고 응답 message(dict)를 반환한다.
+
+        message 에는 content 와 (있으면) tool_calls 가 담긴다. 도구호출이 있으면 content 가 비어도
+        정상이므로(모델이 도구만 요청) content 공백 검사를 하지 않는다."""
+        payload = {
+            "model": model,
+            "messages": messages,
+            "tools": tools,
+            "stream": False,
+            "options": {"temperature": temperature},
+        }
+        try:
+            resp = self._session.post(self._url, json=payload, timeout=self._timeout)
+            resp.raise_for_status()
+        except requests.RequestException as e:
+            raise OllamaError(f"Ollama tools 요청 실패: {e}") from e
+        message = resp.json().get("message")
+        if not isinstance(message, dict):
+            raise OllamaError(f"Ollama 응답에 message 가 없습니다: {resp.text[:300]}")
+        return message

@@ -657,6 +657,30 @@ export interface DeepDiveStatus {
   has_report: boolean;
 }
 
+// 밸류에이션 방식 하나(PER·PBR·EV/EBITDA·DCF·DDM·자산가치·Fama-French·APT).
+export interface ValuationMethod {
+  method: string; // 기계 식별자
+  label: string; // 표시명
+  applicable: boolean; // 계산 성공 여부
+  target_price: number | null;
+  upside_pct: number | null;
+  confidence: string; // 상|중|하
+  assumptions: Record<string, unknown>;
+  process: string[]; // 계산 과정 스텝
+  note: string; // 근거·제외 사유
+}
+
+// 5단계 밸류에이션 결과(다중 방식 blend). 구 스키마와 구분되도록 methods 로 판별.
+export interface ValuationResult {
+  final_target_price: number | null;
+  final_upside_pct: number | null;
+  current_price: number | null;
+  method_count: number;
+  entry_case: string | null;
+  conclusion: string | null;
+  methods: ValuationMethod[];
+}
+
 export interface DeepDiveReport {
   stock_code: string;
   model: string | null;
@@ -664,7 +688,7 @@ export interface DeepDiveReport {
   redflags: Record<string, unknown> | null;
   business: Record<string, unknown> | null;
   thesis: Record<string, unknown> | null;
-  valuation: Record<string, unknown> | null;
+  valuation: (ValuationResult & Record<string, unknown>) | Record<string, unknown> | null;
   narrative_md: string | null;
   verdict: string | null;
   upside_pct: number | null;
