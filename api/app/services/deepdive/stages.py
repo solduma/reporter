@@ -44,11 +44,28 @@ def stage_overview(llm: LLMPort, model: str, ctx: ToolContext, prior: dict) -> d
                            context_data=context, max_tool_calls=3)
 
 
+def _period_ym(period: str) -> tuple[int, int] | None:
+    """'YYYY.MM' → (year, month). 파싱 실패 시 None(추정치 '(E)' 포함해도 앞 6자만)."""
+    if not period or len(period) < 7 or period[4] != ".":
+        return None
+    try:
+        return int(period[:4]), int(period[5:7])
+    except ValueError:
+        return None
+
+
 # ── 2단계 Red Flags ───────────────────────────────────────────────────
 def stage_redflags(llm: LLMPort, model: str, ctx: ToolContext, prior: dict) -> dict:
     series = _fin_series(ctx)
     latest = series[-1] if series else {}
-    prior_y = series[-5] if len(series) >= 5 else (series[0] if series else {})
+    # 전년 동기 = 같은 '월'(분기), 연도 −1. 행 개수 오프셋(series[-5])은 분기·연간 혼재 시 계절성
+    # 어긋난 잘못된 기준을 잡으므로 기간(period)으로 매칭한다. 없으면 결측(비교 생략).
+    lk = _period_ym(latest.get("period", "")) if latest else None
+    prior_y = {}
+    if lk:
+        prior_y = next(
+            (r for r in series if _period_ym(r.get("period", "")) == (lk[0] - 1, lk[1])), {}
+        )
     # 정량 레드플래그(순수 룰). 재무제표에 매출채권·재고·OCF·무형자산이 없으면 해당 항목은 결측.
     flags = deepdive_rules.check_red_flags(
         revenue=latest.get("revenue"), revenue_prior=prior_y.get("revenue"),
