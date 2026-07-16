@@ -98,6 +98,9 @@ services:
       KRX_API: ${KRX_API:-}
       # 경제 캘린더 배치가 FRED(미국 매크로 발표일·실적치)를 호출한다(없으면 고정일정만).
       FRED_API_KEY: ${FRED_API_KEY:-}
+      # 딥다이브 큐(worker 실행)의 웹 리서치가 네이버 검색 API 를 호출한다(없으면 웹검색만 비활성).
+      NAVER_CLIENT_ID: ${NAVER_CLIENT_ID:-}
+      NAVER_CLIENT_SECRET: ${NAVER_CLIENT_SECRET:-}
       # 호스트 CLI(launchd)가 발송 기록을 쓰는 스풀을 워커가 읽어 broadcast 테이블로 흡수한다.
       # 아래 볼륨 마운트 경로와 일치. WORKDIR/parents 가정에 흔들리지 않게 명시.
       BROADCAST_SPOOL: /app/logs/broadcasts.jsonl
