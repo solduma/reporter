@@ -50,6 +50,8 @@ _COLUMN_MIGRATIONS = (
     "ALTER TABLE disclosure_sync_state ADD COLUMN IF NOT EXISTS synced_from DATE",
     # 캘린더 지난 이벤트 지수영향 방향(positive|negative|neutral) — 프론트 색칠용(#367).
     "ALTER TABLE calendar_event ADD COLUMN IF NOT EXISTS impact_direction VARCHAR(8)",
+    # 리포트 PDF 원문 발췌 — 산업 리포트의 개별 종목 언급을 종목명 검색으로 찾기 위함(요약만으론 소실).
+    "ALTER TABLE report_analysis ADD COLUMN IF NOT EXISTS full_text TEXT",
 )
 
 # 데이터 정합성 정규화(멱등) — 스키마가 아닌 값 보정. init_db 마다 실행되나 조건절이 이미 보정된

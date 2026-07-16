@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 
 import requests
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.adapters.dart import client as dart
@@ -163,16 +163,10 @@ def tool_reports(ctx: ToolContext, args: dict) -> dict:
         .where(Report.stock_code == ctx.code)
         .order_by(Report.published_date.desc()).limit(8)
     ).all()
-    # ② 이 종목 리포트들의 industry_name → 같은 산업 리포트(category=industry)
-    industries = {
-        r.industry_name for (r, _a) in own if r.industry_name
-    } | set(
-        db.scalars(
-            select(Report.industry_name).where(
-                Report.stock_code == ctx.code, Report.industry_name.is_not(None)
-            )
-        ).all()
-    )
+    # ② 이 종목이 속한 산업 리포트. 회사 리포트엔 industry_name 이 대개 없어(조인 키 부재), 종목의
+    #    대표 섹터(sector_etf)를 리포트 industry_name 후보로 매핑해 연결한다(#4 해결).
+    industries = {r.industry_name for (r, _a) in own if r.industry_name}
+    industries |= set(_sector_industry_names(ctx))
     ind_rows = []
     if industries:
         ind_rows = db.execute(
@@ -181,13 +175,20 @@ def tool_reports(ctx: ToolContext, args: dict) -> dict:
             .where(Report.category == "industry", Report.industry_name.in_(industries))
             .order_by(Report.published_date.desc()).limit(6)
         ).all()
-    # ③ 본문(rationale/summary)에 종목명 언급된 타 리포트
+    # ③ 원문·요약에 종목명 언급된 타 리포트(산업 리포트의 개별 종목 언급 포함). full_text 우선 검색
+    #    (요약엔 대표주만 남아 소실 — #5 해결). full_text 없으면 rationale 폴백.
     mention_rows = []
     if name:
         mention_rows = db.execute(
             select(Report, ReportAnalysis)
             .join(ReportAnalysis, ReportAnalysis.report_id == Report.id)
-            .where(Report.stock_code != ctx.code, ReportAnalysis.rationale.contains(name))
+            .where(
+                Report.stock_code != ctx.code,
+                or_(
+                    ReportAnalysis.full_text.contains(name),
+                    ReportAnalysis.rationale.contains(name),
+                ),
+            )
             .order_by(Report.published_date.desc()).limit(6)
         ).all()
 
@@ -254,6 +255,25 @@ def _sector_for(ctx: ToolContext) -> str | None:
 
     themes = company_service.theme_names(ctx.db, ctx.code)
     return sector_etf.stock_kr_sector(ctx.code, themes)
+
+
+# sector_etf 섹터명 → 네이버 산업 리포트 industry_name 후보. 명칭 체계가 달라(섹터 '바이오' vs
+# 리포트 '제약') 매핑한다. 산업 리포트 실제 값: IT·건설·게임·반도체·제약·화장품·조선·철강금속 등.
+_SECTOR_TO_INDUSTRY: dict[str, tuple[str, ...]] = {
+    "반도체": ("반도체", "전기전자"), "반도체 소부장": ("반도체", "전기전자"),
+    "2차전지": ("전기전자", "석유화학"), "바이오": ("제약",), "의료기기": ("제약",),
+    "자동차": ("자동차",), "조선": ("조선",), "건설": ("건설",), "철강": ("철강금속",),
+    "에너지화학": ("석유화학", "에너지", "유틸리티"), "IT": ("IT", "전기전자"),
+    "미디어컨텐츠": ("미디어", "게임"), "통신": ("통신",), "게임": ("게임",),
+    "화장품": ("화장품",), "경기소비재": ("유통",), "필수소비재": ("음식료", "유통"),
+    "기계장비": ("기타",), "로봇": ("기타", "IT"), "방산우주": ("기타",),
+    "은행": ("은행",), "증권": ("증권",), "보험": ("보험",), "운송": ("항공운송",),
+}
+
+
+def _sector_industry_names(ctx: ToolContext) -> list[str]:
+    """종목의 대표 섹터를 산업 리포트 industry_name 후보로 매핑(#4 — 산업↔종목 연결)."""
+    return list(_SECTOR_TO_INDUSTRY.get(_sector_for(ctx) or "", ()))
 
 
 def _event_candidates(ctx: ToolContext, name: str, kw) -> list[dict]:
