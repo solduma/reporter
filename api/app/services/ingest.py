@@ -11,7 +11,7 @@ import logging
 from datetime import date, datetime
 
 import requests
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.adapters.llm import get_llm
@@ -166,6 +166,53 @@ def ingest_reports(db: Session, settings: Settings, target_date: str | None = No
             logger.warning("ingest failed for %s: %s", cr.title, e)
     logger.info("ingested %d new reports", saved)
     return saved
+
+
+_FULLTEXT_BACKFILL_PER_RUN = 60  # 회당 소급 건수(긴 리포트는 LLM 요약이라 과하지 않게)
+
+
+def backfill_full_text(db: Session, settings: Settings | None = None, per_run: int | None = None) -> dict:
+    """기존 리포트(full_text 결측)를 MinIO 원문 PDF 에서 소급 적재한다(점진, 재개 가능).
+
+    신규 수집분은 _ingest_one 이 이미 채우므로, 이 배치는 컬럼 추가 이전 리포트만 대상.
+    full_text 가 채워지면 다음 실행에서 자동 제외(멱등). 회당 per_run 건."""
+    from app.config import get_settings
+
+    settings = settings or get_settings()
+    client = get_llm(settings)
+    if client is None:
+        return {"done": 0, "failed": 0, "remaining": 0}
+    limit = per_run or _FULLTEXT_BACKFILL_PER_RUN
+    rows = db.execute(
+        select(Report, ReportAnalysis)
+        .join(ReportAnalysis, ReportAnalysis.report_id == Report.id)
+        .where(ReportAnalysis.full_text.is_(None), Report.pdf_object_key.is_not(None))
+        .order_by(Report.published_date.desc())
+        .limit(limit)
+    ).all()
+    done = failed = 0
+    for _report, analysis in rows:
+        try:
+            pdf = minio_store.get_pdf(_report.pdf_object_key)
+            if not pdf:
+                # 원문 유실 — 재시도 무의미하므로 빈 문자열로 마킹해 대상에서 제외.
+                analysis.full_text = ""
+                db.commit()
+                failed += 1
+                continue
+            text = extract_text_from_bytes(pdf, _FULLTEXT_PAGES)
+            analysis.full_text = _fit_full_text(client, settings.summary_model, text) or ""
+            db.commit()
+            done += 1
+        except Exception as e:
+            db.rollback()
+            failed += 1
+            logger.warning("full_text backfill failed for %s: %s", _report.title, e)
+    remaining = db.scalar(
+        select(func.count()).select_from(ReportAnalysis).where(ReportAnalysis.full_text.is_(None))
+    )
+    logger.info("full_text backfill: done=%d failed=%d remaining=%d", done, failed, remaining)
+    return {"done": done, "failed": failed, "remaining": remaining}
 
 
 def backfill_industry_names(db: Session, target_date: str | None = None) -> int:

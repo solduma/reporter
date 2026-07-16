@@ -80,6 +80,9 @@ _FIN_BACKFILL_CRON = CronTrigger(hour=3, minute=30, timezone=_TZ)
 # 보고서 원문 파싱 백필(정밀 감가상각·EV/EBITDA): 매일 05:00. 보고서당 document.xml(수MB)
 # 다운로드라 가장 무거워 재무 백필(03:30) 이후로 뺀다. sync_state 로 재개 가능.
 _REPORT_BACKFILL_CRON = CronTrigger(hour=5, minute=0, timezone=_TZ)
+# 리포트 원문(full_text) 소급 적재: 매일 05:30. 컬럼 추가 이전 리포트를 MinIO PDF 에서 회당 60건씩
+# 채운다(재개 가능). 리포트 파싱 백필(05:00) 직후, 뉴스(07:00) 이전.
+_REPORT_FULLTEXT_CRON = CronTrigger(hour=5, minute=30, timezone=_TZ)
 # 매크로/뉴스 이벤트 분류: 매일 07:00. 뉴스 수집 → LLM 분류 → 테마 구성종목 전파(StockEvent).
 # LLM 토큰을 쓰므로 하루 1회. 이벤트드리븐 스크리너의 '뉴스' 이벤트 소스.
 _NEWS_EVENTS_CRON = CronTrigger(hour=7, minute=0, timezone=_TZ)
@@ -211,6 +214,15 @@ def run_report_backfill(settings: Settings | None = None) -> dict:
         session.close()
 
 
+def run_report_fulltext_backfill(settings: Settings | None = None) -> dict:
+    """리포트 원문(full_text) 소급 적재 1회분 — 컬럼 추가 이전 리포트를 MinIO PDF 에서 채운다."""
+    session = SessionLocal()
+    try:
+        return ingest.backfill_full_text(session, settings)
+    finally:
+        session.close()
+
+
 def run_news_events(settings: Settings | None = None) -> dict:
     """매크로/뉴스 수집·LLM 분류·테마 전파 → StockEvent 적재(이벤트드리븐 스크리너 소스)."""
     from app.services import news_events
@@ -298,6 +310,7 @@ MANUAL_BATCHES: list[tuple[str, str, object]] = [
     ("disclosure_batch", "공시 수집", run_disclosure_batch),
     ("financials_backfill", "재무 백필(10년)", run_financials_backfill),
     ("report_backfill", "리포트 백필(10년)", run_report_backfill),
+    ("report_fulltext", "리포트 원문 소급적재", run_report_fulltext_backfill),
     ("backfill_progressive", "일봉 백필(10년)", run_backfill_progressive),
     ("us_universe", "US 유니버스", run_us_universe_batch),
     ("us_disclosure", "US 공시(8-K)", run_us_disclosure_batch),
@@ -369,6 +382,14 @@ def build_scheduler(settings: Settings | None = None) -> BlockingScheduler:
         _logged("report_10y", run_report_backfill),
         trigger=_REPORT_BACKFILL_CRON,
         id="report_10y",
+        max_instances=1,
+        coalesce=True,
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        _logged("report_fulltext", run_report_fulltext_backfill),
+        trigger=_REPORT_FULLTEXT_CRON,
+        id="report_fulltext",
         max_instances=1,
         coalesce=True,
         replace_existing=True,
