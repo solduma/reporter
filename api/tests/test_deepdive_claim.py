@@ -59,3 +59,76 @@ def test_fresh_running_not_reclaimed(db):
 
 def test_none_when_empty(db):
     assert orchestrator.claim_next(db) is None
+
+
+# ── run_job 재개(중단 지점부터) ───────────────────────────────────────────
+def _run_job_stages():
+    from app.db.models import DeepDiveReport
+
+    ran = []
+
+    def mk(name):
+        def f(llm, model, ctx, prior):
+            ran.append(name)
+            return {name: "v"}
+        return f
+
+    fake = [("overview", mk("overview")), ("redflags", mk("redflags")),
+            ("business", mk("business")), ("thesis", mk("thesis")), ("valuation", mk("valuation"))]
+    return ran, fake, DeepDiveReport
+
+
+def test_run_job_resumes_from_interrupted_stage(monkeypatch):
+    from unittest.mock import MagicMock, patch
+
+    from app.services.deepdive import orchestrator as o
+
+    ran, fake, Report = _run_job_stages()
+    rep = Report(stock_code="093320")
+    rep.overview_json = {"per": 10}
+    rep.redflags_json = {"severity": "양호"}
+    rep.business_json = {"moat": "x"}
+    rep.thesis_json = rep.valuation_json = None
+    job = MagicMock()
+    job.id, job.stock_code, job.current_stage = 10, "093320", 3  # 3단계까지 완료 후 중단
+
+    db = MagicMock()
+    with patch.object(o, "get_llm", return_value=MagicMock()), \
+         patch.object(o.tools, "resolve_corp_code", return_value="c"), \
+         patch.object(o, "_get_or_create_report", return_value=rep), \
+         patch.object(o.stages, "STAGES", fake), \
+         patch.object(o, "_finalize", lambda *a: None):
+        o.run_job(db, job, MagicMock())
+    assert ran == ["thesis", "valuation"]  # 완료 단계 스킵, 중단 지점부터
+    assert rep.overview_json == {"per": 10}  # 기존 결과 보존
+
+
+def test_run_job_fresh_runs_all_stages(monkeypatch):
+    from unittest.mock import MagicMock, patch
+
+    from app.services.deepdive import orchestrator as o
+
+    ran, fake, Report = _run_job_stages()
+    rep = Report(stock_code="093320")
+    rep.overview_json = {"old": 1}
+    job = MagicMock()
+    job.id, job.stock_code, job.current_stage = 11, "093320", 0  # fresh
+
+    db = MagicMock()
+    db.scalar.return_value = rep
+    with patch.object(o, "get_llm", return_value=MagicMock()), \
+         patch.object(o.tools, "resolve_corp_code", return_value="c"), \
+         patch.object(o.stages, "STAGES", fake), \
+         patch.object(o, "_finalize", lambda *a: None):
+        o.run_job(db, job, MagicMock())
+    assert ran == ["overview", "redflags", "business", "thesis", "valuation"]
+    assert rep.overview_json == {"overview": "v"}  # fresh 는 이전 잔재 덮어씀
+
+
+def test_stage_error_marker_reruns_on_resume(monkeypatch):
+    # 재개 시 이전 단계가 에러 마커면(불완전) 재실행 대상.
+    from app.services.deepdive import orchestrator as o
+
+    assert o._is_stage_error({"_error": "LLM 실패"}) is True
+    assert o._is_stage_error({"_note": "비정형"}) is True
+    assert o._is_stage_error({"per": 10}) is False
