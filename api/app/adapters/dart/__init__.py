@@ -7,6 +7,7 @@
 from app.adapters.dart import report_parser, throttle
 from app.adapters.dart.client import (
     CorpMapping,
+    DartQuotaExceeded,
     Disclosure,
     IncomeEquity,
     extract_ownership_reason,
@@ -21,6 +22,7 @@ from app.adapters.dart.report_parser import fetch_report_zip, parse_cf_depreciat
 
 __all__ = [
     "CorpMapping",
+    "DartQuotaExceeded",
     "Disclosure",
     "IncomeEquity",
     "extract_ownership_reason",

@@ -7,6 +7,8 @@ import zipfile
 from datetime import UTC, date
 from unittest.mock import MagicMock
 
+import pytest
+
 from app.adapters import dart
 
 _CORPCODE_XML = b"""<?xml version="1.0" encoding="UTF-8"?>
@@ -215,6 +217,34 @@ def test_fetch_ownership_changes_parses_signed_delta():
 def test_fetch_ownership_changes_empty_status_returns_empty():
     changes = dart.fetch_ownership_changes("key", "x", _list_session({"status": "013"}))
     assert changes == {}
+
+
+# status 020(일일한도초과)은 013(데이터없음)과 달리 '없음'으로 뭉개면 안 되고 예외로 올려
+# 호출측(백필·딥다이브)이 중단·구분하게 한다. 조회형 4개 함수 모두 동일하게 동작.
+def _quota_session() -> MagicMock:
+    return _list_session({"status": "020", "message": "사용한도를 초과하였습니다."})
+
+
+def test_find_periodic_report_raises_on_quota():
+    with pytest.raises(dart.DartQuotaExceeded):
+        dart.find_periodic_report("key", "00126380", 2026, "annual", _quota_session())
+
+
+def test_fetch_disclosures_raises_on_quota():
+    with pytest.raises(dart.DartQuotaExceeded):
+        dart.fetch_disclosures(
+            "key", "00126380", "005930", date(2026, 6, 1), date(2026, 7, 8), _quota_session()
+        )
+
+
+def test_fetch_income_and_equity_raises_on_quota():
+    with pytest.raises(dart.DartQuotaExceeded):
+        dart.fetch_income_and_equity("key", "00126380", 2025, 4, _quota_session())
+
+
+def test_fetch_ownership_changes_raises_on_quota():
+    with pytest.raises(dart.DartQuotaExceeded):
+        dart.fetch_ownership_changes("key", "00126380", _quota_session())
 
 
 def test_extract_ownership_reason_skips_table_labels():

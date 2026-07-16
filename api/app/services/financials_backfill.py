@@ -235,6 +235,7 @@ def run_backfill_progressive(
     pending = [c for c in codes if c not in _done_codes(db)]
     batch = pending[:per_run]
     done = failed = 0
+    quota_hit = False
     for code in batch:
         try:
             if backfill_stock(db, settings, code):
@@ -243,11 +244,20 @@ def run_backfill_progressive(
                 done += 1
             else:
                 failed += 1
+        except dart.DartQuotaExceeded:
+            # 한도초과는 남은 종목도 모두 실패할 뿐 아니라 온디맨드 조회까지 굶긴다 → 배치 즉시 중단.
+            db.rollback()
+            quota_hit = True
+            logger.warning("financials 10y backfill: DART 한도초과 — 배치 중단(%d 종목 처리 후)", done)
+            break
         except Exception as e:  # 한 종목 실패가 배치를 막지 않도록
             db.rollback()
             failed += 1
             logger.warning("financials 10y backfill failed for %s: %s", code, e)
 
     remaining = len(pending) - done
-    logger.info("financials 10y backfill: done=%d failed=%d remaining=%d", done, failed, remaining)
-    return {"done": done, "failed": failed, "remaining": remaining}
+    logger.info(
+        "financials 10y backfill: done=%d failed=%d remaining=%d quota_hit=%s",
+        done, failed, remaining, quota_hit,
+    )
+    return {"done": done, "failed": failed, "remaining": remaining, "quota_hit": quota_hit}
