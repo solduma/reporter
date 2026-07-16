@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     customs_api_key: str = ""
     # 경제 캘린더 — FRED(미국 매크로 발표일·실적치, 무료 키). 미설정 시 수동 고정일정만.
     fred_api_key: str = ""
+    # 딥다이브 웹 검색 — 네이버 검색 API(블로그·뉴스, 일 25,000회 무료). 헤더 인증 2개. 미설정 시 웹검색 비활성.
+    naver_client_id: str = ""
+    naver_client_secret: str = ""
 
     # SEC EDGAR(US 재무) — 무인증이나 연락처 명시 User-Agent 필수(SEC 정책). 기본값은 일반 표기.
     sec_user_agent: str = "reporter research contact@example.com"

@@ -672,3 +672,57 @@ class CalendarEvent(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class DeepDiveJob(Base):
+    """종목 딥다이브 작업큐 — DB 폴링 큐(Redis/Celery 미도입). worker 가 pending 을 잡아 실행.
+
+    한 종목당 진행 중(pending|running) job 은 최대 1건(라우터가 중복 enqueue 방지). status
+    상태기계로 진행률·현재 단계를 추적하고 프론트가 폴링한다. hitl_* 는 2차 HITL 용 자리(1차 미사용).
+    """
+
+    __tablename__ = "deepdive_job"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    stock_code: Mapped[str] = mapped_column(String(6), index=True)
+    status: Mapped[str] = mapped_column(String(12), default="pending", index=True)  # pending|running|paused|done|failed
+    current_stage: Mapped[int] = mapped_column(SmallInteger, default=0)  # 0~5(완료 단계)
+    progress: Mapped[int] = mapped_column(SmallInteger, default=0)  # 0~100
+    model: Mapped[str] = mapped_column(String(64), default="")
+    error: Mapped[str | None] = mapped_column(Text)
+    # 2차 HITL: 특정 단계 후 paused 로 멈추고 사용자 피드백을 받아 재개(1차는 미사용, 스키마만 확보).
+    hitl_pending: Mapped[bool] = mapped_column(default=False)
+    hitl_prompt: Mapped[str | None] = mapped_column(Text)
+    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class DeepDiveReport(Base):
+    """종목 딥다이브 결과 — 5단계 구조화 JSON + 통합 서술 본문. 종목당 최신 1건 유지(재실행 갱신).
+
+    단계별 JSON 은 프론트가 섹션 카드로 렌더·개별 재생성에 쓰고, narrative_md 는 사람이 읽는 최종
+    보고서. verdict/upside_pct 는 스크리너 정렬·필터용 요약. inputs_hash 로 재생성 판정.
+    """
+
+    __tablename__ = "deepdive_report"
+    __table_args__ = (UniqueConstraint("stock_code", name="uq_deepdive_stock"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    stock_code: Mapped[str] = mapped_column(String(6), index=True)
+    job_id: Mapped[int | None] = mapped_column(ForeignKey("deepdive_job.id"))
+    model: Mapped[str] = mapped_column(String(64), default="")
+    # 단계별 구조화 결과(JSONB). 미완 단계는 null.
+    overview_json: Mapped[dict | None] = mapped_column(JSONB)
+    redflags_json: Mapped[dict | None] = mapped_column(JSONB)
+    business_json: Mapped[dict | None] = mapped_column(JSONB)
+    thesis_json: Mapped[dict | None] = mapped_column(JSONB)
+    valuation_json: Mapped[dict | None] = mapped_column(JSONB)
+    narrative_md: Mapped[str | None] = mapped_column(Text)  # 5단계 통합 서술 본문
+    verdict: Mapped[str | None] = mapped_column(String(120))  # 결론 요약(예: '성장주 · 업사이드 62%')
+    upside_pct: Mapped[float | None] = mapped_column(Float)  # 목표가 업사이드(정렬·필터용)
+    inputs_hash: Mapped[str | None] = mapped_column(String(64))  # 재생성 판정
+    as_of: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
