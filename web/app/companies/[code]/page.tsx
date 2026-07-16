@@ -10,6 +10,7 @@ import type { ChartRange } from "@/components/CandleChart";
 import CompanySnapshot from "@/components/CompanySnapshot";
 import CompanyTimeline from "@/components/CompanyTimeline";
 import DateRangeSlider from "@/components/DateRangeSlider";
+import DeepDivePanel from "@/components/DeepDivePanel";
 import GrowthMetrics from "@/components/GrowthMetrics";
 import HoldingBadge from "@/components/HoldingBadge";
 import InfoDot from "@/components/InfoDot";
@@ -654,6 +655,15 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
           <span className={styles.growthTag}>시세 · 커버리지</span>
         </div>
         <CompanySnapshot code={code} />
+      </section>
+
+      {/* 종목 딥다이브 — 온디맨드 5단계 심층 분석(worker 큐 실행·상태폴링). 종목 정보 다음, 가장 깊은 분석. */}
+      <section className={styles.chartCard}>
+        <div className={styles.growthHead}>
+          <h2 className={styles.sectionTitle}>종목 딥다이브</h2>
+          <span className={styles.growthTag}>5단계 심층 분석</span>
+        </div>
+        <DeepDivePanel code={code} />
       </section>
 
       {/* 순서: ① 종목 정보(최상단) → ② 테크노펀더멘탈 종합 → ③ 성장 → ④ 가치 → ⑤ 추세 → ⑥ 탑다운 → 동일업종 → 타임라인.

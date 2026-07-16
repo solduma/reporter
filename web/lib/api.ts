@@ -8,6 +8,8 @@ import type {
   CompanyAnalysis,
   CompanyGrowth,
   CompanySummary,
+  DeepDiveReport,
+  DeepDiveStatus,
   CompanyTrend,
   FinancialPeriod,
   FlowMarket,
@@ -387,4 +389,21 @@ export async function deleteHolding(code: string): Promise<void> {
   if (!res.ok) {
     throw new Error(`보유종목 삭제 실패 (${res.status})`);
   }
+}
+
+// ── 종목 딥다이브 ──────────────────────────────────────────────────────
+export async function requestDeepDive(code: string): Promise<DeepDiveStatus> {
+  const res = await fetch(apiUrl(`/api/deepdive/${code}`), { method: "POST", cache: "no-store" });
+  if (!res.ok) {
+    throw new Error(`딥다이브 요청 실패 (${res.status})`);
+  }
+  return (await res.json()) as DeepDiveStatus;
+}
+
+export function fetchDeepDiveStatus(code: string): Promise<DeepDiveStatus> {
+  return getJson<DeepDiveStatus>(`/api/deepdive/${code}/status`);
+}
+
+export function fetchDeepDiveReport(code: string): Promise<DeepDiveReport | null> {
+  return getJson<DeepDiveReport | null>(`/api/deepdive/${code}`);
 }
