@@ -11,14 +11,14 @@ import logging
 from datetime import date, datetime
 
 import requests
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.adapters.llm import get_llm
 from app.adapters.storage import minio_store
 from app.config import Settings
 from app.db.models import DailyMarketInfo, Report, ReportAnalysis, Sentiment
-from app.ports.llm import LLMPort
+from app.ports.llm import LLMError, LLMPort
 from app.services import sentiment as sentiment_svc
 from reporter import analyzer, article, fallback, market, news, us_market
 from reporter.crawler import crawl_categories
@@ -29,6 +29,33 @@ logger = logging.getLogger(__name__)
 
 _SUMMARY_PAGES = 3
 _SENTIMENT_PAGES = 5
+_FULLTEXT_PAGES = 12  # 종목명 검색용 원문 발췌 쪽수(산업 리포트 개별 종목 언급 포착)
+_FULLTEXT_MAX_CHARS = 20000  # DB 보관 상한. 초과 시 자르지 않고 요약(종목명 보존)해 상한 내로.
+
+
+_FULLTEXT_SUMMARY_SYSTEM = (
+    "너는 증권사 리포트 원문을 압축하는 편집자다. 뒤에서 종목명 검색에 쓰이므로 **언급된 모든 종목명·"
+    "기업명은 원문 그대로 보존**하고, 각 종목/산업에 대한 핵심 사실(수주·계약·실적·투자의견·목표주가·"
+    "전망)을 최대한 남긴다. 과하게 줄이지 말고 상세히, 단 지정 분량 이내로. 불릿 없이 서술형으로."
+)
+
+
+def _fit_full_text(client: LLMPort, model: str, text: str) -> str:
+    """원문 발췌를 DB 상한 내로. 상한 이하면 그대로, 초과하면 요약(종목명·핵심사실 보존)해 담는다.
+
+    단순 절단은 뒷부분 종목 언급을 잃으므로, 초과 시 LLM 으로 상한의 ~90% 분량으로 압축한다.
+    요약 실패 시엔 어쩔 수 없이 절단 폴백."""
+    if len(text) <= _FULLTEXT_MAX_CHARS:
+        return text
+    target = int(_FULLTEXT_MAX_CHARS * 0.9)
+    user = (
+        f"다음 리포트 원문을 {target}자 이내로 압축하라(종목명 전부 보존, 핵심 사실 유지):\n\n{text}"
+    )
+    try:
+        out = client.chat(model, _FULLTEXT_SUMMARY_SYSTEM, user, temperature=0.2).strip()
+    except LLMError:
+        return text[:_FULLTEXT_MAX_CHARS]
+    return out[:_FULLTEXT_MAX_CHARS] if out else text[:_FULLTEXT_MAX_CHARS]
 
 
 def _to_date(yymmdd: str) -> date:
@@ -69,6 +96,11 @@ def _ingest_one(
     if not summary_text:
         return None
     sentiment_text = extract_text_from_bytes(pdf_bytes, _SENTIMENT_PAGES)
+    # 원문 발췌(앞 12쪽) — 산업 리포트의 개별 종목 언급을 종목명 검색으로 찾도록 저장.
+    # 상한 초과 시 자르지 않고 요약(종목명 보존)해 담는다.
+    full_text = _fit_full_text(
+        client, settings.summary_model, extract_text_from_bytes(pdf_bytes, _FULLTEXT_PAGES)
+    )
 
     # 결정적 키: 재시도해도 동일 객체를 덮어써 고아가 쌓이지 않는다.
     digest = hashlib.sha256(dedup.encode()).hexdigest()[:16]
@@ -100,6 +132,7 @@ def _ingest_one(
         summary=summary or sent.one_liner,
         sentiment=Sentiment(sent.sentiment),
         rationale=sent.rationale,
+        full_text=full_text or None,
         model=settings.summary_model,
     )
     # 분석까지 성공한 뒤에 PDF 를 저장해, 중간 실패 시 MinIO 고아가 남지 않게 한다.
@@ -133,6 +166,53 @@ def ingest_reports(db: Session, settings: Settings, target_date: str | None = No
             logger.warning("ingest failed for %s: %s", cr.title, e)
     logger.info("ingested %d new reports", saved)
     return saved
+
+
+_FULLTEXT_BACKFILL_PER_RUN = 60  # 회당 소급 건수(긴 리포트는 LLM 요약이라 과하지 않게)
+
+
+def backfill_full_text(db: Session, settings: Settings | None = None, per_run: int | None = None) -> dict:
+    """기존 리포트(full_text 결측)를 MinIO 원문 PDF 에서 소급 적재한다(점진, 재개 가능).
+
+    신규 수집분은 _ingest_one 이 이미 채우므로, 이 배치는 컬럼 추가 이전 리포트만 대상.
+    full_text 가 채워지면 다음 실행에서 자동 제외(멱등). 회당 per_run 건."""
+    from app.config import get_settings
+
+    settings = settings or get_settings()
+    client = get_llm(settings)
+    if client is None:
+        return {"done": 0, "failed": 0, "remaining": 0}
+    limit = per_run or _FULLTEXT_BACKFILL_PER_RUN
+    rows = db.execute(
+        select(Report, ReportAnalysis)
+        .join(ReportAnalysis, ReportAnalysis.report_id == Report.id)
+        .where(ReportAnalysis.full_text.is_(None), Report.pdf_object_key.is_not(None))
+        .order_by(Report.published_date.desc())
+        .limit(limit)
+    ).all()
+    done = failed = 0
+    for _report, analysis in rows:
+        try:
+            pdf = minio_store.get_pdf(_report.pdf_object_key)
+            if not pdf:
+                # 원문 유실 — 재시도 무의미하므로 빈 문자열로 마킹해 대상에서 제외.
+                analysis.full_text = ""
+                db.commit()
+                failed += 1
+                continue
+            text = extract_text_from_bytes(pdf, _FULLTEXT_PAGES)
+            analysis.full_text = _fit_full_text(client, settings.summary_model, text) or ""
+            db.commit()
+            done += 1
+        except Exception as e:
+            db.rollback()
+            failed += 1
+            logger.warning("full_text backfill failed for %s: %s", _report.title, e)
+    remaining = db.scalar(
+        select(func.count()).select_from(ReportAnalysis).where(ReportAnalysis.full_text.is_(None))
+    )
+    logger.info("full_text backfill: done=%d failed=%d remaining=%d", done, failed, remaining)
+    return {"done": done, "failed": failed, "remaining": remaining}
 
 
 def backfill_industry_names(db: Session, target_date: str | None = None) -> int:

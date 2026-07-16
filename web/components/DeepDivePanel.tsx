@@ -23,7 +23,21 @@ function isActive(status: string): boolean {
   return status === "pending" || status === "running";
 }
 
-// 구조화 JSON 한 섹션을 키-값 목록으로 렌더(값이 배열·객체면 요약 표기).
+// 값 하나를 사람이 읽는 문자열로. 객체(예 catalysts 항목 {event,impact,source})는 값들을 " · " 로,
+// 배열은 각 원소를 재귀 변환해 줄바꿈이 아닌 세미콜론으로 잇는다(원시 JSON 노출 방지).
+function renderValue(v: unknown): string {
+  if (v === null || v === undefined) return "—";
+  if (Array.isArray(v)) return v.map(renderValue).join(" ; ");
+  if (typeof v === "object") {
+    return Object.values(v as Record<string, unknown>)
+      .filter((x) => x !== null && x !== undefined && x !== "")
+      .map((x) => (typeof x === "object" ? renderValue(x) : String(x)))
+      .join(" · ");
+  }
+  return String(v);
+}
+
+// 구조화 JSON 한 섹션을 키-값 목록으로 렌더(값이 배열·객체면 사람이 읽게 평탄화).
 function Section({ title, data }: { title: string; data: Record<string, unknown> | null }) {
   if (!data) {
     return null;
@@ -36,7 +50,7 @@ function Section({ title, data }: { title: string; data: Record<string, unknown>
           <div key={k} className={styles.kvRow}>
             <dt className={styles.kvKey}>{k}</dt>
             <dd className={styles.kvVal}>
-              {Array.isArray(v) ? v.join(", ") : typeof v === "object" && v !== null ? JSON.stringify(v) : String(v)}
+              {renderValue(v)}
             </dd>
           </div>
         ))}

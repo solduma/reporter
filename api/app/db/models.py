@@ -67,6 +67,9 @@ class ReportAnalysis(Base):
     summary: Mapped[str] = mapped_column(Text, default="")
     sentiment: Mapped[Sentiment] = mapped_column(Enum(Sentiment), default=Sentiment.HOLD)
     rationale: Mapped[str] = mapped_column(Text, default="")
+    # PDF 원문 발췌(앞 N쪽). 요약(summary·rationale)엔 대표주만 남아 산업 리포트의 개별 종목 언급을
+    # 놓치므로, 종목명 검색(tool_reports)이 원문을 뒤지도록 저장한다. 분량 상한으로 보관.
+    full_text: Mapped[str | None] = mapped_column(Text)
     model: Mapped[str] = mapped_column(String(64), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
