@@ -277,3 +277,21 @@ def parse_cf_depreciation(zip_bytes: bytes) -> int | None:
         amount, pos = part
         total += amount * _resolve_unit_mult(xml, scope_start + pos + 1)
     return total or None
+
+
+# D&A 가 매출의 이 배수를 넘으면 오파싱(누계·부문 배분·잘못된 셀·단위 오인)으로 본다. 자본집약
+# 업종도 감가상각이 매출을 크게 넘지 않는다(설비 상각이 매출 초과면 사업 지속 불가) — 보수적으로 8배.
+_DA_REVENUE_MAX_RATIO = 8.0
+
+
+def plausible_depreciation(dep: float | None, revenue: float | None) -> float | None:
+    """감가상각비(원)가 매출(원) 대비 비현실적으로 크면(오파싱 의심) None. 둘 다 같은 원 단위 전제.
+
+    revenue 결측이면 검증 불가라 그대로 통과(다른 지표로 판단). dep 음수·0 은 상위에서 처리."""
+    if dep is None or revenue is None or revenue <= 0:
+        return dep
+    if abs(dep) > revenue * _DA_REVENUE_MAX_RATIO:
+        logger.warning("implausible D&A %s vs revenue %s (ratio %.0f) — 오파싱으로 폐기",
+                       dep, revenue, abs(dep) / revenue)
+        return None
+    return dep

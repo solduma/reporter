@@ -122,9 +122,10 @@ def backfill_stock(
             if fin is None:
                 continue
             any_data = True
-            # 감가상각(원문 XML) — 구조화 API 가 놓치는 D&A.
+            # 감가상각(원문 XML) — 구조화 API 가 놓치는 D&A. 매출 대비 비현실적으로 크면(오파싱) 폐기.
             raw = dart_report_parser.fetch_report_zip(settings.dart_api_key, rcept_no, session)
             dep = dart_report_parser.parse_cf_depreciation(raw) if raw else None
+            dep = dart_report_parser.plausible_depreciation(dep, fin.revenue)
             period = _period_str(year, kind)
             _upsert_report(
                 db, code, period, kind, rcept_no,

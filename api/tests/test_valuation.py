@@ -104,31 +104,80 @@ def test_asset_revaluation_premium():
     assert r.target_price == 13000 and "재평가할증" in r.process[1]
 
 
-# ── 요인모형 ────────────────────────────────────────────────────────────
-def test_fama_french_required_return_and_target():
-    # rf 3% + 시장(β1×6%) + SMB(β0.3×2%) + HML(β0.5×3%) = 3+6+0.6+1.5 = 11.1%
-    # 목표PER = 1/(0.111-0.05) = 16.39배, EPS 1000 → 16393원
+# ── 요인모형(WACC + H-Model) ─────────────────────────────────────────────
+def test_fama_french_cost_of_equity_and_wacc():
+    # Re = rf 3% + 시장(β1×6%) + SMB(β0.3×2%) + HML(β0.5×3%) = 11.1% (하한 8% 위라 그대로).
+    # 부채 0 → WACC = Re = 11.1%. H-Model 로 목표배수 산출.
     factors = [
         v.FactorExposure("시장", 1.0, 0.06),
         v.FactorExposure("SMB(규모)", 0.3, 0.02),
         v.FactorExposure("HML(가치)", 0.5, 0.03),
     ]
     r = v.fama_french_valuation(
-        forward_eps=1000, risk_free=0.03, factors=factors,
-        earnings_growth=0.05, current_price=12000,
+        forward_eps=1000, risk_free=0.03, factors=factors, earnings_growth=0.02,
+        equity_value=1000, net_debt=0, current_price=12000,
     )
     assert r.applicable
-    assert abs(r.assumptions["required_return"] - 0.111) < 1e-9
-    assert r.target_price == round(1000 / (0.111 - 0.05))
+    assert abs(r.assumptions["cost_of_equity"] - 0.111) < 1e-9
+    assert abs(r.assumptions["wacc"] - 0.111) < 1e-9  # 부채 0 → WACC=Re
+    # 단기성장 2% ≤ 장기 4% → g_S=g_L=… 실제 g_L=min(4%, WACC-0.5%)=4%, g_S=2% → H-Model 배수.
+    assert r.assumptions["growth_high"] == 0.02
 
 
-def test_apt_rejects_required_le_growth():
-    factors = [v.FactorExposure("금리", 0.1, 0.01)]
+def test_h_model_reflects_growth_differential():
+    # H-Model: 단기 고성장일수록 목표배수↑(성장을 자르지 않고 감쇠 프리미엄 반영).
+    factors = [v.FactorExposure("시장", 1.0, 0.06)]  # Re 9%
+    lo = v.apt_valuation(forward_eps=1000, risk_free=0.03, factors=factors, earnings_growth=0.03,
+                         equity_value=1000, net_debt=0, roe=0.12, moat="중", current_price=12000)
+    hi = v.apt_valuation(forward_eps=1000, risk_free=0.03, factors=factors, earnings_growth=0.25,
+                         equity_value=1000, net_debt=0, roe=0.12, moat="중", current_price=12000)
+    assert hi.assumptions["implied_target_per"] > lo.assumptions["implied_target_per"]
+    assert hi.assumptions["growth_high"] == 0.25  # 고성장 자체는 유지(캡 아님)
+
+
+def test_h_model_fade_years_from_ensemble():
+    # 감쇠기간(H)이 상수 아님: 강한 해자·고ROE 가 약한 해자·저ROE 보다 목표배수↑(H↑).
+    factors = [v.FactorExposure("시장", 1.0, 0.06)]
+    strong = v.fama_french_valuation(forward_eps=1000, risk_free=0.03, factors=factors,
+                                     earnings_growth=0.15, equity_value=1000, net_debt=0,
+                                     roe=0.25, moat="강", current_price=12000)
+    weak = v.fama_french_valuation(forward_eps=1000, risk_free=0.03, factors=factors,
+                                   earnings_growth=0.15, equity_value=1000, net_debt=0,
+                                   roe=0.05, moat="약", current_price=12000)
+    assert strong.assumptions["fade_years"] > weak.assumptions["fade_years"]
+    assert strong.assumptions["implied_target_per"] > weak.assumptions["implied_target_per"]
+    assert strong.assumptions["moat"] == "강"
+
+
+def test_factor_model_low_beta_floored_no_explosion():
+    # 저베타(요인 Re 붕괴)여도 Re 하한(rf+5%) + WACC + H-Model(g_L 유계)로 PER 폭발 방지.
+    factors = [v.FactorExposure("시장", 0.1, 0.01)]  # raw Re = 3.0%+0.1% = 3.1%
     r = v.apt_valuation(
-        forward_eps=1000, risk_free=0.03, factors=factors,
-        earnings_growth=0.10, current_price=12000,  # 요구수익률 ~3.1% < 성장 10%
+        forward_eps=1000, risk_free=0.03, factors=factors, earnings_growth=0.10,
+        equity_value=1000, net_debt=0, current_price=12000,
     )
-    assert not r.applicable and "발산" in r.note
+    assert r.applicable
+    assert r.assumptions["cost_of_equity"] >= 0.08  # 하한(rf+5%) 적용
+    assert r.assumptions["growth_long"] <= 0.04  # 장기성장 GDP 상한
+    assert r.assumptions["implied_target_per"] < 80  # 유계(폭발 안 함)
+
+
+def test_near_term_growth_capped_at_extreme():
+    # 비현실적 초고성장(200%)은 단기 상한(30%)으로만 방어(감쇠는 유지).
+    factors = [v.FactorExposure("시장", 1.0, 0.06)]
+    r = v.apt_valuation(forward_eps=1000, risk_free=0.03, factors=factors, earnings_growth=2.0,
+                        equity_value=1000, net_debt=0, current_price=12000)
+    assert r.assumptions["growth_high"] <= 0.30
+
+
+def test_wacc_uses_capital_structure():
+    # 부채 있으면 WACC < Re (세후 부채비용이 더 싸므로).
+    factors = [v.FactorExposure("시장", 1.0, 0.06)]  # Re = 9%
+    r = v.fama_french_valuation(
+        forward_eps=1000, risk_free=0.03, factors=factors, earnings_growth=0.02,
+        equity_value=500, net_debt=500, current_price=12000,  # 50:50 자본구조
+    )
+    assert r.assumptions["wacc"] < r.assumptions["cost_of_equity"]
 
 
 # ── blend(최종 목표가) ───────────────────────────────────────────────────

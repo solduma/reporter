@@ -56,6 +56,24 @@ def test_pick_respects_zero_and_negative_forward():
     assert vs._pick(None, 5000) == 5000  # None 만 폴백
 
 
+# ── EBITDA 단위 읽기시점 2차 방어(DB 정규화가 근본, 이건 belt-and-suspenders) ──────────
+def test_read_guard_ebitda_won_to_eok():
+    # 원 단위(마진 1e8) → 억원 보정. 억원(정상 마진) → 그대로.
+    assert vs._ebitda_to_eok(49_525_162_351, 412) == 49_525_162_351 / 1e8
+    assert vs._ebitda_to_eok(495, 412) == 495
+    assert vs._ebitda_to_eok(49_525_162_351, None) == 49_525_162_351 / 1e8  # revenue 결측 시 크기로
+
+
+def test_anchor_ebitda_read_guard_normalizes():
+    # 원단위 EBITDA 행이 남아있어도 앵커는 억원으로 정규화(구 데이터·배치 지연 방어).
+    rows = [
+        {"period": "2025.12", "is_estimate": False, "eps": 800, "bps": 42737,
+         "ebitda": 49_525_162_351, "revenue": 412, "ev_ebitda": 13.93},
+    ]
+    anc = vs.collect_anchors(rows, {"close_price": 133400, "market_cap": 651_000_000_000})
+    assert abs(anc["ebitda_eok_annual"] - 495.25) < 1
+
+
 # ── 에이전틱 tool-loop ───────────────────────────────────────────────────
 def _fake_llm(turns):
     llm = MagicMock()

@@ -301,10 +301,19 @@ def _factor_model_valuation(
     forward_eps: float | None,
     risk_free: float | None,
     factors: list[FactorExposure],
-    earnings_growth: float | None,  # 이익 성장률 g (목표 PER = 1/(r−g))
-    current_price: float | None,
+    earnings_growth: float | None,  # 명목 이익 성장률(단기). 고든 g 는 영구성장으로 캡.
+    equity_value: float | None = None,  # 시총(억원) — WACC 자본가중
+    net_debt: float | None = None,  # 순차입(억원) — WACC 부채가중
+    roe: float | None = None,  # ROE(초과수익 → H-Model 감쇠기간 정량 기준선)
+    moat: str | None = None,  # 해자 판정(강|중|약, LLM) → 감쇠기간 정성 배수
+    current_price: float | None = None,
 ) -> ValuationResult:
-    """요인모형(Fama-French/APT) 공용: 요구수익률 r 유도 → 목표 PER=1/(r−g) → 목표가=EPS×PER."""
+    """요인모형(Fama-French/APT): 자기자본비용 Re(하한 적용) → WACC → 목표 PER=1/(WACC−g) → 목표가.
+
+    저베타 이상현상으로 Re 가 rf 근처까지 붕괴하면 PER 이 폭발하므로 (1) Re 하한(rf+최소ERP),
+    (2) 할인율을 WACC 로(자본구조 반영), (3) 영구성장 g 를 명목 GDP(4%) 상한으로 캡해 강건화한다."""
+    from app.domain import beta as _beta
+
     r = ValuationResult(method, METHOD_LABELS[method], applicable=False)
     if forward_eps is None or risk_free is None or earnings_growth is None or not factors:
         r.note = "예상 EPS·무위험수익률·이익성장률·요인노출 중 결측"
@@ -312,24 +321,43 @@ def _factor_model_valuation(
     if forward_eps <= 0:
         r.note = f"예상 EPS({_fmt(forward_eps)})가 0 이하 — 요인모형 PER 적용 불가"
         return r
-    req_return, ret_steps = _required_return(risk_free, factors)
-    if req_return <= earnings_growth:
-        r.note = f"요구수익률({req_return:.1%}) ≤ 이익성장률({earnings_growth:.1%}) — 목표 PER 발산"
-        return r
-    target_per = 1.0 / (req_return - earnings_growth)
+    # 1) 요인모형 자기자본비용 Re, 저베타 이상현상 방어 하한(rf + 최소 주식위험프리미엄).
+    re_raw, ret_steps = _required_return(risk_free, factors)
+    re_floor = risk_free + _beta.MIN_EQUITY_PREMIUM
+    cost_of_equity = max(re_raw, re_floor)
+    floored = cost_of_equity > re_raw
+    if floored:
+        ret_steps.append(f"→ 자기자본비용 하한 적용 {cost_of_equity:.1%} (저베타 보정, rf+{_beta.MIN_EQUITY_PREMIUM:.0%})")
+    # 2) WACC(자본구조 반영). equity_value 없으면 Re 를 그대로 할인율로.
+    if equity_value:
+        discount, wacc_steps = _beta.wacc(cost_of_equity, equity_value, net_debt, risk_free)
+    else:
+        discount, wacc_steps = cost_of_equity, [f"할인율 = 자기자본비용 {cost_of_equity:.1%}(시총 미상, WACC 생략)"]
+    # 3) H-Model: 단기 고성장 g_S 가 장기 g_L 로 선형 감쇠. 성장을 자르지 않고 전환기 프리미엄을 반영.
+    #    목표배수 = [(1+g_L) + H·(g_S − g_L)] / (WACC − g_L), H = 감쇠기간/2. WACC 하한이 r>g_L 보장.
+    #    감쇠기간 = ROE 초과수익(정량) × 해자(정성) 앙상블 — 종목별 산정(상수 아님).
+    g_s = min(earnings_growth, _beta.NEAR_TERM_GROWTH_CAP)  # 과도 추정만 방어(고성장 자체는 유지)
+    g_l = min(_beta.TERMINAL_GROWTH_CAP, discount - 0.005)  # 장기 성장(GDP), 할인율보다 낮게 유계
+    fade, fade_steps = _beta.fade_years(roe, discount, moat)
+    h = fade / 2.0
+    target_per = ((1 + g_l) + h * (g_s - g_l)) / (discount - g_l)
     target = _round_won(forward_eps * target_per)
     r.applicable = True
     r.target_price = target
     r.upside_pct = _upside(target, current_price)
     r.confidence = "하"  # 요인·프리미엄 추정 불확실성이 커 기본 낮게
     r.assumptions = {
-        "forward_eps": forward_eps, "risk_free": risk_free, "earnings_growth": earnings_growth,
+        "forward_eps": forward_eps, "risk_free": risk_free,
+        "cost_of_equity": round(cost_of_equity, 4), "wacc": round(discount, 4),
+        "growth_high": round(g_s, 4), "growth_long": round(g_l, 4),
+        "fade_years": fade, "moat": moat, "roe": roe,
         "factors": [{"name": f.name, "beta": f.beta, "premium": f.premium} for f in factors],
-        "required_return": round(req_return, 4), "implied_target_per": round(target_per, 2),
+        "implied_target_per": round(target_per, 2),
     }
     r.process = [
-        *ret_steps,
-        f"목표 PER = 1 ÷ (요구수익률 {req_return:.1%} − 이익성장 {earnings_growth:.1%}) = {target_per:.1f}배",
+        *ret_steps, *wacc_steps, *fade_steps,
+        f"H-Model: 단기성장 {g_s:.1%} → 장기 {g_l:.1%}로 {fade:g}년 선형 감쇠(H={h:g})",
+        f"목표 PER = [(1+{g_l:.1%}) + {h:g}×({g_s:.1%}−{g_l:.1%})] ÷ (WACC {discount:.1%}−{g_l:.1%}) = {target_per:.1f}배",
         f"목표가 = 예상 EPS {_fmt(forward_eps)} × {target_per:.1f} = {_fmt(target)}원",
     ]
     return r
