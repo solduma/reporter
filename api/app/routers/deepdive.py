@@ -1,19 +1,31 @@
-"""종목 딥다이브 라우터 — enqueue·상태폴링·결과 조회.
+"""종목 딥다이브 라우터 — enqueue·상태폴링·결과 조회·HITL 인풋.
 
 무거운 5단계 파이프라인은 worker(DB 폴링 큐)가 실행하고, 라우터는 job 을 큐에 넣고 상태·결과를
 돌려준다. 데이터 접근은 services/deepdive.orchestrator 경유(라우터는 ORM 직접 접근 금지 계약).
+밸류에이션 직전 HITL: paused job 에 인풋을 제출(POST /{code}/hitl)하면 검증 후 재개한다.
 """
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.db.session import get_session
-from app.schemas import DeepDiveReportOut, DeepDiveStatus
+from app.schemas import DeepDiveReportOut, DeepDiveStatus, HitlInput
 from app.services.deepdive import orchestrator
 
 router = APIRouter(prefix="/api/deepdive", tags=["deepdive"])
+
+
+def _status(code: str, job, has: bool) -> DeepDiveStatus:
+    """job → 상태 DTO(HITL 필드 포함). job 없으면 status=none."""
+    if job is None:
+        return DeepDiveStatus(stock_code=code, status="none", current_stage=0, progress=0, has_report=has)
+    return DeepDiveStatus(
+        stock_code=code, status=job.status, current_stage=job.current_stage,
+        progress=job.progress, error=job.error, has_report=has,
+        hitl_pending=job.hitl_pending, hitl_prompt=job.hitl_prompt,
+    )
 
 
 @router.post("/{code}", response_model=DeepDiveStatus)
@@ -21,10 +33,7 @@ def request_deepdive(code: str, db: Session = Depends(get_session)) -> DeepDiveS
     """딥다이브 생성 요청(큐 enqueue). 진행 중이면 그 job 상태를 반환(중복 방지)."""
     job = orchestrator.enqueue(db, code)
     has = orchestrator.get_report(db, code) is not None
-    return DeepDiveStatus(
-        stock_code=code, status=job.status, current_stage=job.current_stage,
-        progress=job.progress, error=job.error, has_report=has,
-    )
+    return _status(code, job, has)
 
 
 @router.get("/{code}/status", response_model=DeepDiveStatus)
@@ -32,12 +41,17 @@ def deepdive_status(code: str, db: Session = Depends(get_session)) -> DeepDiveSt
     """딥다이브 진행 상태(프론트 폴링). job 없으면 status=none."""
     job = orchestrator.latest_job(db, code)
     has = orchestrator.get_report(db, code) is not None
+    return _status(code, job, has)
+
+
+@router.post("/{code}/hitl", response_model=DeepDiveStatus)
+def submit_hitl(code: str, body: HitlInput, db: Session = Depends(get_session)) -> DeepDiveStatus:
+    """밸류에이션 직전 paused 상태에 사용자 인풋을 제출해 재개. paused job 없으면 409."""
+    job = orchestrator.submit_hitl(db, code, body.input)
     if job is None:
-        return DeepDiveStatus(stock_code=code, status="none", current_stage=0, progress=0, has_report=has)
-    return DeepDiveStatus(
-        stock_code=code, status=job.status, current_stage=job.current_stage,
-        progress=job.progress, error=job.error, has_report=has,
-    )
+        raise HTTPException(status_code=409, detail="일시정지된 딥다이브가 없습니다.")
+    has = orchestrator.get_report(db, code) is not None
+    return _status(code, job, has)
 
 
 @router.get("/{code}", response_model=DeepDiveReportOut | None)
@@ -49,6 +63,6 @@ def deepdive_report(code: str, db: Session = Depends(get_session)) -> DeepDiveRe
     return DeepDiveReportOut(
         stock_code=rep.stock_code, model=rep.model,
         overview=rep.overview_json, redflags=rep.redflags_json, business=rep.business_json,
-        thesis=rep.thesis_json, valuation=rep.valuation_json,
+        thesis=rep.thesis_json, hitl=rep.hitl_json, valuation=rep.valuation_json,
         narrative_md=rep.narrative_md, verdict=rep.verdict, upside_pct=rep.upside_pct, as_of=rep.as_of,
     )

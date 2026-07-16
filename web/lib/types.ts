@@ -655,6 +655,23 @@ export interface DeepDiveStatus {
   progress: number; // 0~100
   error: string | null;
   has_report: boolean;
+  hitl_pending: boolean; // 밸류에이션 직전 사용자 인풋 대기
+  hitl_prompt: string | null; // 사용자에게 보일 질문
+}
+
+// HITL 인풋 검증 결과 한 건(반박/반영/가능성).
+export interface HitlClaim {
+  claim: string;
+  verdict: string; // 반박|반영|가능성
+  probability: number; // 0~1
+  evidence: string;
+  reasoning: string;
+  valuation_impact: string;
+}
+
+export interface HitlResult {
+  claims: HitlClaim[];
+  summary: string | null;
 }
 
 // 밸류에이션 방식 하나(PER·PBR·EV/EBITDA·DCF·DDM·자산가치·Fama-French·APT).
@@ -688,6 +705,7 @@ export interface DeepDiveReport {
   redflags: Record<string, unknown> | null;
   business: Record<string, unknown> | null;
   thesis: Record<string, unknown> | null;
+  hitl: (HitlResult & Record<string, unknown>) | null;
   valuation: (ValuationResult & Record<string, unknown>) | Record<string, unknown> | null;
   narrative_md: string | null;
   verdict: string | null;

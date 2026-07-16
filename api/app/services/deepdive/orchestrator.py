@@ -21,7 +21,7 @@ from app.adapters.llm.factory import get_llm
 from app.config import Settings, get_settings
 from app.db.models import DeepDiveJob, DeepDiveReport
 from app.ports.llm import LLMError, LLMPort
-from app.services.deepdive import stages, tools
+from app.services.deepdive import hitl, stages, tools
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +49,36 @@ def _is_stage_error(result) -> bool:
     return isinstance(result, dict) and any(k in result for k in ("_error", "_note", "_partial"))
 
 
+def _handle_hitl(
+    db: Session, job: DeepDiveJob, rep: DeepDiveReport, llm: LLMPort, model: str,
+    ctx: tools.ToolContext, prior: dict,
+) -> bool:
+    """밸류에이션 직전 HITL 처리. 진행 가능하면 True, 사용자 인풋 대기로 일시정지하면 False.
+
+    상태 전이:
+    - 아직 인풋 없음(hitl_input NULL): status=paused·hitl_pending=True·prompt 설정 → False(tick 반납).
+    - 인풋 있음: 아직 미검증(rep.hitl_json 없음)이면 추가 리서치로 검증해 저장. prior['hitl'] 주입 → True.
+    - 재개(이미 검증됨): 저장된 hitl_json 을 prior 에 실어 True(재검증 방지).
+    """
+    if job.hitl_input is None:
+        # 최초 밸류에이션 도달 — 사용자에게 인풋을 청하고 멈춘다(이번 tick 반납).
+        job.status = "paused"
+        job.hitl_pending = True
+        job.hitl_prompt = hitl.build_prompt(prior)
+        db.commit()
+        logger.info("deepdive paused for HITL %s (job %d)", job.stock_code, job.id)
+        return False
+
+    # 인풋 수신됨. 공백이면(사용자가 건너뜀) 검증 없이 진행. 미검증이면 추가 리서치로 검증해 저장.
+    if job.hitl_input.strip() and rep.hitl_json is None:
+        verdicts = hitl.verify_input(llm, model, ctx, job.hitl_input, prior)
+        rep.hitl_json = verdicts
+        db.commit()
+    if rep.hitl_json is not None:
+        prior["hitl"] = rep.hitl_json
+    return True
+
+
 def _get_or_create_report(
     db: Session, code: str, job_id: int, model: str, resume_from: int = 0
 ) -> DeepDiveReport:
@@ -63,7 +93,7 @@ def _get_or_create_report(
         # 서술·verdict 등 최종 산출물만 리셋(단계 재개 후 다시 만든다).
         if resume_from <= 0:
             rep.overview_json = rep.redflags_json = rep.business_json = None
-            rep.thesis_json = rep.valuation_json = None
+            rep.thesis_json = rep.hitl_json = rep.valuation_json = None
         rep.narrative_md = rep.verdict = None
         rep.upside_pct = None
     db.commit()
@@ -100,6 +130,10 @@ def run_job(db: Session, job: DeepDiveJob, settings: Settings | None = None) -> 
     total = len(stages.STAGES)
     try:
         for idx, (key, fn) in enumerate(stages.STAGES, start=1):
+            # 밸류에이션 직전 HITL: 사용자 인풋을 아직 안 받았으면 paused 로 멈추고 이번 tick 을 비운다.
+            # 인풋을 받았으면 추가 리서치로 검증(반박/반영/가능성)해 밸류에이션 컨텍스트에 주입한다.
+            if key == "valuation" and not _handle_hitl(db, job, rep, llm, model, ctx, prior):
+                return  # paused — 사용자 인풋 대기(POST /hitl 로 재개)
             saved = getattr(rep, json_cols[key]) if idx <= resume_from else None
             if saved and not _is_stage_error(saved):
                 prior[key] = saved  # 이미 완료된 단계 — 재계산 없이 이어받는다.
@@ -171,7 +205,7 @@ def enqueue(db: Session, code: str) -> DeepDiveJob:
     """
     existing = db.scalar(
         select(DeepDiveJob)
-        .where(DeepDiveJob.stock_code == code, DeepDiveJob.status.in_(("pending", "running")))
+        .where(DeepDiveJob.stock_code == code, DeepDiveJob.status.in_(("pending", "running", "paused")))
         .order_by(DeepDiveJob.id.desc())
     )
     if existing:
@@ -180,6 +214,27 @@ def enqueue(db: Session, code: str) -> DeepDiveJob:
     db.add(job)
     db.commit()
     db.refresh(job)
+    return job
+
+
+def submit_hitl(db: Session, code: str, user_input: str) -> DeepDiveJob | None:
+    """paused 딥다이브에 사용자 인풋을 제출해 재개(status=pending)한다. 없으면 None.
+
+    user_input 은 공백이어도 저장한다(= '건너뜀' 신호: 검증 없이 밸류에이션 진행). 워커가 다음 tick 에
+    pending 으로 잡아 밸류에이션 직전 검증→재개한다. current_stage(=4, thesis 완료)는 보존해 재계산 없이 이어감.
+    """
+    job = db.scalar(
+        select(DeepDiveJob)
+        .where(DeepDiveJob.stock_code == code, DeepDiveJob.status == "paused")
+        .order_by(DeepDiveJob.id.desc())
+    )
+    if job is None:
+        return None
+    job.hitl_input = user_input or ""
+    job.hitl_pending = False
+    job.status = "pending"
+    db.commit()
+    logger.info("deepdive HITL input received %s (job %d), resuming", code, job.id)
     return job
 
 

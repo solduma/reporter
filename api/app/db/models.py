@@ -694,8 +694,11 @@ class DeepDiveJob(Base):
     model: Mapped[str] = mapped_column(String(64), default="")
     error: Mapped[str | None] = mapped_column(Text)
     # 2차 HITL: 특정 단계 후 paused 로 멈추고 사용자 피드백을 받아 재개(1차는 미사용, 스키마만 확보).
-    hitl_pending: Mapped[bool] = mapped_column(default=False)
-    hitl_prompt: Mapped[str | None] = mapped_column(Text)
+    # HITL(밸류에이션 직전 사람 개입): thesis 후 paused 로 멈춰 hitl_prompt 로 인풋을 청하고,
+    # 사용자가 hitl_input 을 넣으면 재개해 추가 리서치·검증 후 밸류에이션에 반영한다.
+    hitl_pending: Mapped[bool] = mapped_column(default=False)  # 인풋 대기 중(프론트가 입력창 노출)
+    hitl_prompt: Mapped[str | None] = mapped_column(Text)  # 사용자에게 보일 질문
+    hitl_input: Mapped[str | None] = mapped_column(Text)  # 사용자가 제출한 인풋(있으면 재개·반영)
     requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -720,6 +723,8 @@ class DeepDiveReport(Base):
     redflags_json: Mapped[dict | None] = mapped_column(JSONB)
     business_json: Mapped[dict | None] = mapped_column(JSONB)
     thesis_json: Mapped[dict | None] = mapped_column(JSONB)
+    # HITL(밸류에이션 직전 사용자 인풋) 검증 결과 — 인풋별 판정(반박/반영/가능성)과 근거. 밸류에이션에 주입.
+    hitl_json: Mapped[dict | None] = mapped_column(JSONB)
     valuation_json: Mapped[dict | None] = mapped_column(JSONB)
     narrative_md: Mapped[str | None] = mapped_column(Text)  # 5단계 통합 서술 본문
     verdict: Mapped[str | None] = mapped_column(String(120))  # 결론 요약(예: '성장주 · 업사이드 62%')

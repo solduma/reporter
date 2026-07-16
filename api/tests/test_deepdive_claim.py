@@ -91,6 +91,7 @@ def test_run_job_resumes_from_interrupted_stage(monkeypatch):
     rep.thesis_json = rep.valuation_json = None
     job = MagicMock()
     job.id, job.stock_code, job.current_stage = 10, "093320", 3  # 3단계까지 완료 후 중단
+    job.hitl_input = ""  # HITL 건너뜀(검증 없이 밸류에이션 진행)
 
     db = MagicMock()
     with patch.object(o, "get_llm", return_value=MagicMock()), \
@@ -113,6 +114,7 @@ def test_run_job_fresh_runs_all_stages(monkeypatch):
     rep.overview_json = {"old": 1}
     job = MagicMock()
     job.id, job.stock_code, job.current_stage = 11, "093320", 0  # fresh
+    job.hitl_input = ""  # HITL 건너뜀
 
     db = MagicMock()
     db.scalar.return_value = rep
@@ -132,3 +134,115 @@ def test_stage_error_marker_reruns_on_resume(monkeypatch):
     assert o._is_stage_error({"_error": "LLM 실패"}) is True
     assert o._is_stage_error({"_note": "비정형"}) is True
     assert o._is_stage_error({"per": 10}) is False
+
+
+# ── HITL(밸류에이션 직전 일시정지·재개) ─────────────────────────────────
+def test_run_job_pauses_before_valuation_when_no_input():
+    # thesis 까지 돌고 밸류에이션 직전에서 인풋 없으면 paused 로 멈추고 valuation 은 실행 안 됨.
+    from unittest.mock import MagicMock, patch
+
+    from app.services.deepdive import orchestrator as o
+
+    ran, fake, Report = _run_job_stages()
+    rep = Report(stock_code="093320")
+    rep.overview_json = rep.redflags_json = rep.business_json = rep.thesis_json = None
+    job = MagicMock()
+    job.id, job.stock_code, job.current_stage = 20, "093320", 0
+    job.hitl_input = None  # 아직 인풋 없음
+
+    db = MagicMock()
+    with patch.object(o, "get_llm", return_value=MagicMock()), \
+         patch.object(o.tools, "resolve_corp_code", return_value="c"), \
+         patch.object(o, "_get_or_create_report", return_value=rep), \
+         patch.object(o.stages, "STAGES", fake), \
+         patch.object(o.hitl, "build_prompt", return_value="인풋 주세요"), \
+         patch.object(o, "_finalize", lambda *a: None):
+        o.run_job(db, job, MagicMock())
+    assert "valuation" not in ran  # 밸류에이션 직전 멈춤
+    assert ran == ["overview", "redflags", "business", "thesis"]
+    assert job.status == "paused" and job.hitl_pending is True
+    assert job.hitl_prompt == "인풋 주세요"
+
+
+def test_run_job_verifies_input_and_resumes():
+    # 인풋을 받으면 검증(verify_input)해 rep.hitl_json 에 저장하고 밸류에이션까지 진행.
+    from unittest.mock import MagicMock, patch
+
+    from app.services.deepdive import orchestrator as o
+
+    ran, fake, Report = _run_job_stages()
+    rep = Report(stock_code="093320")
+    rep.overview_json = {"per": 10}
+    rep.redflags_json = {"severity": "양호"}
+    rep.business_json = {"moat": "x"}
+    rep.thesis_json = {"thesis": "t"}
+    rep.hitl_json = None
+    job = MagicMock()
+    job.id, job.stock_code, job.current_stage = 21, "093320", 4  # thesis 까지 완료
+    job.hitl_input = "신규 대형 수주 임박"
+
+    verdicts = {"claims": [{"verdict": "가능성", "probability": 0.4}]}
+    db = MagicMock()
+    with patch.object(o, "get_llm", return_value=MagicMock()), \
+         patch.object(o.tools, "resolve_corp_code", return_value="c"), \
+         patch.object(o, "_get_or_create_report", return_value=rep), \
+         patch.object(o.stages, "STAGES", fake), \
+         patch.object(o.hitl, "verify_input", return_value=verdicts), \
+         patch.object(o, "_finalize", lambda *a: None):
+        o.run_job(db, job, MagicMock())
+    assert ran == ["valuation"]  # thesis 까지 스킵, 밸류에이션만 실행
+    assert rep.hitl_json == verdicts  # 검증 결과 저장
+    assert job.status == "done"
+
+
+def test_run_job_skips_verify_on_blank_input():
+    # 공백 인풋(건너뜀)이면 verify_input 을 호출하지 않고 바로 밸류에이션 진행.
+    from unittest.mock import MagicMock, patch
+
+    from app.services.deepdive import orchestrator as o
+
+    ran, fake, Report = _run_job_stages()
+    rep = Report(stock_code="093320")
+    rep.overview_json = {"per": 10}
+    rep.redflags_json = {"severity": "양호"}
+    rep.business_json = {"moat": "x"}
+    rep.thesis_json = {"thesis": "t"}
+    rep.hitl_json = None
+    job = MagicMock()
+    job.id, job.stock_code, job.current_stage = 22, "093320", 4
+    job.hitl_input = "   "  # 공백 = 건너뜀
+
+    called = {"verify": False}
+
+    def _boom(*a, **k):
+        called["verify"] = True
+        return {}
+
+    db = MagicMock()
+    with patch.object(o, "get_llm", return_value=MagicMock()), \
+         patch.object(o.tools, "resolve_corp_code", return_value="c"), \
+         patch.object(o, "_get_or_create_report", return_value=rep), \
+         patch.object(o.stages, "STAGES", fake), \
+         patch.object(o.hitl, "verify_input", _boom), \
+         patch.object(o, "_finalize", lambda *a: None):
+        o.run_job(db, job, MagicMock())
+    assert ran == ["valuation"]
+    assert called["verify"] is False  # 공백이면 검증 스킵
+    assert rep.hitl_json is None
+
+
+def test_submit_hitl_resumes_paused_job(db):
+    from app.services.deepdive import orchestrator
+
+    _job(db, status="paused", hitl_pending=True, hitl_prompt="?")
+    job = orchestrator.submit_hitl(db, "000000", "신규 수주")
+    assert job is not None
+    assert job.status == "pending" and job.hitl_pending is False
+    assert job.hitl_input == "신규 수주"
+
+
+def test_submit_hitl_none_when_not_paused(db):
+    from app.services.deepdive import orchestrator
+
+    _job(db, status="running")
+    assert orchestrator.submit_hitl(db, "000000", "x") is None

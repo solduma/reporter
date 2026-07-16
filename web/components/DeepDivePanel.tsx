@@ -4,8 +4,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import Markdown from "@/components/Markdown";
 import ValuationCard from "@/components/ValuationCard";
-import { fetchDeepDiveReport, fetchDeepDiveStatus, requestDeepDive } from "@/lib/api";
-import type { DeepDiveReport, DeepDiveStatus } from "@/lib/types";
+import {
+  fetchDeepDiveReport,
+  fetchDeepDiveStatus,
+  requestDeepDive,
+  submitDeepDiveHitl,
+} from "@/lib/api";
+import type { DeepDiveReport, DeepDiveStatus, HitlClaim } from "@/lib/types";
 
 import styles from "./DeepDivePanel.module.css";
 
@@ -59,12 +64,51 @@ function Section({ title, data }: { title: string; data: Record<string, unknown>
   );
 }
 
+// verdict → 배지 색 클래스. 반박=회색(반영 안 함), 반영=녹색(100%), 가능성=주황(확률 가중).
+function verdictClass(verdict: string): string {
+  if (verdict.includes("반박")) return styles.hitlRefute;
+  if (verdict.includes("반영")) return styles.hitlReflect;
+  return styles.hitlMaybe;
+}
+
+// HITL 인풋 검증 결과(반박/반영/가능성) 카드. claims 없으면 렌더 안 함.
+function HitlResultCard({ hitl }: { hitl: DeepDiveReport["hitl"] }) {
+  const claims = (hitl?.claims ?? []) as HitlClaim[];
+  if (!claims.length) {
+    return null;
+  }
+  return (
+    <div className={styles.hitlResult}>
+      <h4 className={styles.sectionTitle}>사용자 인풋 검증</h4>
+      {hitl?.summary ? <p className={styles.hitlSummary}>{hitl.summary}</p> : null}
+      <ul className={styles.hitlClaims}>
+        {claims.map((c, i) => (
+          <li key={i} className={styles.hitlClaim}>
+            <div className={styles.hitlClaimHead}>
+              <span className={`${styles.hitlBadge} ${verdictClass(c.verdict)}`}>{c.verdict}</span>
+              <span className={styles.hitlProb}>반영 {Math.round((c.probability ?? 0) * 100)}%</span>
+              <span className={styles.hitlClaimText}>{c.claim}</span>
+            </div>
+            {c.valuation_impact ? (
+              <p className={styles.hitlImpact}>가정 조정: {c.valuation_impact}</p>
+            ) : null}
+            {c.evidence ? <p className={styles.hitlEvidence}>근거: {c.evidence}</p> : null}
+            {c.reasoning ? <p className={styles.hitlEvidence}>판정: {c.reasoning}</p> : null}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export default function DeepDivePanel({ code }: { code: string }) {
   const [status, setStatus] = useState<DeepDiveStatus | null>(null);
   const [report, setReport] = useState<DeepDiveReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [requesting, setRequesting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hitlInput, setHitlInput] = useState("");
+  const [hitlSubmitting, setHitlSubmitting] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadReport = useCallback(async () => {
@@ -140,11 +184,31 @@ export default function DeepDivePanel({ code }: { code: string }) {
     }
   };
 
+  // 밸류에이션 직전 HITL 인풋 제출(빈 값이면 건너뜀). 재개 → 폴링 재시작.
+  const onSubmitHitl = async (skip: boolean) => {
+    setHitlSubmitting(true);
+    setError(null);
+    try {
+      const s = await submitDeepDiveHitl(code, skip ? "" : hitlInput);
+      setStatus(s);
+      setHitlInput("");
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+      }
+      timerRef.current = setTimeout(poll, POLL_MS);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "HITL 인풋 제출 실패");
+    } finally {
+      setHitlSubmitting(false);
+    }
+  };
+
   if (loading) {
     return <div className={styles.status}>불러오는 중…</div>;
   }
 
   const active = status ? isActive(status.status) : false;
+  const paused = status?.status === "paused";
   const stageIdx = status?.current_stage ?? 0;
 
   return (
@@ -156,12 +220,46 @@ export default function DeepDivePanel({ code }: { code: string }) {
             <span className={styles.asOf}>생성 {report.as_of.slice(0, 10)}</span>
           ) : null}
         </div>
-        <button type="button" className={styles.runBtn} onClick={onRequest} disabled={active || requesting}>
-          {active ? "분석 진행 중…" : report ? "다시 분석" : "딥다이브 실행"}
+        <button type="button" className={styles.runBtn} onClick={onRequest} disabled={active || paused || requesting}>
+          {active ? "분석 진행 중…" : paused ? "인풋 대기 중…" : report ? "다시 분석" : "딥다이브 실행"}
         </button>
       </div>
 
       {error ? <p className={styles.error}>{error}</p> : null}
+
+      {paused ? (
+        <div className={styles.hitl}>
+          <div className={styles.hitlPrompt}>
+            <Markdown content={status?.hitl_prompt ?? "밸류에이션 직전입니다. 추가 정보를 입력하세요."} />
+          </div>
+          <textarea
+            className={styles.hitlInput}
+            value={hitlInput}
+            onChange={(e) => setHitlInput(e.target.value)}
+            placeholder="예: 이번 분기 대형 데이터센터 수주가 임박했다 / 무형자산 손상 우려가 있다"
+            rows={3}
+            disabled={hitlSubmitting}
+          />
+          <div className={styles.hitlActions}>
+            <button
+              type="button"
+              className={styles.runBtn}
+              onClick={() => onSubmitHitl(false)}
+              disabled={hitlSubmitting || !hitlInput.trim()}
+            >
+              {hitlSubmitting ? "검증 중…" : "인풋 반영하고 계속"}
+            </button>
+            <button
+              type="button"
+              className={styles.hitlSkip}
+              onClick={() => onSubmitHitl(true)}
+              disabled={hitlSubmitting}
+            >
+              건너뛰고 계속
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {active ? (
         <div className={styles.progress}>
@@ -198,6 +296,7 @@ export default function DeepDivePanel({ code }: { code: string }) {
               <Markdown content={report.narrative_md} />
             </div>
           ) : null}
+          <HitlResultCard hitl={report.hitl} />
           {isMultiMethodValuation(report.valuation) ? (
             <ValuationCard valuation={report.valuation} />
           ) : null}
