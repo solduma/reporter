@@ -73,32 +73,41 @@ def test_premiums_are_sane_constants():
     assert 0.04 <= beta.MARKET_PREMIUM <= 0.08
 
 
-# ── H-Model 감쇠기간 앙상블(ROE 초과수익 × 해자) ─────────────────────────
-def test_fade_years_high_spread_and_strong_moat_longer():
-    # 고ROE(30%)+강해자 → 상한(20년). 저ROE(5%)+약해자 → 하한(3년).
-    long_y, _ = beta.fade_years(0.30, 0.08, "강")
-    short_y, _ = beta.fade_years(0.05, 0.08, "약")
-    assert long_y == beta.FADE_YEARS_MAX
-    assert short_y == beta.FADE_YEARS_MIN
-    assert long_y > short_y
+# ── H-Model 감쇠기간(임의 상하한 없이 초과수익·WACC 에서 유도) ────────────
+def test_fade_years_zero_when_no_excess_return():
+    # 초과수익 0(ROE=WACC) 또는 가치파괴(ROE<WACC) → 감쇠 0년(하한 상수 없이 자연 수렴).
+    assert beta.fade_years(0.08, 0.08, "강")[0] == 0.0  # ROE=WACC
+    assert beta.fade_years(0.05, 0.09, "강")[0] == 0.0  # ROE<WACC(가치파괴)
+
+
+def test_fade_years_bounded_by_inverse_wacc():
+    # 자연 상한 = 1/WACC. 감쇠기간이 이 지평을 넘지 않는다(상수 상한 아님).
+    for roe, w in [(0.50, 0.08), (0.30, 0.10), (0.99, 0.06)]:
+        y, _ = beta.fade_years(roe, w, "강")
+        assert y <= 1.0 / w + 0.1  # +0.1: round(,1) 반올림 여유
+
+
+def test_fade_years_lower_wacc_allows_longer_horizon():
+    # 같은 초과수익폭이라도 WACC 낮으면(할인 지평 김) 감쇠기간 길다.
+    lo_wacc, _ = beta.fade_years(0.16, 0.06, "강")  # spread 10%p, 지평 16.7년
+    hi_wacc, _ = beta.fade_years(0.19, 0.09, "강")  # spread 10%p, 지평 11.1년
+    assert lo_wacc > hi_wacc
 
 
 def test_fade_years_moat_multiplier():
-    # 같은 ROE 라도 해자 등급이 감쇠기간을 조정(강>중>약).
-    strong, _ = beta.fade_years(0.107, 0.079, "강")
-    mid, _ = beta.fade_years(0.107, 0.079, "중")
-    weak, _ = beta.fade_years(0.107, 0.079, "약")
+    # 같은 ROE·WACC 라도 해자 등급이 지속성을 조정(강>중>약).
+    strong, _ = beta.fade_years(0.20, 0.079, "강")
+    mid, _ = beta.fade_years(0.20, 0.079, "중")
+    weak, _ = beta.fade_years(0.20, 0.079, "약")
     assert strong > mid > weak
 
 
 def test_fade_years_accepts_percent_roe():
-    # ROE 가 % 단위(10.7)로 들어와도 소수(0.107)와 동일 결과.
-    a, _ = beta.fade_years(10.7, 0.079, "중")
-    b, _ = beta.fade_years(0.107, 0.079, "중")
-    assert a == b
+    # ROE 가 % 단위(20.0)로 들어와도 소수(0.20)와 동일 결과.
+    assert beta.fade_years(20.0, 0.079, "중")[0] == beta.fade_years(0.20, 0.079, "중")[0]
 
 
-def test_fade_years_default_when_missing():
-    y, steps = beta.fade_years(None, 0.08, "강")
-    assert y == beta.DEFAULT_FADE_YEARS
-    assert "기본" in steps[0]
+def test_fade_years_zero_when_roe_or_wacc_missing():
+    # 초과수익 미확인 → 보수적으로 0년(성장 프리미엄 없음).
+    assert beta.fade_years(None, 0.08, "강")[0] == 0.0
+    assert beta.fade_years(0.20, None, "강")[0] == 0.0
