@@ -83,7 +83,9 @@ else
         web/*)                                        WANT_WEB=1 ;;
         api/app/tui.py|api/app/services/server_control.py) WANT_API=1 ;;
         api/app/routers/*|api/app/schemas*)           WANT_API=1 ;;
-        api/app/domain/*|api/app/services/*|src/*)    WANT_API=1; WANT_WORKER=1 ;;
+        # domain·services·adapters·db·config·src 는 worker(스케줄러)가 이미지에 내장해 실행하므로
+        # 그쪽 변경은 worker 도 재빌드(재무·공시 파서·딥다이브 등이 adapters/db 를 쓴다).
+        api/app/domain/*|api/app/services/*|api/app/adapters/*|api/app/db/*|api/app/config.py|src/*) WANT_API=1; WANT_WORKER=1 ;;
         infra/*|pyproject.toml|uv.lock)               WANT_WORKER=1 ;;
         api/*)                                        WANT_API=1 ;;
       esac
