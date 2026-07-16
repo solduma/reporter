@@ -62,6 +62,12 @@ _DATA_MIGRATIONS = (
     "WHERE net_debt IS NOT NULL AND ebitda IS NOT NULL AND abs(ebitda) > 1e7",
     "UPDATE financials SET net_debt = net_debt / 1e8 "
     "WHERE net_debt IS NOT NULL AND abs(net_debt) > 1e7",
+    # A2) net_debt 마커가 없는 잔여 원단위 ebitda(레거시 일부). 같은 종목 다른 행(억원) 중앙값의
+    #     1e6 배를 넘으면 원단위 오염 → /1e8. 종목 자기분포 기준이라 절대 임계값 아님(정상행 보호).
+    "UPDATE financials f SET ebitda = ebitda / 1e8 "
+    "WHERE f.ebitda IS NOT NULL AND abs(f.ebitda) > 1e6 * (SELECT percentile_cont(0.5) "
+    "WITHIN GROUP (ORDER BY abs(g.ebitda)) FROM financials g "
+    "WHERE g.stock_code = f.stock_code AND g.ebitda IS NOT NULL AND abs(g.ebitda) < 1e7)",
     # B) D&A 오파싱으로 왜곡된 EBITDA(감가상각비를 매출 8배 초과로 잘못 추출) → 무효화.
     #    plausible_depreciation 가드로 재발은 막았고, 기존 오값은 NULL 처리(밸류는 결측 시 우아하게 생략).
     "UPDATE financials SET ebitda = NULL, ev_ebitda = NULL "
