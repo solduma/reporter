@@ -573,3 +573,30 @@ class CalendarView(BaseModel):
     as_of: date
     past: list[CalendarEventOut]  # 최신순(가까운 과거 먼저)
     upcoming: list[CalendarEventOut]  # 임박순(가까운 미래 먼저)
+
+
+class DeepDiveStatus(BaseModel):
+    """딥다이브 job 진행 상태(프론트 폴링)."""
+
+    stock_code: str
+    status: str  # pending|running|paused|done|failed|none
+    current_stage: int  # 0~5
+    progress: int  # 0~100
+    error: str | None = None
+    has_report: bool = False  # 완료 보고서 존재 여부
+
+
+class DeepDiveReportOut(BaseModel):
+    """딥다이브 보고서 — 단계별 구조화 JSON + 통합 서술 본문."""
+
+    stock_code: str
+    model: str | None = None
+    overview: dict | None = None
+    redflags: dict | None = None
+    business: dict | None = None
+    thesis: dict | None = None
+    valuation: dict | None = None
+    narrative_md: str | None = None
+    verdict: str | None = None
+    upside_pct: float | None = None
+    as_of: datetime | None = None

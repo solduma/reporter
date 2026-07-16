@@ -644,3 +644,29 @@ export interface CalendarView {
   past: CalendarEvent[]; // 최신순
   upcoming: CalendarEvent[]; // 임박순
 }
+
+// 종목 딥다이브
+export type DeepDiveJobStatus = "none" | "pending" | "running" | "paused" | "done" | "failed";
+
+export interface DeepDiveStatus {
+  stock_code: string;
+  status: DeepDiveJobStatus;
+  current_stage: number; // 0~5
+  progress: number; // 0~100
+  error: string | null;
+  has_report: boolean;
+}
+
+export interface DeepDiveReport {
+  stock_code: string;
+  model: string | null;
+  overview: Record<string, unknown> | null;
+  redflags: Record<string, unknown> | null;
+  business: Record<string, unknown> | null;
+  thesis: Record<string, unknown> | null;
+  valuation: Record<string, unknown> | null;
+  narrative_md: string | null;
+  verdict: string | null;
+  upside_pct: number | null;
+  as_of: string | null;
+}
