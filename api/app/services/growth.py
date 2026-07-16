@@ -85,14 +85,15 @@ def compute_growth(stock_code: str, periods: list) -> GrowthMetric | None:
     prior = next((p for p in actuals if _key(p.period) == (ly - 1, lm)), None)
 
     prior_rev = prior.revenue if prior else None
-    latest_ebitda = getattr(latest, "ebitda", None)
-    prior_ebitda = getattr(prior, "ebitda", None) if prior else None
 
     op_status = _profit_status(
         prior.operating_income if prior else None, latest.operating_income
     )
     net_status = _profit_status(prior.net_income if prior else None, latest.net_income)
-    ebitda_status = _profit_status(prior_ebitda, latest_ebitda)
+
+    # EBITDA(=영업이익+D&A)는 현금흐름표 파싱 특성상 연간(.12)에만 저장된다. 분기 latest 엔 없으므로
+    # 연간 실적만 골라 최신 연간 vs 전년 연간으로 별도 비교(같은 연간 period 의 매출로 마진 산출).
+    eb_status, eb_margin = _ebitda_yoy(actuals)
 
     return GrowthMetric(
         stock_code=stock_code,
@@ -109,11 +110,27 @@ def compute_growth(stock_code: str, periods: list) -> GrowthMetric | None:
         net_margin_delta=_margin_delta(
             latest.net_income, latest.revenue, prior.net_income, prior_rev
         ) if prior else None,
-        ebitda_status=ebitda_status,
-        ebitda_margin_delta=_margin_delta(
-            latest_ebitda, latest.revenue, prior_ebitda, prior_rev
-        ) if prior else None,
+        ebitda_status=eb_status,
+        ebitda_margin_delta=eb_margin,
     )
+
+
+def _ebitda_yoy(actuals: list) -> tuple[str | None, float | None]:
+    """EBITDA 손익상태·마진 증감(연간 기준). EBITDA 는 연간(.12)에만 있어 연간끼리 최신 vs 전년 비교.
+
+    연간 실적이 2개 미만이거나 EBITDA 결측이면 (None, None). 마진은 같은 연간 period 의 매출로 나눔.
+    """
+    annuals = [p for p in actuals if _key(p.period) and _key(p.period)[1] == 12
+               and getattr(p, "ebitda", None) is not None]
+    if len(annuals) < 2:
+        return None, None
+    latest, prior = annuals[-1], annuals[-2]
+    # 연속 회계연도만 유효(중간 결손 방지).
+    if _key(latest.period)[0] - _key(prior.period)[0] != 1:
+        return None, None
+    status = _profit_status(prior.ebitda, latest.ebitda)
+    margin = _margin_delta(latest.ebitda, latest.revenue, prior.ebitda, prior.revenue)
+    return status, margin
 
 
 def _profit_status(prior_v: float | None, latest_v: float | None) -> str | None:

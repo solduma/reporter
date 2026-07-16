@@ -69,24 +69,37 @@ def test_margin_delta_none_when_revenue_nonpositive():
     assert m.op_margin_delta is None
 
 
-def test_net_and_ebitda_status_and_margin():
-    # 순이익·EBITDA 도 영업이익과 동일하게 손익상태 4단계 + 마진 증감을 낸다.
+def test_net_status_and_margin_quarterly():
+    # 순이익은 영업이익과 동일하게 분기(동분기 YoY) 손익상태 + 마진 증감.
     fins = [
-        _Fin("2025.03", 100.0, -5.0, net_income=-8.0, ebitda=-2.0),
-        _Fin("2026.03", 100.0, 8.0, net_income=6.0, ebitda=12.0),
+        _Fin("2025.03", 100.0, -5.0, net_income=-8.0),
+        _Fin("2026.03", 100.0, 8.0, net_income=6.0),
     ]
     m = growth.compute_growth("A", fins)
     assert m.net_status == "흑자전환"  # 순이익 -8 → +6
     assert m.net_margin_delta == round(6 / 100 - (-8 / 100), 4)  # +14pp
-    assert m.ebitda_status == "흑자전환"  # EBITDA -2 → +12
-    assert m.ebitda_margin_delta == round(12 / 100 - (-2 / 100), 4)  # +14pp
 
 
-def test_net_ebitda_status_none_without_data():
-    # 순이익·EBITDA 결측이면 상태·마진 None(축 제외).
-    m = growth.compute_growth("A", [_Fin("2025.03", 100.0, 10.0), _Fin("2026.03", 120.0, 12.0)])
-    assert m.net_status is None and m.net_margin_delta is None
+def test_ebitda_status_and_margin_annual():
+    # EBITDA 는 현금흐름표 파싱 특성상 연간(.12)만 저장 → 최신 연간 vs 전년 연간으로 비교.
+    fins = [
+        _Fin("2025.12", 1000.0, 100.0, net_income=80.0, ebitda=-20.0),  # 적자
+        _Fin("2026.03", 300.0, 40.0, net_income=30.0),  # 분기(ebitda 없음)
+        _Fin("2026.12", 1200.0, 140.0, net_income=110.0, ebitda=240.0),  # 흑전
+    ]
+    m = growth.compute_growth("A", fins)
+    assert m.ebitda_status == "흑자전환"  # EBITDA -20 → +240
+    assert m.ebitda_margin_delta == round(240 / 1200 - (-20 / 1000), 4)  # 0.20 - (-0.02) = 0.22
+
+
+def test_ebitda_none_when_single_annual():
+    # 연간 EBITDA 가 1개뿐이면 YoY 비교 불가 → None. 순이익은 결측 시 None.
+    m = growth.compute_growth("A", [
+        _Fin("2025.03", 100.0, 10.0), _Fin("2026.03", 120.0, 12.0),
+        _Fin("2026.12", 500.0, 60.0, ebitda=90.0),
+    ])
     assert m.ebitda_status is None and m.ebitda_margin_delta is None
+    assert m.net_status is None and m.net_margin_delta is None
 
 
 def test_op_status_four_states():
