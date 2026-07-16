@@ -106,6 +106,7 @@ def backfill_stock(db: Session, settings: Settings, code: str) -> bool:
 
     # DART 원자료 수집(account_id 매칭). 값 없는 분기는 건너뛴다.
     rev_raw: dict[tuple[int, int], float | None] = {}
+    op_raw: dict[tuple[int, int], float | None] = {}
     ni_raw: dict[tuple[int, int], float | None] = {}
     eps_raw: dict[tuple[int, int], float | None] = {}
     equity: dict[tuple[int, int], float | None] = {}
@@ -117,6 +118,7 @@ def backfill_stock(db: Session, settings: Settings, code: str) -> bool:
                 continue
             any_data = True
             rev_raw[(year, q)] = fin.revenue
+            op_raw[(year, q)] = fin.operating_income
             ni_raw[(year, q)] = fin.net_income
             eps_raw[(year, q)] = fin.eps
             equity[(year, q)] = fin.equity
@@ -125,8 +127,9 @@ def backfill_stock(db: Session, settings: Settings, code: str) -> bool:
     if not any_data:
         return True  # 재무 공시 없음 → 완료 처리
 
-    # 분기 개별값 환산(4Q=연간-누적). 매출·순이익은 총액(원), EPS 는 표시용.
+    # 분기 개별값 환산(4Q=연간-누적). 매출·영업이익·순이익은 총액(원), EPS 는 표시용.
     rev_q = {yq: financials.discrete_quarter(rev_raw, yq) for yq in rev_raw}
+    op_q = {yq: financials.discrete_quarter(op_raw, yq) for yq in op_raw}
     ni_q = {yq: financials.discrete_quarter(ni_raw, yq) for yq in ni_raw}
     eps_q = {yq: financials.discrete_quarter(eps_raw, yq) for yq in eps_raw}
     # 매출 개별값이 음수면 1~3Q 가 누적 보고였다는 신호 → 그 분기 매출·TTM 을 신뢰 불가로 폐기.
@@ -152,13 +155,16 @@ def backfill_stock(db: Session, settings: Settings, code: str) -> bool:
         bps = (eq / shares) if (eq and shares) else None
 
         rev_q_val = rev_q.get(yq)
+        op_q_val = op_q.get(yq)
         ni_q_val = ni_q.get(yq)
-        # 표시 단위: 매출·순이익은 억원(기존 quote 저장 단위와 일치), EPS/BPS 는 원.
+        # 표시 단위: 매출·영업이익·순이익은 억원(기존 quote 저장 단위와 일치), EPS/BPS 는 원.
+        # 영업이익은 적자(음수)도 유효값이라 클램프하지 않는다.
         _upsert_financial(
             db,
             code,
             _period_str(year, q),
             revenue=(rev_q_val / 1e8) if rev_q_val is not None else None,
+            operating_income=(op_q_val / 1e8) if op_q_val is not None else None,
             net_income=(ni_q_val / 1e8) if ni_q_val is not None else None,
             eps=eps_q.get(yq),
             bps=bps,

@@ -49,3 +49,37 @@ def test_target_year_quarters_excludes_future():
     assert (2026, 4) not in yqs
     # 10년 전 시작.
     assert yqs[0][0] == 2016
+
+
+def test_backfill_writes_operating_income(monkeypatch):
+    # 회귀: financials_backfill 이 DART op_income 을 수집·분기환산·저장해야 한다(과거 분기 null 방지).
+    from unittest.mock import MagicMock
+
+    from app.adapters.dart.client import IncomeEquity
+
+    captured = []
+    monkeypatch.setattr(fb, "_upsert_financial", lambda db, code, period, **v: captured.append((period, v)))
+    monkeypatch.setattr(fb, "_quarter_end_close", lambda *a, **k: None)
+    monkeypatch.setattr(fb.quote, "fetch_shares_outstanding", lambda *a, **k: 1_000_000)
+    # 4분기 누적 재무(op_income 포함). 분기환산은 도메인이 담당.
+    cum = {
+        (2024, 1): IncomeEquity(revenue=100e8, operating_income=10e8, net_income=8e8, eps=100, equity=500e8),
+        (2024, 2): IncomeEquity(revenue=220e8, operating_income=24e8, net_income=18e8, eps=220, equity=510e8),
+        (2024, 3): IncomeEquity(revenue=340e8, operating_income=39e8, net_income=30e8, eps=340, equity=520e8),
+        (2024, 4): IncomeEquity(revenue=480e8, operating_income=56e8, net_income=45e8, eps=480, equity=530e8),
+    }
+    monkeypatch.setattr(
+        fb.dart, "fetch_income_and_equity",
+        lambda key, corp, year, q, sess: cum.get((year, q)),
+    )
+    db = MagicMock()
+    db.scalar.return_value = "00000000"  # corp_code
+    settings = MagicMock()
+    fb.backfill_stock(db, settings, "093320")
+
+    # 저장된 분기 중 op_income 이 실린 것이 있어야 하고, 억원 단위(원/1e8)여야 한다.
+    op_written = [(p, v["operating_income"]) for p, v in captured if v.get("operating_income") is not None]
+    assert op_written, "operating_income 이 하나도 저장되지 않음(회귀)"
+    # 2024.03 개별 op = 10억 → 억원 단위 10.0
+    q1 = next((v for p, v in op_written if p == "2024.03"), None)
+    assert q1 == 10.0
