@@ -11,7 +11,7 @@ import logging
 
 from app.domain import deepdive_rules
 from app.ports.llm import LLMPort
-from app.services.deepdive import agent
+from app.services.deepdive import agent, valuation_stage
 from app.services.deepdive.tools import ToolContext, dispatch
 
 logger = logging.getLogger(__name__)
@@ -123,26 +123,11 @@ def stage_thesis(llm: LLMPort, model: str, ctx: ToolContext, prior: dict) -> dic
 
 # ── 5단계 Valuation & Target ──────────────────────────────────────────
 def stage_valuation(llm: LLMPort, model: str, ctx: ToolContext, prior: dict) -> dict:
-    context = {
-        "overview": prior.get("overview", {}),
-        "thesis": prior.get("thesis", {}),
-        "financials_series": _fin_series(ctx)[-12:],
-        "peers": dispatch("peers", ctx, {}),
-        "price": dispatch("price_context", ctx, {}),
-    }
-    goal = (
-        "정량적 마침표. 투자 아이디어를 근거로 내년/후년 예상 실적을 구체 숫자로 추정하고, 성장성·질을 "
-        "고려한 합리적 멀티플(피어 대비 터무니없지 않게)을 부여해 목표가를 산정한다. 현 주가 대비 업사이드"
-        "(%)를 계산하고, 진입 논리가 ①자산주/역발상(싸서 정상화만으로 +50%) 또는 ②성장주(이익이 크게 "
-        "늘어 +50%) 중 무엇인지 판정한다. 모든 수치는 근거를 밝힌다(환각 금지)."
-    )
-    schema = (
-        '{"est_earnings": "예상 실적(연도별 매출·이익 숫자)", "multiple": "적용 멀티플과 근거", '
-        '"target_price": 숫자, "current_price": 숫자, "upside_pct": 숫자, '
-        '"entry_case": "자산주/역발상|성장주", "conclusion": "결론 한 문단"}'
-    )
-    return agent.run_stage(llm, model, ctx, stage_goal=goal, result_schema=schema,
-                           context_data=context, max_tool_calls=4)
+    """8개 밸류에이션 방식(PER·PBR·EV/EBITDA·DCF·DDM·자산가치·Fama-French·APT) 종합 → 최종 목표가.
+
+    LLM 은 방식별 *가정*만 근거와 함께 내고, 산식·목표가·과정 서술·blend 는 domain.valuation 이
+    결정론적으로 계산한다(valuation_stage 모듈). 환각 없는 재현 가능한 목표가."""
+    return valuation_stage.run_valuation(llm, model, ctx, prior, _fin_series(ctx))
 
 
 # 단계 순서(orchestrator 가 순회). (key, 함수) — key 는 DeepDiveReport 의 *_json 및 prior 누적 키.

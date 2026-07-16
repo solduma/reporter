@@ -3,10 +3,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import Markdown from "@/components/Markdown";
+import ValuationCard from "@/components/ValuationCard";
 import { fetchDeepDiveReport, fetchDeepDiveStatus, requestDeepDive } from "@/lib/api";
 import type { DeepDiveReport, DeepDiveStatus } from "@/lib/types";
 
 import styles from "./DeepDivePanel.module.css";
+
+// valuation 이 신 다중방식 스키마(methods 배열)면 ValuationCard 로, 아니면 구 Section 으로.
+function isMultiMethodValuation(v: unknown): boolean {
+  return !!v && typeof v === "object" && Array.isArray((v as { methods?: unknown }).methods);
+}
 
 // 5단계 진행 라벨(current_stage 1~5 매핑).
 const STAGE_LABELS = ["기본사항", "재무 특이점", "사업모델", "투자 아이디어·리스크", "밸류에이션·결론"];
@@ -174,13 +180,18 @@ export default function DeepDivePanel({ code }: { code: string }) {
               <Markdown content={report.narrative_md} />
             </div>
           ) : null}
+          {isMultiMethodValuation(report.valuation) ? (
+            <ValuationCard valuation={report.valuation} />
+          ) : null}
           <details className={styles.rawDetails}>
             <summary className={styles.rawSummary}>단계별 상세 데이터</summary>
             <Section title="① 기본사항" data={report.overview} />
             <Section title="② 재무 특이점" data={report.redflags} />
             <Section title="③ 사업모델" data={report.business} />
             <Section title="④ 투자 아이디어·리스크" data={report.thesis} />
-            <Section title="⑤ 밸류에이션·결론" data={report.valuation} />
+            {isMultiMethodValuation(report.valuation) ? null : (
+              <Section title="⑤ 밸류에이션·결론" data={report.valuation} />
+            )}
           </details>
         </div>
       ) : null}
