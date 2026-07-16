@@ -52,6 +52,9 @@ _COLUMN_MIGRATIONS = (
     "ALTER TABLE calendar_event ADD COLUMN IF NOT EXISTS impact_direction VARCHAR(8)",
     # 리포트 PDF 원문 발췌 — 산업 리포트의 개별 종목 언급을 종목명 검색으로 찾기 위함(요약만으론 소실).
     "ALTER TABLE report_analysis ADD COLUMN IF NOT EXISTS full_text TEXT",
+    # 딥다이브 HITL: 밸류에이션 직전 사용자 인풋(있으면 재개·반영). hitl_pending·prompt 는 모델 초기부터.
+    "ALTER TABLE deepdive_job ADD COLUMN IF NOT EXISTS hitl_input TEXT",
+    "ALTER TABLE deepdive_report ADD COLUMN IF NOT EXISTS hitl_json JSONB",
 )
 
 # 데이터 정합성 정규화(멱등) — 스키마가 아닌 값 보정. init_db 마다 실행되나 조건절이 이미 보정된

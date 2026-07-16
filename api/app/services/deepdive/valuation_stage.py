@@ -372,6 +372,30 @@ _SYSTEM = (
 )
 
 
+def _hitl_context(hitl: dict | None) -> str:
+    """HITL 검증 결과(claims)를 밸류에이션 프롬프트 블록으로. 없으면 빈 문자열.
+
+    반박(probability 0)은 반영하지 않도록, 반영(1)은 100%, 가능성(0<p<1)은 그 비율만큼만 가정을
+    조정하도록 확률과 반영지시를 함께 노출한다. 밸류에이션 LLM 이 확률 가중으로 가정에 녹인다."""
+    if not hitl or not isinstance(hitl, dict):
+        return ""
+    claims = [c for c in (hitl.get("claims") or []) if isinstance(c, dict)]
+    if not claims:
+        return ""
+    lines = [
+        "\n[사용자 인풋 검증(HITL)] — 아래는 사용자 인풋을 추가 리서치로 검증한 결과다. "
+        "verdict·probability 에 따라 밸류에이션 가정을 조정하라: 반박(prob 0)은 반영하지 말 것, "
+        "반영(prob 1)은 valuation_impact 를 100% 반영, 가능성(0<prob<1)은 valuation_impact 를 "
+        "probability 비율만큼만 반영(예: prob 0.4·'성장률 +5%p' → +2%p). 근거 없는 낙관·비관 금지."
+    ]
+    for c in claims:
+        lines.append(
+            f"- [{c.get('verdict')}·확률 {c.get('probability')}] {c.get('claim')} "
+            f"→ 조정: {c.get('valuation_impact')} (근거: {str(c.get('evidence') or '')[:200]})"
+        )
+    return "\n".join(lines)
+
+
 def run_valuation(llm: LLMPort, model: str, ctx: ToolContext, prior: dict, series: list[dict]) -> dict:
     """에이전틱 밸류에이션 루프. chat_tools 로 compute 도구를 반복 호출·검증 → 최종 목표가 dict.
 
@@ -396,6 +420,7 @@ def run_valuation(llm: LLMPort, model: str, ctx: ToolContext, prior: dict, serie
         f"[실데이터 앵커]\n{json.dumps(anchors, ensure_ascii=False)}\n"
         f"[피어 밸류에이션]\n{json.dumps(peers, ensure_ascii=False)[:1500]}\n"
         f"[재무 시계열(최근)]\n{json.dumps(series[-6:], ensure_ascii=False)[:2000]}"
+        + _hitl_context(prior.get("hitl"))
     )
     messages: list[dict] = [
         {"role": "system", "content": _SYSTEM},
@@ -477,8 +502,9 @@ def _oneshot_fallback(llm, model, ctx, prior, anchors, peers, series) -> dict:
     from app.services.sentiment import _extract_json
     user = (
         f"[종목] {ctx.code}\n[앵커]\n{json.dumps(anchors, ensure_ascii=False)}\n"
-        f"[피어]\n{json.dumps(peers, ensure_ascii=False)[:1500]}\n"
-        f"8개 방식 가정 JSON 만 출력:\n{_FALLBACK_SCHEMA}"
+        f"[피어]\n{json.dumps(peers, ensure_ascii=False)[:1500]}"
+        + _hitl_context(prior.get("hitl"))
+        + f"\n8개 방식 가정 JSON 만 출력:\n{_FALLBACK_SCHEMA}"
     )
     try:
         a = _extract_json(llm.chat(model, "밸류에이션 가정만 JSON 으로 출력.", user, temperature=0.2)) or {}

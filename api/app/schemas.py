@@ -584,6 +584,14 @@ class DeepDiveStatus(BaseModel):
     progress: int  # 0~100
     error: str | None = None
     has_report: bool = False  # 완료 보고서 존재 여부
+    hitl_pending: bool = False  # 밸류에이션 직전 사용자 인풋 대기(프론트가 입력창 노출)
+    hitl_prompt: str | None = None  # 사용자에게 보일 질문(지금까지 파악한 내용 요약)
+
+
+class HitlInput(BaseModel):
+    """HITL 사용자 인풋 제출 바디. 공백이면 '건너뜀'(검증 없이 밸류에이션 진행)."""
+
+    input: str = ""
 
 
 class DeepDiveReportOut(BaseModel):
@@ -595,6 +603,7 @@ class DeepDiveReportOut(BaseModel):
     redflags: dict | None = None
     business: dict | None = None
     thesis: dict | None = None
+    hitl: dict | None = None  # 사용자 인풋 검증 결과(반박/반영/가능성)
     valuation: dict | None = None
     narrative_md: str | None = None
     verdict: str | None = None

@@ -187,3 +187,145 @@
     gap: 2px;
   }
 }
+
+/* ── HITL(밸류에이션 직전 사용자 인풋) ── */
+.hitl {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--accent-soft);
+  border-radius: 10px;
+  background: var(--accent-soft);
+}
+
+.hitlPrompt {
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+.hitlInput {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.55rem 0.7rem;
+  font-size: 0.85rem;
+  font-family: inherit;
+  background: var(--surface);
+  color: var(--text);
+  resize: vertical;
+}
+
+.hitlActions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.hitlSkip {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 8px;
+  padding: 0.45rem 0.9rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.hitlSkip:hover {
+  color: var(--text);
+}
+
+.hitlSkip:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+/* 검증 결과 카드 */
+.hitlResult {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  background: var(--surface);
+}
+
+.hitlSummary {
+  margin: 0 0 10px;
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+.hitlClaims {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.hitlClaim {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.hitlClaim:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.hitlClaimHead {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.hitlBadge {
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.15rem 0.5rem;
+  border-radius: 6px;
+}
+
+.hitlRefute {
+  background: var(--border);
+  color: var(--muted);
+}
+
+.hitlReflect {
+  background: var(--buy-bg);
+  color: var(--buy);
+}
+
+.hitlMaybe {
+  background: var(--sell-bg, #fdecec);
+  color: var(--sell, #c0392b);
+}
+
+.hitlProb {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.hitlClaimText {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.hitlImpact {
+  margin: 6px 0 0;
+  font-size: 0.82rem;
+  color: var(--text);
+}
+
+.hitlEvidence {
+  margin: 4px 0 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+  word-break: break-word;
+}

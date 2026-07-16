@@ -407,3 +407,17 @@ export function fetchDeepDiveStatus(code: string): Promise<DeepDiveStatus> {
 export function fetchDeepDiveReport(code: string): Promise<DeepDiveReport | null> {
   return getJson<DeepDiveReport | null>(`/api/deepdive/${code}`);
 }
+
+// 밸류에이션 직전 HITL 인풋 제출(paused → 재개). 빈 문자열이면 '건너뜀'.
+export async function submitDeepDiveHitl(code: string, input: string): Promise<DeepDiveStatus> {
+  const res = await fetch(apiUrl(`/api/deepdive/${code}/hitl`), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ input }),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new Error(`HITL 인풋 제출 실패 (${res.status})`);
+  }
+  return (await res.json()) as DeepDiveStatus;
+}
