@@ -16,11 +16,39 @@ from __future__ import annotations
 import json
 import logging
 
+from app.domain import beta as betamod
 from app.domain import valuation as val
 from app.ports.llm import LLMError, LLMPort
+from app.services import company_service
 from app.services.deepdive.tools import ToolContext, dispatch
 
 logger = logging.getLogger(__name__)
+
+_INDEX_SYMBOL = {"KOSPI": "KOSPI", "KOSDAQ": "KOSDAQ"}
+
+
+def compute_factor_betas(ctx: ToolContext, anchors: dict, market: str | None) -> dict:
+    """실데이터 요인 베타. 시장베타는 지수·개별주 일봉 회귀, SMB/HML 은 시총·PBR 프록시.
+
+    프리미엄·무위험수익률은 domain.beta 상수(한국 시장 관례). LLM 추정 대신 재현 가능한 실측값."""
+    idx_sym = _INDEX_SYMBOL.get((market or "").upper())
+    market_beta = None
+    if idx_sym:
+        stock_closes = company_service.daily_closes(ctx.db, ctx.code)
+        index_closes = company_service.daily_closes(ctx.db, idx_sym)
+        market_beta = betamod.market_beta(stock_closes, index_closes)
+    if market_beta is None:
+        market_beta = 1.0  # 회귀 불가(일봉 부족·지수 없음) 시 시장 평균 베타로 보수적 근사
+    return {
+        "market_beta": market_beta,
+        "smb_beta": betamod.smb_beta(anchors.get("market_cap_eok")),
+        "hml_beta": betamod.hml_beta(anchors.get("current_pbr")),
+        "risk_free": betamod.RISK_FREE,
+        "market_premium": betamod.MARKET_PREMIUM,
+        "smb_premium": betamod.SMB_PREMIUM,
+        "hml_premium": betamod.HML_PREMIUM,
+        "beta_source": "회귀(지수 일봉)" if idx_sym and market_beta != 1.0 else "근사(1.0)",
+    }
 
 
 # ── 숫자 유틸 ────────────────────────────────────────────────────────────
@@ -72,6 +100,24 @@ def _latest_pointintime(rows: list[dict], field: str) -> float | None:
     return None
 
 
+def _ebitda_to_eok(ebitda: float, revenue: float | None) -> float:
+    """EBITDA 억원 정규화(2차 방어). DB 정규화 마이그레이션이 근본 수정이나, 배치 지연·구 데이터
+    대비 읽기 시점에도 방어한다. EBITDA 마진 |ebitda/revenue|>1e4 면 원 단위로 보고 /1e8."""
+    if revenue and revenue > 0:
+        return ebitda / 1e8 if abs(ebitda / revenue) > 1e4 else ebitda
+    return ebitda / 1e8 if abs(ebitda) > 1e7 else ebitda
+
+
+def _latest_annual_ebitda_eok(rows: list[dict]) -> float | None:
+    """연간(.12) 최신 EBITDA 를 억원으로 정규화해 반환(단위 혼재 2차 방어)."""
+    for r in reversed(rows):
+        if _period_key(r["period"])[1] == 12:  # type: ignore[index]
+            v = _num(r.get("ebitda"))
+            if v is not None:
+                return _ebitda_to_eok(v, _num(r.get("revenue")))
+    return None
+
+
 def _ttm_eps(rows: list[dict]) -> float | None:
     """주당순이익 TTM(최근 4개 분기 EPS 합). 이 프로젝트 EPS 는 분기 개별값이라(.12=Q4 포함)
     분기값에 연간 목표 PER 을 곱하면 ~4배 과소평가된다 → 반드시 최근 4분기를 합해 연환산한다.
@@ -96,7 +142,7 @@ def collect_anchors(series: list[dict], price: dict) -> dict:
     market_cap = _num(price.get("market_cap"))  # 원
     eps_ttm = _ttm_eps(rows)
     bps = _latest_pointintime(rows, "bps")
-    ebitda = _latest_annual(rows, "ebitda")  # 억원, 연간
+    ebitda = _latest_annual_ebitda_eok(rows)  # 억원 정규화(원·억원 혼재 2차 방어)
     dps = _latest_annual(rows, "dps")  # 원, 연간
     ev_ebitda = _latest_pointintime(rows, "ev_ebitda")
 
@@ -177,26 +223,45 @@ def _t_asset(a: dict, anc: dict) -> val.ValuationResult:
 
 
 def _t_fama_french(a: dict, anc: dict) -> val.ValuationResult:
+    # 베타·프리미엄은 실데이터(anchors.factor_betas: 지수회귀 시장베타 + 시총/PBR 프록시 + 관례 프리미엄)
+    # 를 기본값으로, LLM 이 명시 제공하면 그 값으로 덮는다(_pick). 요인모형 강건화.
+    fb = anc.get("factor_betas") or {}
     factors = [
-        val.FactorExposure("시장", _num(a.get("market_beta")) or 0, _num(a.get("market_premium")) or 0),
-        val.FactorExposure("SMB(규모)", _num(a.get("smb_beta")) or 0, _num(a.get("smb_premium")) or 0),
-        val.FactorExposure("HML(가치)", _num(a.get("hml_beta")) or 0, _num(a.get("hml_premium")) or 0),
-    ] if a.get("market_beta") is not None else []
+        val.FactorExposure("시장", _pick(a.get("market_beta"), fb.get("market_beta")) or 0,
+                           _pick(a.get("market_premium"), fb.get("market_premium")) or 0),
+        val.FactorExposure("SMB(규모)", _pick(a.get("smb_beta"), fb.get("smb_beta")) or 0,
+                           _pick(a.get("smb_premium"), fb.get("smb_premium")) or 0),
+        val.FactorExposure("HML(가치)", _pick(a.get("hml_beta"), fb.get("hml_beta")) or 0,
+                           _pick(a.get("hml_premium"), fb.get("hml_premium")) or 0),
+    ]
     return val.fama_french_valuation(
-        forward_eps=_pick(a.get("forward_eps"), anc.get("eps_ttm")), risk_free=_num(a.get("risk_free")),
+        forward_eps=_pick(a.get("forward_eps"), anc.get("eps_ttm")),
+        risk_free=_pick(a.get("risk_free"), fb.get("risk_free")),
         factors=factors, earnings_growth=_num(a.get("earnings_growth")),
+        equity_value=anc.get("market_cap_eok"), net_debt=anc.get("net_debt_eok"),
         current_price=anc.get("current_price"),
     )
 
 
 def _t_apt(a: dict, anc: dict) -> val.ValuationResult:
-    factors = [
-        val.FactorExposure(str(f.get("name") or "요인"), _num(f.get("beta")) or 0, _num(f.get("premium")) or 0)
-        for f in (a.get("factors") or []) if _num(f.get("beta")) is not None
-    ]
+    # LLM 이 factors 를 명시하면 그걸, 아니면 실데이터 거시요인(시장베타 대리 + 관례 프리미엄)을 쓴다.
+    fb = anc.get("factor_betas") or {}
+    if a.get("factors"):
+        factors = [
+            val.FactorExposure(str(f.get("name") or "요인"), _num(f.get("beta")) or 0, _num(f.get("premium")) or 0)
+            for f in a["factors"] if _num(f.get("beta")) is not None
+        ]
+    else:
+        mb = fb.get("market_beta") or 1.0
+        factors = [
+            val.FactorExposure(name, round(mb * w, 3), prem)
+            for (name, prem), w in zip(betamod.APT_FACTOR_PREMIUMS.items(), (1.0, 0.5, 0.5), strict=True)
+        ]
     return val.apt_valuation(
-        forward_eps=_pick(a.get("forward_eps"), anc.get("eps_ttm")), risk_free=_num(a.get("risk_free")),
+        forward_eps=_pick(a.get("forward_eps"), anc.get("eps_ttm")),
+        risk_free=_pick(a.get("risk_free"), fb.get("risk_free")),
         factors=factors, earnings_growth=_num(a.get("earnings_growth")),
+        equity_value=anc.get("market_cap_eok"), net_debt=anc.get("net_debt_eok"),
         current_price=anc.get("current_price"),
     )
 
@@ -243,8 +308,10 @@ _TOOL_DESCS = {
     "compute_dcf": "2단계 DCF. 기준FCF(억원)·성장률·연수·영구성장률·할인율(WACC)로 지분가치→주당.",
     "compute_ddm": "고든 배당할인. DPS·배당성장률·자기자본비용. 무배당이면 부적합.",
     "compute_asset": "자산가치 = 주당순자산 × 재평가/청산배수(청산할인<1<재평가할증).",
-    "compute_fama_french": "Fama-French 3요인 요구수익률 → 목표PER=1/(r−g) → 목표가.",
-    "compute_apt": "APT 다요인(factors=[{name,beta,premium}]) 요구수익률 → 목표PER → 목표가.",
+    "compute_fama_french": "Fama-French 3요인. 베타(시장회귀·시총/PBR 프록시)·프리미엄은 실데이터로 "
+                           "자동 주입되므로 earnings_growth(이익성장률)만 주면 된다. 목표PER=1/(r−g).",
+    "compute_apt": "APT 다요인. 베타·프리미엄 실데이터 자동 주입 → earnings_growth 만 주면 됨. "
+                   "특정 요인 커스텀 시에만 factors=[{name,beta,premium}] 제공.",
 }
 
 
@@ -292,6 +359,8 @@ def run_valuation(llm: LLMPort, model: str, ctx: ToolContext, prior: dict, serie
     tool-calling 미지원(구 LLM)·실패 시 원샷 폴백으로 최소 결과를 보장한다."""
     price = dispatch("price_context", ctx, {})
     anchors = collect_anchors(series, price)
+    # 실데이터 요인 베타(지수 일봉 회귀 + 시총/PBR 프록시) — Fama-French·APT 가 LLM 추정 대신 사용.
+    anchors["factor_betas"] = compute_factor_betas(ctx, anchors, price.get("market"))
     peers = dispatch("peers", ctx, {})
     tools = _build_tools()
 

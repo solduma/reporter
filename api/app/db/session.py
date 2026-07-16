@@ -52,11 +52,37 @@ _COLUMN_MIGRATIONS = (
     "ALTER TABLE calendar_event ADD COLUMN IF NOT EXISTS impact_direction VARCHAR(8)",
 )
 
+# 데이터 정합성 정규화(멱등) — 스키마가 아닌 값 보정. init_db 마다 실행되나 조건절이 이미 보정된
+# 행을 재매칭하지 않아 안전하다. financials.ebitda·net_debt 는 구 valuation_ingest(원)·신
+# report_ingest(억원) 가 같은 컬럼에 써 단위가 혼재했다(검수 결과). 정본 단위 = 억원(revenue 등과 일치).
+_DATA_MIGRATIONS = (
+    # A) 레거시 valuation_ingest 잔재(원 단위) → 억원. net_debt 보유 행 = 레거시 확정 마커
+    #    (신 report_ingest 는 net_debt 를 쓰지 않는다). ebitda·net_debt 동시 정규화.
+    "UPDATE financials SET ebitda = ebitda / 1e8 "
+    "WHERE net_debt IS NOT NULL AND ebitda IS NOT NULL AND abs(ebitda) > 1e7",
+    "UPDATE financials SET net_debt = net_debt / 1e8 "
+    "WHERE net_debt IS NOT NULL AND abs(net_debt) > 1e7",
+    # B) D&A 오파싱으로 왜곡된 EBITDA(감가상각비를 매출 8배 초과로 잘못 추출) → 무효화.
+    #    plausible_depreciation 가드로 재발은 막았고, 기존 오값은 NULL 처리(밸류는 결측 시 우아하게 생략).
+    "UPDATE financials SET ebitda = NULL, ev_ebitda = NULL "
+    "WHERE ebitda IS NOT NULL AND revenue IS NOT NULL AND revenue > 0 AND ebitda > revenue * 8",
+    # C) 소스 오염 행 삭제: DART 원본이 ~1e6 뻥튀기된 분기(per/pbr/psr 0 반올림·bps 조 단위가 지문).
+    #    revenue 가 같은 종목 **전체 중앙값**의 1e4 배를 넘으면 원본 오염(억원 규모로 불가능). 대형주도
+    #    자기 중앙값 대비 판단하므로 정상 데이터는 보호된다(절대 임계값이 아님).
+    "DELETE FROM financials f WHERE f.revenue IS NOT NULL AND f.revenue > 0 "
+    "AND f.revenue > 1e4 * (SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY g.revenue) "
+    "FROM financials g WHERE g.stock_code = f.stock_code AND g.revenue > 0)",
+    # D) ReportFinancial 파싱 깨진 가비지 행(1e15 초과 = 경 단위, 불가능) 삭제.
+    "DELETE FROM report_financials WHERE abs(revenue) >= 1e15 OR abs(equity) >= 1e15",
+)
+
 
 def init_db() -> None:
     Base.metadata.create_all(engine)
     with engine.begin() as conn:
         for stmt in _COLUMN_MIGRATIONS:
+            conn.execute(text(stmt))
+        for stmt in _DATA_MIGRATIONS:
             conn.execute(text(stmt))
 
 

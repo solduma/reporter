@@ -120,3 +120,26 @@ def test_negative_parenthesis_amount_absolute():
 
 def test_bad_zip_returns_none():
     assert p.parse_cf_depreciation(b"not a zip") is None
+
+
+# D&A sanity: 감가상각비가 매출 대비 비현실적으로 크면 오파싱으로 폐기(950190·383800 사례).
+def test_plausible_depreciation_rejects_implausible():
+    # 감가 2.1조 vs 매출 0.8억 → 매출 대비 수만 배 = 오파싱 → None.
+    assert p.plausible_depreciation(2_138_614_000_000, 80_000_000) is None
+
+
+def test_plausible_depreciation_keeps_normal():
+    # 자본집약 업종: 감가 40억 vs 매출 100억(0.4배) → 정상 유지.
+    assert p.plausible_depreciation(4_000_000_000, 10_000_000_000) == 4_000_000_000
+
+
+def test_plausible_depreciation_passes_when_no_revenue():
+    # 매출 결측이면 검증 불가 → 그대로 통과(다른 지표로 판단).
+    assert p.plausible_depreciation(5_000_000_000, None) == 5_000_000_000
+    assert p.plausible_depreciation(None, 1_000) is None
+
+
+def test_plausible_depreciation_boundary():
+    # 정확히 8배는 통과, 초과는 폐기.
+    assert p.plausible_depreciation(800, 100) == 800
+    assert p.plausible_depreciation(801, 100) is None

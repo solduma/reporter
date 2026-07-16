@@ -381,6 +381,19 @@ def growth_snapshot(db: Session, code: str) -> UniverseSnapshot | None:
     )
 
 
+def daily_closes(db: Session, code: str, limit: int = 260) -> list[tuple[str, float]]:
+    """일봉 (날짜iso, 종가) 최근 limit 개(오름차순). 베타 회귀용. 지수(KOSPI/KOSDAQ)도 code 로 조회."""
+    from app.db.models import PriceCandle, Timeframe
+
+    rows = db.execute(
+        select(PriceCandle.bar_date, PriceCandle.close)
+        .where(PriceCandle.stock_code == code, PriceCandle.timeframe == Timeframe.DAY)
+        .order_by(PriceCandle.bar_date.desc())
+        .limit(limit)
+    ).all()
+    return [(d.isoformat(), c) for d, c in reversed(rows)]
+
+
 def coverage_counts(db: Session, code: str, since: date) -> tuple[int, int]:
     """(리포트수, BUY수) since 이후."""
     cov = db.execute(
