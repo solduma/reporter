@@ -214,6 +214,33 @@ def _scope_consolidated_single(xml: str) -> str:
     return xml
 
 
+# 유형·무형자산 주석 상각비 라벨(정확히 이 라벨 셀만 — 누계·부문 등 오탐은 _classify/_EXCLUDE 로 걸러짐).
+_NOTE_DA_LABELS = ("감가상각비", "무형자산상각비")
+
+
+def _note_da_fallback(cells: list[tuple[int, bool, str]], xml: str, scope_start: int) -> int | None:
+    """CF recon 에서 D&A 를 못 찾을 때(대형사: 조정을 요약하고 상각비를 유형·무형자산 주석으로 뺌),
+    유형·무형자산 주석의 '당기'(첫 등장) 감가상각비+무형자산상각비를 합산해 D&A 를 근사한다.
+
+    주석 표는 당기→전기 순이라 각 라벨의 첫 등장이 당기값. 라벨 다음 첫 우측정렬 숫자 x 단위배수.
+    감가상각비/무형자산상각비 각각 최초 1회만 취해 전기·기능별 배분표 중복합산을 막는다.
+    """
+    taken: dict[str, int] = {}
+    for i, (pos, right, txt) in enumerate(cells):
+        if right:
+            continue
+        label = txt.strip()
+        if label not in _NOTE_DA_LABELS or label in taken:
+            continue
+        for j in range(i + 1, min(i + 6, len(cells))):
+            v = _to_num(cells[j][2])
+            if v is not None:
+                taken[label] = abs(v) * _resolve_unit_mult(xml, scope_start + pos + 1)
+                break
+    total = sum(taken.values())
+    return total or None
+
+
 def parse_cf_depreciation(zip_bytes: bytes) -> int | None:
     """document.xml zip → 현금흐름표 감가상각비+무형자산상각비 당기값(원). 신뢰불가 시 None.
 
@@ -237,7 +264,10 @@ def parse_cf_depreciation(zip_bytes: bytes) -> int | None:
     cells = _parse_cells(scope)
     tan, intan, comb = _best_recon(cells)
     if tan is None and intan is None and comb is None:
-        return None  # 진성 None: recon 주석 없음 / 은행 / 성격별 note only
+        # CF recon 실패 — 대형사(삼성 등)는 조정을 요약하고 상각비를 유형·무형자산 주석으로 뺀다.
+        # 파일 전체 셀에서 주석 상각비를 fallback 으로 근사(scope 는 CF 본표 구간이라 전체 재파싱).
+        full_cells = _parse_cells(xml)
+        return _note_da_fallback(full_cells, xml, 0)
 
     total = 0
     use_combined = tan is None and intan is None
