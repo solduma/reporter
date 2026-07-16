@@ -44,7 +44,14 @@ def _inputs_hash(code: str, model: str) -> str:
     return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
 
-def _get_or_create_report(db: Session, code: str, job_id: int, model: str) -> DeepDiveReport:
+def _is_stage_error(result) -> bool:
+    """단계 결과가 실패·비정형 마커인가(재개 시 재실행 대상). run_stage 가 _error/_note/_partial 로 표시."""
+    return isinstance(result, dict) and any(k in result for k in ("_error", "_note", "_partial"))
+
+
+def _get_or_create_report(
+    db: Session, code: str, job_id: int, model: str, resume_from: int = 0
+) -> DeepDiveReport:
     rep = db.scalar(select(DeepDiveReport).where(DeepDiveReport.stock_code == code))
     if rep is None:
         rep = DeepDiveReport(stock_code=code, job_id=job_id, model=model)
@@ -52,9 +59,11 @@ def _get_or_create_report(db: Session, code: str, job_id: int, model: str) -> De
     else:
         rep.job_id = job_id
         rep.model = model
-        # 재실행: 이전 단계 결과 초기화(부분 잔존 방지).
-        rep.overview_json = rep.redflags_json = rep.business_json = None
-        rep.thesis_json = rep.valuation_json = None
+        # 새 실행(resume_from=0): 이전 단계 결과 전부 초기화. 재개(>0): 완료 단계는 보존하고
+        # 서술·verdict 등 최종 산출물만 리셋(단계 재개 후 다시 만든다).
+        if resume_from <= 0:
+            rep.overview_json = rep.redflags_json = rep.business_json = None
+            rep.thesis_json = rep.valuation_json = None
         rep.narrative_md = rep.verdict = None
         rep.upside_pct = None
     db.commit()
@@ -80,15 +89,21 @@ def run_job(db: Session, job: DeepDiveJob, settings: Settings | None = None) -> 
     job.model = model
     db.commit()
 
-    rep = _get_or_create_report(db, code, job.id, model)
-    prior: dict = {}
     json_cols = {
         "overview": "overview_json", "redflags": "redflags_json", "business": "business_json",
         "thesis": "thesis_json", "valuation": "valuation_json",
     }
+    # 재개(좀비 회수): current_stage>0 이면 그 단계까지 완료된 것. 완료 단계 결과를 보존·재사용한다.
+    resume_from = job.current_stage if job.current_stage else 0
+    rep = _get_or_create_report(db, code, job.id, model, resume_from=resume_from)
+    prior: dict = {}
     total = len(stages.STAGES)
     try:
         for idx, (key, fn) in enumerate(stages.STAGES, start=1):
+            saved = getattr(rep, json_cols[key]) if idx <= resume_from else None
+            if saved and not _is_stage_error(saved):
+                prior[key] = saved  # 이미 완료된 단계 — 재계산 없이 이어받는다.
+                continue
             result = fn(llm, model, ctx, prior)  # type: ignore[operator]
             prior[key] = result
             setattr(rep, json_cols[key], result)
@@ -208,10 +223,10 @@ def claim_next(db: Session) -> DeepDiveJob | None:
         .limit(1)
     )
     if stale is not None:
-        logger.warning("reclaiming stale running deepdive job %d (%s)", stale.id, stale.stock_code)
+        logger.warning("reclaiming stale running deepdive job %d (%s) — resume from stage %d",
+                       stale.id, stale.stock_code, stale.current_stage)
+        # current_stage 는 보존(완료 단계 이후부터 재개). status 만 pending 으로 되돌린다.
         stale.status = "pending"
-        stale.current_stage = 0
-        stale.progress = 0
         stale.started_at = None
         db.commit()
     return stale
