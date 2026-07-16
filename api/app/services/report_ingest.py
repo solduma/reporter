@@ -158,26 +158,31 @@ def backfill_stock(
 def _recompute_ev_ebitda(
     db: Session, code: str, annual_ev: dict[str, tuple[float, float | None]], shares: int | None
 ) -> None:
-    """연간 EBITDA·순차입으로 EV/EBITDA 를 산출해 financials 에 반영(EV/EBITDA 단일 소유자).
+    """연간 EBITDA·순차입으로 EBITDA 절대액과 EV/EBITDA 를 financials 에 반영(EV/EBITDA 단일 소유자).
 
-    EV = 시총(분기말 수정종가 x 현재 주식수) + 순차입. 순차입 결측이면 EV≈시총. 대형사 D&A 는
-    fnlttSinglAcntAll 에 없어(삼성·현대차 CF 에 상각 라인 부재) document.xml 원문 파싱만 정확하다.
+    EBITDA(영업이익+D&A) 절대액은 시총과 무관하므로 항상 저장(딥다이브 EBITDA 성장 축이 읽는다).
+    EV/EBITDA 배수는 EV=시총(분기말 수정종가 x 주식수)+순차입 이 필요해 shares·종가 있을 때만 산출.
+    대형사 D&A 는 fnlttSinglAcntAll 에 없어(삼성·현대차 CF 에 상각 라인 부재) document.xml 원문 파싱만 정확.
     """
-    if not annual_ev or not shares:
+    if not annual_ev:
         return
-    for period, (ebitda, net_debt) in annual_ev.items():
+    for period, (ebitda, net_debt) in annual_ev.items():  # ebitda·net_debt 는 원 단위 원자료
         if ebitda <= 0:
             continue
-        year = int(period.split(".")[0])
-        close = _quarter_end_close(db, code, year, "annual")
-        if not close:
-            continue
-        ev = close * shares + (net_debt or 0.0)
-        ev_ebitda = round(ev / ebitda, 2)
+        # EBITDA 절대액은 shares 무관하게 항상 저장. Financial 의 매출·이익은 억원 단위이므로
+        # ebitda 도 억원(/1e8)으로 변환해 저장(딥다이브 EBITDA 마진 = ebitda/revenue 단위 일치).
+        values: dict = {"ebitda": ebitda / 1e8}
+        # EV/EBITDA 배수는 EV(원)/EBITDA(원) 이라 원 단위 원자료로 계산(시총 산출 가능할 때만).
+        if shares:
+            year = int(period.split(".")[0])
+            close = _quarter_end_close(db, code, year, "annual")
+            if close:
+                ev = close * shares + (net_debt or 0.0)
+                values["ev_ebitda"] = round(ev / ebitda, 2)
         stmt = insert(Financial).values(
-            stock_code=code, period=period, is_estimate=False, ev_ebitda=ev_ebitda
+            stock_code=code, period=period, is_estimate=False, **values
         )
-        stmt = stmt.on_conflict_do_update(constraint="uq_financial", set_={"ev_ebitda": ev_ebitda})
+        stmt = stmt.on_conflict_do_update(constraint="uq_financial", set_=values)
         db.execute(stmt)
 
 
