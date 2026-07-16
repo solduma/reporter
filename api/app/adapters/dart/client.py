@@ -34,6 +34,13 @@ def _raise_if_quota(data: dict) -> None:
         raise DartQuotaExceeded(data.get("message") or "DART 사용한도 초과")
 
 
+def configure_from_settings(settings) -> None:
+    """Settings 의 dart_api_key(+backup)로 throttle 키 링을 설정한다(020 시 자동 폴오버).
+
+    링을 primary 부터 재시작하므로 배치·요청 진입 시 호출하면 자정 한도 회복이 반영된다."""
+    dart_throttle.configure_keys(settings.dart_api_key, settings.dart_api_key_backup)
+
+
 _CORPCODE_URL = "https://opendart.fss.or.kr/api/corpCode.xml"
 _LIST_URL = "https://opendart.fss.or.kr/api/list.json"
 _FNLTT_URL = "https://opendart.fss.or.kr/api/fnlttSinglAcntAll.json"

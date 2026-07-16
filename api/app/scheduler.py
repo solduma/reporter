@@ -15,6 +15,7 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
+from app.adapters import dart
 from app.config import Settings, get_settings
 from app.db.session import SessionLocal, init_db
 from app.services import broadcast_ingest, ingest, ingest_log, intraday, universe_ingest
@@ -33,6 +34,8 @@ def _logged(job: str, fn):
 
     def _run():
         start = time.monotonic()
+        # 잡 진입마다 DART 키 링을 primary 부터 재설정 → 자정 한도 회복 시 백업 대신 primary 우선.
+        dart.configure_from_settings(get_settings())
         try:
             result = fn()
             ingest_log.record(
