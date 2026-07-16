@@ -13,6 +13,7 @@ from datetime import datetime
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 
 from app.config import Settings, get_settings
 from app.db.session import SessionLocal, init_db
@@ -240,6 +241,25 @@ def run_us_universe_batch(settings: Settings | None = None) -> dict:
         session.close()
 
 
+def run_deepdive_queue(settings: Settings | None = None) -> dict:
+    """딥다이브 DB 폴링 큐 — pending job 1건을 잡아 5단계 파이프라인 실행(직렬).
+
+    짧은 interval 로 폴링. 실행 중(오래 걸리는 job)엔 다음 tick 이 겹치지 않게 max_instances=1 로
+    등록한다. pending 없으면 즉시 반환(부하 0).
+    """
+    from app.services.deepdive import orchestrator
+
+    session = SessionLocal()
+    try:
+        job = orchestrator.claim_next(session)
+        if job is None:
+            return {"claimed": 0}
+        orchestrator.run_job(session, job, settings or get_settings())
+        return {"claimed": 1, "job_id": job.id, "code": job.stock_code, "status": job.status}
+    finally:
+        session.close()
+
+
 def run_us_disclosure_batch(settings: Settings | None = None) -> dict:
     """US 유니버스 종목의 최근 SEC 8-K 수집."""
     from app.services import us_disclosure_ingest
@@ -386,6 +406,15 @@ def build_scheduler(settings: Settings | None = None) -> BlockingScheduler:
         _logged("calendar", run_calendar_batch),
         trigger=_CALENDAR_CRON,
         id="calendar",
+        max_instances=1,
+        coalesce=True,
+        replace_existing=True,
+    )
+    # 딥다이브 큐 — 짧은 interval 폴링. 긴 job(수분) 실행 중엔 다음 tick 겹치지 않게 max_instances=1.
+    scheduler.add_job(
+        _logged("deepdive_queue", run_deepdive_queue),
+        trigger=IntervalTrigger(seconds=15, timezone=_TZ),
+        id="deepdive_queue",
         max_instances=1,
         coalesce=True,
         replace_existing=True,
