@@ -10,10 +10,10 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import requests
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.adapters.dart import DartQuotaExceeded
@@ -180,11 +180,38 @@ def get_report(db: Session, code: str) -> DeepDiveReport | None:
     return db.scalar(select(DeepDiveReport).where(DeepDiveReport.stock_code == code))
 
 
+# 정상 딥다이브는 5~15분. 이보다 오래 running 인 job 은 worker 재시작(배포)로 고아가 된 좀비로 본다.
+# 단일 worker+max_instances=1 이라, 이 tick 이 도는 시점에 오래된 running 은 실행 중일 수 없다(살아있으면
+# 이전 tick 이 아직 안 끝나 겹치지 않음). → 안전하게 회수해 재실행한다.
+_STALE_RUNNING_MINUTES = 30
+
+
 def claim_next(db: Session) -> DeepDiveJob | None:
-    """가장 오래된 pending job 1건을 running 후보로 반환(worker 폴링). 실제 running 전이는 run_job 이.
+    """처리할 job 1건 반환(worker 폴링). pending 우선, 없으면 좀비 running(배포로 고아) 회수.
 
     단일 worker(직렬)라 경쟁이 없어 단순 select. 다중 worker 시엔 원자적 UPDATE...RETURNING 필요.
     """
-    return db.scalar(
+    job = db.scalar(
         select(DeepDiveJob).where(DeepDiveJob.status == "pending").order_by(DeepDiveJob.id).limit(1)
     )
+    if job is not None:
+        return job
+    # pending 없음 → 오래 멈춘 running(worker 재시작으로 죽은 좀비) 회수. started_at 기준(NULL 도 좀비).
+    cutoff = datetime.now(UTC) - timedelta(minutes=_STALE_RUNNING_MINUTES)
+    stale = db.scalar(
+        select(DeepDiveJob)
+        .where(
+            DeepDiveJob.status == "running",
+            or_(DeepDiveJob.started_at.is_(None), DeepDiveJob.started_at < cutoff),
+        )
+        .order_by(DeepDiveJob.id)
+        .limit(1)
+    )
+    if stale is not None:
+        logger.warning("reclaiming stale running deepdive job %d (%s)", stale.id, stale.stock_code)
+        stale.status = "pending"
+        stale.current_stage = 0
+        stale.progress = 0
+        stale.started_at = None
+        db.commit()
+    return stale
