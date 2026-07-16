@@ -72,6 +72,28 @@ def _latest_pointintime(rows: list[dict], field: str) -> float | None:
     return None
 
 
+def _ebitda_to_eok(ebitda: float, revenue: float | None) -> float:
+    """EBITDA 를 억원으로 정규화. financials.ebitda 컬럼은 구 valuation_ingest(원)·신
+    report_ingest(억원) 데이터가 혼재한다 → 같은 기간 revenue(억원 확정)와의 비율로 단위를 추정해 보정.
+
+    EBITDA 마진(ebitda/revenue)은 정상적으로 |비율|<10 이다. 비율이 1e4 이상이면 ebitda 가 원 단위
+    (revenue 는 억원)라는 뜻 → /1e8. revenue 가 없으면 절대크기로 추정(억원 종목 매출이 조 단위를
+    넘는 경우는 드묾: 1e7억=1000조 초과면 원 단위로 간주)."""
+    if revenue and revenue > 0:
+        return ebitda / 1e8 if abs(ebitda / revenue) > 1e4 else ebitda
+    return ebitda / 1e8 if abs(ebitda) > 1e7 else ebitda
+
+
+def _latest_annual_ebitda_eok(rows: list[dict]) -> float | None:
+    """연간(.12) 최신 EBITDA 를 억원으로 정규화해 반환(단위 혼재 방어)."""
+    for r in reversed(rows):
+        if _period_key(r["period"])[1] == 12:  # type: ignore[index]
+            v = _num(r.get("ebitda"))
+            if v is not None:
+                return _ebitda_to_eok(v, _num(r.get("revenue")))
+    return None
+
+
 def _ttm_eps(rows: list[dict]) -> float | None:
     """주당순이익 TTM(최근 4개 분기 EPS 합). 이 프로젝트 EPS 는 분기 개별값이라(.12=Q4 포함)
     분기값에 연간 목표 PER 을 곱하면 ~4배 과소평가된다 → 반드시 최근 4분기를 합해 연환산한다.
@@ -96,7 +118,7 @@ def collect_anchors(series: list[dict], price: dict) -> dict:
     market_cap = _num(price.get("market_cap"))  # 원
     eps_ttm = _ttm_eps(rows)
     bps = _latest_pointintime(rows, "bps")
-    ebitda = _latest_annual(rows, "ebitda")  # 억원, 연간
+    ebitda = _latest_annual_ebitda_eok(rows)  # 억원으로 정규화(원·억원 혼재 방어)
     dps = _latest_annual(rows, "dps")  # 원, 연간
     ev_ebitda = _latest_pointintime(rows, "ev_ebitda")
 
@@ -143,10 +165,11 @@ def _t_pbr(a: dict, anc: dict) -> val.ValuationResult:
 
 
 def _t_ev_ebitda(a: dict, anc: dict) -> val.ValuationResult:
+    # 순차입은 앵커(EV/EBITDA 역산, 억원 정규화)만 사용 — LLM 이 원문에서 잘못된 단위로 넘길 위험 차단.
     return val.ev_ebitda_valuation(
         forward_ebitda=_pick(a.get("forward_ebitda_eok"), anc.get("ebitda_eok_annual")),
         target_ev_ebitda=_num(a.get("target_ev_ebitda")),
-        net_debt=_pick(a.get("net_debt_eok"), anc.get("net_debt_eok")),
+        net_debt=anc.get("net_debt_eok"),
         shares=anc.get("shares"), current_price=anc.get("current_price"),
     )
 
@@ -156,7 +179,7 @@ def _t_dcf(a: dict, anc: dict) -> val.ValuationResult:
         fcf_base=_num(a.get("fcf_base_eok")), growth_rate=_num(a.get("growth_rate")),
         years=int(_num(a.get("years")) or 5), terminal_growth=_num(a.get("terminal_growth")),
         discount_rate=_num(a.get("discount_rate")),
-        net_debt=_pick(a.get("net_debt_eok"), anc.get("net_debt_eok")),
+        net_debt=anc.get("net_debt_eok"),  # 앵커만(억원 정규화). LLM 단위 오류 차단.
         shares=anc.get("shares"), current_price=anc.get("current_price"),
     )
 

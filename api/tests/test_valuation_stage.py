@@ -56,6 +56,39 @@ def test_pick_respects_zero_and_negative_forward():
     assert vs._pick(None, 5000) == 5000  # None 만 폴백
 
 
+# ── EBITDA 단위 정규화(원·억원 혼재 방어) ────────────────────────────────
+def test_ebitda_unit_normalized_from_won():
+    # 구 valuation_ingest 는 EBITDA 를 원으로 저장(revenue 는 억원). 비율 1e8 → /1e8 보정.
+    # KINX 실제: ebitda 49,525,162,351원, revenue 412억 → 495억으로 정규화.
+    assert vs._ebitda_to_eok(49_525_162_351, 412) == 49_525_162_351 / 1e8
+
+
+def test_ebitda_already_eok_untouched():
+    # 신 report_ingest 는 억원으로 저장. 정상 마진(495/412≈1.2) → 그대로.
+    assert vs._ebitda_to_eok(495, 412) == 495
+
+
+def test_ebitda_unit_by_magnitude_when_no_revenue():
+    # revenue 결측이면 절대크기로 추정: 1e7억 초과면 원 단위로 간주.
+    assert vs._ebitda_to_eok(49_525_162_351, None) == 49_525_162_351 / 1e8
+    assert vs._ebitda_to_eok(495, None) == 495
+
+
+def test_anchor_ebitda_normalized_and_net_debt_sane():
+    # 원단위 EBITDA 행이어도 앵커는 억원으로 정규화 → net_debt 역산이 정상 범위.
+    rows = [
+        {"period": "2025.03", "is_estimate": False, "eps": 500, "bps": 40000},
+        {"period": "2025.06", "is_estimate": False, "eps": 600, "bps": 41000},
+        {"period": "2025.09", "is_estimate": False, "eps": 700, "bps": 42000},
+        {"period": "2025.12", "is_estimate": False, "eps": 800, "bps": 42737,
+         "ebitda": 49_525_162_351, "revenue": 412, "ev_ebitda": 13.93, "dps": 600},
+    ]
+    anc = vs.collect_anchors(rows, {"close_price": 133400, "market_cap": 651_000_000_000})
+    assert abs(anc["ebitda_eok_annual"] - 495.25) < 1  # 억원 정규화
+    # net_debt = 495 × 13.93 − 6510(시총억) ≈ 389억 (음수·조단위 아님)
+    assert -1000 < anc["net_debt_eok"] < 2000
+
+
 # ── 에이전틱 tool-loop ───────────────────────────────────────────────────
 def _fake_llm(turns):
     llm = MagicMock()
