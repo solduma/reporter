@@ -24,6 +24,11 @@ from app.services.deepdive import websearch
 logger = logging.getLogger(__name__)
 
 
+def _no_space(s: str) -> str:
+    """공백 제거(종목명 매칭용 — 띄어쓰기 편차 흡수)."""
+    return "".join((s or "").split())
+
+
 @dataclass
 class ToolContext:
     """도구 실행 컨텍스트 — 대상 종목 + 리소스 핸들."""
@@ -243,16 +248,148 @@ def tool_web_search(ctx: ToolContext, args: dict) -> dict:
     return res
 
 
+def _sector_for(ctx: ToolContext) -> str | None:
+    """종목의 대표 국내 섹터(이벤트 키워드 선택용). 테마→섹터 매핑은 reporter.sector_etf 소유."""
+    from reporter import sector_etf
+
+    themes = company_service.theme_names(ctx.db, ctx.code)
+    return sector_etf.stock_kr_sector(ctx.code, themes)
+
+
+def _event_candidates(ctx: ToolContext, name: str, kw) -> list[dict]:
+    """이벤트 뉴스 후보 수집(하이브리드). (1) 종목 직결 뉴스 — 오매칭 0·최근 주요뉴스,
+    (2) 섹터 키워드 검색 — 과거 이벤트 커버리지. 두 소스 병합, 종목명 포함 기사만, URL 중복 제거."""
+    from app.adapters.external import naver_search, naver_stock_news
+
+    aliases = [name, _no_space(name), ctx.code]
+    cand: dict[str, dict] = {}  # url → {title, summary, press, datetime, trusted}
+
+    # (1) 종목 직결 뉴스 — 종목코드 연결이라 주체가 이 종목(신뢰). trusted=True.
+    try:
+        for n in naver_stock_news.fetch_stock_news(ctx.code, ctx.session, pages=2):
+            cand[n.url] = {"title": n.title, "summary": n.summary, "press": n.press,
+                           "datetime": n.datetime, "trusted": True}
+    except Exception as e:
+        logger.warning("stock news failed %s: %s", ctx.code, e)
+
+    # (2) 섹터 촉매·리스크 키워드 검색(과거 이벤트 포착). 종목명이 제목·요약에 있는 기사만 후보로.
+    # 단 키워드 검색은 '여러 종목 나열' 기사를 섞으므로 trusted=False → 본문 주체성 검증(아래) 필요.
+    # 쿼리 수는 촉매·리스크 각 4개로 제한(네이버 API rate limit 429 회피 + 시간 통제).
+    cid, secret = ctx.settings.naver_client_id, ctx.settings.naver_client_secret
+    if cid and secret:
+        for k in kw.catalysts[:4] + kw.risks[:4]:
+            try:
+                hits = naver_search.search_news(cid, secret, f"{name} {k}", ctx.session,
+                                                display=5, sort="date")
+            except Exception:
+                continue
+            for h in hits:
+                text = _no_space(h.title + h.description)
+                if h.link not in cand and any(_no_space(a) in text for a in aliases if a):
+                    cand[h.link] = {"title": h.title, "summary": h.description, "press": "",
+                                    "datetime": h.post_date, "trusted": False}
+    return [{"url": u, **v} for u, v in cand.items()]
+
+
+def _is_subject(name: str, title: str, body: str) -> bool:
+    """이 기사가 해당 종목을 '주체'로 다루는가(단순 나열·비교 언급 배제).
+
+    제목에 종목명(또는 영문 KINX 류 alias)이 있으면 주체. 아니면 본문에서 3회 이상 언급돼야 주체로
+    본다(여러 종목 나열하는 산업·시황 기사는 대개 1~2회만 스침)."""
+    ntitle = _no_space(title)
+    if _no_space(name) in ntitle or "KINX" in title.upper():
+        return True
+    mentions = body.count(name) + body.upper().count("KINX")
+    return mentions >= 3
+
+
+def tool_event_search(ctx: ToolContext, args: dict) -> dict:
+    """미래 이벤트(촉매·리스크) 탐색. 종목 직결 뉴스 + 섹터 키워드 검색(하이브리드) + DART 공시.
+
+    상방(수주·계약·증설)·하방(소송·유증·우발부채)을 함께 찾는다. 섹터별 키워드는 공통+섹터별
+    이중관리(domain.event_keywords). 이벤트성 상위 기사는 본문까지 크롤. args: max_articles(기본 6)."""
+    from app.adapters.external import article_crawler
+    from app.domain import event_keywords as ek
+
+    name = company_service.report_stock_name(ctx.db, ctx.code) or company_service.resolve_stock_name(
+        ctx.db, ctx.code
+    )
+    if not name:
+        return {"available": False, "note": "종목명 해석 실패"}
+    sector = _sector_for(ctx)
+    kw = ek.for_sector(sector)
+    candidates = _event_candidates(ctx, name, kw)
+
+    # 제목+요약으로 촉매/리스크 키워드 매칭 점수화. 이벤트성 기사를 앞으로.
+    def _hits(text: str, keywords: list[str]) -> list[str]:
+        return [k for k in keywords if k in text]
+
+    scored = []
+    for c in candidates:
+        text = f"{c['title']} {c['summary']}"
+        cats = _hits(text, kw.catalysts)
+        risks = _hits(text, kw.risks)
+        scored.append((len(cats) + len(risks), c, cats, risks))
+    scored.sort(key=lambda x: (x[0] > 0, x[0], x[1]["datetime"]), reverse=True)
+
+    max_articles = int(args.get("max_articles", 6))
+    articles: list[dict] = []
+    for score, c, cats, risks in scored:
+        item = {"title": c["title"], "press": c["press"], "datetime": c["datetime"], "url": c["url"],
+                "summary": c["summary"][:600], "catalyst_hits": cats, "risk_hits": risks}
+        # 이벤트 매칭된 상위 기사만 전체 본문 크롤(토큰·시간 통제).
+        if score > 0 and len([a for a in articles if a.get("body")]) < max_articles:
+            body = article_crawler.crawl_article(c["url"], ctx.session)
+            if body and body.get("body"):
+                full = body["body"]
+                # 키워드 검색 기사(trusted=False)는 이 종목이 주체인지 본문으로 검증. 단순 나열·비교
+                # 언급(타종목 기사에 스친 것)이면 제외 — LLM 이 타종목 이벤트를 오인하는 것 방지.
+                if not c.get("trusted") and not _is_subject(name, c["title"], full):
+                    continue
+                item["body"] = full[:2500]
+        elif not c.get("trusted") and not _is_subject(name, c["title"], c["summary"]):
+            # 본문 미크롤 + 비신뢰 기사: 제목·요약만으로 주체성 판정, 아니면 제외.
+            continue
+        articles.append(item)
+
+    # DART 이벤트 공시(공급계약·소송·유증 등) 병행 — 구조화 정본.
+    disclosures: list[dict] = []
+    if ctx.corp_code and ctx.settings.dart_api_key:
+        try:
+            rows = dart.fetch_disclosures(
+                ctx.settings.dart_api_key, ctx.corp_code, ctx.code,
+                date.today() - timedelta(days=365), date.today(), ctx.session,
+            )
+            for d in rows:
+                if any(f in d.report_nm for f in kw.disclosure_filters):
+                    disclosures.append({"rcept_no": d.rcept_no, "report_nm": d.report_nm,
+                                        "rcept_dt": d.rcept_dt.isoformat()})
+        except dart.DartQuotaExceeded:
+            disclosures = []  # 한도초과는 일시적 — 뉴스만으로 진행
+        except Exception as e:
+            logger.warning("event disclosures failed %s: %s", ctx.code, e)
+
+    return {
+        "available": True, "sector": sector,
+        "catalyst_keywords": kw.catalysts[:10], "risk_keywords": kw.risks[:10],
+        "news": articles[:12],
+        "event_disclosures": disclosures[:20],
+    }
+
+
 def tool_fetch_web_page(ctx: ToolContext, args: dict) -> dict:
-    """URL 본문 추출(네이버 블로그 iframe 해제 포함). args: url(필수)."""
-    from app.adapters.external import blog_crawler
+    """URL 본문 추출. 네이버 블로그(iframe 해제) + 일반 뉴스/기사(범용 추출). args: url(필수)."""
+    from app.adapters.external import article_crawler, blog_crawler
 
     url = args.get("url")
     if not url:
         return {"available": False, "note": "url 필요"}
-    page = blog_crawler.crawl_blog(str(url), ctx.session)
+    # 네이버 블로그는 전용 크롤러(iframe 해제), 그 외(뉴스·언론사)는 범용 기사 추출기.
+    page = blog_crawler.crawl_blog(str(url), ctx.session) or article_crawler.crawl_article(
+        str(url), ctx.session
+    )
     if not page:
-        return {"available": False, "note": "네이버 블로그 아님/본문 없음(1차는 네이버 블로그만 지원)"}
+        return {"available": False, "note": "본문 추출 실패(비공개·구조 상이)"}
     return {"available": True, **page}
 
 
@@ -267,7 +404,9 @@ TOOLS: dict[str, tuple] = {
     "peers": (tool_peers, "동일업종 밸류에이션"),
     "price_context": (tool_price_context, "현재가·시총·모멘텀"),
     "web_search": (tool_web_search, "웹 리서치(네이버 블로그 우선) (args: query, sort, crawl)"),
-    "fetch_web_page": (tool_fetch_web_page, "URL 본문 추출 (args: url)"),
+    "fetch_web_page": (tool_fetch_web_page, "URL 본문 추출(블로그·뉴스) (args: url)"),
+    "event_search": (tool_event_search, "미래 이벤트 탐색 — 섹터별 촉매(수주·계약·증설)·리스크"
+                     "(소송·유증·우발부채) 뉴스 본문+DART 공시 (args: side, max_queries)"),
 }
 
 

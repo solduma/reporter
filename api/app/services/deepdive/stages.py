@@ -115,27 +115,36 @@ def stage_business(llm: LLMPort, model: str, ctx: ToolContext, prior: dict) -> d
                            context_data=context, max_tool_calls=6)
 
 
-# ── 4단계 Thesis & Risks ──────────────────────────────────────────────
+# ── 4단계 Thesis & Risks (미래 촉매·이벤트 리스크 포함) ─────────────────
 def stage_thesis(llm: LLMPort, model: str, ctx: ToolContext, prior: dict) -> dict:
+    # 이벤트 탐색을 컨텍스트로 선주입 — 섹터별 촉매(수주·계약·증설)·리스크(소송·유증·우발부채)
+    # 뉴스 본문 + DART 공시. LLM 이 놓치지 않게 코드가 먼저 수집해 넣는다.
     context = {
         "overview": prior.get("overview", {}),
         "redflags": prior.get("redflags", {}),
         "business": prior.get("business", {}),
+        "events": dispatch("event_search", ctx, {"side": "both"}),
         "financials_series": _fin_series(ctx)[-12:],
     }
     goal = (
         "실적 기반의 명확한 인과관계로 투자 아이디어를 세운다. 막연한 기대가 아니라 '회사 실적이 실제로 "
-        "좋아져서 주가가 오를 수밖에 없는' 근거를 세우고, 업종 특성(IT·소재/소재가공 스프레드·금융·소비재 "
-        "등)에 맞게 차별화한다. 하방 리스크(대주주 도덕적 해이 이력, 부채 급증 등 아이디어가 틀어질 요인)를 "
-        "선제적으로 점검한다. 필요하면 ownership·disclosures·web_search 로 보강."
+        "좋아져서 주가가 오를 수밖에 없는' 근거를 세운다. **미래 촉매**(신규 수주·대형 계약·증설·인수·"
+        "파트너십 등 실적을 끌어올릴 예정 이벤트)와 **이벤트 리스크**(소송·유상증자·우발부채·리콜·규제 등)를 "
+        "events 컨텍스트(뉴스 본문·DART 공시)에서 구체적으로 뽑아 근거·출처·예상 영향과 함께 정리한다. "
+        "**중요: events 뉴스 중에는 이 종목이 주체가 아니라 단순 언급·비교된 기사(다른 회사의 수주·인수 등)가 "
+        "섞여 있을 수 있다. 반드시 이 종목(분석 대상)이 주체인 이벤트만 catalysts/event_risks 에 넣고, 타사 "
+        "이벤트는 제외한다. 모회사·자회사 이벤트는 지분·지배구조 영향이 분명할 때만 그 관계를 명시해 포함한다.** "
+        "events 가 부족하면 event_search·disclosures·web_search 로 보강한다. 업종 특성에 맞게 차별화."
     )
     schema = (
         '{"thesis": "실적 기반 투자 아이디어(인과관계 명확히)", "thesis_type": "성장주|자산주/역발상|기타", '
         '"drivers": ["실적 개선 동인"], "downside_risks": ["하방 리스크"], '
+        '"catalysts": [{"event": "미래 촉매 이벤트", "impact": "예상 실적·주가 영향", "source": "뉴스/공시 출처", "timing": "예상 시점"}], '
+        '"event_risks": [{"event": "이벤트 리스크", "impact": "예상 악영향", "source": "출처"}], '
         '"industry_angle": "업종별 차별화 논리"}'
     )
     return agent.run_stage(llm, model, ctx, stage_goal=goal, result_schema=schema,
-                           context_data=context, max_tool_calls=4)
+                           context_data=context, max_tool_calls=5)
 
 
 # ── 5단계 Valuation & Target ──────────────────────────────────────────
