@@ -149,21 +149,28 @@ def latest_valuation(db: Session, code: str) -> Financial | None:
     ).first()
     if fin is None:
         return None
-    if fin.div_yield is None:  # 배당은 결산분기(.12)에만 있어 별도로 최신값을 끌어온다
-        dy = db.scalar(
-            select(Financial.div_yield)
-            .where(
-                Financial.stock_code == code,
-                Financial.is_estimate.is_(False),
-                Financial.div_yield.is_not(None),
-                Financial.period.like("%.12"),
-            )
-            .order_by(Financial.period.desc())
-            .limit(1)
-        )
-        if dy is not None:
-            fin.div_yield = dy  # 읽기 전용 보정(커밋 안 함)
+    # 배당·EV/EBITDA 는 연간(.12)에만 있어(분기 최신 행엔 결측), 최신 연간값을 끌어와 보정한다.
+    # 안 하면 가치 축에서 EV/EBITDA 가 항상 누락된다(분기 행이 최신으로 잡히므로).
+    if fin.div_yield is None:
+        fin.div_yield = _latest_annual_value(db, code, Financial.div_yield)  # 읽기 전용(커밋 안 함)
+    if fin.ev_ebitda is None:
+        fin.ev_ebitda = _latest_annual_value(db, code, Financial.ev_ebitda)
     return fin
+
+
+def _latest_annual_value(db: Session, code: str, column):
+    """연간(.12) 비추정 행 중 해당 컬럼의 최신 유효값. 분기 최신 행에 없는 연간 지표 보정용."""
+    return db.scalar(
+        select(column)
+        .where(
+            Financial.stock_code == code,
+            Financial.is_estimate.is_(False),
+            column.is_not(None),
+            Financial.period.like("%.12"),
+        )
+        .order_by(Financial.period.desc())
+        .limit(1)
+    )
 
 
 def financials_fresh(db: Session, code: str) -> bool:
