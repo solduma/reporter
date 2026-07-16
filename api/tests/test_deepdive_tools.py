@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from app.adapters.dart import DartQuotaExceeded
 from app.services.deepdive import tools
 
@@ -17,32 +19,67 @@ def _ctx() -> tools.ToolContext:
     )
 
 
-def test_recent_periodic_report_quota_note_is_not_mapping_error(monkeypatch):
-    # 한도초과(020)면 '매핑/데이터 문제 아님'을 명시해 딥다이브가 다른 도구로 진행하게 안내.
+def test_recent_periodic_report_quota_aborts(monkeypatch):
+    # DART 한도초과는 삼키지 않고 전파 → 딥다이브 중단(불완전 데이터로 강행·타임아웃 매달림 방지).
     def _raise(*a, **k):
         raise DartQuotaExceeded("사용한도를 초과하였습니다.")
 
     monkeypatch.setattr(tools.dart, "find_periodic_report", _raise)
-    result = tools.tool_recent_periodic_report(_ctx(), {})
-    assert result["available"] is False
-    assert "한도" in result["note"]
-    assert "매핑" not in result["note"] or "아님" in result["note"]
+    with pytest.raises(DartQuotaExceeded):
+        tools.tool_recent_periodic_report(_ctx(), {})
 
 
-def test_recent_periodic_report_not_found_note_distinct_from_quota(monkeypatch):
-    # 진짜 보고서 없음(None)일 때는 한도초과와 다른 메시지.
+def test_recent_periodic_report_not_found_note(monkeypatch):
+    # 진짜 보고서 없음(None)이면 발췌 생략 안내(중단 아님).
     monkeypatch.setattr(tools.dart, "find_periodic_report", lambda *a, **k: None)
     result = tools.tool_recent_periodic_report(_ctx(), {})
     assert result["available"] is False
-    assert "한도" not in result["note"]
+    assert "찾지 못" in result["note"]
 
 
-def test_dispatch_wraps_quota_as_tool_error(monkeypatch):
-    # financials 등 다른 도구는 dispatch 의 제너릭 except 가 한도초과를 오류 dict 로 전달.
+def test_dispatch_propagates_quota_to_abort(monkeypatch):
+    # DART 한도초과는 dispatch 가 오류 dict 로 삼키지 않고 전파 → run_stage→run_job 이 중단.
+
     def _raise(ctx, args):
         raise DartQuotaExceeded("사용한도를 초과하였습니다.")
 
     monkeypatch.setitem(tools.TOOLS, "financials", (_raise, "재무"))
+    with pytest.raises(DartQuotaExceeded):
+        tools.dispatch("financials", _ctx(), {})
+
+
+def test_dispatch_wraps_nonquota_error(monkeypatch):
+    # 일반 도구 오류는 여전히 오류 dict 로 흡수(루프 계속).
+    def _raise(ctx, args):
+        raise ValueError("일시적 파싱 실패")
+
+    monkeypatch.setitem(tools.TOOLS, "financials", (_raise, "재무"))
     result = tools.dispatch("financials", _ctx(), {})
-    assert "error" in result
-    assert "사용한도" in result["error"]
+    assert "error" in result and "financials" in result["error"]
+
+
+def test_thesis_injects_asof_date_and_forward_only(monkeypatch):
+    # thesis 스테이지는 분석 기준일(as_of_date)을 컨텍스트·목표에 넣고, '이미 종료된 과거 이벤트 제외'
+    # (시점 유효성)를 지시해야 한다 — 지난 촉매·리스크 반영 방지.
+    from datetime import UTC, datetime
+
+    from app.services.deepdive import stages
+
+    captured = {}
+
+    def _fake_run_stage(llm, model, ctx, *, stage_goal, result_schema, context_data, max_tool_calls, **kw):
+        captured["goal"] = stage_goal
+        captured["ctx"] = context_data
+        return {}
+
+    monkeypatch.setattr(stages.agent, "run_stage", _fake_run_stage)
+    monkeypatch.setattr(stages, "dispatch", lambda n, c, a: {})
+    monkeypatch.setattr(stages, "_fin_series", lambda c: [])
+    ctx = MagicMock()
+    ctx.code = "093320"
+    stages.stage_thesis(MagicMock(), "m", ctx, {})
+
+    today = datetime.now(UTC).date().isoformat()
+    assert captured["ctx"]["as_of_date"] == today
+    assert today in captured["goal"]
+    assert "이미 종료" in captured["goal"]  # 과거 이벤트 제외 지시
