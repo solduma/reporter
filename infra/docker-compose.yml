@@ -95,6 +95,8 @@ services:
       INSIGHT_MODEL: ${INSIGHT_MODEL:-glm-5.2:cloud}
       # 재무·보고서·EV/EBITDA 백필이 DART/KRX 를 호출한다(없으면 배치가 조용히 스킵됨).
       DART_API_KEY: ${DART_API_KEY:-}
+      # DART 일일한도 초과(020) 시 폴오버할 백업 키. 비우면 폴오버 없음.
+      DART_API_KEY_BACKUP: ${DART_API_KEY_BACKUP:-}
       KRX_API: ${KRX_API:-}
       # 경제 캘린더 배치가 FRED(미국 매크로 발표일·실적치)를 호출한다(없으면 고정일정만).
       FRED_API_KEY: ${FRED_API_KEY:-}

@@ -63,9 +63,17 @@ def _recent_periodic_rcept(ctx: ToolContext) -> tuple[str, str] | None:
 # ── 도구 구현 ─────────────────────────────────────────────────────────
 def tool_recent_periodic_report(ctx: ToolContext, args: dict) -> dict:
     """최신 정기보고서(사업/반기/분기 중 접수 최신)의 본문 발췌 + 종류."""
-    picked = _recent_periodic_rcept(ctx)
+    try:
+        picked = _recent_periodic_rcept(ctx)
+    except dart.DartQuotaExceeded:
+        # 한도초과는 매핑·데이터 문제가 아닌 일시적 제약(자정 리셋). 다른 지표로 판단하도록 안내.
+        return {
+            "available": False,
+            "note": "DART 일일 조회한도 초과로 원문 발췌 불가(일시적). 매핑·데이터 문제 아님 — "
+            "다른 도구(financials·reports 등)로 분석 진행.",
+        }
     if not picked:
-        return {"available": False, "note": "정기보고서 없음(DART 키·매핑 확인)"}
+        return {"available": False, "note": "해당 기업의 정기보고서를 찾지 못함(발췌 생략, 다른 도구로 진행)"}
     rcept, kind = picked
     text = dart.fetch_document_text(ctx.settings.dart_api_key, rcept, ctx.session, max_chars=8000)
     return {"available": True, "kind": kind, "rcept_no": rcept, "text": text}
