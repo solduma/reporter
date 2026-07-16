@@ -79,19 +79,18 @@ export default function DeepDivePanel({ code }: { code: string }) {
     try {
       const s = await fetchDeepDiveStatus(code);
       setStatus(s);
+      // running·done 이면 보고서 로드. pending(worker 가 아직 이전 JSON 을 초기화 전)엔 로드 안 함
+      // — 재분석 직후 잠깐 옛 결과가 다시 뜨는 깜빡임 방지. running 부터는 '현재 실행' 부분 결과만.
+      if (s.has_report && s.status !== "pending") {
+        await loadReport();
+      }
       if (isActive(s.status)) {
-        // 진행 중엔 이전 보고서를 다시 불러오지 않는다(재분석 시작 시 비운 화면 유지 — 부분·이전 결과 노출 방지).
         timerRef.current = setTimeout(poll, POLL_MS);
-      } else if (s.status === "done") {
-        await loadReport();
-      } else if (s.has_report && !report) {
-        // 비활성(none 등)인데 완료 보고서가 있으면 로드(초기 진입·폴링 종료 후).
-        await loadReport();
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "상태 조회 실패");
     }
-  }, [code, report, loadReport]);
+  }, [code, loadReport]);
 
   useEffect(() => {
     let active = true;
@@ -102,9 +101,9 @@ export default function DeepDivePanel({ code }: { code: string }) {
         return;
       }
       setStatus(s);
-      // 진행 중(running/pending)이면 이전 보고서를 띄우지 않는다(재분석 중 화면 비움 — 페이지 새로고침 포함).
-      // 완료 보고서는 비활성일 때만 로드.
-      if (s?.has_report && !isActive(s.status)) {
+      // running·done 이면 로드(진행 중이면 완료 단계까지 실시간 표시). pending 은 로드 안 함
+      // (worker 가 이전 단계 JSON 초기화 전이라 옛 결과 깜빡임 방지).
+      if (s?.has_report && s.status !== "pending") {
         await loadReport();
       }
       setLoading(false);
