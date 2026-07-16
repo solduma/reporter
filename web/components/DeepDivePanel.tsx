@@ -79,12 +79,13 @@ export default function DeepDivePanel({ code }: { code: string }) {
     try {
       const s = await fetchDeepDiveStatus(code);
       setStatus(s);
-      if (s.has_report && !report) {
-        await loadReport();
-      }
       if (isActive(s.status)) {
+        // 진행 중엔 이전 보고서를 다시 불러오지 않는다(재분석 시작 시 비운 화면 유지 — 부분·이전 결과 노출 방지).
         timerRef.current = setTimeout(poll, POLL_MS);
       } else if (s.status === "done") {
+        await loadReport();
+      } else if (s.has_report && !report) {
+        // 비활성(none 등)인데 완료 보고서가 있으면 로드(초기 진입·폴링 종료 후).
         await loadReport();
       }
     } catch (e) {
@@ -101,7 +102,9 @@ export default function DeepDivePanel({ code }: { code: string }) {
         return;
       }
       setStatus(s);
-      if (s?.has_report) {
+      // 진행 중(running/pending)이면 이전 보고서를 띄우지 않는다(재분석 중 화면 비움 — 페이지 새로고침 포함).
+      // 완료 보고서는 비활성일 때만 로드.
+      if (s?.has_report && !isActive(s.status)) {
         await loadReport();
       }
       setLoading(false);
@@ -122,6 +125,8 @@ export default function DeepDivePanel({ code }: { code: string }) {
   const onRequest = async () => {
     setRequesting(true);
     setError(null);
+    // 재분석 시작 → 이전 보고서·목표가·단계별 상세를 즉시 비운다(진행률만 보이게). 완료 시 새로 로드.
+    setReport(null);
     try {
       const s = await requestDeepDive(code);
       setStatus(s);
