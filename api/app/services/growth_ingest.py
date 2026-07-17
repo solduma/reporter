@@ -17,8 +17,8 @@ from sqlalchemy.orm import Session
 
 from app.adapters.market import naver as chart
 from app.adapters.market import naver_quote as quote
+from app.db.models import Financial, UniverseSnapshot
 from app.db.models import GrowthMetric as GrowthMetricRow
-from app.db.models import UniverseSnapshot
 from app.services import growth, universe_ingest
 
 logger = logging.getLogger(__name__)
@@ -89,6 +89,19 @@ def _ingest_one(db: Session, code: str, snap_date: date, session: requests.Sessi
     fins = quote.fetch_financials(code, session)
     metric = growth.compute_growth(code, fins) if fins else None
     if metric:
+        # EBITDA 는 네이버 스크랩에 없고 report_ingest 가 DB financials(연간)에만 산출한다. 그 값으로
+        # EBITDA 손익상태·마진을 별도 계산해 metric 에 주입한다(compute_growth 는 EBITDA 를 못 채움 #401).
+        annual_fins = db.scalars(
+            select(Financial).where(
+                Financial.stock_code == code,
+                Financial.is_estimate.is_(False),
+                Financial.period.like("%.12"),
+                Financial.ebitda.is_not(None),
+            )
+        ).all()
+        eb_status, eb_margin = growth.annual_ebitda_status(annual_fins)
+        metric.ebitda_status = eb_status
+        metric.ebitda_margin_delta = eb_margin
         stmt = insert(GrowthMetricRow).values(
             stock_code=code,
             period=metric.period,

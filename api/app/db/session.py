@@ -85,6 +85,11 @@ _DATA_MIGRATIONS = (
     "FROM financials g WHERE g.stock_code = f.stock_code AND g.revenue > 0)",
     # D) ReportFinancial 파싱 깨진 가비지 행(1e15 초과 = 경 단위, 불가능) 삭제.
     "DELETE FROM report_financials WHERE abs(revenue) >= 1e15 OR abs(equity) >= 1e15",
+    # E) 대형사 D&A fallback 파서 수정(#380, 2026-07-16) 이전에 백필된 report_10y 종목은 옛 코드가
+    #    D&A(→EBITDA·EV/EBITDA)를 NULL 로 남겼고, run_backfill_progressive 는 완료 종목을 재파싱하지
+    #    않아 값이 영구히 빈다. 해당 sync_state 를 삭제해 야간 배치·온디맨드가 fallback 코드로 재파싱하게
+    #    한다. 재백필 시 synced_at 이 cutoff 이후가 되어 재삭제되지 않는다(멱등).
+    "DELETE FROM sync_state WHERE domain = 'report_10y' AND synced_at < '2026-07-17 00:00:00+00'",
 )
 
 

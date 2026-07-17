@@ -115,6 +115,16 @@ def compute_growth(stock_code: str, periods: list) -> GrowthMetric | None:
     )
 
 
+def annual_ebitda_status(financials: list) -> tuple[str | None, float | None]:
+    """DB financials(연간 .12 에 ebitda·revenue 보유)로 EBITDA 손익상태·마진 증감을 계산한다(#401).
+
+    네이버 스크랩 재무엔 EBITDA 가 없어 compute_growth 가 못 채운다. EBITDA 는 report_ingest 가
+    DB financials 에만 산출하므로, 성장 배치가 이 함수로 DB 연간 EBITDA 를 별도 반영한다.
+    추정치는 제외하고 넘길 것(호출측 책임)."""
+    ordered = sorted((p for p in financials if _key(p.period)), key=lambda p: _key(p.period))
+    return _ebitda_yoy(ordered)
+
+
 def _ebitda_yoy(actuals: list) -> tuple[str | None, float | None]:
     """EBITDA 손익상태·마진 증감(연간 기준). EBITDA 는 연간(.12)에만 있어 연간끼리 최신 vs 전년 비교.
 

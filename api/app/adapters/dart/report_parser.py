@@ -149,16 +149,27 @@ _NI_ANCHORS = (
     "법인세비용차감전순이익", "법인세비용차감전순손익", "법인세비용차감전계속영업이익",
 )
 _RECON_MARKERS = ("조정", "가감", "조정사항")
+_CF_ADJ_ANCHOR = "법인세비용"  # 대형사 CF '조정 내역' 주석표 첫 열(순이익 앵커로 시작 안 함)
 
 
 def _all_recon_blocks(cells: list[tuple[int, bool, str]]) -> list[list[tuple[int, bool, str]]]:
-    """순이익 앵커 셀(선행 열거자 제거) + 다음 60셀 내 조정 마커 → 블록(+220셀)."""
+    """순이익 앵커 셀(선행 열거자 제거) + 다음 60셀 내 조정 마커 → 블록(+220셀).
+
+    추가: 대형사(삼성 등) 연간 CF 는 조정을 한 줄로 요약하고 항목별 D&A 를 주석 '조정 내역' 표로
+    빼는데, 그 표는 순이익이 아니라 '법인세비용(수익)'으로 시작해 NI 앵커로 못 잡는다(#401). 좌측정렬
+    '법인세비용*' 라벨 + 바로 다음 우측정렬 숫자면 표로 보고 앵커에 추가(서술문은 다음 셀이 숫자가
+    아니라 배제). 기존 NI 경로는 불변 — _best_recon 이 D&A 최다 블록을 채택하므로 자연 합류한다.
+    """
     blocks = []
     for i, (_pos, _right, txt) in enumerate(cells):
         n = _norm(re.sub(r"^[0-9]+\.|^[가-힣]\.", "", txt))
         if any(a in n for a in _NI_ANCHORS):
             window = cells[i:i + 60]
             if any(any(mk in _norm(t) for mk in _RECON_MARKERS) for _, _, t in window):
+                blocks.append(cells[i:i + 220])
+        if not _right and n.startswith(_CF_ADJ_ANCHOR):
+            nxt = cells[i + 1] if i + 1 < len(cells) else None
+            if nxt is not None and nxt[1] and _to_num(nxt[2]) is not None:
                 blocks.append(cells[i:i + 220])
     return blocks
 

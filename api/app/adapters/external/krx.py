@@ -52,9 +52,23 @@ def fetch_shares_by_date(
 
 
 def fetch_shares(api_key: str, bas_dd: str, code: str, session: requests.Session) -> int | None:
-    """단일 종목의 기준일 상장주식수. KOSPI→KOSDAQ 순으로 찾는다. 없으면 None."""
-    for market in ("KOSPI", "KOSDAQ"):
-        shares = fetch_shares_by_date(api_key, bas_dd, session, market).get(code)
-        if shares:
-            return shares
+    """단일 종목의 기준일 상장주식수. KOSPI→KOSDAQ 순으로 찾는다. 없으면 None.
+
+    KRX 는 당일(장 마감 전) 종목기본정보를 주지 않아 최신 스냅샷일 = 오늘이면 빈 응답이 온다.
+    이때 직전 영업일로 며칠 뒤로 물러가며 조회한다(상장주식수는 자주 안 변해 직전일로 충분).
+    이 폴백이 없으면 당일 온디맨드 백필이 shares=None 이 되어 EV/EBITDA 가 산출되지 못한다(#401)."""
+    from datetime import datetime, timedelta
+
+    try:
+        day = datetime.strptime(bas_dd, "%Y%m%d")
+    except ValueError:
+        day = None
+    for attempt in range(5):  # 오늘 + 최대 4영업일 전(주말·연휴 감안)
+        dd = bas_dd if attempt == 0 or day is None else (day - timedelta(days=attempt)).strftime("%Y%m%d")
+        for market in ("KOSPI", "KOSDAQ"):
+            shares = fetch_shares_by_date(api_key, dd, session, market).get(code)
+            if shares:
+                return shares
+        if day is None:
+            break
     return None
