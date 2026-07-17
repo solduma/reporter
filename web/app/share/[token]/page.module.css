@@ -77,6 +77,50 @@
   color: var(--muted);
 }
 
+/* 최종 목표가 배너(최상단 강조) */
+.banner {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding: 16px 20px;
+  border: 1px solid var(--accent-soft);
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+}
+
+.bannerLabel {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.bannerPrice {
+  font-size: 1.7rem;
+  font-weight: 800;
+  color: var(--text);
+  letter-spacing: -0.02em;
+}
+
+.bannerUpside {
+  font-size: 1.1rem;
+  font-weight: 800;
+}
+
+.upPos {
+  color: var(--buy);
+}
+
+.upNeg {
+  color: var(--sell);
+}
+
+.bannerCurrent {
+  margin-left: auto;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
 .footer {
   margin-top: 12px;
   padding-top: 14px;
@@ -96,5 +140,11 @@
   .pdfBtn,
   .footer {
     display: none;
+  }
+
+  /* 목표가 배너 배경·색을 인쇄에도 보존(기본 브라우저는 배경 생략). */
+  .banner {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 }
