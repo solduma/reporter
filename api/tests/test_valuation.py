@@ -50,22 +50,45 @@ def test_ev_ebitda_net_cash_increases_value():
 
 
 # ── 절대가치 ────────────────────────────────────────────────────────────
-def test_dcf_two_stage():
-    # 결정론적: FCF 100억, 10% 성장 5년, 영구성장 2%, 할인율 10%, 순차입 0, 1억주
+def test_dcf_two_stage_moderate_growth():
+    # 완만성장(10%, 영구 2% → 격차 8%p, 3단계 임계 미만) → 2단계 유지.
     r = v.dcf_valuation(
         fcf_base=100, growth_rate=0.10, years=5, terminal_growth=0.02,
         discount_rate=0.10, net_debt=0, shares=1e8, current_price=None,
     )
     assert r.applicable and r.target_price and r.target_price > 0
-    # 수기 검산: 명시적 5년 현가 + 잔존 현가 → 지분가치 계산이 프로세스에 드러남
-    assert len(r.process) == 5
+    assert r.assumptions["stages"] == 2  # 완만성장 → 2단계
     assert r.confidence == "하"  # DCF 기본 신뢰도 낮음
 
 
-def test_dcf_rejects_discount_le_terminal():
+def test_dcf_three_stage_for_high_growth():
+    # 고성장(30%, 영구 2% → 격차 28%p > 8%) + roe·moat → 3단계(CAP 유지+감쇠).
     r = v.dcf_valuation(
-        fcf_base=100, growth_rate=0.05, years=5, terminal_growth=0.05,
-        discount_rate=0.05, net_debt=0, shares=1e8, current_price=None,
+        fcf_base=100, growth_rate=0.30, years=5, terminal_growth=0.02,
+        discount_rate=0.10, net_debt=0, shares=1e8, current_price=None,
+        roe=0.25, moat="강",
+    )
+    assert r.applicable
+    assert r.assumptions["stages"] == 3
+    assert r.assumptions["plateau_years"] >= 1 and r.assumptions["fade_years"] >= 1
+    assert any("선형 감쇠" in s for s in r.process)
+
+
+def test_dcf_terminal_growth_capped_by_risk_free():
+    # 영구성장 8% 요청이어도 rf 3% 로 상한(Damodaran g ≤ rf).
+    r = v.dcf_valuation(
+        fcf_base=100, growth_rate=0.10, years=5, terminal_growth=0.08,
+        discount_rate=0.10, net_debt=0, shares=1e8, current_price=None, risk_free=0.03,
+    )
+    assert r.applicable
+    assert r.assumptions["growth_long"] <= 0.03
+
+
+def test_dcf_rejects_discount_le_terminal():
+    # 할인율 3% ≤ 영구성장(캡 후 4%→3%로 유계돼도 여전히 할인율 이상) → 발산 방어.
+    r = v.dcf_valuation(
+        fcf_base=100, growth_rate=0.03, years=5, terminal_growth=0.04,
+        discount_rate=0.03, net_debt=0, shares=1e8, current_price=None,
     )
     assert not r.applicable and "발산" in r.note
 
@@ -239,3 +262,54 @@ def test_blend_empty_when_none_applicable():
     bad = v.per_valuation(forward_eps=None, target_per=None, current_price=5000)
     s = v.blend([bad], current_price=5000)
     assert s.final_target is None and s.method_count == 0
+
+
+# ── 종목 유형별 방식 적합도(method_fit) + blend 제외 ────────────────────────
+def test_method_fit_financial_excludes_ev_and_dcf():
+    # 금융주: EV/EBITDA·FCFF DCF 제외(부채=원재료). DDM·PBR 우대.
+    f = v.method_fit("financial")
+    assert f["ev_ebitda"] == 0.0 and f["dcf"] == 0.0
+    assert f["ddm"] > 1.0 and f["pbr"] > 1.0
+
+
+def test_method_fit_growth_downweights_book_methods():
+    # 성장주: PBR·자산가치 저가중(장부가 ≪ 실제가치), PER·DCF 우대.
+    f = v.method_fit("growth")
+    assert f["pbr"] < 1.0 and f["asset"] < 1.0
+    assert f["per"] > 1.0 and f["dcf"] > 1.0
+
+
+def test_method_fit_dividend_and_loss_gates():
+    # 무배당 → DDM 제외. 적자 → PER·DCF 제외(음이익 붕괴).
+    assert v.method_fit("growth", has_dividend=False)["ddm"] == 0.0
+    loss = v.method_fit("other", is_loss=True)
+    assert loss["per"] == 0.0 and loss["dcf"] == 0.0
+
+
+def test_blend_excludes_unfit_methods():
+    # 금융주: 부적합 EV/EBITDA·DCF 는 폭주값이어도 최종 평균 제외(적합 PER·DDM 만 반영).
+    per = v.per_valuation(forward_eps=1000, target_per=10, current_price=9000)  # 10000
+    ddm = v.ddm_valuation(dps=500, dividend_growth=0.02, cost_of_equity=0.08, current_price=9000)
+    ev = v.ev_ebitda_valuation(forward_ebitda=100, target_ev_ebitda=50, net_debt=0,
+                               shares=1e6, current_price=9000)  # 폭주
+    for r in (per, ddm, ev):
+        r.confidence = "중"
+    s = v.blend([per, ddm, ev], 9000, v.method_fit("financial"))
+    assert "부적합" in ev.note  # 금융주에 EV/EBITDA 제외
+    assert s.final_target and s.final_target < 20000  # 폭주값 안 섞임
+
+
+def test_blend_outlier_median_not_polluted_by_unfit():
+    # 회귀 방지: 부적합(fit=0) 방식의 폭주값이 이상치 중앙값을 오염시켜 적합 방식을 제외시키면 안 됨.
+    per = v.per_valuation(forward_eps=1000, target_per=10, current_price=9000)  # 10000 적합
+    ddm = v.ddm_valuation(dps=550, dividend_growth=0.02, cost_of_equity=0.08, current_price=9000)  # 적합
+    ev = v.ev_ebitda_valuation(forward_ebitda=100, target_ev_ebitda=90, net_debt=0,
+                               shares=1e6, current_price=9000)  # 부적합·초폭주
+    dcf = v.dcf_valuation(fcf_base=100, growth_rate=0.0, years=1, terminal_growth=0.0,
+                          discount_rate=0.10, net_debt=0, shares=1e6, current_price=9000)  # 부적합
+    for r in (per, ddm, ev, dcf):
+        r.confidence = "중"
+    s = v.blend([per, ddm, ev, dcf], 9000, v.method_fit("financial"))
+    assert "부적합" not in per.note  # PER 은 적합 → 부적합 제외 안 됨
+    assert "이상치" not in per.note and "이상치" not in ddm.note  # 적합 방식이 오제외되면 안 됨
+    assert s.final_target and 9000 < s.final_target < 15000  # 폭주 EV 안 섞임

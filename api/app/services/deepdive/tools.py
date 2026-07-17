@@ -247,7 +247,7 @@ def tool_web_search(ctx: ToolContext, args: dict) -> dict:
     return res
 
 
-def _sector_for(ctx: ToolContext) -> str | None:
+def sector_for(ctx: ToolContext) -> str | None:
     """종목의 대표 국내 섹터(이벤트 키워드 선택용). 테마→섹터 매핑은 reporter.sector_etf 소유."""
     from reporter import sector_etf
 
@@ -271,7 +271,7 @@ _SECTOR_TO_INDUSTRY: dict[str, tuple[str, ...]] = {
 
 def _sector_industry_names(ctx: ToolContext) -> list[str]:
     """종목의 대표 섹터를 산업 리포트 industry_name 후보로 매핑(#4 — 산업↔종목 연결)."""
-    return list(_SECTOR_TO_INDUSTRY.get(_sector_for(ctx) or "", ()))
+    return list(_SECTOR_TO_INDUSTRY.get(sector_for(ctx) or "", ()))
 
 
 def _event_candidates(ctx: ToolContext, name: str, kw) -> list[dict]:
@@ -334,7 +334,7 @@ def tool_event_search(ctx: ToolContext, args: dict) -> dict:
     )
     if not name:
         return {"available": False, "note": "종목명 해석 실패"}
-    sector = _sector_for(ctx)
+    sector = sector_for(ctx)
     kw = ek.for_sector(sector)
     candidates = _event_candidates(ctx, name, kw)
 
