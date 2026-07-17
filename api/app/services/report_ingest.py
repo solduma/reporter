@@ -83,6 +83,27 @@ def _quarter_end_close(db: Session, code: str, year: int, kind: str) -> float | 
     )
 
 
+def _shares_from_snapshot(db: Session, code: str) -> int | None:
+    """유니버스 스냅샷의 시가총액÷종가로 상장주식수를 역산(KRX shares 조회 실패 시 폴백).
+
+    KRX fetch_shares 가 대부분 종목에서 빈 값을 줘 EV/EBITDA 가 전종목 결측이 되던 문제 대응.
+    스냅샷은 이미 시총·종가를 담고 있어(=시총/종가=주식수) 외부 호출 없이 근사 주식수를 얻는다.
+    최신 스냅샷 기준(가장 최근 상장주식수) — EV 는 각 연도 분기말 종가에 이 주식수를 곱해 근사한다.
+    """
+    row = db.execute(
+        select(UniverseSnapshot.market_cap, UniverseSnapshot.close_price)
+        .where(UniverseSnapshot.stock_code == code)
+        .order_by(UniverseSnapshot.snapshot_date.desc())
+        .limit(1)
+    ).first()
+    if row is None:
+        return None
+    market_cap, close_price = row
+    if not market_cap or not close_price:
+        return None
+    return round(market_cap / close_price)
+
+
 def _upsert_report(db: Session, code: str, period: str, kind: str, rcept_no: str, **vals) -> None:
     stmt = insert(ReportFinancial).values(
         stock_code=code, period=period, fs_div="CFS", report_kind=kind, rcept_no=rcept_no, **vals
@@ -150,6 +171,8 @@ def backfill_stock(
         if latest:
             with requests.Session() as s:
                 shares = krx.fetch_shares(settings.krx_api, latest.strftime("%Y%m%d"), code, s)
+    if not shares:  # KRX 실패 시 스냅샷 시총÷종가로 역산(EV/EBITDA 전종목 결측 방지).
+        shares = _shares_from_snapshot(db, code)
     _recompute_ev_ebitda(db, code, annual_ev, shares)
     db.commit()
     logger.info("report backfill %s: %d annual EV periods", code, len(annual_ev))

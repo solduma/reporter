@@ -156,6 +156,38 @@ def test_value_score_abs_includes_peg():
     assert cheap_peg[0] > no_growth[0]
 
 
+def test_peg_surrogate_turnaround():
+    # eps_yoy 로 PEG 를 못 구하는 흑자전환/흑자지속은 순이익률 개선 pp 로 대체점(상한 0.7).
+    # 마진 크게 개선된 흑자전환 → margin_pp_score 는 0.7 초과지만 상한에 눌림.
+    assert s.peg_surrogate_norm("흑자전환", 0.2) == 0.7  # +20pp → 0.98 이나 상한 0.7
+    # 마진 개선이 작으면 상한 미만(그대로).
+    small = s.peg_surrogate_norm("흑자지속", 0.02)
+    assert small is not None and small < 0.7
+    # 적자·미상은 대체점 없음.
+    assert s.peg_surrogate_norm("적자지속", 0.2) is None
+    assert s.peg_surrogate_norm("적자전환", 0.2) is None
+    assert s.peg_surrogate_norm(None, 0.2) is None
+    # 마진 결측이면 대체 불가.
+    assert s.peg_surrogate_norm("흑자전환", None) is None
+
+
+def test_value_score_abs_peg_surrogate_fallback():
+    # eps_yoy 없어도(흑자전환) net 마진 개선으로 PEG 자리를 채워 가치 축에서 안 빠진다.
+    turnaround = s.value_score_abs(
+        per=15, pbr=1.0, ev_ebitda=8, roe=12, div_yield=2,
+        eps_yoy=None, net_status="흑자전환", net_margin_delta=0.1,
+    )
+    plain = s.value_score_abs(per=15, pbr=1.0, ev_ebitda=8, roe=12, div_yield=2, eps_yoy=None)
+    assert turnaround[1][3] is not None  # peg_norm 자리에 대체점
+    assert plain[1][3] is None  # 대체 정보 없으면 여전히 None
+    # eps_yoy 실측이 있으면 대체점보다 그것을 우선.
+    real = s.value_score_abs(
+        per=15, pbr=1.0, ev_ebitda=8, roe=12, div_yield=2,
+        eps_yoy=1.0, net_status="흑자전환", net_margin_delta=0.1,
+    )
+    assert real[1][3] == 1.0  # peg_norm(PEG=0.15) 만점 — 대체점(≤0.7)이 아니라 실측
+
+
 def test_topdown_stock_rs_differentiates():
     # 같은 섹터 flow 라도 종목 RS 가 다르면 탑다운 점수가 갈린다(섹터별 뭉침 보정).
     base = {"us_flow": 50.0, "kr_flow": 50.0, "kr_index_flow": 50.0}
