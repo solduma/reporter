@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.adapters.market import naver as chart
 from app.adapters.market import naver_quote as quote
+from app.db.models import Financial as GrowthFinancial
 from app.db.models import GrowthMetric as GrowthMetricRow
 from app.db.models import UniverseSnapshot
 from app.services import growth, universe_ingest
@@ -84,10 +85,26 @@ def run_growth_batch(db: Session, limit: int | None = None) -> dict:
     return {"processed": fin_count, "total": len(codes)}
 
 
+def _annual_ebitda(db: Session, code: str) -> dict[str, tuple[float, float | None]]:
+    """DB financials 의 연간(.12) EBITDA·매출 맵(period→(ebitda, revenue)). EBITDA 성장 축 계산용.
+
+    EBITDA 는 DART 원문 파싱(연간에만)이라 네이버 스크랩(최근 분기만)엔 없어 별도 주입한다.
+    """
+    rows = db.execute(
+        select(GrowthFinancial.period, GrowthFinancial.ebitda, GrowthFinancial.revenue).where(
+            GrowthFinancial.stock_code == code,
+            GrowthFinancial.period.like("%.12"),
+            GrowthFinancial.is_estimate.is_(False),
+            GrowthFinancial.ebitda.is_not(None),
+        )
+    ).all()
+    return {period: (ebitda, revenue) for period, ebitda, revenue in rows}
+
+
 def _ingest_one(db: Session, code: str, snap_date: date, session: requests.Session) -> None:
-    # 1) 재무 → 성장지표
+    # 1) 재무 → 성장지표. 연간 EBITDA·매출은 DB financials 에서 주입(네이버 스크랩엔 없음).
     fins = quote.fetch_financials(code, session)
-    metric = growth.compute_growth(code, fins) if fins else None
+    metric = growth.compute_growth(code, fins, _annual_ebitda(db, code)) if fins else None
     if metric:
         stmt = insert(GrowthMetricRow).values(
             stock_code=code,
