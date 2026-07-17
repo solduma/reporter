@@ -11,8 +11,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.db.session import get_session
-from app.schemas import DeepDiveReportOut, DeepDiveStatus, HitlInput
-from app.services.deepdive import orchestrator
+from app.schemas import (
+    DeepDiveReportOut,
+    DeepDiveSharedReport,
+    DeepDiveShareOut,
+    DeepDiveStatus,
+    HitlInput,
+)
+from app.services.deepdive import orchestrator, share
 
 router = APIRouter(prefix="/api/deepdive", tags=["deepdive"])
 
@@ -60,9 +66,28 @@ def deepdive_report(code: str, db: Session = Depends(get_session)) -> DeepDiveRe
     rep = orchestrator.get_report(db, code)
     if rep is None:
         return None
-    return DeepDiveReportOut(
-        stock_code=rep.stock_code, model=rep.model,
-        overview=rep.overview_json, redflags=rep.redflags_json, business=rep.business_json,
-        thesis=rep.thesis_json, hitl=rep.hitl_json, valuation=rep.valuation_json,
-        narrative_md=rep.narrative_md, verdict=rep.verdict, upside_pct=rep.upside_pct, as_of=rep.as_of,
+    return share.report_to_out(rep)
+
+
+@router.post("/{code}/share", response_model=DeepDiveShareOut)
+def create_deepdive_share(code: str, db: Session = Depends(get_session)) -> DeepDiveShareOut:
+    """현 보고서를 30분짜리 무인증 공유 스냅샷으로 굳힌다. 보고서 없으면 404."""
+    created = share.create_share(db, code)
+    if created is None:
+        raise HTTPException(status_code=404, detail="공유할 딥다이브 보고서가 없습니다.")
+    return DeepDiveShareOut(token=created.token, expires_at=created.expires_at)
+
+
+@router.get("/share/{token}", response_model=DeepDiveSharedReport)
+def get_shared_deepdive(token: str, db: Session = Depends(get_session)) -> DeepDiveSharedReport:
+    """무인증 공유 페이지가 조회하는 스냅샷. 없거나 만료(30분 경과)면 410."""
+    found = share.get_valid_share(db, token)
+    if found is None:
+        raise HTTPException(status_code=410, detail="만료되었거나 존재하지 않는 공유 링크입니다.")
+    return DeepDiveSharedReport(
+        stock_code=found.stock_code,
+        stock_name=found.stock_name,
+        report=DeepDiveReportOut.model_validate(found.payload_json),
+        created_at=found.created_at,
+        expires_at=found.expires_at,
     )

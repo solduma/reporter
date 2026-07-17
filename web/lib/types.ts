@@ -727,3 +727,18 @@ export interface DeepDiveReport {
   upside_pct: number | null;
   as_of: string | null;
 }
+
+// 공유 링크 생성 응답 — token 으로 /share/{token} 조립.
+export interface DeepDiveShare {
+  token: string;
+  expires_at: string;
+}
+
+// 무인증 공유 페이지가 받는 스냅샷(생성 시점 고정).
+export interface SharedDeepDive {
+  stock_code: string;
+  stock_name: string | null;
+  report: DeepDiveReport;
+  created_at: string;
+  expires_at: string;
+}

@@ -734,3 +734,22 @@ class DeepDiveReport(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class DeepDiveShare(Base):
+    """딥다이브 결과의 무인증 임시 공유 스냅샷 — 로그인 게이트 밖에서 token 으로 조회.
+
+    공유 생성 시점의 보고서를 payload_json 에 그대로 복사(스냅샷 고정)한다. 이후 종목이 재분석돼도
+    공유 링크 내용은 불변. expires_at(생성+30분) 이후엔 조회 API 가 만료로 처리한다(행 삭제는 지연 GC).
+    token 은 URL 세이프 난수(추측 불가). 종목당 다건 허용(공유할 때마다 새 스냅샷).
+    """
+
+    __tablename__ = "deepdive_share"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    token: Mapped[str] = mapped_column(String(43), unique=True, index=True)  # secrets.token_urlsafe(32)
+    stock_code: Mapped[str] = mapped_column(String(6), index=True)
+    stock_name: Mapped[str | None] = mapped_column(String(120))  # 스냅샷 당시 종목명(표시용)
+    payload_json: Mapped[dict] = mapped_column(JSONB)  # DeepDiveReportOut 스냅샷
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)

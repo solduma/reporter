@@ -609,3 +609,20 @@ class DeepDiveReportOut(BaseModel):
     verdict: str | None = None
     upside_pct: float | None = None
     as_of: datetime | None = None
+
+
+class DeepDiveShareOut(BaseModel):
+    """공유 링크 생성 응답 — 프론트가 /share/{token} URL 을 조립."""
+
+    token: str
+    expires_at: datetime
+
+
+class DeepDiveSharedReport(BaseModel):
+    """무인증 공유 페이지가 조회하는 스냅샷 — 생성 시점 보고서 + 종목명 + 만료 시각."""
+
+    stock_code: str
+    stock_name: str | None = None
+    report: DeepDiveReportOut
+    created_at: datetime
+    expires_at: datetime

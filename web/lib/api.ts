@@ -9,7 +9,9 @@ import type {
   CompanyGrowth,
   CompanySummary,
   DeepDiveReport,
+  DeepDiveShare,
   DeepDiveStatus,
+  SharedDeepDive,
   CompanyTrend,
   FinancialPeriod,
   FlowMarket,
@@ -420,4 +422,18 @@ export async function submitDeepDiveHitl(code: string, input: string): Promise<D
     throw new Error(`HITL 인풋 제출 실패 (${res.status})`);
   }
   return (await res.json()) as DeepDiveStatus;
+}
+
+// 현 보고서를 30분짜리 무인증 공유 스냅샷으로 굳힌다. token → /share/{token} 링크 조립용.
+export async function createDeepDiveShare(code: string): Promise<DeepDiveShare> {
+  const res = await fetch(apiUrl(`/api/deepdive/${code}/share`), { method: "POST", cache: "no-store" });
+  if (!res.ok) {
+    throw new Error(`공유 링크 생성 실패 (${res.status})`);
+  }
+  return (await res.json()) as DeepDiveShare;
+}
+
+// 무인증 공유 스냅샷 조회(게이트 밖 /share/[token] 페이지). 만료/부재는 410.
+export function fetchSharedDeepDive(token: string): Promise<SharedDeepDive> {
+  return getJson<SharedDeepDive>(`/api/deepdive/share/${token}`);
 }

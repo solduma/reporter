@@ -68,8 +68,8 @@ export default function NavBar() {
     };
   }, [open]);
 
-  // 로그인 화면에는 내비게이션을 노출하지 않는다.
-  if (pathname === "/login") {
+  // 로그인 화면·무인증 공유 페이지에는 내비게이션을 노출하지 않는다(게이트 링크 노출 방지).
+  if (pathname === "/login" || pathname.startsWith("/share/")) {
     return null;
   }
 

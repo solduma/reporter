@@ -1,0 +1,100 @@
+.page {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 28px 20px 60px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.state {
+  max-width: 620px;
+  margin: 80px auto;
+  padding: 0 20px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.errorTitle {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: var(--text);
+  margin: 0 0 8px;
+}
+
+.errorBody {
+  font-size: 0.9rem;
+  margin: 4px 0;
+}
+
+.header {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 14px;
+}
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--text);
+  margin: 0;
+}
+
+.code {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.pdfBtn {
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+  border-radius: 8px;
+  padding: 0.45rem 1rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.pdfBtn:hover {
+  opacity: 0.88;
+}
+
+.meta {
+  margin: 8px 0 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.footer {
+  margin-top: 12px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  font-size: 0.78rem;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* PDF(브라우저 인쇄): 버튼·푸터 등 인쇄에 불필요한 요소 숨기고 여백 정리. */
+@media print {
+  .page {
+    max-width: none;
+    padding: 0;
+  }
+
+  .pdfBtn,
+  .footer {
+    display: none;
+  }
+}
