@@ -295,23 +295,58 @@ def _required_return(risk_free: float, factors: list[FactorExposure]) -> tuple[f
     return r, steps
 
 
+def _three_stage_pe(
+    g_s: float, g_l: float, plateau: float, fade: float, r_growth: float, r_term: float
+) -> tuple[float, float]:
+    """3단계(고성장 유지→선형감쇠→영구) 내재 목표 PER(forward EPS=1 기준)과 터미널가치 비중.
+
+    - 유지기(plateau 년): 이익을 g_s 로 복리, 성장국면 할인율 r_growth 로 현가.
+    - 감쇠기(fade 년): g 가 g_s→g_l 로 선형 감쇠, 계속 r_growth 로 현가.
+    - 터미널: 마지막 EPS 에 고든 PER=1/(r_term − g_l) 적용 후 성장국면 할인율로 현가.
+    forward EPS=1 이므로 현가 합이 곧 목표 PER. plateau·fade 는 정수 연수로 반올림해 명시적 누적.
+    """
+    eps = 1.0
+    pv = 0.0
+    year = 0
+    for _ in range(max(1, round(plateau))):  # 유지기: g_s 유지
+        year += 1
+        eps *= 1 + g_s
+        pv += eps / (1 + r_growth) ** year
+    n_fade = max(1, round(fade))
+    for i in range(1, n_fade + 1):  # 감쇠기: g_s → g_l 선형
+        g = g_s + (g_l - g_s) * i / n_fade
+        year += 1
+        eps *= 1 + g
+        pv += eps / (1 + r_growth) ** year
+    terminal_pe = 1.0 / (r_term - g_l)
+    tv = eps * (1 + g_l) * terminal_pe  # 터미널 EPS × 고든 PER
+    pv_tv = tv / (1 + r_growth) ** year
+    pv += pv_tv
+    return pv, (pv_tv / pv if pv > 0 else 0.0)
+
+
 def _factor_model_valuation(
     method: str,
     *,
     forward_eps: float | None,
     risk_free: float | None,
     factors: list[FactorExposure],
-    earnings_growth: float | None,  # 명목 이익 성장률(단기). 고든 g 는 영구성장으로 캡.
-    equity_value: float | None = None,  # 시총(억원) — WACC 자본가중
-    net_debt: float | None = None,  # 순차입(억원) — WACC 부채가중
-    roe: float | None = None,  # ROE(초과수익 → H-Model 감쇠기간 정량 기준선)
-    moat: str | None = None,  # 해자 판정(강|중|약, LLM) → 감쇠기간 정성 배수
+    earnings_growth: float | None,  # 명목 이익 성장률(단기 고성장 g_S).
+    equity_value: float | None = None,  # 시총(억원) — 터미널 WACC 자본가중
+    net_debt: float | None = None,  # 순차입(억원) — 터미널 WACC 부채가중
+    roe: float | None = None,  # ROE(초과수익 → CAP 지속성 기준선)
+    moat: str | None = None,  # 해자 판정(강|중|약, LLM) → CAP 기준연수
     current_price: float | None = None,
 ) -> ValuationResult:
-    """요인모형(Fama-French/APT): 자기자본비용 Re(하한 적용) → WACC → 목표 PER=1/(WACC−g) → 목표가.
+    """요인모형(Fama-French/APT) 3단계 목표가. 국면별 할인율로 저베타 성장주 저평가·FF=APT 동일값 해소.
 
-    저베타 이상현상으로 Re 가 rf 근처까지 붕괴하면 PER 이 폭발하므로 (1) Re 하한(rf+최소ERP),
-    (2) 할인율을 WACC 로(자본구조 반영), (3) 영구성장 g 를 명목 GDP(4%) 상한으로 캡해 강건화한다."""
+    저베타 이상현상(Frazzini-Pedersen 2014)에서 총 Re 를 8.2% 로 clamp 하면 FF·APT 가 둘 다 눌려
+    동일해지고 성장주가 저평가됐다(딥리서치 2건). 그래서:
+    - **성장국면 할인율** = 요인 Re(하한 없음, rf+2% 완만한 하한만 — 극단 저베타 PER 폭주 완화).
+      하한을 성장국면 총 Re 가 아니라 완만하게만 걸어 FF·APT 차등을 보존한다.
+    - **터미널 할인율** = β→1 수렴(Damodaran) WACC, 단 (r−g_L) 최소 스프레드로 목표 PER 폭발 방지.
+    - **3단계 성장**: 고성장 유지(CAP/2) → 선형 감쇠(CAP/2) → 영구(g_L≤rf). H-Model 이 없앤 유지구간 복원.
+    """
     from app.domain import beta as _beta
 
     r = ValuationResult(method, METHOD_LABELS[method], applicable=False)
@@ -321,26 +356,27 @@ def _factor_model_valuation(
     if forward_eps <= 0:
         r.note = f"예상 EPS({_fmt(forward_eps)})가 0 이하 — 요인모형 PER 적용 불가"
         return r
-    # 1) 요인모형 자기자본비용 Re, 저베타 이상현상 방어 하한(rf + 최소 주식위험프리미엄).
+    # 1) 요인 Re. 성장국면 할인율 = raw Re, 단 완만한 하한(rf+2%)만(FF·APT 차등 보존, 폭주 완화).
     re_raw, ret_steps = _required_return(risk_free, factors)
-    re_floor = risk_free + _beta.MIN_EQUITY_PREMIUM
-    cost_of_equity = max(re_raw, re_floor)
-    floored = cost_of_equity > re_raw
-    if floored:
-        ret_steps.append(f"→ 자기자본비용 하한 적용 {cost_of_equity:.1%} (저베타 보정, rf+{_beta.MIN_EQUITY_PREMIUM:.0%})")
-    # 2) WACC(자본구조 반영). equity_value 없으면 Re 를 그대로 할인율로.
+    growth_floor = risk_free + _beta.GROWTH_FLOOR_PREMIUM
+    r_growth = max(re_raw, growth_floor)
+    if r_growth > re_raw:
+        ret_steps.append(f"→ 성장국면 완만한 하한 {r_growth:.1%} (rf+{_beta.GROWTH_FLOOR_PREMIUM:.0%}, 극단 저베타 완화)")
+    # 2) 터미널 할인율: 성숙기 β→1 수렴(Damodaran). 시장 Re = rf + 시장프리미엄(첫 요인=시장).
+    market_premium = factors[0].premium if factors else _beta.MARKET_PREMIUM
+    re_terminal = risk_free + 1.0 * market_premium  # β→1
     if equity_value:
-        discount, wacc_steps = _beta.wacc(cost_of_equity, equity_value, net_debt, risk_free)
+        r_term, wacc_steps = _beta.wacc(re_terminal, equity_value, net_debt, risk_free)
     else:
-        discount, wacc_steps = cost_of_equity, [f"할인율 = 자기자본비용 {cost_of_equity:.1%}(시총 미상, WACC 생략)"]
-    # 3) H-Model: 단기 고성장 g_S 가 장기 g_L 로 선형 감쇠. 성장을 자르지 않고 전환기 프리미엄을 반영.
-    #    목표배수 = [(1+g_L) + H·(g_S − g_L)] / (WACC − g_L), H = 감쇠기간/2. WACC 하한이 r>g_L 보장.
-    #    감쇠기간 = ROE 초과수익(정량) × 해자(정성) 앙상블 — 종목별 산정(상수 아님).
-    g_s = min(earnings_growth, _beta.NEAR_TERM_GROWTH_CAP)  # 과도 추정만 방어(고성장 자체는 유지)
-    g_l = min(_beta.TERMINAL_GROWTH_CAP, discount - 0.005)  # 장기 성장(GDP), 할인율보다 낮게 유계
-    fade, fade_steps = _beta.fade_years(roe, discount, moat)
-    h = fade / 2.0
-    target_per = ((1 + g_l) + h * (g_s - g_l)) / (discount - g_l)
+        r_term, wacc_steps = re_terminal, [f"터미널 할인율 = 시장 Re {re_terminal:.1%}(β→1, 시총 미상 WACC 생략)"]
+    # 3) 성장률·CAP. g_L ≤ min(GDP캡, rf)(Damodaran). 터미널 (r−g_L) 최소 스프레드로 PER 폭발 방지.
+    g_s = min(earnings_growth, _beta.NEAR_TERM_GROWTH_CAP)
+    g_l = min(_beta.TERMINAL_GROWTH_CAP, risk_free)
+    r_term = max(r_term, g_l + _beta.MIN_TERM_SPREAD)
+    cap, cap_steps = _beta.competitive_advantage_period(roe, r_term, moat)
+    plateau = round(cap / 2.0, 1)  # 유지기 = CAP 절반
+    fade = round(cap / 2.0, 1)  # 감쇠기 = CAP 절반
+    target_per, tv_frac = _three_stage_pe(g_s, g_l, plateau, fade, r_growth, r_term)
     target = _round_won(forward_eps * target_per)
     r.applicable = True
     r.target_price = target
@@ -348,16 +384,18 @@ def _factor_model_valuation(
     r.confidence = "하"  # 요인·프리미엄 추정 불확실성이 커 기본 낮게
     r.assumptions = {
         "forward_eps": forward_eps, "risk_free": risk_free,
-        "cost_of_equity": round(cost_of_equity, 4), "wacc": round(discount, 4),
+        "discount_growth": round(r_growth, 4), "discount_terminal": round(r_term, 4),
         "growth_high": round(g_s, 4), "growth_long": round(g_l, 4),
-        "fade_years": fade, "moat": moat, "roe": roe,
+        "cap_years": cap, "plateau_years": plateau, "fade_years": fade,
+        "moat": moat, "roe": roe, "terminal_value_frac": round(tv_frac, 3),
         "factors": [{"name": f.name, "beta": f.beta, "premium": f.premium} for f in factors],
         "implied_target_per": round(target_per, 2),
     }
     r.process = [
-        *ret_steps, *wacc_steps, *fade_steps,
-        f"H-Model: 단기성장 {g_s:.1%} → 장기 {g_l:.1%}로 {fade:g}년 선형 감쇠(H={h:g})",
-        f"목표 PER = [(1+{g_l:.1%}) + {h:g}×({g_s:.1%}−{g_l:.1%})] ÷ (WACC {discount:.1%}−{g_l:.1%}) = {target_per:.1f}배",
+        *ret_steps, *wacc_steps, *cap_steps,
+        f"3단계: 고성장 {g_s:.1%} {plateau:g}년 유지 → {fade:g}년간 {g_l:.1%}로 선형 감쇠 → 영구 {g_l:.1%}",
+        f"할인율: 성장국면 {r_growth:.1%} · 터미널 {r_term:.1%}(β→1, 터미널가치 비중 {tv_frac:.0%})",
+        f"내재 목표 PER = {target_per:.1f}배 (터미널 PER=1/({r_term:.1%}−{g_l:.1%}))",
         f"목표가 = 예상 EPS {_fmt(forward_eps)} × {target_per:.1f} = {_fmt(target)}원",
     ]
     return r

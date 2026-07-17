@@ -22,45 +22,48 @@ HML_PREMIUM = 0.035
 # APT 거시요인 프리미엄(경기·금리·환율). 시장베타를 대리(macro_beta≈market_beta)해 근사한다.
 APT_FACTOR_PREMIUMS = {"경기(시장)": 0.055, "금리민감": 0.02, "환율민감": 0.02}
 
-# WACC 파라미터. 요인모형 Re 가 저베타 이상현상으로 rf 근처까지 붕괴하는 것을 하한으로 막고,
-# 자본구조(부채)를 반영해 할인율을 WACC 로 산출한다.
-MIN_EQUITY_PREMIUM = 0.05  # 자기자본비용 하한 = rf + 이 값(저베타여도 최소 주식위험보상)
+# WACC 파라미터.
 COST_OF_DEBT_SPREAD = 0.02  # 세전 부채비용 = rf + 신용스프레드
 TAX_RATE = 0.22  # 법인세 실효세율(한국 근사) — 부채 이자 세금방패
-TERMINAL_GROWTH_CAP = 0.04  # H-Model 장기(영구) 성장률 g_L 상한(명목 GDP 수준).
+TERMINAL_GROWTH_CAP = 0.04  # 영구성장률 g_L 상한(명목 GDP 수준). 실제로는 min(이 값, rf) 로 유계.
 NEAR_TERM_GROWTH_CAP = 0.30  # 단기 성장 g_S 상한(장기 지속 불가한 과도 추정 방어).
 
-# 해자(LLM 정성 판정) → 초과수익 지속성 배수. 유일한 정성 상수(나머지는 WACC 에서 유도).
-MOAT_MULTIPLIER = {"강": 1.4, "중": 1.0, "약": 0.6}
+# 요인모형 3단계(성장 유지→감쇠→영구) 파라미터. 저베타 이상현상(Frazzini-Pedersen 2014) 상
+# raw 요인 Re 를 8.2% 총하한으로 clamp 하면 FF·APT 가 둘 다 눌려 동일해지고 성장주가 저평가된다
+# (딥리서치 2건 결론). 그래서 (1) 총 Re 하한을 폐기하고 성장국면엔 rf+2% 완만한 하한만,
+# (2) 폭발 방지는 '터미널'에만 최소 스프레드로, (3) 성장 유지구간(CAP)을 명시적으로 둔다.
+GROWTH_FLOOR_PREMIUM = 0.02  # 성장국면 할인율 하한 = rf + 이 값. 극단 저베타 목표PER 폭주만 완화.
+MIN_TERM_SPREAD = 0.045  # 터미널 (할인율 − g_L) 최소 스프레드 — target PER=1/(r−g) 폭발 방지.
+
+# 경쟁우위기간 CAP(년) = 해자별 기준 × ROE 초과수익 지속성 조정. 리서치 B(Mauboussin CAP,
+# fade rate 0.10~0.30 → CAP 3~10년) 기반. 1/WACC 방식은 저할인율에서 지평이 폭증(성장주 PER
+# 폭발)해 폐기했다. 상한 12년(market-implied CAP 5~20년 중 보수적).
+MOAT_CAP_YEARS = {"강": 10.0, "중": 6.0, "약": 3.0}
+MAX_CAP_YEARS = 12.0
 
 
-def fade_years(roe: float | None, wacc_val: float | None, moat: str | None) -> tuple[float, list[str]]:
-    """H-Model 고성장 감쇠기간(년). 임의 상하한 없이 초과수익·자본비용에서 유도한다.
+def competitive_advantage_period(
+    roe: float | None, discount: float | None, moat: str | None
+) -> tuple[float, list[str]]:
+    """고성장·초과수익 지속기간 CAP(년). H-Model 이 생략한 '고성장 유지구간'의 정량 근거.
 
-    원리: (1) 감쇠 지평의 자연 상한 = 1/WACC — 먼 미래 초과수익은 현가가 0 에 수렴하므로 그 너머는
-    가치에 무의미(고WACC=고위험일수록 짧은 경쟁우위 지평). (2) 그 지평 중 실제 지속 비율 = 초과수익
-    스프레드(ROE−WACC)의 포화함수 spread/(spread+WACC) — 무차원, 스프레드 0→0(해자 없으면 감쇠 0),
-    =WACC→0.5, ↑→1. (3) 정성 해자배수로 지속성 조정(최대 1.0=전체 지평). 하한은 0 으로 자연 수렴.
-    입력 결측 시 초과수익 미상 → 보수적으로 지속성 0(순수 고든, 성장 프리미엄 없음).
-    """
-    if wacc_val is None or wacc_val <= 0:
-        return 0.0, ["감쇠 0년(WACC 미상 — 성장 프리미엄 없음)"]
-    horizon_max = 1.0 / wacc_val  # 할인율이 정하는 자연 경쟁우위 지평(년)
-    if roe is None:
-        return 0.0, [f"감쇠 0년(ROE 미상 → 초과수익 미확인, 보수적. 지평상한 {horizon_max:.1f}년)"]
-    roe_frac = roe / 100 if abs(roe) > 1 else roe  # % 입력(12.0) → 소수
-    spread = max(0.0, roe_frac - wacc_val)  # 초과수익(음수=가치파괴 → 0)
-    persistence = spread / (spread + wacc_val)  # 포화 [0,1), 무차원
-    mult = MOAT_MULTIPLIER.get(moat or "", 1.0)
-    adj = min(1.0, persistence * mult)  # 해자 조정(최대 = 전체 지평)
-    years = horizon_max * adj
+    원리: 해자별 기준연수(MOAT_CAP_YEARS)를 ROE 초과수익 지속성으로 [0.5,1.5]배 조정한다.
+    지속성 = 스프레드(ROE−할인율)의 포화함수 spread/(spread+할인율) ∈ [0,1). 상한 MAX_CAP_YEARS.
+    fade_years(1/WACC 방식)와 달리 저할인율에서 지평이 폭증하지 않는다. ROE·할인율 결측 시 지속성
+    중립(0.5배)으로 보수 처리. 반환 CAP 는 유지기+감쇠기 합(각 CAP/2)."""
+    base = MOAT_CAP_YEARS.get(moat or "", MOAT_CAP_YEARS["중"])
+    if roe is None or discount is None or discount <= 0:
+        cap = min(MAX_CAP_YEARS, base * 0.5)
+        return round(cap, 1), [f"CAP {cap:.1f}년(ROE·할인율 미상 → 해자'{moat or '중'}' 기준 {base:g}년의 0.5배)"]
+    roe_frac = roe / 100 if abs(roe) > 1 else roe
+    spread = max(0.0, roe_frac - discount)
+    persistence = spread / (spread + discount)  # [0,1)
+    cap = min(MAX_CAP_YEARS, base * (0.5 + persistence))
     steps = [
-        f"경쟁우위 지평상한 = 1/WACC {wacc_val:.1%} = {horizon_max:.1f}년",
-        f"초과수익 ROE {roe_frac:.1%}−WACC {wacc_val:.1%}={spread:+.1%} → 지속성 {persistence:.0%}"
-        f" × 해자'{moat or '중'}' {mult:g} = {adj:.0%}",
-        f"감쇠기간 = {horizon_max:.1f} × {adj:.0%} = {years:.1f}년(H={years / 2:.1f})",
+        f"CAP = 해자'{moat or '중'}' 기준 {base:g}년 × (0.5 + 초과수익지속성 {persistence:.0%}) = {cap:.1f}년",
+        f"(ROE {roe_frac:.1%} − 할인율 {discount:.1%} = 스프레드 {spread:+.1%}, 상한 {MAX_CAP_YEARS:g}년)",
     ]
-    return round(years, 1), steps
+    return round(cap, 1), steps
 
 
 def wacc(

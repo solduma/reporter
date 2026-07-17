@@ -104,10 +104,9 @@ def test_asset_revaluation_premium():
     assert r.target_price == 13000 and "재평가할증" in r.process[1]
 
 
-# ── 요인모형(WACC + H-Model) ─────────────────────────────────────────────
-def test_fama_french_cost_of_equity_and_wacc():
-    # Re = rf 3% + 시장(β1×6%) + SMB(β0.3×2%) + HML(β0.5×3%) = 11.1% (하한 8% 위라 그대로).
-    # 부채 0 → WACC = Re = 11.1%. H-Model 로 목표배수 산출.
+# ── 요인모형(3단계: 성장국면 할인율 + 터미널 β→1 + CAP) ────────────────────
+def test_factor_model_growth_and_terminal_discount():
+    # 성장국면 할인율 = 요인 Re(하한 위면 그대로), 터미널 = β→1 시장 Re(=rf+시장프리미엄).
     factors = [
         v.FactorExposure("시장", 1.0, 0.06),
         v.FactorExposure("SMB(규모)", 0.3, 0.02),
@@ -115,18 +114,19 @@ def test_fama_french_cost_of_equity_and_wacc():
     ]
     r = v.fama_french_valuation(
         forward_eps=1000, risk_free=0.03, factors=factors, earnings_growth=0.02,
-        equity_value=1000, net_debt=0, current_price=12000,
+        equity_value=1000, net_debt=0, roe=0.15, moat="중", current_price=12000,
     )
     assert r.applicable
-    assert abs(r.assumptions["cost_of_equity"] - 0.111) < 1e-9
-    assert abs(r.assumptions["wacc"] - 0.111) < 1e-9  # 부채 0 → WACC=Re
-    # 단기성장 2% ≤ 장기 4% → g_S=g_L=… 실제 g_L=min(4%, WACC-0.5%)=4%, g_S=2% → H-Model 배수.
-    assert r.assumptions["growth_high"] == 0.02
+    # 성장국면: raw Re = 3% + 6% + 0.6% + 1.5% = 11.1% (완만한 하한 5% 위라 그대로).
+    assert abs(r.assumptions["discount_growth"] - 0.111) < 1e-9
+    # 터미널: β→1 → rf + 시장프리미엄 6% = 9% (부채 0 → WACC=Re).
+    assert abs(r.assumptions["discount_terminal"] - 0.09) < 1e-9
+    assert r.assumptions["growth_long"] <= 0.032  # g_L ≤ rf(Damodaran)
 
 
-def test_h_model_reflects_growth_differential():
-    # H-Model: 단기 고성장일수록 목표배수↑(성장을 자르지 않고 감쇠 프리미엄 반영).
-    factors = [v.FactorExposure("시장", 1.0, 0.06)]  # Re 9%
+def test_factor_model_reflects_growth_differential():
+    # 단기 고성장일수록 목표배수↑(3단계 유지구간이 성장을 반영, 자르지 않음).
+    factors = [v.FactorExposure("시장", 1.0, 0.06)]
     lo = v.apt_valuation(forward_eps=1000, risk_free=0.03, factors=factors, earnings_growth=0.03,
                          equity_value=1000, net_debt=0, roe=0.12, moat="중", current_price=12000)
     hi = v.apt_valuation(forward_eps=1000, risk_free=0.03, factors=factors, earnings_growth=0.25,
@@ -135,8 +135,8 @@ def test_h_model_reflects_growth_differential():
     assert hi.assumptions["growth_high"] == 0.25  # 고성장 자체는 유지(캡 아님)
 
 
-def test_h_model_fade_years_from_ensemble():
-    # 감쇠기간(H)이 상수 아님: 강한 해자·고ROE 가 약한 해자·저ROE 보다 목표배수↑(H↑).
+def test_factor_model_cap_from_moat_and_roe():
+    # CAP(고성장 유지기간)이 상수 아님: 강한 해자·고ROE 가 약한 해자·저ROE 보다 CAP·목표배수↑.
     factors = [v.FactorExposure("시장", 1.0, 0.06)]
     strong = v.fama_french_valuation(forward_eps=1000, risk_free=0.03, factors=factors,
                                      earnings_growth=0.15, equity_value=1000, net_debt=0,
@@ -144,22 +144,59 @@ def test_h_model_fade_years_from_ensemble():
     weak = v.fama_french_valuation(forward_eps=1000, risk_free=0.03, factors=factors,
                                    earnings_growth=0.15, equity_value=1000, net_debt=0,
                                    roe=0.05, moat="약", current_price=12000)
-    assert strong.assumptions["fade_years"] > weak.assumptions["fade_years"]
+    assert strong.assumptions["cap_years"] > weak.assumptions["cap_years"]
     assert strong.assumptions["implied_target_per"] > weak.assumptions["implied_target_per"]
     assert strong.assumptions["moat"] == "강"
 
 
-def test_factor_model_low_beta_floored_no_explosion():
-    # 저베타(요인 Re 붕괴)여도 Re 하한(rf+5%) + WACC + H-Model(g_L 유계)로 PER 폭발 방지.
-    factors = [v.FactorExposure("시장", 0.1, 0.01)]  # raw Re = 3.0%+0.1% = 3.1%
+def test_factor_model_ff_apt_differ_for_low_beta():
+    # 핵심 회귀 방지: 저베타에서 FF·APT 가 서로 다른 목표배수를 낸다(총 Re 하한 clamp 제거 효과).
+    # KINX 형: β 0.5, SMB/HML 프록시. FF raw Re ≈ 3.7%, APT raw Re ≈ 6.9% — 성장국면 완만한 하한만.
+    from app.domain import beta as b
+
+    smb, hml = b.smb_beta(5000), b.hml_beta(2.0)
+    ff = v.fama_french_valuation(
+        forward_eps=4000, risk_free=b.RISK_FREE,
+        factors=[v.FactorExposure("시장", 0.495, b.MARKET_PREMIUM),
+                 v.FactorExposure("SMB", smb, b.SMB_PREMIUM),
+                 v.FactorExposure("HML", hml, b.HML_PREMIUM)],
+        earnings_growth=0.15, equity_value=5000, net_debt=-500, roe=15, moat="중", current_price=133400,
+    )
+    w = (1.0, 0.5, 0.5)
+    apt = v.apt_valuation(
+        forward_eps=4000, risk_free=b.RISK_FREE,
+        factors=[v.FactorExposure(n, round(0.495 * wi, 3), p)
+                 for (n, p), wi in zip(b.APT_FACTOR_PREMIUMS.items(), w, strict=True)],
+        earnings_growth=0.15, equity_value=5000, net_debt=-500, roe=15, moat="중", current_price=133400,
+    )
+    assert ff.applicable and apt.applicable
+    # APT 성장국면 할인율(6.9%)이 FF(하한 5.2%)보다 높음 → 서로 다른 목표배수.
+    assert apt.assumptions["discount_growth"] > ff.assumptions["discount_growth"]
+    assert ff.assumptions["implied_target_per"] != apt.assumptions["implied_target_per"]
+
+
+def test_factor_model_low_beta_no_explosion():
+    # 극단 저베타여도 성장국면 완만한 하한 + 터미널 스프레드 하한으로 PER 폭발 방지.
+    factors = [v.FactorExposure("시장", 0.1, 0.01)]  # raw Re = 3.1%
     r = v.apt_valuation(
         forward_eps=1000, risk_free=0.03, factors=factors, earnings_growth=0.10,
-        equity_value=1000, net_debt=0, current_price=12000,
+        equity_value=1000, net_debt=0, roe=0.12, moat="중", current_price=12000,
     )
     assert r.applicable
-    assert r.assumptions["cost_of_equity"] >= 0.08  # 하한(rf+5%) 적용
-    assert r.assumptions["growth_long"] <= 0.04  # 장기성장 GDP 상한
+    assert r.assumptions["discount_growth"] >= 0.05  # 성장국면 완만한 하한(rf+2%)
+    assert r.assumptions["growth_long"] <= 0.032  # 장기성장 ≤ rf
     assert r.assumptions["implied_target_per"] < 80  # 유계(폭발 안 함)
+
+
+def test_terminal_spread_floor_prevents_explosion():
+    # 터미널 (할인율 − g_L) 이 최소 스프레드 이상 유지돼 목표 PER 이 발산하지 않는다.
+    from app.domain import beta as b
+
+    factors = [v.FactorExposure("시장", 0.05, 0.06)]  # 극단 저베타
+    r = v.apt_valuation(forward_eps=1000, risk_free=0.03, factors=factors, earnings_growth=0.10,
+                        equity_value=1000, net_debt=0, roe=0.12, moat="중", current_price=12000)
+    spread = r.assumptions["discount_terminal"] - r.assumptions["growth_long"]
+    assert spread >= b.MIN_TERM_SPREAD - 1e-9
 
 
 def test_near_term_growth_capped_at_extreme():
@@ -168,16 +205,6 @@ def test_near_term_growth_capped_at_extreme():
     r = v.apt_valuation(forward_eps=1000, risk_free=0.03, factors=factors, earnings_growth=2.0,
                         equity_value=1000, net_debt=0, current_price=12000)
     assert r.assumptions["growth_high"] <= 0.30
-
-
-def test_wacc_uses_capital_structure():
-    # 부채 있으면 WACC < Re (세후 부채비용이 더 싸므로).
-    factors = [v.FactorExposure("시장", 1.0, 0.06)]  # Re = 9%
-    r = v.fama_french_valuation(
-        forward_eps=1000, risk_free=0.03, factors=factors, earnings_growth=0.02,
-        equity_value=500, net_debt=500, current_price=12000,  # 50:50 자본구조
-    )
-    assert r.assumptions["wacc"] < r.assumptions["cost_of_equity"]
 
 
 # ── blend(최종 목표가) ───────────────────────────────────────────────────

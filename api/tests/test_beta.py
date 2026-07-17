@@ -73,41 +73,40 @@ def test_premiums_are_sane_constants():
     assert 0.04 <= beta.MARKET_PREMIUM <= 0.08
 
 
-# ── H-Model 감쇠기간(임의 상하한 없이 초과수익·WACC 에서 유도) ────────────
-def test_fade_years_zero_when_no_excess_return():
-    # 초과수익 0(ROE=WACC) 또는 가치파괴(ROE<WACC) → 감쇠 0년(하한 상수 없이 자연 수렴).
-    assert beta.fade_years(0.08, 0.08, "강")[0] == 0.0  # ROE=WACC
-    assert beta.fade_years(0.05, 0.09, "강")[0] == 0.0  # ROE<WACC(가치파괴)
-
-
-def test_fade_years_bounded_by_inverse_wacc():
-    # 자연 상한 = 1/WACC. 감쇠기간이 이 지평을 넘지 않는다(상수 상한 아님).
-    for roe, w in [(0.50, 0.08), (0.30, 0.10), (0.99, 0.06)]:
-        y, _ = beta.fade_years(roe, w, "강")
-        assert y <= 1.0 / w + 0.1  # +0.1: round(,1) 반올림 여유
-
-
-def test_fade_years_lower_wacc_allows_longer_horizon():
-    # 같은 초과수익폭이라도 WACC 낮으면(할인 지평 김) 감쇠기간 길다.
-    lo_wacc, _ = beta.fade_years(0.16, 0.06, "강")  # spread 10%p, 지평 16.7년
-    hi_wacc, _ = beta.fade_years(0.19, 0.09, "강")  # spread 10%p, 지평 11.1년
-    assert lo_wacc > hi_wacc
-
-
-def test_fade_years_moat_multiplier():
-    # 같은 ROE·WACC 라도 해자 등급이 지속성을 조정(강>중>약).
-    strong, _ = beta.fade_years(0.20, 0.079, "강")
-    mid, _ = beta.fade_years(0.20, 0.079, "중")
-    weak, _ = beta.fade_years(0.20, 0.079, "약")
+# ── 경쟁우위기간 CAP(해자 기준연수 × ROE 초과수익 지속성, 상한 12년) ────────
+def test_cap_moat_base_years():
+    # 같은 ROE·할인율이면 해자 등급이 기준연수를 정한다(강>중>약).
+    strong, _ = beta.competitive_advantage_period(0.20, 0.08, "강")
+    mid, _ = beta.competitive_advantage_period(0.20, 0.08, "중")
+    weak, _ = beta.competitive_advantage_period(0.20, 0.08, "약")
     assert strong > mid > weak
 
 
-def test_fade_years_accepts_percent_roe():
+def test_cap_higher_excess_return_longer():
+    # 같은 해자라도 초과수익(ROE−할인율) 클수록 CAP 길다(지속성↑).
+    hi, _ = beta.competitive_advantage_period(0.30, 0.08, "중")  # spread 22%p
+    lo, _ = beta.competitive_advantage_period(0.10, 0.08, "중")  # spread 2%p
+    assert hi > lo
+
+
+def test_cap_bounded_by_max():
+    # 극단 고ROE·저할인율이어도 상한 MAX_CAP_YEARS 를 넘지 않는다(1/WACC 폭증 방지).
+    for roe, d in [(0.99, 0.05), (0.80, 0.06), (0.50, 0.07)]:
+        y, _ = beta.competitive_advantage_period(roe, d, "강")
+        assert y <= beta.MAX_CAP_YEARS
+
+
+def test_cap_accepts_percent_roe():
     # ROE 가 % 단위(20.0)로 들어와도 소수(0.20)와 동일 결과.
-    assert beta.fade_years(20.0, 0.079, "중")[0] == beta.fade_years(0.20, 0.079, "중")[0]
+    assert (
+        beta.competitive_advantage_period(20.0, 0.08, "중")[0]
+        == beta.competitive_advantage_period(0.20, 0.08, "중")[0]
+    )
 
 
-def test_fade_years_zero_when_roe_or_wacc_missing():
-    # 초과수익 미확인 → 보수적으로 0년(성장 프리미엄 없음).
-    assert beta.fade_years(None, 0.08, "강")[0] == 0.0
-    assert beta.fade_years(0.20, None, "강")[0] == 0.0
+def test_cap_neutral_when_roe_or_discount_missing():
+    # 초과수익 미확인 → 지속성 중립(해자 기준의 0.5배). 0 이 아니라 보수적 기준값.
+    y, _ = beta.competitive_advantage_period(None, 0.08, "중")
+    assert y == round(beta.MOAT_CAP_YEARS["중"] * 0.5, 1)
+    y2, _ = beta.competitive_advantage_period(0.20, None, "중")
+    assert y2 == round(beta.MOAT_CAP_YEARS["중"] * 0.5, 1)
