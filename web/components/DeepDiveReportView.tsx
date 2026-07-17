@@ -45,10 +45,10 @@ function Section({ title, data }: { title: string; data: Record<string, unknown>
   );
 }
 
-// verdict → 배지 색 클래스. 반박=회색(반영 안 함), 반영=녹색(100%), 가능성=주황(확률 가중).
+// verdict → 배지 색 클래스. 반박=회색(반영 안 함), 반영/출처확인=녹색(대부분 반영), 가능성=주황(확률 가중).
 function verdictClass(verdict: string): string {
   if (verdict.includes("반박")) return styles.hitlRefute;
-  if (verdict.includes("반영")) return styles.hitlReflect;
+  if (verdict.includes("반영") || verdict.includes("출처확인")) return styles.hitlReflect;
   return styles.hitlMaybe;
 }
 

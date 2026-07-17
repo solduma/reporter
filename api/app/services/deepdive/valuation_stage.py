@@ -467,7 +467,8 @@ def _hitl_context(hitl: dict | None) -> str:
     lines = [
         "\n[사용자 인풋 검증(HITL)] — 아래는 사용자 인풋을 추가 리서치로 검증한 결과다. "
         "verdict·probability 에 따라 밸류에이션 가정을 조정하라: 반박(prob 0)은 반영하지 말 것, "
-        "반영(prob 1)은 valuation_impact 를 100% 반영, 가능성(0<prob<1)은 valuation_impact 를 "
+        "반영(prob 1)은 valuation_impact 를 100% 반영, 출처확인(IR 등 신뢰할 1차 출처, prob 0.7~0.9)은 "
+        "그 비율만큼 반영(공개 검증 안 됐다고 무시하지 말 것 — 신뢰할 출처다), 가능성(0<prob<0.6)은 "
         "probability 비율만큼만 반영(예: prob 0.4·'성장률 +5%p' → +2%p). 근거 없는 낙관·비관 금지. "
         "**수치형(numeric) claim 은 baseline(현재 기준치)+new_value 로 총량을 잡고, 전체 매출 비중"
         "(segment_revenue_share)을 곱해 전사 영향으로 환산해 반영하라(예: 용량 X→X+Y, 비중 W% → 전사 매출 기여).**"

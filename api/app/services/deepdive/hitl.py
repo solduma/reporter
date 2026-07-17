@@ -62,23 +62,28 @@ _RESEARCH_GOAL = (
     "각 claim 을 먼저 claim_type 으로 분류한다:\n"
     "- 'fact_event': 정성·이벤트성 주장(수주·계약·소송 등 '있다/없다').\n"
     "- 'numeric': 수치·규모 주장(용량 100MW·수주 5000억·CAPA 2배 등 '얼마').\n"
-    "**numeric 은 반드시 다음을 능동적으로 리서치해 numeric 필드를 채운다(핵심):**\n"
-    "  1) baseline: 현재 기준치(예 '현재 보유 IDC 용량 MW'). 이미 조사된 business/overview 단계와 "
-    "     web_search·reports·financials 로 실제 파악한다. 추정·null 방치 금지 — 못 찾으면 그 사실을 evidence 에.\n"
+    "**numeric 은 다음을 능동적으로 리서치해 numeric 필드를 채운다(핵심):**\n"
+    "  1) baseline: 현재 기준치(예 '현재 보유 IDC 용량 MW'). business/overview 단계와 "
+    "     web_search·reports·financials 로 파악한다. **공개 소스로 못 찾으면 사용자 인풋(IR 제공 등)의 "
+    "     값이나 합리적 추정을 baseline 으로 쓰고 그 출처·가정을 evidence 에 명시한다 — null 방치보다 낫다.**\n"
     "  2) new_value·unit: 인풋의 신규치(예 100, 'MW').\n"
-    "  3) delta_pct: 기준치 대비 증분율(new/baseline). baseline 없으면 계산 불가로 명시.\n"
+    "  3) delta_pct: 기준치 대비 증분율(new/baseline). baseline 추정치라도 계산해 근거를 남긴다.\n"
     "  4) segment_revenue_share: 그 사업/제품이 전체 매출에서 차지하는 비중(%). 미미하면 전사 영향도 작다.\n"
     "  5) conversion_chain: '용량→매출→이익→밸류에이션' 환산 가정 사슬을 근거와 함께 명시(임의 숫자 금지).\n"
-    "판정(verdict): '반박'(근거 없음/반대, probability=0) | '반영'(팩트 확인, probability=1) | "
-    "'가능성'(개연성만, probability 0~1). valuation_impact 에는 가정 조정을 구체적으로("
+    "**출처(evidence) 인정 범위: 공개 소스(뉴스·공시·리포트·웹)뿐 아니라 사용자가 IR·경영진 미팅·회사 "
+    "직접 제공으로 얻은 1차 정보도 유효한 근거다. 공개 검색으로 재확인이 안 된다는 이유만으로 신뢰할 "
+    "1차 출처 정보를 배제하지 마라.**\n"
+    "판정(verdict): '반박'(근거가 반대/허위, probability=0) | '반영'(공개 팩트로 확인, probability=1) | "
+    "'출처확인'(공개 검증은 안 되나 IR 등 신뢰할 1차 출처가 명확, probability 0.7~0.9) | "
+    "'가능성'(개연성만, probability 0~0.6). valuation_impact 에는 가정 조정을 구체적으로("
     "예 '이익성장률 +3%p', '목표 PER 12→15'). numeric 은 baseline·비중을 반영한 증분이어야 한다"
     "(전체 매출 비중 5%인 사업이 2배 되면 전사 매출 +5%). 반영은 확률 가중 전 최대치. 출처를 evidence 에."
 )
 
 _RESEARCH_SCHEMA = (
     '{"claims": [{"claim": "주장 요지", "claim_type": "fact_event|numeric", '
-    '"verdict": "반박|반영|가능성", "probability": 0.0~1.0, '
-    '"evidence": "추가 리서치 근거(출처 포함)", "reasoning": "판정 이유", '
+    '"verdict": "반박|반영|출처확인|가능성", "probability": 0.0~1.0, '
+    '"evidence": "추가 리서치 근거(출처 포함). IR·회사 제공 1차 출처면 그렇게 명시", "reasoning": "판정 이유", '
     '"numeric": {"baseline": 수|null, "new_value": 수|null, "unit": "", "delta_pct": 수|null, '
     '"segment_revenue_share": 수|null, "conversion_chain": "용량→매출→이익 환산 가정"}, '
     '"valuation_impact": "밸류에이션 가정 조정(최대치)"}], '
@@ -91,11 +96,11 @@ _RESEARCH_SCHEMA = (
 _REVIEW_SYSTEM = (
     "너는 딥다이브 HITL 인풋 검증의 절차 감사자다. 각 claim 에 대해 아래 절차를 점검한다:\n"
     "1) 분류 적합성: numeric(수치·규모) 주장을 fact_event 로 잘못 분류해 기준치 리서치를 생략하지 않았나.\n"
-    "2) numeric 절차: baseline(현재 기준치)을 실제 리서치했나(추정·null 방치 아님)? delta_pct 가 baseline "
-    "대비 계산됐나? segment_revenue_share(전체 매출 비중)를 파악했나? conversion_chain 이 근거 있는 "
-    "명시적 환산인가(임의 숫자 나열 아님)?\n"
-    "3) 근거 정합: verdict·probability 가 수집된 evidence 에 절차적으로 부합하나(근거 없이 반영/반박 아님)? "
-    "각 claim 에 출처(evidence)가 있나?"
+    "2) numeric 절차: baseline(현재 기준치)을 확보했나? **공개 소스로 못 구했더라도 IR 제공값·합리적 "
+    "추정을 baseline 으로 쓰고 근거를 명시했으면 충족이다(공개 재확인 불가는 결함 아님). baseline 을 "
+    "아예 비운 채 방치했을 때만 gap.** delta_pct 가 baseline 대비 계산됐나? conversion_chain 이 근거 있나?\n"
+    "3) 근거 정합: verdict·probability 가 evidence 에 부합하나? IR·회사 제공 1차 출처는 '출처확인' "
+    "verdict 로 인정 가능하며, 공개 검색이 안 된다는 이유만으로 배제·감점하는 것이 오히려 절차 오류다."
 )
 
 
