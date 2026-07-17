@@ -12,16 +12,58 @@ from datetime import UTC, datetime
 
 from app.domain import deepdive_rules
 from app.ports.llm import LLMPort
-from app.services.deepdive import agent, valuation_stage
+from app.services.deepdive import agent, review_loop, valuation_stage
 from app.services.deepdive.tools import ToolContext, dispatch
 
 logger = logging.getLogger(__name__)
+
+# feedback(이전 라운드 절차 지적)을 단계 goal 뒤에 주입하는 공통 접두. run_stage 는 goal 텍스트만
+# 받으므로(HITL 과 동일 메커니즘) reviewer 지적을 goal 에 이어붙여 재작업시킨다.
+_FEEDBACK_HEADER = "\n\n**[이전 검토에서 지적된 절차 미비 — 이번엔 반드시 보완하라]**\n"
+
+
+def _with_feedback(goal: str, feedback: str | None) -> str:
+    return goal + _FEEDBACK_HEADER + feedback if feedback else goal
 
 
 def _fin_series(ctx: ToolContext) -> list[dict]:
     """실적(비추정) 재무 시계열 — 여러 단계가 공유하는 기본 컨텍스트."""
     fin = dispatch("financials", ctx, {})
     return [p for p in fin.get("periods", []) if not p.get("is_estimate")]
+
+
+# ── 단계별 Process-Reviewer 프롬프트(절차 감사 체크리스트) ─────────────────
+# 공통 철학·출력 스키마는 review_loop 가 소유하고, 여기서는 각 단계가 '무슨 절차'를 지켰는지만 정의한다.
+_REVIEW_SYSTEM = {
+    "overview": (
+        "너는 딥다이브 개요 단계의 절차 감사자다. 다음 절차를 점검한다:\n"
+        "1) per/pbr/market_cap 이 실제 데이터(financials·price)에서 왔나 — 추정·임의값 방치 아님.\n"
+        "2) 사업 개요·주주구성이 최신 정기보고서(report_kind 명시)에 근거하나.\n"
+        "3) major_shareholders 에 대주주·지분이 구체적으로 담겼나(막연한 서술 아님)."
+    ),
+    "redflags": (
+        "너는 딥다이브 재무 특이점 단계의 절차 감사자다. 다음 절차를 점검한다:\n"
+        "1) 자동 탐지 레드플래그(auto_flags)를 누락·왜곡 없이 반영했나.\n"
+        "2) 각 flag 의 detail 에 근거 수치(매출채권/재고/OCF/무형자산 등)가 있나 — 근거 없는 단정 아님.\n"
+        "3) severity 종합 판정이 auto_severity 와 정합적인가.\n"
+        "4) cash_trend·notes 가 시계열·주석 조회에 근거하나(추측 아님)."
+    ),
+    "business": (
+        "너는 딥다이브 사업모델 단계의 절차 감사자다. 다음 절차를 점검한다:\n"
+        "1) 밸류체인/벤더/고객/경쟁사를 추측이 아니라 사업보고서·리포트·웹 조회로 확인했나(출처 흔적).\n"
+        "2) 탐색 순서(사업보고서→리포트→웹)를 밟았나 — 근거 없이 일반론으로 채우지 않았나.\n"
+        "3) item_mix_change 에 과거 대비 비중 변화의 시계열·정량 근거가 있나.\n"
+        "4) vendors/customers/competitors 가 실제 기업명 등 구체 항목인가(빈 껍데기 아님)."
+    ),
+    "thesis": (
+        "너는 딥다이브 투자 아이디어 단계의 절차 감사자다. 다음 절차를 점검한다:\n"
+        "1) **시점 유효성**: catalysts 가 미래·진행중 이벤트만 담았나(과거 종료·이미 반영 이벤트 제외). "
+        "event_risks 가 현재 유효한 리스크만 담았나. 각 항목 timing 이 과거면 제외됐나.\n"
+        "2) **주체 검증**: 이 종목이 주체인 이벤트만 넣었나(타사 언급·비교 기사 제외, 모/자회사는 관계 명시).\n"
+        "3) catalysts/event_risks 에 출처(source)가 있나 — events 컨텍스트에 근거하나.\n"
+        "4) thesis 가 drivers 와 인과적으로 연결되나 — 막연한 기대가 아니라 실적 기반인가."
+    ),
+}
 
 
 # ── 1단계 Overview ────────────────────────────────────────────────────
@@ -41,8 +83,12 @@ def stage_overview(llm: LLMPort, model: str, ctx: ToolContext, prior: dict) -> d
         '"major_shareholders": "대주주·지분 요약", "business_summary": "사업 개요 2~3문장", '
         '"report_kind": "참조한 정기보고서 종류"}'
     )
-    return agent.run_stage(llm, model, ctx, stage_goal=goal, result_schema=schema,
-                           context_data=context, max_tool_calls=3)
+    return review_loop.run_with_review(
+        llm, model,
+        lambda fb: agent.run_stage(llm, model, ctx, stage_goal=_with_feedback(goal, fb),
+                                   result_schema=schema, context_data=context, max_tool_calls=3),
+        _REVIEW_SYSTEM["overview"], label=f"overview:{ctx.code}",
+    )
 
 
 def _period_ym(period: str) -> tuple[int, int] | None:
@@ -89,8 +135,12 @@ def stage_redflags(llm: LLMPort, model: str, ctx: ToolContext, prior: dict) -> d
         '{"severity": "위험|주의|양호", "flags": [{"label":"", "severity":"", "detail":"근거 수치 포함"}], '
         '"cash_trend": "현금성 자산 흐름 코멘트", "notes": "주석에서 발견한 특이사항"}'
     )
-    return agent.run_stage(llm, model, ctx, stage_goal=goal, result_schema=schema,
-                           context_data=context, max_tool_calls=4)
+    return review_loop.run_with_review(
+        llm, model,
+        lambda fb: agent.run_stage(llm, model, ctx, stage_goal=_with_feedback(goal, fb),
+                                   result_schema=schema, context_data=context, max_tool_calls=4),
+        _REVIEW_SYSTEM["redflags"], label=f"redflags:{ctx.code}",
+    )
 
 
 # ── 3단계 Business Deep Dive ──────────────────────────────────────────
@@ -112,8 +162,12 @@ def stage_business(llm: LLMPort, model: str, ctx: ToolContext, prior: dict) -> d
         '"customers": ["주요 납품처"], "competitors": ["핵심 경쟁사"], '
         '"item_mix_change": "아이템 비중 변화 추이", "moat": "경쟁우위·해자"}'
     )
-    return agent.run_stage(llm, model, ctx, stage_goal=goal, result_schema=schema,
-                           context_data=context, max_tool_calls=6)
+    return review_loop.run_with_review(
+        llm, model,
+        lambda fb: agent.run_stage(llm, model, ctx, stage_goal=_with_feedback(goal, fb),
+                                   result_schema=schema, context_data=context, max_tool_calls=6),
+        _REVIEW_SYSTEM["business"], label=f"business:{ctx.code}",
+    )
 
 
 # ── 4단계 Thesis & Risks (미래 촉매·이벤트 리스크 포함) ─────────────────
@@ -151,8 +205,12 @@ def stage_thesis(llm: LLMPort, model: str, ctx: ToolContext, prior: dict) -> dic
         '"event_risks": [{"event": "이벤트 리스크", "impact": "예상 악영향", "source": "출처"}], '
         '"industry_angle": "업종별 차별화 논리"}'
     )
-    return agent.run_stage(llm, model, ctx, stage_goal=goal, result_schema=schema,
-                           context_data=context, max_tool_calls=5)
+    return review_loop.run_with_review(
+        llm, model,
+        lambda fb: agent.run_stage(llm, model, ctx, stage_goal=_with_feedback(goal, fb),
+                                   result_schema=schema, context_data=context, max_tool_calls=5),
+        _REVIEW_SYSTEM["thesis"], label=f"thesis:{ctx.code}",
+    )
 
 
 # ── 5단계 Valuation & Target ──────────────────────────────────────────

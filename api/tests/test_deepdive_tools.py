@@ -75,6 +75,9 @@ def test_thesis_injects_asof_date_and_forward_only(monkeypatch):
     monkeypatch.setattr(stages.agent, "run_stage", _fake_run_stage)
     monkeypatch.setattr(stages, "dispatch", lambda n, c, a: {})
     monkeypatch.setattr(stages, "_fin_series", lambda c: [])
+    # reviewer 루프는 producer(=run_stage 래퍼)를 최초 1회만 실행하게 우회(리뷰어 LLM 호출 배제).
+    monkeypatch.setattr(stages.review_loop, "run_with_review",
+                        lambda llm, model, producer, reviewer_system, **kw: producer(None))
     ctx = MagicMock()
     ctx.code = "093320"
     stages.stage_thesis(MagicMock(), "m", ctx, {})
