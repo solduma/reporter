@@ -72,6 +72,12 @@ def _handle_hitl(
     # 인풋 수신됨. 공백이면(사용자가 건너뜀) 검증 없이 진행. 미검증이면 추가 리서치로 검증해 저장.
     if job.hitl_input.strip() and rep.hitl_json is None:
         verdicts = hitl.verify_input(llm, model, ctx, job.hitl_input, prior)
+        # 검증 자체가 실패(LLM 타임아웃 등)면 인풋을 조용히 버리지 않는다 — job 을 실패시켜 사용자가
+        # 재시도하게 한다(에러 마커를 hitl_json 에 남기지 않아야 재개 시 다시 검증한다).
+        if hitl.agent_result_is_error(verdicts):
+            raise LLMError(
+                f"HITL 인풋 검증 실패(재시도 필요): {verdicts.get('_error', '알 수 없는 오류')}"
+            )
         rep.hitl_json = verdicts
         db.commit()
     if rep.hitl_json is not None:

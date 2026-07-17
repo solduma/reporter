@@ -195,6 +195,38 @@ def test_run_job_verifies_input_and_resumes():
     assert job.status == "done"
 
 
+def test_run_job_fails_when_hitl_verify_errors():
+    # HITL 검증이 실패(LLM 타임아웃 등 에러 마커)하면 인풋을 조용히 버리지 않고 job 을 실패시킨다
+    # (사용자 재시도 유도). hitl_json 에 에러 마커를 남기지 않아 재개 시 다시 검증한다.
+    from unittest.mock import MagicMock, patch
+
+    from app.services.deepdive import orchestrator as o
+
+    ran, fake, Report = _run_job_stages()
+    rep = Report(stock_code="093320")
+    rep.overview_json = {"per": 10}
+    rep.redflags_json = {"severity": "양호"}
+    rep.business_json = {"moat": "x"}
+    rep.thesis_json = {"thesis": "t"}
+    rep.hitl_json = None
+    job = MagicMock()
+    job.id, job.stock_code, job.current_stage = 22, "093320", 4
+    job.hitl_input = "가비아 JV 코어허브 100MW IDC"
+
+    err = {"_error": "LLM 실패: Read timed out", "_partial": True}
+    db = MagicMock()
+    with patch.object(o, "get_llm", return_value=MagicMock()), \
+         patch.object(o.tools, "resolve_corp_code", return_value="c"), \
+         patch.object(o, "_get_or_create_report", return_value=rep), \
+         patch.object(o.stages, "STAGES", fake), \
+         patch.object(o.hitl, "verify_input", return_value=err), \
+         patch.object(o, "_finalize", lambda *a: None):
+        o.run_job(db, job, MagicMock())
+    assert "valuation" not in ran  # 밸류에이션 진행 안 함
+    assert job.status == "failed"  # 조용히 진행하지 않고 실패
+    assert rep.hitl_json is None  # 에러 마커를 남기지 않아 재개 시 재검증
+
+
 def test_run_job_skips_verify_on_blank_input():
     # 공백 인풋(건너뜀)이면 verify_input 을 호출하지 않고 바로 밸류에이션 진행.
     from unittest.mock import MagicMock, patch
