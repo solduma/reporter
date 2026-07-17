@@ -101,6 +101,24 @@ def _annual_ebitda(db: Session, code: str) -> dict[str, tuple[float, float | Non
     return {period: (ebitda, revenue) for period, ebitda, revenue in rows}
 
 
+def refresh_ebitda_axis(db: Session, code: str) -> bool:
+    """한 종목의 EBITDA 성장축(ebitda_status·ebitda_margin_delta)만 DB 재무로 재계산·갱신.
+
+    EBITDA 손익상태·마진은 DB financials 연간값만으로 산출되므로(네이버 재무 불필요) 외부 호출 없이
+    갱신한다. financials 의 EBITDA 가 새로 채워졌는데 growth_metric 이 stale 일 때 정합을 맞춘다.
+    갱신했으면 True(연간 EBITDA 2개 미만이라 산출 불가면 False — 기존 값 보존).
+    """
+    status, margin = growth._ebitda_yoy(_annual_ebitda(db, code))
+    if status is None and margin is None:
+        return False
+    db.execute(
+        GrowthMetricRow.__table__.update()
+        .where(GrowthMetricRow.stock_code == code)
+        .values(ebitda_status=status, ebitda_margin_delta=margin, updated_at=func.now())
+    )
+    return True
+
+
 def _ingest_one(db: Session, code: str, snap_date: date, session: requests.Session) -> None:
     # 1) 재무 → 성장지표. 연간 EBITDA·매출은 DB financials 에서 주입(네이버 스크랩엔 없음).
     fins = quote.fetch_financials(code, session)
