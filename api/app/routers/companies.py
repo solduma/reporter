@@ -175,8 +175,18 @@ def company_analysis(
     roe = fin.roe if fin else None
     dy = fin.div_yield if fin else None
     eps_yoy = g.eps_yoy if g else None  # PEG 산출용(성장축과 동일 EPS YoY)
-    value_sc, (per_r, pbr_r, ev_r, peg_r) = analysis_scoring.value_score_abs(per, pbr, ev, roe, dy, eps_yoy)
+    net_status = g.net_status if g else None
+    net_margin_delta = g.net_margin_delta if g else None
+    value_sc, (per_r, pbr_r, ev_r, peg_r) = analysis_scoring.value_score_abs(
+        per, pbr, ev, roe, dy, eps_yoy, net_status, net_margin_delta
+    )
     peg_val = analysis_scoring.peg(per, eps_yoy)
+    # eps_yoy 로 PEG 를 못 구한 흑자전환·흑자지속 종목은 수치 대신 상태 라벨로 표시(대체점이 점수엔 반영).
+    peg_display = (
+        f"{peg_val:.2f}" if peg_val is not None
+        else net_status if net_status in ("흑자전환", "흑자지속") and net_margin_delta is not None
+        else "—"
+    )
     value_axis = AnalysisAxis(
         key="value",
         label="가치",
@@ -184,7 +194,7 @@ def company_analysis(
         metrics=[
             {"label": "PER", "value": f"{per:.1f}배" if per else "—"},
             {"label": "PBR", "value": f"{pbr:.2f}배" if pbr else "—"},
-            {"label": "PEG", "value": f"{peg_val:.2f}" if peg_val is not None else "—"},
+            {"label": "PEG", "value": peg_display},
             {"label": "ROE", "value": f"{roe:.1f}%" if roe is not None else "—"},
             {"label": "배당수익률", "value": f"{dy:.1f}%" if dy is not None else "—"},
         ],

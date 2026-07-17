@@ -145,6 +145,27 @@ def peg_norm(peg_value: float | None) -> float | None:
     return clamp01((2.0 - peg_value) / (2.0 - 1.0))
 
 
+# eps_yoy 결측(흑자전환 등 전년 적자로 YoY 계산 불가) 시 PEG 자리를 채우는 대체점 상한.
+# 흑자전환은 성장 방향은 확실하나 '성장 속도'를 수치화할 수 없어, 마진 개선 기반 대체점은
+# 정규 PEG 만점(1.0)보다 보수적으로 상한을 둔다(속도 미확정 → 프리미엄 제한).
+_PEG_SURROGATE_CAP = 0.7
+
+
+def peg_surrogate_norm(net_status: str | None, net_margin_delta: float | None) -> float | None:
+    """eps_yoy 로 PEG 를 못 구할 때(흑자전환 등) 순이익률 개선 pp 로 만든 대체 저평가 정규화점.
+
+    흑자전환·흑자지속만 대상(적자전환·적자지속·미상은 None → 가치 축에서 제외). 순이익률 증감
+    pp 를 성장 축과 동일한 tanh S-곡선(margin_pp_score)으로 0~1 화한 뒤, 속도 미확정을 반영해
+    상한(_PEG_SURROGATE_CAP)으로 눌러 정규 PEG(성장 속도 확정) 대비 프리미엄을 제한한다.
+    """
+    if net_status not in ("흑자전환", "흑자지속"):
+        return None
+    base = margin_pp_score(net_margin_delta)
+    if base is None:
+        return None
+    return min(base, _PEG_SURROGATE_CAP)
+
+
 # 가치 축 가중치(합 1). 저PBR·저PER·저EV 저평가 + PEG(성장 대비 저평가) + ROE·배당 가점.
 VALUE_WEIGHTS = {"pbr": 0.30, "per": 0.25, "ev": 0.15, "peg": 0.15, "roe": 0.10, "div": 0.05}
 
@@ -192,16 +213,22 @@ def value_score_abs(
     roe: float | None,
     div_yield: float | None,
     eps_yoy: float | None = None,
+    net_status: str | None = None,
+    net_margin_delta: float | None = None,
 ) -> tuple[float | None, tuple[float | None, float | None, float | None, float | None]]:
     """절대 밴드 기반 가치 점수 + (per_norm, pbr_norm, ev_norm, peg_norm). 종목분석·스크리너 공용.
 
     반환한 norm 4튜플은 score_factors 분해에 그대로 넘겨 점수와 근거가 어긋나지 않게 한다.
-    PEG 는 per·eps_yoy 로 산출(성장주만 유효), 나머지는 절대 밴드 저평가 정규화.
+    나머지는 절대 밴드 저평가 정규화. PEG 는 per·eps_yoy 로 산출(성장주만 유효)하되, eps_yoy 가
+    없으면(흑자전환 등 전년 적자로 YoY 불가) 순이익률 개선 pp 기반 대체점으로 폴백해 성장 종목이
+    PEG 결측으로 가치 축에서 통째로 빠지지 않게 한다.
     """
     per_r = cheap_band(per, *VALUE_BANDS["per"])
     pbr_r = cheap_band(pbr, *VALUE_BANDS["pbr"])
     ev_r = cheap_band(ev_ebitda, *VALUE_BANDS["ev_ebitda"])
     peg_r = peg_norm(peg(per, eps_yoy))
+    if peg_r is None:
+        peg_r = peg_surrogate_norm(net_status, net_margin_delta)
     score = value_score(per, pbr, ev_ebitda, roe, div_yield, per_r, pbr_r, ev_r, peg_r)
     return score, (per_r, pbr_r, ev_r, peg_r)
 

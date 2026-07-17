@@ -75,12 +75,19 @@ def _growth_score(u, g) -> float | None:
     )
 
 
-def _value_score(fin) -> float | None:
-    """가치스코어 — 종목분석과 동일한 절대 밴드(analysis_scoring.value_score_abs)."""
+def _value_score(fin, g=None) -> float | None:
+    """가치스코어 — 종목분석과 동일한 절대 밴드(analysis_scoring.value_score_abs).
+
+    g(GrowthMetric)를 주면 PEG(eps_yoy) 및 흑자전환 대체점(net_status·마진 pp)까지 종목분석과
+    동일하게 반영한다. 없으면 PER/PBR/EV/ROE/배당만으로 계산.
+    """
     if fin is None:
         return None
     score, _ = analysis_scoring.value_score_abs(
-        fin.per, fin.pbr, fin.ev_ebitda, fin.roe, fin.div_yield
+        fin.per, fin.pbr, fin.ev_ebitda, fin.roe, fin.div_yield,
+        g.eps_yoy if g else None,
+        g.net_status if g else None,
+        g.net_margin_delta if g else None,
     )
     return score
 
@@ -281,7 +288,7 @@ def _screen_value(
     total = len(kept)
 
     if sort == "score" or sort not in ("market_cap", "change", "trading_value"):
-        scored = [(r, f, _value_score(f)) for r, f in kept]
+        scored = [(r, f, _value_score(f, r[1])) for r, f in kept]
         scored.sort(key=lambda x: (-(x[2] if x[2] is not None else -1), x[0][0].stock_code))
         page = scored[offset : offset + limit]
         ev = _representative_events(db, [r[0].stock_code for r, _, _ in page], as_of)
@@ -467,7 +474,7 @@ def _screen_overall(db, base, as_of, sort, limit, offset) -> ScreenerResult:
         u, g = r[0], r[1]
         gsc = _growth_score(u, g)
         fin = fin_map.get(u.stock_code)
-        vsc = _value_score(fin)
+        vsc = _value_score(fin, g)
         tsc = u.trend_score
         kr_sec = sector_map.get(u.stock_code)
         if u.market not in idx_cache:
