@@ -43,6 +43,66 @@ def test_anchor_shares_and_net_debt_derived():
     assert anc["net_debt_eok"] == 800
 
 
+# ── HITL 이익 증분의 앵커 반영(문제2: 긍정 인풋이 계산에 결정론적으로 들어가게) ──────────
+def _hitl(claims):
+    return {"claims": claims}
+
+
+def test_apply_hitl_uplifts_forward_earnings():
+    # numeric claim: 증분율 50% × 매출비중 40% × 확률 1.0 = 전사 +20% → eps_ttm·ebitda 앵커 ×1.2.
+    anc = {"eps_ttm": 1000.0, "ebitda_eok_annual": 500.0}
+    claim = {"claim_type": "numeric", "probability": 1.0,
+             "numeric": {"delta_pct": 50, "segment_revenue_share": 40}}
+    out = vs.apply_hitl_to_anchors(anc, _hitl([claim]))
+    assert out["eps_ttm"] == 1200.0  # +20%
+    assert out["ebitda_eok_annual"] == 600.0
+    assert out["hitl_earnings_uplift"]["uplift_pct"] == 20.0
+
+
+def test_apply_hitl_probability_weights_uplift():
+    # 확률 0.5 → 증분 절반만: 50% × 40% × 0.5 = +10%.
+    anc = {"eps_ttm": 1000.0}
+    claim = {"claim_type": "numeric", "probability": 0.5,
+             "numeric": {"delta_pct": 50, "segment_revenue_share": 40}}
+    out = vs.apply_hitl_to_anchors(anc, _hitl([claim]))
+    assert out["eps_ttm"] == 1100.0
+
+
+def test_apply_hitl_caps_uplift():
+    # 과대 증분(100%×100%×1.0=100%)은 상한(+50%)으로 캡.
+    anc = {"eps_ttm": 1000.0}
+    claim = {"claim_type": "numeric", "probability": 1.0,
+             "numeric": {"delta_pct": 100, "segment_revenue_share": 100}}
+    out = vs.apply_hitl_to_anchors(anc, _hitl([claim]))
+    assert out["eps_ttm"] == 1500.0  # +50% 캡
+    assert out["hitl_earnings_uplift"]["capped"] is True
+
+
+def test_apply_hitl_skips_when_baseline_missing():
+    # delta_pct·segment_share 없으면(공개 baseline 못 구함) 앵커 조정 안 함 — 프롬프트 경로에 위임.
+    anc = {"eps_ttm": 1000.0}
+    claim = {"claim_type": "numeric", "probability": 0.8,
+             "numeric": {"delta_pct": None, "segment_revenue_share": None}}
+    out = vs.apply_hitl_to_anchors(anc, _hitl([claim]))
+    assert out["eps_ttm"] == 1000.0  # 불변
+    assert "hitl_earnings_uplift" not in out
+
+
+def test_apply_hitl_refuted_claim_no_uplift():
+    # 반박(확률 0)은 증분 0 → 조정 없음.
+    anc = {"eps_ttm": 1000.0}
+    claim = {"claim_type": "numeric", "probability": 0.0,
+             "numeric": {"delta_pct": 50, "segment_revenue_share": 40}}
+    out = vs.apply_hitl_to_anchors(anc, _hitl([claim]))
+    assert out["eps_ttm"] == 1000.0
+
+
+def test_apply_hitl_no_hitl_noop():
+    anc = {"eps_ttm": 1000.0}
+    assert vs.apply_hitl_to_anchors(anc, None) == anc
+    assert vs.apply_hitl_to_anchors(anc, {}) == anc
+
+
 def test_anchor_ttm_none_when_under_4_quarters():
     short = [{"period": "2026.03", "is_estimate": False, "eps": 1500, "bps": 53000}]
     anc = vs.collect_anchors(short, {"close_price": 40000, "market_cap": 400_000_000_000})

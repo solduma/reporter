@@ -522,12 +522,16 @@ def blend(
     results: list[ValuationResult],
     current_price: float | None,
     fit_weights: dict[str, float] | None = None,
+    *,
+    is_growth: bool = False,
 ) -> ValuationSummary:
     """적용 가능 방식의 목표가를 (신뢰도 × 종목유형 적합도) 가중 평균해 최종 목표가를 낸다.
 
     - 신뢰도 가중(상3·중2·하1)에 fit_weights(method_fit)의 유형 적합도를 곱한다. fit=0(부적합)은
       가중 0 = 최종 평균에서 제외(예: 금융주 EV/EBITDA·DCF, 무배당 DDM). 결과 목록엔 남기고 note 표기.
-    - 이상치(중앙값 대비 ±60% 초과)도 제외. fit_weights 미지정 시 기존 신뢰도 가중만(하위호환).
+    - 이상치 제외: 하방 -60%, 상방 +60%(일반) / +120%(성장주, is_growth) 초과. 성장주는 성장 반영
+      방식이 후행 앵커 대비 높게 나오는 게 정상이라 상방 컷을 완화한다. fit_weights 미지정 시 기존
+      신뢰도 가중만(하위호환).
     """
     fw = fit_weights or {}
     applicable = [r for r in results if r.applicable and r.target_price and r.target_price > 0]
@@ -544,12 +548,16 @@ def blend(
             fitting.append(r)
     fitting = fitting or applicable  # 전부 부적합이면 폴백으로 전체 사용
 
-    # 2) 적합 방식 중 이상치(중앙값 ±60% 초과) 제외.
+    # 2) 적합 방식 중 이상치(중앙값 대비 초과) 제외. 성장주는 상방(성장 반영) 방식이 후행 앵커 클러스터
+    #    대비 높게 나오는 게 정상이라, 상방 컷을 완화(하방은 동일)해 DCF·요인모형이 '이상치'로 잘려
+    #    목표가가 후행값으로 눌리는 것을 막는다(긍정 성장 근거의 과소반영 방지).
+    up_cut, down_cut = (1.2, 0.6) if is_growth else (0.6, 0.6)
     targets = sorted(r.target_price for r in fitting)  # type: ignore[misc]
     mid = targets[len(targets) // 2]  # 중앙값(적합 방식 기준)
     kept: list[ValuationResult] = []
     for r in fitting:
-        if mid > 0 and abs(r.target_price - mid) / mid > 0.6:  # type: ignore[operator]
+        dev = (r.target_price - mid) / mid if mid > 0 else 0  # type: ignore[operator]
+        if dev > up_cut or -dev > down_cut:
             r.note = (r.note + " " if r.note else "") + "이상치로 최종 평균에서 제외"
         else:
             kept.append(r)
