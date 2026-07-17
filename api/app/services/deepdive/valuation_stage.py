@@ -20,7 +20,7 @@ from app.domain import beta as betamod
 from app.domain import valuation as val
 from app.ports.llm import LLMError, LLMPort
 from app.services import company_service
-from app.services.deepdive.tools import ToolContext, dispatch
+from app.services.deepdive.tools import ToolContext, dispatch, sector_for
 
 logger = logging.getLogger(__name__)
 
@@ -199,12 +199,15 @@ def _t_ev_ebitda(a: dict, anc: dict) -> val.ValuationResult:
 
 
 def _t_dcf(a: dict, anc: dict) -> val.ValuationResult:
+    # roe·moat 로 고성장주는 3단계(CAP 기반 전환기), 완만성장주는 2단계 자동 선택. risk_free 로 영구성장 상한.
     return val.dcf_valuation(
         fcf_base=_num(a.get("fcf_base_eok")), growth_rate=_num(a.get("growth_rate")),
         years=int(_num(a.get("years")) or 5), terminal_growth=_num(a.get("terminal_growth")),
         discount_rate=_num(a.get("discount_rate")),
         net_debt=_pick(a.get("net_debt_eok"), anc.get("net_debt_eok")),
         shares=anc.get("shares"), current_price=anc.get("current_price"),
+        roe=anc.get("roe_pct"), moat=anc.get("moat"),
+        risk_free=(anc.get("factor_betas") or {}).get("risk_free"),
     )
 
 
@@ -284,6 +287,39 @@ def _grade_moat(business: dict) -> str | None:
     if sum(k in text for k in strong) >= 2:
         return "강"
     return "중"
+
+
+# 섹터명 → 방식 적합도용 유형. 금융(은행·보험)은 EV·DCF 제외, 시클리컬은 PER 저가중.
+_FINANCIAL_SECTORS = ("은행", "증권", "보험")
+_CYCLICAL_SECTORS = ("반도체", "반도체 소부장", "2차전지", "철강", "조선", "에너지화학", "자동차", "기계장비")
+
+
+def _classify_for_fit(ctx: ToolContext, prior: dict, anchors: dict) -> dict:
+    """종목 유형·배당·이익 신호를 모아 방식 적합도(method_fit) 인자로 변환(코드 결정, 재현 가능).
+
+    유형 = 섹터(금융·시클리컬, 코드) 우선 → 없으면 thesis_type(LLM 성장/자산주) → 기타. 배당·적자는
+    앵커·재무로 게이트(무배당 DDM 제외, 적자 PER·DCF 제외). LLM 판정을 섹터·지표로 교차 보정.
+    """
+    sector = sector_for(ctx)
+    thesis_type = str((prior.get("thesis") or {}).get("thesis_type") or "")
+    if sector in _FINANCIAL_SECTORS:
+        stock_type = "financial"
+    elif sector in _CYCLICAL_SECTORS:
+        stock_type = "cyclical"
+    elif "성장" in thesis_type:
+        stock_type = "growth"
+    elif "자산" in thesis_type or "역발상" in thesis_type:
+        stock_type = "asset"
+    else:
+        stock_type = "other"
+    # 배당: 연간 DPS 또는 시가배당률이 유효 양수면 배당주. 이익: TTM EPS 음수면 적자.
+    has_dividend = bool((anchors.get("dps_annual") or 0) > 0 or (anchors.get("div_yield_pct") or 0) > 0)
+    eps = anchors.get("eps_ttm")
+    is_loss = eps is not None and eps < 0
+    return {
+        "stock_type": stock_type, "sector": sector, "thesis_type": thesis_type,
+        "fit": val.method_fit(stock_type, has_dividend=has_dividend, is_loss=is_loss),
+    }
 
 
 # 방식 도구 레지스트리: name → (계산 함수, 파라미터 JSON 스키마 properties).
@@ -407,6 +443,9 @@ def run_valuation(llm: LLMPort, model: str, ctx: ToolContext, prior: dict, serie
     anchors["factor_betas"] = compute_factor_betas(ctx, anchors, price.get("market"))
     # 해자 등급(business 단계 서술 → 강|중|약) — H-Model 감쇠기간 정성 배수(ROE 초과수익과 앙상블).
     anchors["moat"] = _grade_moat(prior.get("business", {}) or {})
+    # 종목 유형별 방식 적합도(가중/제외) — blend 가 부적합 방식(금융주 EV/EBITDA·무배당 DDM 등)을 제외.
+    cls = _classify_for_fit(ctx, prior, anchors)
+    fit = cls["fit"]
     peers = dispatch("peers", ctx, {})
     tools = _build_tools()
 
@@ -440,7 +479,7 @@ def run_valuation(llm: LLMPort, model: str, ctx: ToolContext, prior: dict, serie
         if name == "get_anchors":
             return anchors
         if name == "blend":
-            summary = val.blend(list(results.values()), anchors.get("current_price"))
+            summary = val.blend(list(results.values()), anchors.get("current_price"), fit)
             return {"final_target_price": summary.final_target, "final_upside_pct": summary.final_upside_pct,
                     "method_count": summary.method_count,
                     "targets": {m: r.target_price for m, r in results.items() if r.applicable}}
@@ -472,15 +511,17 @@ def run_valuation(llm: LLMPort, model: str, ctx: ToolContext, prior: dict, serie
         return _oneshot_fallback(llm, model, ctx, prior, anchors, peers, series)
 
     if not results:  # 도구를 한 번도 못 돌렸으면(모델이 곧장 서술) 원샷 폴백.
-        return _oneshot_fallback(llm, model, ctx, prior, anchors, peers, series)
+        return _oneshot_fallback(llm, model, ctx, prior, anchors, peers, series, fit)
 
-    summary = val.blend(list(results.values()), anchors.get("current_price"))
+    summary = val.blend(list(results.values()), anchors.get("current_price"), fit)
     ordered = [results[m] for _tool, m in _TOOL_METHOD.items() if m in results]
     return {
         "final_target_price": summary.final_target,
         "final_upside_pct": summary.final_upside_pct,
         "current_price": summary.current_price,
         "method_count": summary.method_count,
+        "stock_type": cls["stock_type"],  # 분류(프론트·디버깅)
+        "method_fit": fit,  # 방식별 적합도(0=제외) — 프론트가 제외 방식 표시 가능
         "entry_case": final_meta.get("entry_case"),
         "conclusion": final_meta.get("conclusion"),
         "methods": [_result_to_dict(r) for r in ordered],
@@ -497,7 +538,7 @@ _FALLBACK_SCHEMA = """{"per":{"target_per":수,"rationale":""},"pbr":{"target_pb
 "forward_eps":수,"entry_case":"자산주/역발상|성장주","conclusion":""}"""
 
 
-def _oneshot_fallback(llm, model, ctx, prior, anchors, peers, series) -> dict:
+def _oneshot_fallback(llm, model, ctx, prior, anchors, peers, series, fit=None) -> dict:
     """구 방식(원샷 가정 blob) 폴백. tool-calling 이 안 되거나 루프가 결과를 못 낼 때 최소 결과 보장."""
     from app.services.sentiment import _extract_json
     user = (
@@ -520,10 +561,10 @@ def _oneshot_fallback(llm, model, ctx, prior, anchors, peers, series) -> dict:
         if method_args.get("rationale"):
             r.note = (str(method_args["rationale"]) + (" " + r.note if r.note else "")).strip()
         results.append(r)
-    summary = val.blend(results, anchors.get("current_price"))
+    summary = val.blend(results, anchors.get("current_price"), fit)
     return {
         "final_target_price": summary.final_target, "final_upside_pct": summary.final_upside_pct,
         "current_price": summary.current_price, "method_count": summary.method_count,
-        "entry_case": a.get("entry_case"), "conclusion": a.get("conclusion"),
+        "method_fit": fit, "entry_case": a.get("entry_case"), "conclusion": a.get("conclusion"),
         "methods": [_result_to_dict(r) for r in results],
     }

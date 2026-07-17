@@ -45,10 +45,15 @@ function AssumptionChips({ a }: { a: Record<string, unknown> }) {
 }
 
 function MethodRow({ m }: { m: ValuationMethod }) {
+  // 종목 유형 부적합·이상치로 최종 평균에서 빠진 방식은 note 에 '제외'가 담긴다 → 배지로 표시.
+  const excluded = typeof m.note === "string" && m.note.includes("제외");
   return (
-    <details className={styles.method}>
+    <details className={`${styles.method} ${excluded ? styles.methodExcluded : ""}`}>
       <summary className={styles.methodSummary}>
-        <span className={styles.methodName}>{m.label}</span>
+        <span className={styles.methodName}>
+          {m.label}
+          {excluded ? <span className={styles.excludedTag}>제외</span> : null}
+        </span>
         <span className={styles.methodTarget}>
           {m.applicable ? (
             <>

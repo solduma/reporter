@@ -106,6 +106,24 @@
   font-size: 0.88rem;
   font-weight: 700;
   color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 종목 유형 부적합·이상치로 최종 평균에서 제외된 방식 */
+.methodExcluded {
+  opacity: 0.6;
+}
+
+.excludedTag {
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 0.1rem 0.4rem;
+  border-radius: 5px;
+  background: var(--border);
+  color: var(--muted);
+  white-space: nowrap;
 }
 
 .methodTarget {

@@ -693,6 +693,8 @@ export interface ValuationResult {
   final_upside_pct: number | null;
   current_price: number | null;
   method_count: number;
+  stock_type?: string | null; // growth|asset|financial|cyclical|other — 방식 가중 근거
+  method_fit?: Record<string, number> | null; // 방식별 적합도(0=제외)
   entry_case: string | null;
   conclusion: string | null;
   methods: ValuationMethod[];
