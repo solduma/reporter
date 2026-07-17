@@ -51,6 +51,28 @@ def test_value_factors_missing_is_none():
     assert _by_label(fs, "ROE 가점").value == "—"
 
 
+def test_value_factors_peg_surrogate_shows_status():
+    # eps_yoy 로 PEG 수치를 못 구해도(흑자전환) 대체점이 있으면 근거 표시값이 상태 라벨이고
+    # norm(점수 기여)도 함께 채워져 점수-근거가 어긋나지 않는다.
+    fs = sf.value_factors(
+        per=15, pbr=1.0, ev_ebitda=8, roe=12, div_yield=2,
+        per_rank=0.6, pbr_rank=0.8, ev_rank=0.7,
+        peg_rank=0.7, peg_value=None, peg_surrogate_status="흑자전환",
+    )
+    peg = _by_label(fs, "PEG")
+    assert peg.value == "흑자전환" and peg.norm == 0.7
+
+
+def test_value_factors_peg_numeric_takes_precedence():
+    # 실측 PEG 값이 있으면 상태 라벨이 아니라 수치를 표시.
+    fs = sf.value_factors(
+        per=15, pbr=1.0, ev_ebitda=8, roe=12, div_yield=2,
+        per_rank=0.6, pbr_rank=0.8, ev_rank=0.7,
+        peg_rank=1.0, peg_value=0.15, peg_surrogate_status="흑자전환",
+    )
+    assert _by_label(fs, "PEG").value == "0.15"
+
+
 def test_trend_factors_alignment_label():
     fs = sf.trend_factors(
         near_high_pct=100.0, ma_aligned=True, above_ma120=True, vol_ratio=2.0, return_3m=40.0,

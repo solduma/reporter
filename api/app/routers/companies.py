@@ -200,7 +200,12 @@ def company_analysis(
         ],
         method=score_factors.VALUE_METHOD,
         factors=_factors(
-            score_factors.value_factors(per, pbr, ev, roe, dy, per_r, pbr_r, ev_r, peg_r, peg_val)
+            score_factors.value_factors(
+                per, pbr, ev, roe, dy, per_r, pbr_r, ev_r, peg_r, peg_val,
+                peg_surrogate_status=(
+                    net_status if peg_val is None and net_status in ("흑자전환", "흑자지속") else None
+                ),
+            )
         ),
     )
 

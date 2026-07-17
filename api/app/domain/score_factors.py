@@ -109,17 +109,28 @@ def value_factors(
     ev_rank: float | None,
     peg_rank: float | None = None,
     peg_value: float | None = None,
+    peg_surrogate_status: str | None = None,
 ) -> list[Factor]:
     """가치 요소 분해. per_rank/pbr_rank/ev_rank/peg_rank 는 저평가 정규화값(0~1, 낮을수록 1) —
-    호출측이 절대 밴드/백분위로 계산해 넘긴다. 단독(후보군 없음)일 땐 None → 해당 요소 기여 0."""
+    호출측이 절대 밴드/백분위로 계산해 넘긴다. 단독(후보군 없음)일 땐 None → 해당 요소 기여 0.
+
+    peg_value 가 없어도 peg_rank 가 있으면(흑자전환 등 EPS YoY 불가 → 순이익률 대체점) PEG 표시값을
+    상태 라벨(peg_surrogate_status)로 채워 점수 기여와 근거가 어긋나지 않게 한다.
+    """
     w = VALUE_WEIGHTS
     roe_norm = None if roe is None else clamp01(roe / 15.0)
     div_norm = None if div_yield is None else clamp01(div_yield / 5.0)
+    if peg_value is not None:
+        peg_display = _num(peg_value, "", 2)
+    elif peg_rank is not None and peg_surrogate_status:
+        peg_display = peg_surrogate_status  # 대체점(흑자전환/흑자지속) — 수치 대신 상태
+    else:
+        peg_display = "—"
     return [
         Factor("저PBR", _num(pbr, "배"), pbr_rank, w["pbr"]),
         Factor("저PER", _num(per, "배"), per_rank, w["per"]),
         Factor("저EV/EBITDA", _num(ev_ebitda, "배"), ev_rank, w["ev"]),
-        Factor("PEG", _num(peg_value, "", 2), peg_rank, w["peg"]),
+        Factor("PEG", peg_display, peg_rank, w["peg"]),
         Factor("ROE 가점", _num(roe, "%"), roe_norm, w["roe"]),
         Factor("배당수익률 가점", _num(div_yield, "%"), div_norm, w["div"]),
     ]

@@ -70,10 +70,17 @@ def _margin_delta(
     return round(latest_op / latest_rev - prior_op / prior_rev, 4)
 
 
-def compute_growth(stock_code: str, periods: list) -> GrowthMetric | None:
+def compute_growth(
+    stock_code: str,
+    periods: list,
+    annual_ebitda: dict[str, tuple[float, float | None]] | None = None,
+) -> GrowthMetric | None:
     """financials 행 리스트(각 .period/.revenue/.operating_income/.eps)로 성장지표를 만든다.
 
     실적(추정치 제외) 분기 중 최신을 기준으로, 1년 전 동분기(4기 전)와 비교한다.
+    annual_ebitda(period→(EBITDA, 매출))는 DART 원문 파싱 EBITDA·연간 매출 — 네이버 스크랩은
+    최근 분기만 줘 연간 EBITDA·매출이 없으므로 DB financials 에서 조회해 주입한다(주면 EBITDA
+    손익상태·마진 증감을 산출).
     """
     actuals = [p for p in periods if _key(p.period) and not _is_estimate(p.period)]
     if not actuals:
@@ -91,9 +98,9 @@ def compute_growth(stock_code: str, periods: list) -> GrowthMetric | None:
     )
     net_status = _profit_status(prior.net_income if prior else None, latest.net_income)
 
-    # EBITDA(=영업이익+D&A)는 현금흐름표 파싱 특성상 연간(.12)에만 저장된다. 분기 latest 엔 없으므로
-    # 연간 실적만 골라 최신 연간 vs 전년 연간으로 별도 비교(같은 연간 period 의 매출로 마진 산출).
-    eb_status, eb_margin = _ebitda_yoy(actuals)
+    # EBITDA(=영업이익+D&A)는 현금흐름표 파싱 특성상 연간(.12)에만 저장된다. 분기 latest 엔 없고
+    # 네이버 스크랩엔 연간 EBITDA·매출이 없어, DB financials 연간값(annual_ebitda)으로 별도 비교.
+    eb_status, eb_margin = _ebitda_yoy(annual_ebitda or {})
 
     return GrowthMetric(
         stock_code=stock_code,
@@ -115,21 +122,28 @@ def compute_growth(stock_code: str, periods: list) -> GrowthMetric | None:
     )
 
 
-def _ebitda_yoy(actuals: list) -> tuple[str | None, float | None]:
-    """EBITDA 손익상태·마진 증감(연간 기준). EBITDA 는 연간(.12)에만 있어 연간끼리 최신 vs 전년 비교.
+def _ebitda_yoy(
+    annual_ebitda: dict[str, tuple[float, float | None]],
+) -> tuple[str | None, float | None]:
+    """EBITDA 손익상태·마진 증감(연간 기준). 최신 연간 vs 전년 연간 비교.
 
-    연간 실적이 2개 미만이거나 EBITDA 결측이면 (None, None). 마진은 같은 연간 period 의 매출로 나눔.
+    annual_ebitda 는 period(YYYY.12)→(EBITDA, 매출). 네이버 스크랩엔 연간 EBITDA·매출이 없어
+    DB financials 에서 주입받는다. 연간이 2개 미만이거나 연속 회계연도가 아니면 (None, None).
     """
-    annuals = [p for p in actuals if _key(p.period) and _key(p.period)[1] == 12
-               and getattr(p, "ebitda", None) is not None]
+    annuals = sorted(
+        (p for p in annual_ebitda if _key(p) and _key(p)[1] == 12),
+        key=lambda p: _key(p),
+    )
     if len(annuals) < 2:
         return None, None
-    latest, prior = annuals[-1], annuals[-2]
+    latest_p, prior_p = annuals[-1], annuals[-2]
     # 연속 회계연도만 유효(중간 결손 방지).
-    if _key(latest.period)[0] - _key(prior.period)[0] != 1:
+    if _key(latest_p)[0] - _key(prior_p)[0] != 1:
         return None, None
-    status = _profit_status(prior.ebitda, latest.ebitda)
-    margin = _margin_delta(latest.ebitda, latest.revenue, prior.ebitda, prior.revenue)
+    latest_eb, latest_rev = annual_ebitda[latest_p]
+    prior_eb, prior_rev = annual_ebitda[prior_p]
+    status = _profit_status(prior_eb, latest_eb)
+    margin = _margin_delta(latest_eb, latest_rev, prior_eb, prior_rev)
     return status, margin
 
 
