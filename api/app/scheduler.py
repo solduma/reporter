@@ -86,8 +86,10 @@ _REPORT_FULLTEXT_CRON = CronTrigger(hour=5, minute=30, timezone=_TZ)
 # 매크로/뉴스 이벤트 분류: 매일 07:00. 뉴스 수집 → LLM 분류 → 테마 구성종목 전파(StockEvent).
 # LLM 토큰을 쓰므로 하루 1회. 이벤트드리븐 스크리너의 '뉴스' 이벤트 소스.
 _NEWS_EVENTS_CRON = CronTrigger(hour=7, minute=0, timezone=_TZ)
-# US 배치는 미국 장 마감(16시 ET ≈ 06시 KST) 후. 유니버스 스냅샷 → 8-K 순.
+# US 배치는 미국 장 마감(16시 ET ≈ 06시 KST) 후. 유니버스 스냅샷 → 일봉 백필 → 8-K 순.
 _US_UNIVERSE_CRON = CronTrigger(hour=6, minute=10, timezone=_TZ)
+# US 일봉 10년 점진 백필: 06:20. 유니버스 스냅샷(06:10) 직후 — 최신 심볼 대상. momentum_3m 채움.
+_US_CANDLE_BACKFILL_CRON = CronTrigger(hour=6, minute=20, timezone=_TZ)
 _US_DISCLOSURE_CRON = CronTrigger(hour=6, minute=40, timezone=_TZ)
 # 국내 공시 순환 정기 배치: 매일 07:40. 유니버스를 오래된 순으로 per_run 개씩 최근 창 동기화
 # (몇 밤에 걸쳐 전수 순환). DART 콜이라 재무·리포트 백필(03:30·05:00)과 시차를 두고, 뉴스(07:00)
@@ -256,6 +258,17 @@ def run_us_universe_batch(settings: Settings | None = None) -> dict:
         session.close()
 
 
+def run_us_candle_backfill(settings: Settings | None = None) -> dict:
+    """US 유니버스 일봉 10년 점진 백필 1회분(재개 가능) + momentum_3m 재계산."""
+    from app.services import us_universe_ingest
+
+    session = SessionLocal()
+    try:
+        return us_universe_ingest.run_candle_backfill_progressive(session)
+    finally:
+        session.close()
+
+
 def run_deepdive_queue(settings: Settings | None = None) -> dict:
     """딥다이브 DB 폴링 큐 — pending job 1건을 잡아 5단계 파이프라인 실행(직렬).
 
@@ -313,6 +326,7 @@ MANUAL_BATCHES: list[tuple[str, str, object]] = [
     ("report_fulltext", "리포트 원문 소급적재", run_report_fulltext_backfill),
     ("backfill_progressive", "일봉 백필(10년)", run_backfill_progressive),
     ("us_universe", "US 유니버스", run_us_universe_batch),
+    ("us_candle_backfill", "US 일봉 백필(10년)", run_us_candle_backfill),
     ("us_disclosure", "US 공시(8-K)", run_us_disclosure_batch),
     ("calendar", "경제·실적 캘린더", run_calendar_batch),
 ]
@@ -406,6 +420,14 @@ def build_scheduler(settings: Settings | None = None) -> BlockingScheduler:
         _logged("us_universe", run_us_universe_batch),
         trigger=_US_UNIVERSE_CRON,
         id="us_universe",
+        max_instances=1,
+        coalesce=True,
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        _logged("us_candle_backfill", run_us_candle_backfill),
+        trigger=_US_CANDLE_BACKFILL_CRON,
+        id="us_candle_backfill",
         max_instances=1,
         coalesce=True,
         replace_existing=True,
