@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock
 
-from app.services.deepdive import hitl
+from app.services.deepdive import hitl, review_loop
 
 
 class _ScriptedLLM:
@@ -79,7 +79,7 @@ def test_loop_refines_after_gap_then_converges():
 def test_loop_best_effort_when_not_converged():
     # 상한(3라운드)까지 baseline 못 채우면 best-effort + _procedure_incomplete 마킹.
     responses = []
-    for _ in range(hitl._MAX_ROUNDS):
+    for _ in range(review_loop._MAX_ROUNDS):
         responses.append(_researcher_done(_numeric_claims(with_baseline=False)))
         responses.append(json.dumps({"procedure_sound": False, "gaps": [
             {"claim": "IDC 100MW 증설", "missing_step": "baseline",
@@ -88,7 +88,7 @@ def test_loop_best_effort_when_not_converged():
     out = hitl.verify_input(llm, "m", _ctx(), "IDC 100MW 증설", {})
     assert out["_procedure_incomplete"] is True
     assert out["_remaining_gaps"]  # 남은 절차 지적 노출(은폐 없음)
-    assert llm.calls == hitl._MAX_ROUNDS * 2
+    assert llm.calls == review_loop._MAX_ROUNDS * 2
 
 
 def test_reviewer_parse_failure_stops_loop():
