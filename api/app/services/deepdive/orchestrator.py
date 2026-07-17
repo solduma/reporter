@@ -152,8 +152,15 @@ def run_job(db: Session, job: DeepDiveJob, settings: Settings | None = None) -> 
                 prior[key] = saved  # 이미 완료된 단계 — 재계산 없이 이어받는다.
                 continue
             result = fn(llm, model, ctx, prior)  # type: ignore[operator]
+            setattr(rep, json_cols[key], result)  # 부분 결과 보존(재개 시 재실행 판정에 사용)
+            # 단계가 에러 마커(_error/_note/_partial)면 그 위에 후속 단계를 쌓지 않는다 — 조용한 부분
+            # 실패로 불완전 결과가 최종 보고서에 섞이고 current_stage 가 성공을 오도하는 것을 막는다.
+            # 부분 저장 후 job.failed(재개 시 current_stage 보존 → 실패 단계부터 재실행).
+            if _is_stage_error(result):
+                db.commit()
+                _fail(db, job, f"{key} 단계 미완(LLM/파싱 실패) — 재실행 필요")
+                return
             prior[key] = result
-            setattr(rep, json_cols[key], result)
             job.current_stage = idx
             job.progress = int(idx / (total + 1) * 100)  # +1: 마지막 서술 생성 몫
             db.commit()

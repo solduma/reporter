@@ -68,12 +68,28 @@ def test_incomplete_marking_when_not_converged():
     assert llm.calls == review_loop._MAX_ROUNDS
 
 
-def test_producer_error_short_circuits():
-    # producer 가 에러 마커를 내면 reviewer 호출 없이 즉시 반환.
-    llm = _ScriptedLLM([])  # reviewer 는 안 불림
-    out = review_loop.run_with_review(llm, "m", lambda fb: {"_error": "LLM 실패", "_partial": True}, "r")
+def test_producer_error_retries_then_returns_marker():
+    # producer 가 매번 에러 마커면 feedback 없이 max_rounds 회 재시도 후 마커 반환(reviewer 미호출).
+    llm = _ScriptedLLM([])
+    calls = {"n": 0}
+
+    def producer(fb):
+        calls["n"] += 1
+        return {"_error": "LLM 실패", "_partial": True}
+
+    out = review_loop.run_with_review(llm, "m", producer, "r")
     assert review_loop.result_is_error(out)
-    assert llm.calls == 0
+    assert calls["n"] == review_loop._MAX_ROUNDS  # 재시도 소진
+    assert llm.calls == 0  # 에러 마커라 reviewer 도달 못 함
+
+
+def test_producer_error_then_recovers():
+    # 첫 producer 에러 마커 → 재시도에서 정상 산출 → reviewer sound → 정상 반환.
+    llm = _ScriptedLLM([_sound()])
+    seq = [{"_note": "비정형"}, {"result": "ok"}]
+    out = review_loop.run_with_review(llm, "m", lambda fb: seq.pop(0), "r")
+    assert out == {"result": "ok"}
+    assert llm.calls == 1  # 성공 산출 1회만 reviewer 검토
 
 
 def test_reviewer_parse_failure_stops_loop():
