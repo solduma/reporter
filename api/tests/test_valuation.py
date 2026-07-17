@@ -266,24 +266,31 @@ def test_blend_empty_when_none_applicable():
 
 # ── 종목 유형별 방식 적합도(method_fit) + blend 제외 ────────────────────────
 def test_method_fit_financial_excludes_ev_and_dcf():
-    # 금융주: EV/EBITDA·FCFF DCF 제외(부채=원재료). DDM·PBR 우대.
-    f = v.method_fit("financial")
+    # 금융주(유의미 배당 3%): EV/EBITDA·FCFF DCF 제외(부채=원재료). DDM·PBR 우대.
+    f = v.method_fit("financial", div_yield_pct=3.0)
     assert f["ev_ebitda"] == 0.0 and f["dcf"] == 0.0
     assert f["ddm"] > 1.0 and f["pbr"] > 1.0
 
 
 def test_method_fit_growth_downweights_book_methods():
     # 성장주: PBR·자산가치 저가중(장부가 ≪ 실제가치), PER·DCF 우대.
-    f = v.method_fit("growth")
+    f = v.method_fit("growth", div_yield_pct=2.0)
     assert f["pbr"] < 1.0 and f["asset"] < 1.0
     assert f["per"] > 1.0 and f["dcf"] > 1.0
 
 
 def test_method_fit_dividend_and_loss_gates():
-    # 무배당 → DDM 제외. 적자 → PER·DCF 제외(음이익 붕괴).
-    assert v.method_fit("growth", has_dividend=False)["ddm"] == 0.0
-    loss = v.method_fit("other", is_loss=True)
+    # 무배당·미미배당 → DDM 제외. 유의미 배당(≥1.5%) → DDM 유지. 적자 → PER·DCF 제외.
+    assert v.method_fit("growth")["ddm"] == 0.0  # 배당수익률 미지정(None) → 제외
+    assert v.method_fit("growth", div_yield_pct=0.5)["ddm"] == 0.0  # 미미배당 → 제외
+    assert v.method_fit("financial", div_yield_pct=4.0)["ddm"] > 0.0  # 유의미 배당 → 유지
+    loss = v.method_fit("other", is_loss=True, div_yield_pct=3.0)
     assert loss["per"] == 0.0 and loss["dcf"] == 0.0
+
+
+def test_method_fit_low_yield_excludes_ddm():
+    # KINX형 회귀: 성장주 첫 미미배당(0.45%)은 DDM 제외 — 목표가 하단 왜곡 방지.
+    assert v.method_fit("growth", div_yield_pct=0.45)["ddm"] == 0.0
 
 
 def test_blend_excludes_unfit_methods():
@@ -294,7 +301,7 @@ def test_blend_excludes_unfit_methods():
                                shares=1e6, current_price=9000)  # 폭주
     for r in (per, ddm, ev):
         r.confidence = "중"
-    s = v.blend([per, ddm, ev], 9000, v.method_fit("financial"))
+    s = v.blend([per, ddm, ev], 9000, v.method_fit("financial", div_yield_pct=3.0))
     assert "부적합" in ev.note  # 금융주에 EV/EBITDA 제외
     assert s.final_target and s.final_target < 20000  # 폭주값 안 섞임
 
@@ -309,7 +316,7 @@ def test_blend_outlier_median_not_polluted_by_unfit():
                           discount_rate=0.10, net_debt=0, shares=1e6, current_price=9000)  # 부적합
     for r in (per, ddm, ev, dcf):
         r.confidence = "중"
-    s = v.blend([per, ddm, ev, dcf], 9000, v.method_fit("financial"))
+    s = v.blend([per, ddm, ev, dcf], 9000, v.method_fit("financial", div_yield_pct=3.0))
     assert "부적합" not in per.note  # PER 은 적합 → 부적합 제외 안 됨
     assert "이상치" not in per.note and "이상치" not in ddm.note  # 적합 방식이 오제외되면 안 됨
     assert s.final_target and 9000 < s.final_target < 15000  # 폭주 EV 안 섞임

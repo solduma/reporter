@@ -482,17 +482,23 @@ _FIT_BY_TYPE: dict[str, dict[str, float]] = {
 _ALL_METHODS = tuple(METHOD_LABELS)
 
 
+# DDM 적용 최소 시가배당률(%). 이 미만이면 '유의미한 배당'이 아니라 DDM 제외 — 성장주의 상징적
+# 첫 배당·미미배당(예 시가배당률 0.5%)이 배당할인모형으로 목표가를 왜곡하는 것을 막는다.
+MIN_DDM_DIV_YIELD_PCT = 1.5
+
+
 def method_fit(
-    stock_type: str, *, has_dividend: bool = True, is_loss: bool = False
+    stock_type: str, *, div_yield_pct: float | None = None, is_loss: bool = False
 ) -> dict[str, float]:
     """종목 유형 → 방식별 blend 적합도 배수(0=제외~1.5=고가중). 순수 함수(재현 가능).
 
     stock_type: growth|asset|financial|cyclical|other. 배당·이익 게이트를 유형 규칙에 곱(min)한다:
-    - 무배당(has_dividend=False): DDM 제외(0) — 배당 없으면 배당할인 부적합.
+    - 저배당(div_yield_pct < MIN_DDM_DIV_YIELD_PCT, None 포함): DDM 제외(0) — 무배당·미미배당은
+      배당할인 부적합(성장주 첫 상징배당이 목표가를 끌어내리는 왜곡 방지).
     - 적자(is_loss=True): PER·DCF 제외(0) — 음의 이익으로 배수·현금흐름 붕괴(정규화 전).
     """
     base = dict(_FIT_BY_TYPE.get(stock_type, _FIT_BY_TYPE["other"]))
-    if not has_dividend:
+    if div_yield_pct is None or div_yield_pct < MIN_DDM_DIV_YIELD_PCT:
         base["ddm"] = 0.0
     if is_loss:
         base["per"] = 0.0
