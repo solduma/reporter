@@ -102,9 +102,22 @@ def test_reviewer_parse_failure_stops_loop():
     assert llm.calls == 2
 
 
-def test_researcher_error_marker_short_circuits():
-    # researcher 가 LLM 실패 마커를 내면 루프 중단·부분결과 반환(reviewer 호출 안 함).
-    llm = _ScriptedLLM(["JSON 아님 — run_stage 가 _note 마커 반환"])
+def test_researcher_error_marker_retries_then_returns():
+    # researcher 가 계속 실패 마커면 feedback 없이 재시도(max_rounds)하다가 소진 후 마커 반환.
+    # reviewer 는 호출 안 함(에러 마커라 리뷰 단계 도달 못 함).
+    llm = _ScriptedLLM(["JSON 아님"] * 5)  # 매번 비정형 → run_stage _note 마커
     out = hitl.verify_input(llm, "m", _ctx(), "IDC 100MW", {})
     assert hitl.agent_result_is_error(out)
-    assert llm.calls == 1  # reviewer 호출 안 됨
+    assert llm.calls == review_loop._MAX_ROUNDS  # 재시도 소진(리뷰어 호출 없음)
+
+
+def test_researcher_error_then_success_recovers():
+    # 첫 호출 실패 마커 → 재시도에서 정상 산출 → reviewer sound → 정상 반환(마커 아님).
+    llm = _ScriptedLLM([
+        "JSON 아님",  # 1차 producer 실패 마커
+        _researcher_done(_numeric_claims(with_baseline=True)),  # 2차 producer 성공
+        json.dumps({"procedure_sound": True, "gaps": []}),  # reviewer sound
+    ])
+    out = hitl.verify_input(llm, "m", _ctx(), "IDC 100MW", {})
+    assert not hitl.agent_result_is_error(out)
+    assert "claims" in out

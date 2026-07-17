@@ -87,14 +87,22 @@ def run_with_review(
     producer(feedback): feedback(이전 라운드 절차 지적, 최초 None)을 받아 산출 dict 를 낸다.
     reviewer_system: 이 산출물의 '절차'를 감사할 단계별 system 프롬프트(체크리스트).
     통과(procedure_sound)하거나 실행 지침이 빌 때까지 최대 max_rounds 회. 미수렴 시 마지막 산출물에
-    _procedure_incomplete + _remaining_gaps 를 정직하게 마킹(은폐 없음). producer 가 에러 마커를 내면
-    즉시 그대로 반환(호출측이 재시도·실패처리)."""
+    _procedure_incomplete + _remaining_gaps 를 정직하게 마킹(은폐 없음).
+
+    producer 가 에러 마커(_error/_note/_partial: LLM 실패·tool-loop 상한·비정형 응답)를 내면 즉시
+    포기하지 않고 feedback 없이 재시도한다(최대 max_rounds 회). 일시적 파싱/상한 실패를 넘겨 단계가
+    조용히 마커 상태로 저장되는 것을 막는다. 재시도까지 소진해도 마커면 그 마커를 반환(호출측이 실패처리)."""
     feedback: str | None = None
     result: dict = {}
+    error_retries = 0
     for rnd in range(max_rounds):
         result = producer(feedback)
-        if result_is_error(result):  # LLM/파싱 실패 마커면 루프 중단(부분 결과 반환)
-            return result
+        if result_is_error(result):  # LLM/파싱/상한 실패 마커 — feedback 없이 재시도(일시장애 극복)
+            error_retries += 1
+            logger.info("review %s: producer error marker, 재시도 %d/%d", label, error_retries, max_rounds)
+            if error_retries >= max_rounds:
+                return result  # 재시도 소진 — 마커 반환(호출측이 실패처리)
+            continue
         review = _review(llm, model, reviewer_system, result)
         if review.get("procedure_sound"):
             logger.info("review %s: procedure sound (round %d)", label, rnd + 1)

@@ -139,6 +139,46 @@ def test_stage_error_marker_reruns_on_resume(monkeypatch):
     assert o._is_stage_error({"per": 10}) is False
 
 
+def test_run_job_halts_on_stage_error_marker(monkeypatch):
+    # 단계가 에러 마커를 내면 그 위에 후속 단계를 쌓지 않고 job.failed(조용한 부분 실패 방지).
+    from unittest.mock import MagicMock, patch
+
+    from app.db.models import DeepDiveReport
+    from app.services.deepdive import orchestrator as o
+
+    ran = []
+
+    def mk(name, marker=False):
+        def f(llm, model, ctx, prior):
+            ran.append(name)
+            return {"_note": "비정형 응답"} if marker else {name: "v"}
+        return f
+
+    # business(3단계)가 에러 마커 → thesis·valuation 진행 안 됨.
+    fake = [("overview", mk("overview")), ("redflags", mk("redflags")),
+            ("business", mk("business", marker=True)), ("thesis", mk("thesis")),
+            ("valuation", mk("valuation"))]
+    rep = DeepDiveReport(stock_code="093320")
+    job = MagicMock()
+    job.id, job.stock_code, job.current_stage = 30, "093320", 0
+    job.hitl_input = ""
+
+    db = MagicMock()
+    db.scalar.return_value = rep
+    with patch.object(o, "get_llm", return_value=MagicMock()), \
+         patch.object(o.tools, "resolve_corp_code", return_value="c"), \
+         patch.object(o.freshness, "refresh", lambda *a: None), \
+         patch.object(o.freshness, "financials_fingerprint", return_value="fp"), \
+         patch.object(o.stages, "STAGES", fake), \
+         patch.object(o, "_finalize", lambda *a: None):
+        o.run_job(db, job, MagicMock())
+    assert ran == ["overview", "redflags", "business"]  # business 에서 중단
+    assert "thesis" not in ran and "valuation" not in ran
+    assert job.status == "failed"
+    assert rep.business_json == {"_note": "비정형 응답"}  # 부분 결과는 보존(재개 시 재실행)
+    assert job.current_stage == 2  # business 실패 → 워터마크는 redflags(2)까지만
+
+
 # ── HITL(밸류에이션 직전 일시정지·재개) ─────────────────────────────────
 def test_run_job_pauses_before_valuation_when_no_input():
     # thesis 까지 돌고 밸류에이션 직전에서 인풋 없으면 paused 로 멈추고 valuation 은 실행 안 됨.
