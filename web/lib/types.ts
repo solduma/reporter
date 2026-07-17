@@ -659,19 +659,32 @@ export interface DeepDiveStatus {
   hitl_prompt: string | null; // 사용자에게 보일 질문
 }
 
+// 수치형 claim 의 기준치·증분·환산(에이전트가 리서치해 채움).
+export interface HitlNumeric {
+  baseline: number | null;
+  new_value: number | null;
+  unit: string | null;
+  delta_pct: number | null;
+  segment_revenue_share: number | null;
+  conversion_chain: string | null;
+}
+
 // HITL 인풋 검증 결과 한 건(반박/반영/가능성).
 export interface HitlClaim {
   claim: string;
+  claim_type?: string; // fact_event | numeric
   verdict: string; // 반박|반영|가능성
   probability: number; // 0~1
   evidence: string;
   reasoning: string;
+  numeric?: HitlNumeric | null; // numeric claim 일 때만
   valuation_impact: string;
 }
 
 export interface HitlResult {
   claims: HitlClaim[];
   summary: string | null;
+  _procedure_incomplete?: boolean; // 절차 미완료(기준치·환산 미완) 마킹
 }
 
 // 밸류에이션 방식 하나(PER·PBR·EV/EBITDA·DCF·DDM·자산가치·Fama-French·APT).

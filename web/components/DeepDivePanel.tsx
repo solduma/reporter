@@ -81,6 +81,11 @@ function HitlResultCard({ hitl }: { hitl: DeepDiveReport["hitl"] }) {
     <div className={styles.hitlResult}>
       <h4 className={styles.sectionTitle}>사용자 인풋 검증</h4>
       {hitl?.summary ? <p className={styles.hitlSummary}>{hitl.summary}</p> : null}
+      {hitl?._procedure_incomplete ? (
+        <p className={styles.hitlIncomplete}>
+          ⚠️ 일부 수치 인풋의 기준치·환산 절차가 미완료되어 보수적으로 반영됨
+        </p>
+      ) : null}
       <ul className={styles.hitlClaims}>
         {claims.map((c, i) => (
           <li key={i} className={styles.hitlClaim}>
@@ -89,6 +94,19 @@ function HitlResultCard({ hitl }: { hitl: DeepDiveReport["hitl"] }) {
               <span className={styles.hitlProb}>반영 {Math.round((c.probability ?? 0) * 100)}%</span>
               <span className={styles.hitlClaimText}>{c.claim}</span>
             </div>
+            {c.numeric && c.claim_type === "numeric" ? (
+              <p className={styles.hitlNumeric}>
+                현재 {c.numeric.baseline ?? "?"} + 신규 {c.numeric.new_value ?? "?"}
+                {c.numeric.unit ?? ""}
+                {c.numeric.delta_pct !== null && c.numeric.delta_pct !== undefined
+                  ? ` (증분 ${c.numeric.delta_pct}%)`
+                  : ""}
+                {c.numeric.segment_revenue_share !== null &&
+                c.numeric.segment_revenue_share !== undefined
+                  ? ` · 매출비중 ${c.numeric.segment_revenue_share}%`
+                  : ""}
+              </p>
+            ) : null}
             {c.valuation_impact ? (
               <p className={styles.hitlImpact}>가정 조정: {c.valuation_impact}</p>
             ) : null}
