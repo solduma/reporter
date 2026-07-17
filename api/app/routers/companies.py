@@ -25,6 +25,7 @@ from app.schemas import (
     JudgmentOut,
     PeerOut,
     RelStrengthPoint,
+    ReportCard,
     ScoreFactor,
     SecularView,
     StageFrame,
@@ -38,6 +39,7 @@ from app.services import (
     analysis_comment,
     candle_service,
     company_service,
+    screener_service,
     today_service,
     trend,
 )
@@ -492,8 +494,15 @@ def company_peers(
         rows = company_service.peers_rows(db, code)
     elif not company_service.peers_fresh(db, code):
         bg.add_task(company_service.sync_peers_bg, code)
+    peer_codes = [r.peer_stock_code for r in rows]
     # EV/EBITDA·PSR 은 네이버 동일업종 테이블에 없어, 각 peer 의 최근 Financial(DART 산출)에서 채운다.
-    val = company_service.peer_valuations(db, [r.peer_stock_code for r in rows])
+    val = company_service.peer_valuations(db, peer_codes)
+    # peer 는 사용자가 상세 조회한 적 없으면 report_10y 백필이 안 돌아 ev_ebitda 가 빈다. 미백필 peer 를
+    # 백그라운드로 백필해 다음 조회부터 채워지게 한다(#402). 본 종목 온디맨드 백필과 동일 패턴.
+    for pc in peer_codes:
+        if not company_service.report_10y_done(db, pc):
+            bg.add_task(company_service.backfill_reports_bg, pc)
+    scores = screener_service.peer_scores(db, peer_codes)
     return [
         PeerOut(
             stock_code=r.peer_stock_code,
@@ -506,6 +515,7 @@ def company_peers(
             roe=r.roe,
             ev_ebitda=val.get(r.peer_stock_code, (None, None))[0],
             psr=val.get(r.peer_stock_code, (None, None))[1],
+            **{f"{k}_score": v for k, v in scores.get(r.peer_stock_code, {}).items()},
         )
         for r in rows
     ]
@@ -594,3 +604,26 @@ def company_growth(code: str, db: Session = Depends(get_session)) -> CompanyGrow
         coverage_count=cov_count,
         buy_ratio=round(buy_count / cov_count, 2) if cov_count else None,
     )
+
+
+@router.get("/{code}/coverage/reports", response_model=list[ReportCard])
+def company_coverage_reports(code: str, db: Session = Depends(get_session)) -> list[ReportCard]:
+    """커버리지 타일 클릭 시 노출할 리포트 목록 — 종목 리포트 + 종목이 속한 산업 리포트(#400).
+
+    growth 의 coverage_count 와 동일 창(최근 1년)·동일 조건으로 조회해 개수가 일치한다."""
+    since = date.today() - timedelta(days=_COVERAGE_DAYS)
+    return [
+        ReportCard(
+            id=r.id,
+            category=r.category,
+            title=r.title,
+            broker=r.broker,
+            name=r.stock_name or r.industry_name,
+            summary=(a.summary or ""),
+            sentiment=(a.sentiment.value if a.sentiment else "HOLD"),
+            rationale=(a.rationale or ""),
+            published_date=r.published_date,
+            has_pdf=bool(r.pdf_object_key),
+        )
+        for r, a in company_service.coverage_reports(db, code, since)
+    ]

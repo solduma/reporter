@@ -255,23 +255,12 @@ def sector_for(ctx: ToolContext) -> str | None:
     return sector_etf.stock_kr_sector(ctx.code, themes)
 
 
-# sector_etf 섹터명 → 네이버 산업 리포트 industry_name 후보. 명칭 체계가 달라(섹터 '바이오' vs
-# 리포트 '제약') 매핑한다. 산업 리포트 실제 값: IT·건설·게임·반도체·제약·화장품·조선·철강금속 등.
-_SECTOR_TO_INDUSTRY: dict[str, tuple[str, ...]] = {
-    "반도체": ("반도체", "전기전자"), "반도체 소부장": ("반도체", "전기전자"),
-    "2차전지": ("전기전자", "석유화학"), "바이오": ("제약",), "의료기기": ("제약",),
-    "자동차": ("자동차",), "조선": ("조선",), "건설": ("건설",), "철강": ("철강금속",),
-    "에너지화학": ("석유화학", "에너지", "유틸리티"), "IT": ("IT", "전기전자"),
-    "미디어컨텐츠": ("미디어", "게임"), "통신": ("통신",), "게임": ("게임",),
-    "화장품": ("화장품",), "경기소비재": ("유통",), "필수소비재": ("음식료", "유통"),
-    "기계장비": ("기타",), "로봇": ("기타", "IT"), "방산우주": ("기타",),
-    "은행": ("은행",), "증권": ("증권",), "보험": ("보험",), "운송": ("항공운송",),
-}
-
-
 def _sector_industry_names(ctx: ToolContext) -> list[str]:
-    """종목의 대표 섹터를 산업 리포트 industry_name 후보로 매핑(#4 — 산업↔종목 연결)."""
-    return list(_SECTOR_TO_INDUSTRY.get(sector_for(ctx) or "", ()))
+    """종목의 대표 섹터를 산업 리포트 industry_name 후보로 매핑(#4 — 산업↔종목 연결).
+    매핑은 reporter.sector_etf 가 소유(커버리지 등과 공용)."""
+    from reporter import sector_etf
+
+    return list(sector_etf.kr_sector_to_report_industries(sector_for(ctx)))
 
 
 def _event_candidates(ctx: ToolContext, name: str, kw) -> list[dict]:

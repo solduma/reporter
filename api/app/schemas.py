@@ -269,6 +269,12 @@ class PeerOut(BaseModel):
     roe: str | None
     ev_ebitda: str | None = None
     psr: str | None = None
+    # 테크노펀더멘탈 종합·세부 점수(종목분석·스크리너와 동일 절대밴드) — peer 간 점수 비교(#402).
+    overall_score: float | None = None
+    growth_score: float | None = None
+    value_score: float | None = None
+    trend_score: float | None = None
+    topdown_score: float | None = None
 
 
 class CompanyGrowth(BaseModel):

@@ -282,6 +282,10 @@ export function fetchCompanyAnalysis(code: string): Promise<CompanyAnalysis> {
   return getJson<CompanyAnalysis>(`/api/companies/${encodeURIComponent(code)}/analysis`);
 }
 
+export function fetchCoverageReports(code: string): Promise<Report[]> {
+  return getJson<Report[]>(`/api/companies/${encodeURIComponent(code)}/coverage/reports`);
+}
+
 export function fetchCandles(code: string, tf: Timeframe): Promise<CandlePoint[]> {
   return getJson<CandlePoint[]>(
     `/api/companies/${encodeURIComponent(code)}/candles?tf=${tf}`,

@@ -352,6 +352,12 @@ export interface Peer {
   roe: string | null;
   ev_ebitda: string | null;
   psr: string | null;
+  // 테크노펀더멘탈 종합·세부 점수(0~100) — 종목분석과 동일 절대밴드
+  overall_score: number | null;
+  growth_score: number | null;
+  value_score: number | null;
+  trend_score: number | null;
+  topdown_score: number | null;
 }
 
 // 관세청 수출입 무역통계 프리셋 — 4자리 대표품목 + 하위 6자리 세부품목.

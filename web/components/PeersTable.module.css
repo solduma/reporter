@@ -56,3 +56,33 @@
 .base .name {
   color: var(--accent);
 }
+
+/* 점수 컬럼 — 원시지표와 구분되게 좌측 경계선 + 볼드 */
+.scoreHead {
+  border-left: 1px solid var(--border);
+}
+
+.scoreCell {
+  border-left: 1px solid var(--border);
+}
+
+.score {
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.scoreHigh {
+  color: var(--buy);
+}
+
+.scoreMid {
+  color: var(--hold);
+}
+
+.scoreLow {
+  color: var(--sell);
+}
+
+.scoreNa {
+  color: var(--muted);
+}

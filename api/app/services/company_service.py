@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from datetime import date, timedelta
 
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -275,7 +275,10 @@ def peers_fresh(db: Session, code: str) -> bool:
 
 
 def peer_valuations(db: Session, codes: list[str]) -> dict[str, tuple[str | None, str | None]]:
-    """peer 종목들의 최근(추정 아닌) 분기 ev_ebitda·psr 표시문자열. period desc 로 최신 채움."""
+    """peer 종목들의 최근(추정 아닌) ev_ebitda·psr 표시문자열. period desc 로 최신 채움.
+
+    ev_ebitda 는 연간(.12)에만, psr 은 분기에 있어 서로 다른 period 에 산다. 둘을 독립적으로 각각
+    최신값을 채운다(한 지표가 있는 첫 행에서 종목을 확정하면 다른 지표를 영영 못 채우던 버그 수정 #402)."""
     if not codes:
         return {}
     rows = db.scalars(
@@ -283,15 +286,15 @@ def peer_valuations(db: Session, codes: list[str]) -> dict[str, tuple[str | None
         .where(Financial.stock_code.in_(codes), Financial.is_estimate.is_(False))
         .order_by(Financial.period.desc())
     ).all()
-    out: dict[str, tuple[str | None, str | None]] = {}
-    for r in rows:
-        if r.stock_code in out:
-            continue
-        if r.ev_ebitda is not None or r.psr is not None:
-            ev = f"{r.ev_ebitda:.1f}" if r.ev_ebitda is not None else None
-            psr = f"{r.psr:.2f}" if r.psr is not None else None
-            out[r.stock_code] = (ev, psr)
-    return out
+    ev_map: dict[str, str] = {}
+    psr_map: dict[str, str] = {}
+    for r in rows:  # period desc — 각 지표의 첫 등장이 최신값
+        if r.ev_ebitda is not None and r.stock_code not in ev_map:
+            ev_map[r.stock_code] = f"{r.ev_ebitda:.1f}"
+        if r.psr is not None and r.stock_code not in psr_map:
+            psr_map[r.stock_code] = f"{r.psr:.2f}"
+    codes_with_val = set(ev_map) | set(psr_map)
+    return {c: (ev_map.get(c), psr_map.get(c)) for c in codes_with_val}
 
 
 def sync_peers(db: Session, code: str) -> None:
@@ -401,17 +404,51 @@ def daily_closes(db: Session, code: str, limit: int = 260) -> list[tuple[str, fl
     return [(d.isoformat(), c) for d, c in reversed(rows)]
 
 
+def sector_report_industries(db: Session, code: str) -> list[str]:
+    """종목의 대표 국내 섹터를 산업 리포트 industry_name 후보로 매핑(커버리지·리포트 목록 공용).
+
+    종목→judal 테마→대표섹터(sector_etf)→산업 리포트 industry_name 후보. 매핑 없으면 빈 리스트."""
+    from reporter import sector_etf
+
+    sector = sector_etf.stock_kr_sector(code, theme_names(db, code))
+    return list(sector_etf.kr_sector_to_report_industries(sector))
+
+
+def _coverage_filter(code: str, industries: list[str]):
+    """커버리지 대상 조건 — 종목 리포트(stock_code 일치) OR 종목이 속한 산업 리포트(industry_name 후보).
+
+    산업 리포트는 stock_code 가 없어 종목의 대표 섹터로 매핑한 industry_name 으로 연결한다(#400)."""
+    own = Report.stock_code == code
+    if not industries:
+        return own
+    return or_(own, and_(Report.category == "industry", Report.industry_name.in_(industries)))
+
+
 def coverage_counts(db: Session, code: str, since: date) -> tuple[int, int]:
-    """(리포트수, BUY수) since 이후."""
+    """(리포트수, BUY수) since 이후. 종목 리포트 + 종목이 속한 산업 리포트 합산(#400)."""
+    industries = sector_report_industries(db, code)
     cov = db.execute(
         select(
             func.count(Report.id),
             func.sum(case((ReportAnalysis.sentiment == Sentiment.BUY, 1), else_=0)),
         )
         .join(ReportAnalysis, ReportAnalysis.report_id == Report.id)
-        .where(Report.stock_code == code, Report.published_date >= since)
+        .where(_coverage_filter(code, industries), Report.published_date >= since)
     ).one()
     return int(cov[0] or 0), int(cov[1] or 0)
+
+
+def coverage_reports(db: Session, code: str, since: date) -> list[tuple[Report, ReportAnalysis]]:
+    """커버리지 대상 리포트 목록(종목 + 산업), since 이후 발행 최신순. 커버리지 타일 클릭 시 노출(#400)."""
+    industries = sector_report_industries(db, code)
+    return list(
+        db.execute(
+            select(Report, ReportAnalysis)
+            .join(ReportAnalysis, ReportAnalysis.report_id == Report.id)
+            .where(_coverage_filter(code, industries), Report.published_date >= since)
+            .order_by(Report.published_date.desc())
+        ).all()
+    )
 
 
 def report_stock_name(db: Session, code: str) -> str | None:
