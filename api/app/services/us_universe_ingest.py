@@ -8,15 +8,18 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import UTC, date, datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import UTC, date, datetime, timedelta
 
 import requests
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.adapters.external import us_universe as source
-from app.db.models import PriceCandle, Timeframe, UsUniverse
+from app.adapters.market import naver
+from app.db.models import PriceCandle, SyncState, Timeframe, UsUniverse
+from app.services import candle_service, sync_state
 
 logger = logging.getLogger(__name__)
 
@@ -78,3 +81,111 @@ def snapshot_us_universe(db: Session, snapshot_date: date | None = None) -> dict
     db.commit()
     logger.info("us universe snapshot %s: %d seeded, %d saved, %d skipped", snapshot_date, len(seeds), saved, skipped)
     return {"seeded": len(seeds), "saved": saved, "skipped": skipped}
+
+
+# ── US 일봉 10년 점진 백필 (야간, 재개 가능) ───────────────────────────────
+# US 봉은 온디맨드(차트 조회 시)에만 적재돼 대부분 종목이 봉 0 → momentum_3m None(스크리너 누락).
+# KR candle_ingest.run_backfill_progressive 와 동일 패턴으로 유니버스 전 심볼을 네이버 foreign 봉으로
+# 10년 백필한다. 조회만 스레드풀 병렬, DB 쓰기·마킹은 호출 스레드 단일 세션(Session 스레드 비안전).
+_US_BACKFILL_DOMAIN = "us_candle_10y"  # SyncState 도메인(완료 심볼 마킹 → 재개)
+_US_BACKFILL_PER_RUN = 600  # US 유니버스 ~600. 하룻밤 전량(크래시 시 마킹으로 재개)
+_US_BACKFILL_WORKERS = 6  # 네이버 무인증 동시 조회(KR 백필과 동일 보수치)
+_US_DAY_RANGE_DAYS = 365 * 10 + 30  # 10년
+
+
+def _us_universe_symbols(db: Session) -> list[str]:
+    """최신 스냅샷의 US 유니버스 네이버 심볼(봉 저장 키). 없으면 빈 리스트."""
+    snap = latest_snapshot_date(db)
+    if snap is None:
+        return []
+    return list(
+        db.scalars(
+            select(UsUniverse.naver_symbol).where(UsUniverse.snapshot_date == snap)
+        ).all()
+    )
+
+
+def _us_backfilled_symbols(db: Session) -> set[str]:
+    """이미 10년 백필 완료로 마킹된 US 심볼(재개 시 재처리 방지)."""
+    return set(
+        db.scalars(select(SyncState.stock_code).where(SyncState.domain == _US_BACKFILL_DOMAIN)).all()
+    )
+
+
+def _recompute_us_momentum(db: Session, symbols: list[str]) -> int:
+    """백필된 심볼의 momentum_3m 을 저장 봉으로 재계산해 최신 스냅샷 행에 반영. 갱신 건수."""
+    snap = latest_snapshot_date(db)
+    if snap is None:
+        return 0
+    updated = 0
+    for sym in symbols:
+        mom = _momentum_3m(db, sym)
+        if mom is None:
+            continue
+        db.execute(
+            update(UsUniverse)
+            .where(UsUniverse.snapshot_date == snap, UsUniverse.naver_symbol == sym)
+            .values(momentum_3m=mom)
+        )
+        updated += 1
+    db.commit()
+    return updated
+
+
+def run_candle_backfill_progressive(
+    db: Session, per_run: int = _US_BACKFILL_PER_RUN, workers: int = _US_BACKFILL_WORKERS
+) -> dict:
+    """US 유니버스 심볼의 일봉을 10년치로 병렬 백필(재개 가능) 후 momentum_3m 재계산.
+
+    완료 심볼은 SyncState(us_candle_10y)로 마킹해 중단 시 다음 실행이 이어받는다.
+    반환: {done, failed, remaining, momentum_updated}.
+    """
+    symbols = _us_universe_symbols(db)
+    if not symbols:
+        logger.warning("no US universe symbols; skip US candle backfill")
+        return {"done": 0, "failed": 0, "remaining": 0, "momentum_updated": 0}
+
+    already = _us_backfilled_symbols(db)
+    pending = [s for s in symbols if s not in already]
+    batch = pending[:per_run]
+    end = datetime.now()
+    start = end - timedelta(days=_US_DAY_RANGE_DAYS)
+
+    def _fetch(sym: str) -> tuple[str, list]:
+        with requests.Session() as session:  # 스레드 간 세션 공유 금지
+            return sym, naver.fetch_periodic_foreign(sym, "day", start, end, session)
+
+    def _store(sym: str, candles: list) -> None:
+        if candles:
+            candle_service.batch_upsert_periodic(db, sym, Timeframe.DAY, candles)  # 자체 commit
+        sync_state.mark(db, _US_BACKFILL_DOMAIN, sym)
+        db.commit()  # 멱등 upsert — 마킹 누락돼도 다음 실행 재적재 무해
+
+    done = failed = 0
+    window = workers * 4  # 동시 상주 결과 제한(메모리, KR 백필과 동일)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for i in range(0, len(batch), window):
+            futures = {pool.submit(_fetch, s): s for s in batch[i : i + window]}
+            for fut in as_completed(futures):
+                sym = futures[fut]
+                try:
+                    _, candles = fut.result()
+                    if not candles:  # 빈 응답: 스로틀/진짜없음 구분 위해 1회 순차 재조회
+                        _, candles = _fetch(sym)
+                        if not candles:
+                            logger.info("US 10y backfill empty (marking done): %s", sym)
+                    _store(sym, candles)
+                    done += 1
+                except Exception as e:  # 한 심볼 실패가 배치를 막지 않도록(다음 실행 재시도)
+                    db.rollback()
+                    failed += 1
+                    logger.warning("US 10y backfill failed for %s: %s", sym, e)
+            futures.clear()
+
+    momentum_updated = _recompute_us_momentum(db, batch)
+    remaining = len(pending) - done
+    logger.info(
+        "US 10y candle backfill: done=%d failed=%d remaining=%d momentum_updated=%d",
+        done, failed, remaining, momentum_updated,
+    )
+    return {"done": done, "failed": failed, "remaining": remaining, "momentum_updated": momentum_updated}
