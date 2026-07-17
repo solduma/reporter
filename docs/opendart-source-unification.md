@@ -49,7 +49,7 @@ DART API 그룹: DS001 공시정보 · DS002 정기보고서 주요정보 · DS0
 
 ## 4. 구현 단계 (제안)
 
-1. **DS002 주식총수 → 발행주식수**: KRX fetch_shares 대체(폴백 유지). EV/EBITDA·PER 정확도 향상. (독립·저위험)
+1. ✅ **DS002 주식총수 → 발행주식수** (#426 완료): KRX fetch_shares 대체(폴백 유지). EV/EBITDA·PER 정확도 향상. (독립·저위험)
 2. **DS002 배당 → DPS·배당수익률**: 네이버 배당 대체. div_yield는 DPS/가격으로 계산.
 3. **DS003 재무지표 → ROE 등**: fnlttSinglIndx로 ROE·영업이익률 등. 2023 3Q 이전은 네이버 폴백.
 4. **DS003 전체재무제표 → D&A**: 원문 XML 파싱을 구조화 API로 대체 시도(대형사 정확도 A/B 검증 후).
