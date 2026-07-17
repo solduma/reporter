@@ -56,6 +56,45 @@ def test_pick_respects_zero_and_negative_forward():
     assert vs._pick(None, 5000) == 5000  # None 만 폴백
 
 
+# ── 시클리컬 정규화 EPS(mid-cycle) ────────────────────────────────────────
+def _cyclical_series(peak: bool):
+    # 12개 분기(TTM 창 9개≥6): 마진이 5~20% 로 출렁이는 시클리컬. peak=True 면 최신이 고마진.
+    lows = [0.05, 0.06, 0.07, 0.05, 0.06, 0.07]  # 저마진 국면
+    highs = [0.15, 0.18, 0.20, 0.16, 0.19, 0.20]  # 고마진 국면
+    order = lows + highs if peak else highs + lows
+    rows = []
+    for i, m in enumerate(order):
+        rev = 1000.0
+        rows.append({"period": f"20{23 + i // 4}.{(i % 4 + 1) * 3:02d}", "is_estimate": False,
+                     "revenue": rev, "net_income": rev * m, "eps": rev * m / 10})
+    return rows
+
+
+def test_normalized_eps_lowers_at_peak():
+    # 현재가 사이클 고점(고마진)이면 정규화 EPS < TTM(하향) — peak-PER 과대평가 방지.
+    rows = vs._sorted_actuals(_cyclical_series(peak=True))
+    ttm = vs._ttm_eps(rows)
+    norm, meta = vs._normalized_eps(rows, ttm)
+    assert norm is not None and norm < ttm
+    assert meta["mid_cycle_margin"] < meta["current_margin"]
+
+
+def test_normalized_eps_raises_at_trough():
+    # 현재가 사이클 저점(저마진)이면 정규화 EPS > TTM(상향) — trough 과소평가 방지.
+    rows = vs._sorted_actuals(_cyclical_series(peak=False))
+    ttm = vs._ttm_eps(rows)
+    norm, meta = vs._normalized_eps(rows, ttm)
+    assert norm is not None and norm > ttm
+    assert meta["mid_cycle_margin"] > meta["current_margin"]
+
+
+def test_normalized_eps_none_when_insufficient_history():
+    # 사이클 판단 히스토리(6개 TTM 창=9분기) 부족하면 None(TTM 그대로 사용).
+    rows = vs._sorted_actuals(_cyclical_series(peak=True)[:5])
+    norm, meta = vs._normalized_eps(rows, vs._ttm_eps(rows))
+    assert norm is None and meta is None
+
+
 # ── EBITDA 단위 읽기시점 2차 방어(DB 정규화가 근본, 이건 belt-and-suspenders) ──────────
 def test_read_guard_ebitda_won_to_eok():
     # 원 단위(마진 1e8) → 억원 보정. 억원(정상 마진) → 그대로.
