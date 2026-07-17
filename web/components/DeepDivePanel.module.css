@@ -26,6 +26,12 @@
   min-width: 0;
 }
 
+.headActions {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
 .verdict {
   font-weight: 800;
   font-size: 1.05rem;
