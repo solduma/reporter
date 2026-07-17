@@ -353,13 +353,18 @@ def _classify_for_fit(ctx: ToolContext, prior: dict, anchors: dict) -> dict:
         stock_type = "asset"
     else:
         stock_type = "other"
-    # 배당: 연간 DPS 또는 시가배당률이 유효 양수면 배당주. 이익: TTM EPS 음수면 적자.
-    has_dividend = bool((anchors.get("dps_annual") or 0) > 0 or (anchors.get("div_yield_pct") or 0) > 0)
+    # 시가배당률: 앵커 값 우선, 없으면 연간 DPS/현재가로 산출. DDM 게이트(저배당이면 제외)에 쓴다.
+    div_yield = anchors.get("div_yield_pct")
+    if div_yield is None:
+        dps, px = anchors.get("dps_annual"), anchors.get("current_price")
+        if dps and px and px > 0:
+            div_yield = dps / px * 100
     eps = anchors.get("eps_ttm")
     is_loss = eps is not None and eps < 0
     return {
         "stock_type": stock_type, "sector": sector, "thesis_type": thesis_type,
-        "fit": val.method_fit(stock_type, has_dividend=has_dividend, is_loss=is_loss),
+        "div_yield_pct": div_yield,
+        "fit": val.method_fit(stock_type, div_yield_pct=div_yield, is_loss=is_loss),
     }
 
 
