@@ -131,6 +131,47 @@ def _ttm_eps(rows: list[dict]) -> float | None:
     return None
 
 
+def _ttm_windows(rows: list[dict], field: str) -> list[float]:
+    """분기 시계열에서 4분기 롤링 합(TTM) 목록. 시클리컬 정규화용(연환산 이익·매출 창)."""
+    vals = [_num(r.get(field)) for r in rows]
+    out: list[float] = []
+    for i in range(3, len(vals)):
+        window = vals[i - 3 : i + 1]
+        if all(v is not None for v in window):
+            out.append(sum(window))  # type: ignore[arg-type]
+    return out
+
+
+def _normalized_eps(rows: list[dict], ttm_eps: float | None) -> tuple[float | None, dict | None]:
+    """시클리컬 정규화 EPS = TTM EPS × (중간사이클 순마진 / 현재 TTM 순마진).
+
+    시클리컬은 마진이 사이클과 함께 크게 출렁여(고점 과대·저점 과소) 현재 TTM 이익이 기준연도로
+    부적합하다(Damodaran mid-cycle). 과거 사이클의 TTM 순마진 중앙값을 '정상 마진'으로 잡고 현재
+    마진과의 비율로 EPS 를 보정한다. 최소 6개 TTM 창(≈1.5년치 분기)·양수 현재마진일 때만. 실패 시 None.
+    """
+    if ttm_eps is None:
+        return None, None
+    ni = _ttm_windows(rows, "net_income")
+    rev = _ttm_windows(rows, "revenue")
+    n = min(len(ni), len(rev))
+    if n < 6:
+        return None, None  # 사이클 판단할 히스토리 부족
+    margins = [ni[-n + i] / rev[-n + i] for i in range(n) if rev[-n + i] > 0]
+    if len(margins) < 6:
+        return None, None
+    mid_margin = sorted(margins)[len(margins) // 2]  # 중앙값(정상 마진)
+    current_margin = margins[-1]
+    if current_margin <= 0 or mid_margin <= 0:
+        return None, None
+    norm_eps = ttm_eps * (mid_margin / current_margin)
+    meta = {
+        "normalized_eps": round(norm_eps, 1), "ttm_eps": round(ttm_eps, 1),
+        "mid_cycle_margin": round(mid_margin, 4), "current_margin": round(current_margin, 4),
+        "cycle_quarters": n,
+    }
+    return norm_eps, meta
+
+
 def collect_anchors(series: list[dict], price: dict) -> dict:
     """밸류에이션 실데이터 앵커. 기간 granularity 를 구분해 연환산·시점값을 올바르게 뽑는다.
 
@@ -446,6 +487,12 @@ def run_valuation(llm: LLMPort, model: str, ctx: ToolContext, prior: dict, serie
     # 종목 유형별 방식 적합도(가중/제외) — blend 가 부적합 방식(금융주 EV/EBITDA·무배당 DDM 등)을 제외.
     cls = _classify_for_fit(ctx, prior, anchors)
     fit = cls["fit"]
+    # 시클리컬: 현재 TTM 이익이 사이클 고/저점이라 기준연도로 부적합 → 중간사이클 정규화 EPS 로 앵커 대체.
+    if cls["stock_type"] == "cyclical":
+        norm_eps, norm_meta = _normalized_eps(_sorted_actuals(series), anchors.get("eps_ttm"))
+        if norm_eps is not None:
+            anchors["eps_ttm"] = round(norm_eps, 1)
+            anchors["eps_normalized"] = norm_meta  # 프론트·서술용(정규화 근거)
     peers = dispatch("peers", ctx, {})
     tools = _build_tools()
 
@@ -459,6 +506,13 @@ def run_valuation(llm: LLMPort, model: str, ctx: ToolContext, prior: dict, serie
         f"[실데이터 앵커]\n{json.dumps(anchors, ensure_ascii=False)}\n"
         f"[피어 밸류에이션]\n{json.dumps(peers, ensure_ascii=False)[:1500]}\n"
         f"[재무 시계열(최근)]\n{json.dumps(series[-6:], ensure_ascii=False)[:2000]}"
+        + (
+            f"\n[시클리컬 정규화] 이 종목은 경기순환주로 판정돼 eps_ttm 앵커를 현재 TTM 이 아니라 "
+            f"**중간사이클 정규화 EPS** 로 대체했다({json.dumps(anchors.get('eps_normalized'), ensure_ascii=False)}). "
+            "현재가 사이클 고/저점이라 현재 이익을 기준연도로 쓰면 과대/과소평가된다. PER·EV/EBITDA 목표배수는 "
+            "이 정규화 이익에 맞춰 정한다(peak 이익에 낮은 배수를 곱하는 오류 금지)."
+            if anchors.get("eps_normalized") else ""
+        )
         + _hitl_context(prior.get("hitl"))
     )
     messages: list[dict] = [
