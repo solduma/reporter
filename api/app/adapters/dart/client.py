@@ -46,6 +46,7 @@ _LIST_URL = "https://opendart.fss.or.kr/api/list.json"
 _FNLTT_URL = "https://opendart.fss.or.kr/api/fnlttSinglAcntAll.json"
 _DOCUMENT_URL = "https://opendart.fss.or.kr/api/document.xml"
 _ELESTOCK_URL = "https://opendart.fss.or.kr/api/elestock.json"
+_STOCK_TOTQY_URL = "https://opendart.fss.or.kr/api/stockTotqySttus.json"  # DS002 주식총수현황
 _DART_VIEWER = "https://dart.fss.or.kr/dsaf001/main.do?rcpNo={rcept_no}"
 
 # 분기 → DART 보고서 코드. 1Q=11013·반기=11012·3Q=11014·사업보고서(연간)=11011.
@@ -61,6 +62,66 @@ def _amount(row: dict) -> float | None:
         return float(raw)
     except ValueError:
         return None
+
+
+def _int_field(row: dict, key: str) -> int | None:
+    """DART 정수 필드('1,234' / '-' / '') → int. 파싱 불가면 None."""
+    raw = (row.get(key) or "").replace(",", "").strip()
+    if not raw or raw == "-":
+        return None
+    try:
+        return int(float(raw))
+    except ValueError:
+        return None
+
+
+@dataclass
+class StockTotal:
+    """주식총수 현황(DS002). 발행주식총수·자기주식·유통주식(보통주 기준)."""
+
+    issued: int | None = None  # 발행주식의 총수(istc_totqy)
+    treasury: int | None = None  # 자기주식수(tesstk_co)
+    outstanding: int | None = None  # 유통주식수(distb_stock_co = 발행-자기)
+
+
+def fetch_stock_total(
+    api_key: str, corp_code: str, year: int, quarter: int, session: requests.Session
+) -> StockTotal | None:
+    """DS002 주식의 총수 현황 → 보통주 발행/자기/유통 주식수. 실패·데이터없음이면 None.
+
+    se(구분)에 '보통주'가 있으면 그 행, 없으면 '합계' 행을 쓴다(우선주 분리 공시 대비).
+    KRX fetch_shares(대부분 결측) 대체 — EV/EBITDA·PER 시총 계산의 주식수 앵커.
+    """
+    reprt_code = DART_REPORT_CODES.get(quarter)
+    if not reprt_code:
+        return None
+    params = {
+        "crtfc_key": api_key,
+        "corp_code": corp_code,
+        "bsns_year": str(year),
+        "reprt_code": reprt_code,
+    }
+    try:
+        resp = dart_throttle.get(session, _STOCK_TOTQY_URL, params=params, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+    except (requests.RequestException, ValueError) as e:
+        logger.warning("dart stock_total failed %s %sQ%s: %s", corp_code, year, quarter, e)
+        return None
+    _raise_if_quota(data)
+    if data.get("status") != "000":
+        return None
+    rows = data.get("list", [])
+    common = next((r for r in rows if "보통주" in (r.get("se") or "")), None)
+    total = next((r for r in rows if "합계" in (r.get("se") or "")), None)
+    row = common or total or (rows[0] if rows else None)
+    if row is None:
+        return None
+    return StockTotal(
+        issued=_int_field(row, "istc_totqy"),
+        treasury=_int_field(row, "tesstk_co"),
+        outstanding=_int_field(row, "distb_stock_co"),
+    )
 
 
 @dataclass

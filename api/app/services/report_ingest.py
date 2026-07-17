@@ -83,6 +83,20 @@ def _quarter_end_close(db: Session, code: str, year: int, kind: str) -> float | 
     )
 
 
+def _shares_from_dart(settings: Settings, corp_code: str, today: date) -> int | None:
+    """OpenDART 주식총수(DS002)로 발행주식수 조회 — 소스 통일. 최근 확정 사업연도부터 최대 3년 폴백.
+
+    사업보고서는 다음 해 3월 제출이라 올해분은 아직 없을 수 있어 직전 연도부터 시도한다.
+    발행총수(issued)를 반환(자기주식 포함 — 시총 계산 기준). 실패·미공시면 None(상위가 KRX·스냅샷 폴백).
+    """
+    with requests.Session() as s:
+        for year in range(today.year - 1, today.year - 4, -1):
+            total = dart.fetch_stock_total(settings.dart_api_key, corp_code, year, 4, s)
+            if total and total.issued:
+                return total.issued
+    return None
+
+
 def _shares_from_snapshot(db: Session, code: str) -> int | None:
     """유니버스 스냅샷의 시가총액÷종가로 상장주식수를 역산(KRX shares 조회 실패 시 폴백).
 
@@ -167,11 +181,14 @@ def backfill_stock(
         return True
 
     if shares is None:  # 배치가 주지 않았으면(온디맨드 단건) 이때 조회.
-        latest = universe_ingest.latest_snapshot_date(db)
-        if latest:
-            with requests.Session() as s:
-                shares = krx.fetch_shares(settings.krx_api, latest.strftime("%Y%m%d"), code, s)
-    if not shares:  # KRX 실패 시 스냅샷 시총÷종가로 역산(EV/EBITDA 전종목 결측 방지).
+        # OpenDART 주식총수(DS002) 우선 — 정기보고서 유래로 소스 통일. 실패 시 KRX→스냅샷 폴백.
+        shares = _shares_from_dart(settings, corp_code, today)
+        if not shares:
+            latest = universe_ingest.latest_snapshot_date(db)
+            if latest:
+                with requests.Session() as s:
+                    shares = krx.fetch_shares(settings.krx_api, latest.strftime("%Y%m%d"), code, s)
+    if not shares:  # DART·KRX 실패 시 스냅샷 시총÷종가로 역산(EV/EBITDA 전종목 결측 방지).
         shares = _shares_from_snapshot(db, code)
     _recompute_ev_ebitda(db, code, annual_ev, shares)
     db.commit()

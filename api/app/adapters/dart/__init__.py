@@ -10,6 +10,7 @@ from app.adapters.dart.client import (
     DartQuotaExceeded,
     Disclosure,
     IncomeEquity,
+    StockTotal,
     configure_from_settings,
     extract_ownership_reason,
     fetch_corp_mappings,
@@ -17,6 +18,7 @@ from app.adapters.dart.client import (
     fetch_document_text,
     fetch_income_and_equity,
     fetch_ownership_changes,
+    fetch_stock_total,
     find_periodic_report,
 )
 from app.adapters.dart.report_parser import fetch_report_zip, parse_cf_depreciation
@@ -26,6 +28,7 @@ __all__ = [
     "DartQuotaExceeded",
     "Disclosure",
     "IncomeEquity",
+    "StockTotal",
     "configure_from_settings",
     "extract_ownership_reason",
     "fetch_corp_mappings",
@@ -34,6 +37,7 @@ __all__ = [
     "fetch_income_and_equity",
     "fetch_ownership_changes",
     "fetch_report_zip",
+    "fetch_stock_total",
     "find_periodic_report",
     "parse_cf_depreciation",
     "report_parser",
