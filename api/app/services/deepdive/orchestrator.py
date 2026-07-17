@@ -21,7 +21,7 @@ from app.adapters.llm.factory import get_llm
 from app.config import Settings, get_settings
 from app.db.models import DeepDiveJob, DeepDiveReport
 from app.ports.llm import LLMError, LLMPort
-from app.services.deepdive import hitl, stages, tools
+from app.services.deepdive import freshness, hitl, stages, tools
 
 logger = logging.getLogger(__name__)
 
@@ -38,9 +38,10 @@ _NARRATIVE_SYSTEM = (
 )
 
 
-def _inputs_hash(code: str, model: str) -> str:
-    # 재생성 판정용(현재는 code+model+날짜). 재무·공시 갱신을 반영하려면 추후 데이터 지문 추가.
-    payload = f"{code}|{model}|{datetime.now(UTC).date().isoformat()}"
+def _inputs_hash(code: str, model: str, fin_fingerprint: str = "") -> str:
+    # 재생성 판정용. code+model+날짜 + 재무 지문(신선화 후 재무 (period,updated_at) 해시) —
+    # 재무가 갱신되면 지문이 바뀌어 같은 날이라도 입력 변화가 드러난다.
+    payload = f"{code}|{model}|{datetime.now(UTC).date().isoformat()}|{fin_fingerprint}"
     return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
 
@@ -125,6 +126,12 @@ def run_job(db: Session, job: DeepDiveJob, settings: Settings | None = None) -> 
     job.model = model
     db.commit()
 
+    # 재무 신선화 — 딥다이브는 DB 재무를 읽기만 하므로 실행 직전 stale 재무를 최신화한다(최초 실행만;
+    # 재개는 이미 신선화됨). DART 한도·실패는 내부에서 흡수(낡은 값이라도 분석 진행).
+    if not job.current_stage:
+        freshness.refresh(db, settings, code)
+    fin_fp = freshness.financials_fingerprint(db, code)
+
     json_cols = {
         "overview": "overview_json", "redflags": "redflags_json", "business": "business_json",
         "thesis": "thesis_json", "valuation": "valuation_json",
@@ -151,7 +158,7 @@ def run_job(db: Session, job: DeepDiveJob, settings: Settings | None = None) -> 
             job.progress = int(idx / (total + 1) * 100)  # +1: 마지막 서술 생성 몫
             db.commit()
         # 통합 서술 본문 + verdict/upside.
-        _finalize(llm, model, code, prior, rep)
+        _finalize(llm, model, code, prior, rep, fin_fp)
         job.progress = 100
         job.current_stage = total
         job.status = "done"
@@ -172,7 +179,9 @@ def run_job(db: Session, job: DeepDiveJob, settings: Settings | None = None) -> 
         _fail(db, job, f"실행 오류: {e}")
 
 
-def _finalize(llm: LLMPort, model: str, code: str, prior: dict, rep: DeepDiveReport) -> None:
+def _finalize(
+    llm: LLMPort, model: str, code: str, prior: dict, rep: DeepDiveReport, fin_fingerprint: str = ""
+) -> None:
     """5단계 결과 → 통합 마크다운 보고서 + verdict/upside. 서술 실패해도 구조화 결과는 보존."""
     val = prior.get("valuation", {}) or {}
     # 신 밸류에이션(다중 방식 blend)은 final_upside_pct, 구 스키마는 upside_pct.
@@ -193,7 +202,7 @@ def _finalize(llm: LLMPort, model: str, code: str, prior: dict, rep: DeepDiveRep
     except LLMError as e:
         logger.warning("deepdive narrative failed %s: %s", code, e)
         rep.narrative_md = None
-    rep.inputs_hash = _inputs_hash(code, model)
+    rep.inputs_hash = _inputs_hash(code, model, fin_fingerprint)
     rep.as_of = datetime.now(UTC)
 
 

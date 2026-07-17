@@ -96,6 +96,7 @@ def test_run_job_resumes_from_interrupted_stage(monkeypatch):
     db = MagicMock()
     with patch.object(o, "get_llm", return_value=MagicMock()), \
          patch.object(o.tools, "resolve_corp_code", return_value="c"), \
+         patch.object(o.freshness, "financials_fingerprint", return_value="fp"), \
          patch.object(o, "_get_or_create_report", return_value=rep), \
          patch.object(o.stages, "STAGES", fake), \
          patch.object(o, "_finalize", lambda *a: None):
@@ -120,6 +121,8 @@ def test_run_job_fresh_runs_all_stages(monkeypatch):
     db.scalar.return_value = rep
     with patch.object(o, "get_llm", return_value=MagicMock()), \
          patch.object(o.tools, "resolve_corp_code", return_value="c"), \
+         patch.object(o.freshness, "refresh", lambda *a: None), \
+         patch.object(o.freshness, "financials_fingerprint", return_value="fp"), \
          patch.object(o.stages, "STAGES", fake), \
          patch.object(o, "_finalize", lambda *a: None):
         o.run_job(db, job, MagicMock())
@@ -153,6 +156,8 @@ def test_run_job_pauses_before_valuation_when_no_input():
     db = MagicMock()
     with patch.object(o, "get_llm", return_value=MagicMock()), \
          patch.object(o.tools, "resolve_corp_code", return_value="c"), \
+         patch.object(o.freshness, "refresh", lambda *a: None), \
+         patch.object(o.freshness, "financials_fingerprint", return_value="fp"), \
          patch.object(o, "_get_or_create_report", return_value=rep), \
          patch.object(o.stages, "STAGES", fake), \
          patch.object(o.hitl, "build_prompt", return_value="인풋 주세요"), \
@@ -185,6 +190,7 @@ def test_run_job_verifies_input_and_resumes():
     db = MagicMock()
     with patch.object(o, "get_llm", return_value=MagicMock()), \
          patch.object(o.tools, "resolve_corp_code", return_value="c"), \
+         patch.object(o.freshness, "financials_fingerprint", return_value="fp"), \
          patch.object(o, "_get_or_create_report", return_value=rep), \
          patch.object(o.stages, "STAGES", fake), \
          patch.object(o.hitl, "verify_input", return_value=verdicts), \
