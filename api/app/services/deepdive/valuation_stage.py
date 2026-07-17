@@ -468,13 +468,28 @@ def _hitl_context(hitl: dict | None) -> str:
         "\n[사용자 인풋 검증(HITL)] — 아래는 사용자 인풋을 추가 리서치로 검증한 결과다. "
         "verdict·probability 에 따라 밸류에이션 가정을 조정하라: 반박(prob 0)은 반영하지 말 것, "
         "반영(prob 1)은 valuation_impact 를 100% 반영, 가능성(0<prob<1)은 valuation_impact 를 "
-        "probability 비율만큼만 반영(예: prob 0.4·'성장률 +5%p' → +2%p). 근거 없는 낙관·비관 금지."
+        "probability 비율만큼만 반영(예: prob 0.4·'성장률 +5%p' → +2%p). 근거 없는 낙관·비관 금지. "
+        "**수치형(numeric) claim 은 baseline(현재 기준치)+new_value 로 총량을 잡고, 전체 매출 비중"
+        "(segment_revenue_share)을 곱해 전사 영향으로 환산해 반영하라(예: 용량 X→X+Y, 비중 W% → 전사 매출 기여).**"
     ]
-    for c in claims:
+    if hitl.get("_procedure_incomplete"):
         lines.append(
-            f"- [{c.get('verdict')}·확률 {c.get('probability')}] {c.get('claim')} "
-            f"→ 조정: {c.get('valuation_impact')} (근거: {str(c.get('evidence') or '')[:200]})"
+            "  ⚠️ 절차 미완료 표시(_procedure_incomplete): 일부 claim 의 기준치·환산 절차가 미완이니 "
+            "해당 numeric 반영은 보수적으로(확률 하향) 취급하라."
         )
+    for c in claims:
+        base = (
+            f"- [{c.get('verdict')}·확률 {c.get('probability')}] {c.get('claim')} "
+            f"→ 조정: {c.get('valuation_impact')} (근거: {str(c.get('evidence') or '')[:180]})"
+        )
+        num = c.get("numeric") if isinstance(c.get("numeric"), dict) else None
+        if c.get("claim_type") == "numeric" and num:
+            base += (
+                f"\n    [수치] 현재 {num.get('baseline')} + 신규 {num.get('new_value')}{num.get('unit') or ''}"
+                f"(증분 {num.get('delta_pct')}%), 매출비중 {num.get('segment_revenue_share')}% "
+                f"— 환산: {str(num.get('conversion_chain') or '')[:200]}"
+            )
+        lines.append(base)
     return "\n".join(lines)
 
 

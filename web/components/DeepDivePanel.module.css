@@ -329,3 +329,21 @@
   color: var(--muted);
   word-break: break-word;
 }
+
+/* 수치형 claim 의 기준치·증분·비중 요약 */
+.hitlNumeric {
+  margin: 6px 0 0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-soft);
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+
+/* 절차 미완료 경고 */
+.hitlIncomplete {
+  margin: 0 0 10px;
+  font-size: 0.8rem;
+  color: var(--sell, #c0392b);
+}
