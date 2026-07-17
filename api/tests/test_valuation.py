@@ -258,6 +258,35 @@ def test_blend_excludes_outlier():
     assert 9000 < s.final_target < 12000  # 폭주값 100000 이 최종에 안 섞임
 
 
+def test_blend_growth_keeps_upside_method():
+    # 성장주: 성장 반영 방식(높은 목표가)이 후행 앵커 클러스터 대비 높아도 이상치로 안 잘린다(상방 컷 완화).
+    a = v.per_valuation(forward_eps=1000, target_per=10, current_price=9000)  # 10000
+    b = v.pbr_valuation(bps=10000, target_pbr=1.0, current_price=9000)  # 10000
+    c = v.asset_valuation(book_equity_per_share=9500, asset_premium=1.0, current_price=9000)  # 9500
+    up = v.per_valuation(forward_eps=1000, target_per=20, current_price=9000)  # 20000 (중앙값 대비 +100%)
+    for r in (a, b, c, up):
+        r.confidence = "중"
+    # 일반: +60% 초과라 상방 방식 제외 → 최종 낮음.
+    s_plain = v.blend([a, b, c, up], current_price=9000, is_growth=False)
+    assert "이상치" in up.note
+    up.note = ""  # 재사용 위해 초기화
+    # 성장주: 상방 컷 +120% 라 20000(+100%)은 유지 → 최종이 더 높다.
+    s_growth = v.blend([a, b, c, up], current_price=9000, is_growth=True)
+    assert "이상치" not in up.note
+    assert s_growth.final_target > s_plain.final_target
+
+
+def test_blend_growth_still_cuts_downside_outlier():
+    # 성장주라도 하방 이상치(-60% 초과)는 그대로 제외(상방만 완화).
+    a = v.per_valuation(forward_eps=1000, target_per=10, current_price=9000)  # 10000
+    b = v.pbr_valuation(bps=10000, target_pbr=1.0, current_price=9000)  # 10000
+    low = v.asset_valuation(book_equity_per_share=3000, asset_premium=1.0, current_price=9000)  # 3000 (-70%)
+    for r in (a, b, low):
+        r.confidence = "중"
+    v.blend([a, b, low], current_price=9000, is_growth=True)
+    assert "이상치" in low.note
+
+
 def test_blend_empty_when_none_applicable():
     bad = v.per_valuation(forward_eps=None, target_per=None, current_price=5000)
     s = v.blend([bad], current_price=5000)

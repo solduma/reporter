@@ -207,6 +207,58 @@ def collect_anchors(series: list[dict], price: dict) -> dict:
     }
 
 
+# HITL 이익 증분의 앵커 반영 상한 — 단일 인풋이 forward 이익을 과대 상향(환각)하지 않도록 캡(+50%).
+_HITL_EARNINGS_UPLIFT_CAP = 0.5
+
+
+def apply_hitl_to_anchors(anchors: dict, hitl: dict | None) -> dict:
+    """HITL numeric claim 의 전사 이익 증분을 forward 이익 앵커(eps_ttm·ebitda)에 결정론적으로 반영.
+
+    긍정 인풋이 '프롬프트 텍스트'로만 전달돼 LLM 이 forward 를 안 올리면 후행 앵커로 계산돼 목표가에
+    반영되지 않던 문제(업사이드 왜곡) 대응. numeric 필드가 구조화(delta_pct·segment_revenue_share)돼
+    있고 확률 가중 후 전사 증분을 계산할 수 있는 claim 만 적용한다:
+        전사 이익 증분율 = delta_pct/100 × segment_revenue_share/100 × probability  (반박=prob0 → 0)
+    합산 증분율을 상한(_HITL_EARNINGS_UPLIFT_CAP)으로 캡해 eps_ttm·ebitda 앵커에 곱한다. 조정 근거는
+    anchors['hitl_earnings_uplift'] 로 남겨 프론트·서술이 투명하게 노출한다. baseline/비중이 없어 증분을
+    못 구하는 claim 은 여기서 건너뛰고 기존 프롬프트 경로(LLM 판단)에 맡긴다.
+    """
+    if not hitl or not isinstance(hitl, dict):
+        return anchors
+    total_uplift = 0.0
+    applied: list[dict] = []
+    for c in hitl.get("claims") or []:
+        if not isinstance(c, dict) or c.get("claim_type") != "numeric":
+            continue
+        num = c.get("numeric") if isinstance(c.get("numeric"), dict) else None
+        if not num:
+            continue
+        delta_pct = _num(num.get("delta_pct"))
+        share_pct = _num(num.get("segment_revenue_share"))
+        prob = _num(c.get("probability"))
+        if delta_pct is None or share_pct is None or prob is None:
+            continue  # 구조화 증분 불가 — 프롬프트 경로에 위임
+        contrib = (delta_pct / 100.0) * (share_pct / 100.0) * prob
+        if contrib <= 0:
+            continue
+        total_uplift += contrib
+        applied.append({"claim": c.get("claim"), "contrib_pct": round(contrib * 100, 2)})
+    if not applied:
+        return anchors
+    uplift = min(total_uplift, _HITL_EARNINGS_UPLIFT_CAP)
+    adjusted = dict(anchors)
+    factor = 1.0 + uplift
+    if adjusted.get("eps_ttm") is not None:
+        adjusted["eps_ttm"] = round(adjusted["eps_ttm"] * factor, 2)
+    if adjusted.get("ebitda_eok_annual") is not None:
+        adjusted["ebitda_eok_annual"] = round(adjusted["ebitda_eok_annual"] * factor, 2)
+    adjusted["hitl_earnings_uplift"] = {
+        "uplift_pct": round(uplift * 100, 2),
+        "capped": total_uplift > _HITL_EARNINGS_UPLIFT_CAP,
+        "claims": applied,
+    }
+    return adjusted
+
+
 # ── 컴퓨트 도구(순수 domain 래퍼) ────────────────────────────────────────
 # 각 도구: LLM 이 준 가정 args + 앵커(anchors)로 domain.valuation 호출 → ValuationResult dict.
 # forward 값이 없으면 앵커로 폴백하되, 0/음수도 명시적으로 존중(_pick 이 None 만 폴백).
@@ -501,6 +553,8 @@ def run_valuation(llm: LLMPort, model: str, ctx: ToolContext, prior: dict, serie
     tool-calling 미지원(구 LLM)·실패 시 원샷 폴백으로 최소 결과를 보장한다."""
     price = dispatch("price_context", ctx, {})
     anchors = collect_anchors(series, price)
+    # HITL 이익 증분을 forward 이익 앵커에 결정론적 반영(프롬프트 경로만으론 미반영되던 긍정 인풋을 계산에 직결).
+    anchors = apply_hitl_to_anchors(anchors, prior.get("hitl"))
     # 실데이터 요인 베타(지수 일봉 회귀 + 시총/PBR 프록시) — Fama-French·APT 가 LLM 추정 대신 사용.
     anchors["factor_betas"] = compute_factor_betas(ctx, anchors, price.get("market"))
     # 해자 등급(business 단계 서술 → 강|중|약) — H-Model 감쇠기간 정성 배수(ROE 초과수익과 앙상블).
@@ -508,6 +562,7 @@ def run_valuation(llm: LLMPort, model: str, ctx: ToolContext, prior: dict, serie
     # 종목 유형별 방식 적합도(가중/제외) — blend 가 부적합 방식(금융주 EV/EBITDA·무배당 DDM 등)을 제외.
     cls = _classify_for_fit(ctx, prior, anchors)
     fit = cls["fit"]
+    is_growth = cls["stock_type"] == "growth"  # blend 상방 이상치 컷 완화 여부
     # 시클리컬: 현재 TTM 이익이 사이클 고/저점이라 기준연도로 부적합 → 중간사이클 정규화 EPS 로 앵커 대체.
     if cls["stock_type"] == "cyclical":
         norm_eps, norm_meta = _normalized_eps(_sorted_actuals(series), anchors.get("eps_ttm"))
@@ -554,7 +609,7 @@ def run_valuation(llm: LLMPort, model: str, ctx: ToolContext, prior: dict, serie
         if name == "get_anchors":
             return anchors
         if name == "blend":
-            summary = val.blend(list(results.values()), anchors.get("current_price"), fit)
+            summary = val.blend(list(results.values()), anchors.get("current_price"), fit, is_growth=is_growth)
             return {"final_target_price": summary.final_target, "final_upside_pct": summary.final_upside_pct,
                     "method_count": summary.method_count,
                     "targets": {m: r.target_price for m, r in results.items() if r.applicable}}
@@ -583,12 +638,12 @@ def run_valuation(llm: LLMPort, model: str, ctx: ToolContext, prior: dict, serie
                 break
     except LLMError as e:
         logger.warning("valuation tool-loop failed %s: %s — 원샷 폴백", ctx.code, e)
-        return _oneshot_fallback(llm, model, ctx, prior, anchors, peers, series)
+        return _oneshot_fallback(llm, model, ctx, prior, anchors, peers, series, is_growth=is_growth)
 
     if not results:  # 도구를 한 번도 못 돌렸으면(모델이 곧장 서술) 원샷 폴백.
-        return _oneshot_fallback(llm, model, ctx, prior, anchors, peers, series, fit)
+        return _oneshot_fallback(llm, model, ctx, prior, anchors, peers, series, fit, is_growth=is_growth)
 
-    summary = val.blend(list(results.values()), anchors.get("current_price"), fit)
+    summary = val.blend(list(results.values()), anchors.get("current_price"), fit, is_growth=is_growth)
     ordered = [results[m] for _tool, m in _TOOL_METHOD.items() if m in results]
     return {
         "final_target_price": summary.final_target,
@@ -613,7 +668,7 @@ _FALLBACK_SCHEMA = """{"per":{"target_per":수,"rationale":""},"pbr":{"target_pb
 "forward_eps":수,"entry_case":"자산주/역발상|성장주","conclusion":""}"""
 
 
-def _oneshot_fallback(llm, model, ctx, prior, anchors, peers, series, fit=None) -> dict:
+def _oneshot_fallback(llm, model, ctx, prior, anchors, peers, series, fit=None, *, is_growth=False) -> dict:
     """구 방식(원샷 가정 blob) 폴백. tool-calling 이 안 되거나 루프가 결과를 못 낼 때 최소 결과 보장."""
     from app.services.sentiment import _extract_json
     user = (
@@ -636,7 +691,7 @@ def _oneshot_fallback(llm, model, ctx, prior, anchors, peers, series, fit=None) 
         if method_args.get("rationale"):
             r.note = (str(method_args["rationale"]) + (" " + r.note if r.note else "")).strip()
         results.append(r)
-    summary = val.blend(results, anchors.get("current_price"), fit)
+    summary = val.blend(results, anchors.get("current_price"), fit, is_growth=is_growth)
     return {
         "final_target_price": summary.final_target, "final_upside_pct": summary.final_upside_pct,
         "current_price": summary.current_price, "method_count": summary.method_count,
