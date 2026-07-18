@@ -258,6 +258,18 @@ class FinancialPeriodOut(BaseModel):
     div_yield: float | None = None  # 시가배당률(%)
 
 
+class FinancialsStatusOut(BaseModel):
+    """재무 화면 백필 진행상태 — 가용분은 /financials 로 즉시 표시하고, 이 상태로 배지/스피너를 그린다.
+
+    fresh: 최근 분기 재무가 TTL 내 최신인지. financials_10y_done/report_10y_done: 10년 재무·
+    보고서원문(EV/EBITDA) 백필이 이 종목에 대해 완료됐는지. 진행 중이면 프론트가 '백필 중' 표기.
+    """
+
+    fresh: bool
+    financials_10y_done: bool
+    report_10y_done: bool
+
+
 class PeerOut(BaseModel):
     stock_code: str
     name: str

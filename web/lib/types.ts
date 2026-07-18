@@ -341,6 +341,14 @@ export interface FinancialPeriod {
   ev_ebitda?: number | null;
 }
 
+// 재무 백필 진행상태(GET /api/companies/{code}/financials/status). 가용분은 즉시 표시하고
+// 이 상태로 '백필 중' 배지를 그린다.
+export interface FinancialsStatus {
+  fresh: boolean;
+  financials_10y_done: boolean;
+  report_10y_done: boolean;
+}
+
 export interface Peer {
   stock_code: string;
   name: string;

@@ -22,6 +22,7 @@ from app.schemas import (
     CompanySummary,
     CompanyTrend,
     FinancialPeriodOut,
+    FinancialsStatusOut,
     JudgmentOut,
     PeerOut,
     RelStrengthPoint,
@@ -494,6 +495,21 @@ def company_financials(
         )
         for r in rows
     ]
+
+
+@router.get("/{code}/financials/status", response_model=FinancialsStatusOut)
+def company_financials_status(
+    code: str, db: Session = Depends(get_session)
+) -> FinancialsStatusOut:
+    """재무 백필 진행상태. 프론트가 '가용분 즉시 표시 + 백필 중 배지'를 그리기 위한 경량 조회.
+
+    /financials 가 백그라운드로 건 10년 재무·보고서원문 백필의 완료 여부를 읽기 전용으로 노출한다
+    (부수효과·백필 트리거 없음)."""
+    return FinancialsStatusOut(
+        fresh=company_service.financials_fresh(db, code),
+        financials_10y_done=company_service.financials_10y_done(db, code),
+        report_10y_done=company_service.report_10y_done(db, code),
+    )
 
 
 @router.get("/{code}/peers", response_model=list[PeerOut])
