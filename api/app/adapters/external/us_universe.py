@@ -1,8 +1,12 @@
-"""US 유니버스 소스 — 시드(S&P500 CSV + 나스닥 보충) + 네이버 종목 시세(driven adapter).
+"""US 유니버스 소스 — 시드(S&P500 CSV + Nasdaq 시총상위 + 성장주 화이트리스트) + 네이버 시세.
 
 시총·PER·PBR·EPS·거래대금은 네이버 stock/{sym}/basic 이 종목당 한 번에 준다(KR 스크리너와
-소스·계산 일관). 시드는 S&P500 datasets CSV(GICS 섹터 포함) + 대형 비-S&P 나스닥 보충 목록.
-심볼 접미사(.O/bare)는 resolve_us_symbol 이 자동 해석한다.
+소스·계산 일관). 시드 3소스를 dedup 병합한다:
+- S&P500 datasets CSV(GICS 섹터 포함) — 미국 대형주 벤치마크.
+- Nasdaq screener API 시총 상위 N — 지수 미편입 대형/중형 성장주 커버.
+- 성장주 화이트리스트(us_growth_seed) — 시총 컷 밖 순수 성장주 강제 편입.
+심볼 접미사(.O/bare)는 resolve_us_symbol 이 자동 해석하고, 네이버 미커버 티커는 fetch_row 가
+None 을 반환해 자동 제외된다.
 """
 
 from __future__ import annotations
@@ -14,6 +18,7 @@ from dataclasses import dataclass
 
 import requests
 
+from app.adapters.external import us_growth_seed
 from reporter import us_market
 
 logger = logging.getLogger(__name__)
@@ -21,6 +26,21 @@ logger = logging.getLogger(__name__)
 _SP500_CSV = "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/main/data/constituents.csv"
 _HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; reporter-bot/1.0)"}
 _STOCK_BASE = "https://api.stock.naver.com/stock/{symbol}/basic"
+
+# Nasdaq screener — 시총 내림차순 상위 N. download 파라미터를 빼야 limit·정렬이 적용된다
+# (download=true 면 전체 알파벳순). 봇차단(Incapsula)이 있어 표준 브라우저 UA 가 필요하다.
+_NASDAQ_SCREENER = "https://api.nasdaq.com/api/screener/stocks"
+_BROWSER_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+    ),
+    "Accept": "application/json, text/plain, */*",
+}
+_NASDAQ_TOP_N = 300
+# 중복 클래스·비상장 프록시 등 유니버스 부적합 심볼(screener 상위에 섞여 들어옴). GOOG/GOOGL 는
+# 둘 다 S&P500 시드에 이미 있어 무방하나, SPCX(SpaceX pre-IPO 트래킹)류는 실거래가 아니라 제외.
+_NASDAQ_EXCLUDE = {"SPCX"}
 
 # S&P500 에 없지만 관심 큰 대형 나스닥/기타 종목 보충(중복은 시드 단계에서 dedup).
 _SUPPLEMENT: list[tuple[str, str]] = [
@@ -49,8 +69,37 @@ class UsUniverseRow:
     low_52w: float | None
 
 
+def fetch_nasdaq_top(
+    session: requests.Session | None = None, top_n: int = _NASDAQ_TOP_N
+) -> list[str]:
+    """Nasdaq screener 에서 시총 상위 top_n 티커(내림차순). 실패 시 빈 리스트(시드가 폴백)."""
+    session = session or requests.Session()
+    try:
+        resp = session.get(
+            _NASDAQ_SCREENER,
+            params={
+                "tableonly": "true", "limit": top_n, "offset": 0,
+                "exchange": "nasdaq", "sortColumn": "marketCap", "sortOrder": "desc",
+            },
+            headers=_BROWSER_HEADERS,
+            timeout=20,
+        )
+        resp.raise_for_status()
+        rows = (resp.json().get("data") or {}).get("table", {}).get("rows") or []
+    except (requests.RequestException, ValueError) as e:
+        logger.warning("Nasdaq screener fetch failed: %s", e)
+        return []
+    out: list[str] = []
+    for r in rows:
+        sym = (r.get("symbol") or "").strip().upper()
+        if sym and sym not in _NASDAQ_EXCLUDE:
+            out.append(sym)
+    return out
+
+
 def seed_tickers(session: requests.Session | None = None) -> list[tuple[str, str | None]]:
-    """유니버스 시드 (ticker, sector). S&P500 CSV + 보충 목록, dedup. CSV 실패 시 보충만."""
+    """유니버스 시드 (ticker, sector). S&P500 CSV + Nasdaq 시총상위 + 성장주 화이트리스트 + 보충,
+    dedup. 각 소스는 독립 실패해도 나머지로 진행한다(부분 폴백)."""
     session = session or requests.Session()
     out: dict[str, str | None] = {}
     try:
@@ -64,6 +113,12 @@ def seed_tickers(session: requests.Session | None = None) -> list[tuple[str, str
                 out[sym] = (row.get("GICS Sector") or "").strip() or None
     except (requests.RequestException, ValueError) as e:
         logger.warning("S&P500 seed fetch failed: %s", e)
+    # Nasdaq 시총 상위(섹터 미제공 → None). S&P500 과 중복은 기존 섹터 유지(setdefault).
+    for sym in fetch_nasdaq_top(session):
+        out.setdefault(sym, None)
+    # 성장주 화이트리스트(테마 라벨을 sector 로). 이미 있으면 기존 값 유지.
+    for sym, theme in us_growth_seed.growth_seed():
+        out.setdefault(sym, theme)
     for sym, sector in _SUPPLEMENT:
         out.setdefault(sym, sector)
     return sorted(out.items())

@@ -27,6 +27,55 @@ def test_won_eok_usd_korean_units():
     assert source._won_eok_usd(None) is None
 
 
+class _FakeResp:
+    def __init__(self, payload):
+        self._payload = payload
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return self._payload
+
+
+def test_fetch_nasdaq_top_parses_and_excludes(monkeypatch):
+    # screener 응답에서 symbol 추출·대문자화 + SPCX(비상장 프록시) 제외.
+    payload = {"data": {"table": {"rows": [
+        {"symbol": "NVDA", "marketCap": "4,908,002,000,000"},
+        {"symbol": "SPCX", "marketCap": "1,623,134,983,120"},  # 제외 대상
+        {"symbol": "aapl", "marketCap": "4,901,758,191,440"},  # 소문자 → 대문자
+    ]}}}
+
+    class _S:
+        def get(self, *a, **k):
+            return _FakeResp(payload)
+
+    top = source.fetch_nasdaq_top(_S())
+    assert top == ["NVDA", "AAPL"]  # SPCX 제외, aapl 대문자화
+
+
+def test_fetch_nasdaq_top_empty_on_failure(monkeypatch):
+    # screener 실패 시 빈 리스트(시드가 S&P500·화이트리스트로 폴백).
+    class _S:
+        def get(self, *a, **k):
+            raise __import__("requests").RequestException("blocked")
+
+    assert source.fetch_nasdaq_top(_S()) == []
+
+
+def test_seed_tickers_merges_growth_whitelist(monkeypatch):
+    # S&P500·Nasdaq 상위가 모두 비어도 성장주 화이트리스트는 강제 편입된다.
+    monkeypatch.setattr(source, "fetch_nasdaq_top", lambda session=None, top_n=300: [])
+
+    class _S:
+        def get(self, *a, **k):
+            raise __import__("requests").RequestException("no sp500")
+
+    seeds = dict(source.seed_tickers(_S()))
+    for t in ("FLNC", "UEC", "NVTS", "IREN", "BE"):
+        assert t in seeds  # 언급 5종목 강제 편입 확인
+
+
 @pytest.fixture
 def db():
     eng = create_engine("sqlite://")
