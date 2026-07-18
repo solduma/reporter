@@ -49,6 +49,7 @@ _ELESTOCK_URL = "https://opendart.fss.or.kr/api/elestock.json"
 _STOCK_TOTQY_URL = "https://opendart.fss.or.kr/api/stockTotqySttus.json"  # DS002 주식총수현황
 _ALOTMATTER_URL = "https://opendart.fss.or.kr/api/alotMatter.json"  # DS002 배당에관한사항
 _FNLTT_INDX_URL = "https://opendart.fss.or.kr/api/fnlttSinglIndx.json"  # DS003 단일회사 주요 재무지표
+_HYSLR_URL = "https://opendart.fss.or.kr/api/hyslrSttus.json"  # DS005 최대주주 현황
 _DART_VIEWER = "https://dart.fss.or.kr/dsaf001/main.do?rcpNo={rcept_no}"
 
 # 분기 → DART 보고서 코드. 1Q=11013·반기=11012·3Q=11014·사업보고서(연간)=11011.
@@ -231,6 +232,53 @@ def fetch_roe(
 
 
 @dataclass
+class LargestShareholders:
+    """최대주주 현황(DS005 hyslrSttus). 최대주주명·최대주주+특수관계인 합산 지분율(기말)."""
+
+    top_holder: str | None = None  # 최대주주 본인 이름
+    group_stake_pct: float | None = None  # 최대주주+특수관계인 합산 지분율(%)
+
+
+def fetch_largest_shareholders(
+    api_key: str, corp_code: str, year: int, quarter: int, session: requests.Session
+) -> LargestShareholders | None:
+    """DS005 최대주주 현황 → 최대주주명 + 특수관계인 합산 지분율(기말). 실패·없음이면 None.
+
+    개인·법인이 보통주/우선주 등 여러 행으로 쪼개져 나오므로 기말 지분율(trmend_posesn_stock_qota_rt)
+    을 전 행 합산해 지배지분을 근사한다. 최대주주명은 relate='최대주주 본인' 행의 nm. 딥다이브
+    overview 의 LLM 자유서술 대신 구조화 지분을 주입한다.
+    """
+    reprt_code = DART_REPORT_CODES.get(quarter)
+    if not reprt_code:
+        return None
+    params = {
+        "crtfc_key": api_key,
+        "corp_code": corp_code,
+        "bsns_year": str(year),
+        "reprt_code": reprt_code,
+    }
+    try:
+        resp = dart_throttle.get(session, _HYSLR_URL, params=params, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+    except (requests.RequestException, ValueError) as e:
+        logger.warning("dart shareholders failed %s %sQ%s: %s", corp_code, year, quarter, e)
+        return None
+    _raise_if_quota(data)
+    if data.get("status") != "000":
+        return None
+    rows = data.get("list", [])
+    total_pct = sum(_float_field(r, "trmend_posesn_stock_qota_rt") or 0.0 for r in rows)
+    top = next((r for r in rows if "최대주주 본인" in (r.get("relate") or "")), rows[0] if rows else None)
+    if top is None or total_pct <= 0:
+        return None
+    return LargestShareholders(
+        top_holder=(top.get("nm") or "").strip() or None,
+        group_stake_pct=round(total_pct, 2),
+    )
+
+
+@dataclass
 class IncomeEquity:
     """한 종목·기간의 손익·자본 계정(원 단위). PER/PBR/PSR 역산용.
 
@@ -385,8 +433,13 @@ def fetch_disclosures(
     begin: date,
     end: date,
     session: requests.Session,
+    pblntf_ty: str | None = None,
 ) -> list[Disclosure]:
-    """corp_code + 기간으로 공시 목록을 조회한다(페이지네이션 처리)."""
+    """corp_code + 기간으로 공시 목록을 조회한다(페이지네이션 처리).
+
+    pblntf_ty 를 주면 공시유형을 서버에서 거른다(예: 'B'=주요사항보고 DS005 유증·CB·합병 등
+    정형 공시). 기본 None 은 전체 유형(기존 호출부 무영향).
+    """
     disclosures: list[Disclosure] = []
     page = 1
     while page <= 20:  # 안전 상한
@@ -398,6 +451,8 @@ def fetch_disclosures(
             "page_no": page,
             "page_count": 100,
         }
+        if pblntf_ty:
+            params["pblntf_ty"] = pblntf_ty
         try:
             resp = dart_throttle.get(session, _LIST_URL, params=params, timeout=15)
             resp.raise_for_status()

@@ -72,6 +72,23 @@ def test_fetch_disclosures_parses_and_builds_url():
     assert "20260707000403" in d.dart_url
 
 
+def test_fetch_disclosures_passes_pblntf_ty_when_given():
+    # pblntf_ty='B'(주요사항보고 DS005)를 주면 서버 파라미터로 전달, 없으면 미포함.
+    sess = _list_session({"status": "013"})
+    dart.fetch_disclosures(
+        "key", "00126380", "005930", date(2026, 6, 1), date(2026, 7, 8), sess, pblntf_ty="B"
+    )
+    _, kwargs = sess.get.call_args
+    assert kwargs["params"]["pblntf_ty"] == "B"
+
+    sess2 = _list_session({"status": "013"})
+    dart.fetch_disclosures(
+        "key", "00126380", "005930", date(2026, 6, 1), date(2026, 7, 8), sess2
+    )
+    _, kwargs2 = sess2.get.call_args
+    assert "pblntf_ty" not in kwargs2["params"]
+
+
 def _doc_zip_session(xml_by_name: dict[str, bytes]) -> MagicMock:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as zf:
