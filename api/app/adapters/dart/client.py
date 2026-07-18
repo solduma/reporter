@@ -47,6 +47,7 @@ _FNLTT_URL = "https://opendart.fss.or.kr/api/fnlttSinglAcntAll.json"
 _DOCUMENT_URL = "https://opendart.fss.or.kr/api/document.xml"
 _ELESTOCK_URL = "https://opendart.fss.or.kr/api/elestock.json"
 _STOCK_TOTQY_URL = "https://opendart.fss.or.kr/api/stockTotqySttus.json"  # DS002 주식총수현황
+_ALOTMATTER_URL = "https://opendart.fss.or.kr/api/alotMatter.json"  # DS002 배당에관한사항
 _DART_VIEWER = "https://dart.fss.or.kr/dsaf001/main.do?rcpNo={rcept_no}"
 
 # 분기 → DART 보고서 코드. 1Q=11013·반기=11012·3Q=11014·사업보고서(연간)=11011.
@@ -122,6 +123,72 @@ def fetch_stock_total(
         treasury=_int_field(row, "tesstk_co"),
         outstanding=_int_field(row, "distb_stock_co"),
     )
+
+
+def _float_field(row: dict, key: str) -> float | None:
+    """DART 실수 필드('1,446' / '2.70' / '-' / '') → float. 파싱 불가면 None."""
+    raw = (row.get(key) or "").replace(",", "").strip()
+    if not raw or raw == "-":
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        return None
+
+
+@dataclass
+class Dividend:
+    """배당에관한사항(DS002 alotMatter). 보통주 주당현금배당금·현금배당수익률(당기)."""
+
+    dps: float | None = None  # 주당 현금배당금(원)
+    div_yield: float | None = None  # 현금배당수익률(%)
+
+
+def fetch_dividend(
+    api_key: str, corp_code: str, year: int, quarter: int, session: requests.Session
+) -> Dividend | None:
+    """DS002 배당에관한사항 → 보통주 주당현금배당금·현금배당수익률(당기 thstrm). 실패·없음이면 None.
+
+    alotMatter 는 se(항목명)·stock_knd(주식종류)로 행을 구분한다. '주당 현금배당금(원)'·
+    '현금배당수익률(%)'의 보통주 행에서 thstrm(당기)을 쓴다(se 는 공백 편차가 있어 제거 후 매칭).
+    네이버 스크랩 dps/div_yield 대체 — 정기보고서 유래로 소스 통일.
+    """
+    reprt_code = DART_REPORT_CODES.get(quarter)
+    if not reprt_code:
+        return None
+    params = {
+        "crtfc_key": api_key,
+        "corp_code": corp_code,
+        "bsns_year": str(year),
+        "reprt_code": reprt_code,
+    }
+    try:
+        resp = dart_throttle.get(session, _ALOTMATTER_URL, params=params, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+    except (requests.RequestException, ValueError) as e:
+        logger.warning("dart dividend failed %s %sQ%s: %s", corp_code, year, quarter, e)
+        return None
+    _raise_if_quota(data)
+    if data.get("status") != "000":
+        return None
+    dps = _dividend_row(data["list"], "주당현금배당금")
+    div_yield = _dividend_row(data["list"], "현금배당수익률")
+    if dps is None and div_yield is None:
+        return None
+    return Dividend(dps=dps, div_yield=div_yield)
+
+
+def _dividend_row(rows: list[dict], se_key: str) -> float | None:
+    """alotMatter 행에서 se(공백제거)에 se_key 가 있는 보통주 행의 당기(thstrm) 값을 뽑는다.
+
+    stock_knd 가 '보통주'인 행 우선(우선주 분리 공시 대비), 없으면 '-'(주식종류 무관) 행.
+    '주식배당'·'배당성향' 등 유사 항목과 섞이지 않도록 호출측이 정확한 se_key 를 넘긴다.
+    """
+    matched = [r for r in rows if se_key in (r.get("se") or "").replace(" ", "")]
+    common = next((r for r in matched if "보통주" in (r.get("stock_knd") or "")), None)
+    row = common or next((r for r in matched if (r.get("stock_knd") or "").strip() == "-"), None)
+    return _float_field(row, "thstrm") if row else None
 
 
 @dataclass
