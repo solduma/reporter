@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { fetchCompanyGrowth } from "@/lib/api";
 import type { CompanyGrowth } from "@/lib/types";
 
+import CoverageReportsModal from "./CoverageReportsModal";
 import styles from "./GrowthMetrics.module.css";
 
 // 종목 일반 정보(시총·현재가·모멘텀·커버리지) 스냅샷 — 성장 지표와 분리해 페이지 최상단에 둔다.
@@ -54,6 +55,7 @@ function momentumClass(value: number | null): string {
 
 export default function CompanySnapshot({ code }: { code: string }) {
   const [state, setState] = useState<State>({ status: "loading", data: null });
+  const [coverageOpen, setCoverageOpen] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -127,17 +129,33 @@ export default function CompanySnapshot({ code }: { code: string }) {
         <span className={styles.sub}>3개월 수익률</span>
       </div>
 
-      <div className={styles.tile}>
-        <span className={styles.label}>리포트 커버리지</span>
-        <span className={g.coverage_count > 0 ? styles.value : `${styles.value} ${styles.muted}`}>
-          {g.coverage_count > 0 ? `${g.coverage_count.toLocaleString("ko-KR")}건` : "—"}
-        </span>
-        {g.coverage_count > 0 && buyLabel ? (
-          <span className={`${styles.sub} ${styles.buyTag}`}>{buyLabel}</span>
-        ) : (
+      {g.coverage_count > 0 ? (
+        <button
+          type="button"
+          className={`${styles.tile} ${styles.tileButton}`}
+          onClick={() => setCoverageOpen(true)}
+        >
+          <span className={styles.label}>
+            리포트 커버리지 <span className={styles.chevron}>›</span>
+          </span>
+          <span className={styles.value}>
+            {g.coverage_count.toLocaleString("ko-KR")}건
+          </span>
+          <span className={buyLabel ? `${styles.sub} ${styles.buyTag}` : styles.sub}>
+            {buyLabel ?? "최근 1년 · 종목·산업"}
+          </span>
+        </button>
+      ) : (
+        <div className={styles.tile}>
+          <span className={styles.label}>리포트 커버리지</span>
+          <span className={`${styles.value} ${styles.muted}`}>—</span>
           <span className={styles.sub}>최근 1년</span>
-        )}
-      </div>
+        </div>
+      )}
+
+      {coverageOpen ? (
+        <CoverageReportsModal code={code} onClose={() => setCoverageOpen(false)} />
+      ) : null}
     </div>
   );
 }

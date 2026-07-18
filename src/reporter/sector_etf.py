@@ -176,6 +176,26 @@ def kr_sector_to_us(kr_sector: str | None) -> str | None:
     return _KR_SECTOR_TO_US.get(kr_sector) if kr_sector else None
 
 
+# 국내 섹터명 → 네이버 산업 리포트 industry_name 후보. 명칭 체계가 달라(섹터 '바이오' vs
+# 리포트 '제약') 매핑한다. 딥다이브(이벤트 산업 리포트)·종목 커버리지가 공유하는 단일 소스.
+# 산업 리포트 실제 industry_name: IT·건설·게임·반도체·제약·화장품·조선·철강금속 등.
+_KR_SECTOR_TO_REPORT_INDUSTRIES: dict[str, tuple[str, ...]] = {
+    "반도체": ("반도체", "전기전자"), "반도체 소부장": ("반도체", "전기전자"),
+    "2차전지": ("전기전자", "석유화학"), "바이오": ("제약",), "의료기기": ("제약",),
+    "자동차": ("자동차",), "조선": ("조선",), "건설": ("건설",), "철강": ("철강금속",),
+    "에너지화학": ("석유화학", "에너지", "유틸리티"), "IT": ("IT", "전기전자"),
+    "미디어컨텐츠": ("미디어", "게임"), "통신": ("통신",), "게임": ("게임",),
+    "화장품": ("화장품",), "경기소비재": ("유통",), "필수소비재": ("음식료", "유통"),
+    "기계장비": ("기타",), "로봇": ("기타", "IT"), "방산우주": ("기타",),
+    "은행": ("은행",), "증권": ("증권",), "보험": ("보험",), "운송": ("항공운송",),
+}
+
+
+def kr_sector_to_report_industries(kr_sector: str | None) -> tuple[str, ...]:
+    """국내 섹터명 → 산업 리포트 industry_name 후보. 매핑 없으면 빈 튜플."""
+    return _KR_SECTOR_TO_REPORT_INDUSTRIES.get(kr_sector or "", ())
+
+
 # 미국 섹터 ETF 구성종목 API 가 없어, 섹터별 대표종목을 정적 매핑한다.
 # (네이버 심볼, 표시명) — Nasdaq 은 '.O', NYSE 는 접미사 없음(실측). 시세는 조회 시 붙인다.
 US_SECTOR_STOCKS: dict[str, list[tuple[str, str]]] = {

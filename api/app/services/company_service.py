@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from datetime import date, timedelta
 
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -405,17 +405,52 @@ def daily_closes(db: Session, code: str, limit: int = 260) -> list[tuple[str, fl
     return [(d.isoformat(), c) for d, c in reversed(rows)]
 
 
+def sector_report_industries(db: Session, code: str) -> list[str]:
+    """종목의 대표 섹터를 산업 리포트 industry_name 후보로 변환(judal 테마 → 섹터 → 산업명).
+
+    섹터→산업 매핑은 reporter.sector_etf 소유(딥다이브·커버리지 공유). 매핑 없으면 빈 리스트."""
+    from reporter import sector_etf
+
+    sector = sector_etf.stock_kr_sector(code, theme_names(db, code))
+    return list(sector_etf.kr_sector_to_report_industries(sector))
+
+
+def _coverage_filter(code: str, industries: list[str]):
+    """커버리지 대상 SQL 조건 — 종목 리포트 OR 종목 소속 산업 리포트.
+
+    산업 리포트는 stock_code 가 없어 industry_name 으로 연결한다. industries 비면 종목 리포트만."""
+    own = Report.stock_code == code
+    if not industries:
+        return own
+    industry = and_(Report.category == "industry", Report.industry_name.in_(industries))
+    return or_(own, industry)
+
+
 def coverage_counts(db: Session, code: str, since: date) -> tuple[int, int]:
-    """(리포트수, BUY수) since 이후."""
+    """(리포트수, BUY수) since 이후. 종목 리포트 + 종목 소속 산업 리포트를 합산한다."""
+    industries = sector_report_industries(db, code)
     cov = db.execute(
         select(
             func.count(Report.id),
             func.sum(case((ReportAnalysis.sentiment == Sentiment.BUY, 1), else_=0)),
         )
         .join(ReportAnalysis, ReportAnalysis.report_id == Report.id)
-        .where(Report.stock_code == code, Report.published_date >= since)
+        .where(_coverage_filter(code, industries), Report.published_date >= since)
     ).one()
     return int(cov[0] or 0), int(cov[1] or 0)
+
+
+def coverage_reports(db: Session, code: str, since: date) -> list[tuple[Report, ReportAnalysis]]:
+    """커버리지 리포트 목록(종목 + 산업), since 이후 최신순. coverage_counts 와 동일 조건·창."""
+    industries = sector_report_industries(db, code)
+    return list(
+        db.execute(
+            select(Report, ReportAnalysis)
+            .join(ReportAnalysis, ReportAnalysis.report_id == Report.id)
+            .where(_coverage_filter(code, industries), Report.published_date >= since)
+            .order_by(Report.published_date.desc())
+        ).all()
+    )
 
 
 def report_stock_name(db: Session, code: str) -> str | None:

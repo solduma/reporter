@@ -26,6 +26,7 @@ from app.schemas import (
     JudgmentOut,
     PeerOut,
     RelStrengthPoint,
+    ReportCard,
     ScoreFactor,
     SecularView,
     StageFrame,
@@ -552,6 +553,27 @@ def company_peers(
             },
         )
         for r in rows
+    ]
+
+
+@router.get("/{code}/coverage/reports", response_model=list[ReportCard])
+def company_coverage_reports(code: str, db: Session = Depends(get_session)) -> list[ReportCard]:
+    """종목 커버리지 리포트 목록(종목 + 소속 산업), 최근 1년. 커버리지 타일 클릭 시 모달이 사용."""
+    since = date.today() - timedelta(days=_COVERAGE_DAYS)
+    return [
+        ReportCard(
+            id=r.id,
+            category=r.category,
+            title=r.title,
+            broker=r.broker,
+            name=r.stock_name or r.industry_name,
+            summary=(a.summary if a else ""),
+            sentiment=(a.sentiment.value if a and a.sentiment else "HOLD"),
+            rationale=(a.rationale if a else ""),
+            published_date=r.published_date,
+            has_pdf=bool(r.pdf_object_key),
+        )
+        for r, a in company_service.coverage_reports(db, code, since)
     ]
 
 

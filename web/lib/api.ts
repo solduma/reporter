@@ -99,6 +99,10 @@ export function fetchReports(category: ReportCategory): Promise<Report[]> {
   return getJson<Report[]>(`/api/today/reports?category=${category}`);
 }
 
+export function fetchCoverageReports(code: string): Promise<Report[]> {
+  return getJson<Report[]>(`/api/companies/${encodeURIComponent(code)}/coverage/reports`);
+}
+
 export function reportPdfUrl(id: number): string {
   return apiUrl(`/api/reports/${id}/pdf`);
 }
