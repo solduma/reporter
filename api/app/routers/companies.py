@@ -25,12 +25,8 @@ from app.schemas import (
     FinancialsStatusOut,
     JudgmentOut,
     PeerOut,
-    RelStrengthPoint,
     ReportCard,
     ScoreFactor,
-    SecularView,
-    StageFrame,
-    StageSegment,
     StockSearchHit,
     TimelineItem,
     TopDownView,
@@ -341,64 +337,23 @@ def company_analysis(
 def company_trend(
     code: str, bg: BackgroundTasks, db: Session = Depends(get_session)
 ) -> CompanyTrend:
-    """기술적 추세 — 와인스타인 국면(단/중/장기) + Mansfield 상대강도(지수 대비)."""
+    """기술적 추세 — 와인스타인 국면(단/중/장기) + Mansfield 상대강도(지수 대비).
+
+    사전계산 캐시(TrendCache, 야간 배치) 우선. 미스·stale(신규종목·새 확정봉) 시 동기 계산 후
+    저장(cache-aside) — 첫 요청만 느리고 이후 읽기. rs_rating 은 캐시와 별개로 스냅샷에서 붙는다.
+    """
     if candle_service.is_stale(db, code, "day"):
         bg.add_task(candle_service.refresh_periodic, code, "day")
+
+    cached = trend.get_cached_trend(db, code)
+    if cached is not None:
+        return cached
+
     snap = company_service.latest_snapshot(db, code)
     market = snap.market if snap else None
-
     result = trend.compute_trend(db, code, market)
-    return CompanyTrend(
-        stock_code=code,
-        benchmark=result.benchmark,
-        stages=[
-            StageFrame(
-                frame=frame,
-                bar=stage.FRAMES[frame].bar,
-                period=stage.FRAMES[frame].ma_period,
-                stage=result.stages[frame].stage,
-                label=result.stages[frame].label,
-                ma_dir=result.stages[frame].ma_dir,
-                quality=result.stages[frame].quality,
-                volume_signal=result.stages[frame].volume_signal,
-                volatility=result.stages[frame].volatility,
-                low_confidence=result.low_confidence[frame],
-                channel_pos=result.stages[frame].channel_pos,
-                breakout=result.stages[frame].breakout,
-                structure=result.structure_by_frame[frame].trend,
-                last_high=result.structure_by_frame[frame].last_high,
-                last_low=result.structure_by_frame[frame].last_low,
-                setup=result.structure_by_frame[frame].setup,
-                box_support=result.box_by_frame[frame].support,
-                box_resistance=result.box_by_frame[frame].resistance,
-                box_event=result.box_by_frame[frame].event,
-                box_vol_confirmed=result.box_by_frame[frame].vol_confirmed,
-            )
-            for frame in ("short", "mid", "long")
-        ],
-        stage_segments=[
-            StageSegment(stage=s["stage"], from_date=s["from"], to_date=s["to"])
-            for s in result.stage_segments
-        ],
-        segments_by_frame={
-            frame: [
-                StageSegment(stage=s["stage"], from_date=s["from"], to_date=s["to"])
-                for s in segs
-            ]
-            for frame, segs in result.segments_by_frame.items()
-        },
-        rs_series=[RelStrengthPoint(date=p.date, value=p.value) for p in result.rs.series],
-        rs_latest=result.rs.latest,
-        rs_outperforming=result.rs.outperforming,
-        rs_rating=snap.rs_rating if snap else None,
-        elliott=None,  # 엘리엇 파동 노출 제거(부적절 배치 잦음 → 연구 과제). 필드는 하위호환 유지.
-        secular=SecularView(
-            ma_months=result.secular.ma_months,
-            position=result.secular.position,
-            ma_dir=result.secular.ma_dir,
-            ratio=result.secular.ratio,
-        ),
-    )
+    trend.store_trend(db, code, result)  # cache-aside 저장(다음 요청부터 캐시 히트)
+    return trend.build_company_trend(code, result, rs_rating=snap.rs_rating if snap else None)
 
 
 def _yn(v: bool | None) -> str:

@@ -393,6 +393,28 @@ class AnalysisComment(Base):
     )
 
 
+class TrendCache(Base):
+    """종목 기술적 추세(/trend) 사전계산 캐시.
+
+    compute_trend 는 3프레임 와인스타인 국면·스윙구조·박스·상대강도(rs_series 2000+포인트)를
+    매 요청 재계산해 warm 1초+ 걸린다. 입력(일봉·지수)은 하루 1회 배치로만 갱신되므로, 야간
+    candle_batch 가 CompanyTrend 응답 JSON 을 미리 만들어 저장하고 엔드포인트는 읽기만 한다.
+    rs_rating 은 장중 갱신되는 스칼라라 페이로드에 넣지 않고 조회 시 스냅샷에서 붙인다.
+    stock_code 당 1행(최신)만 유지한다(AnalysisComment 패턴).
+    """
+
+    __tablename__ = "trend_cache"
+    __table_args__ = (UniqueConstraint("stock_code", name="uq_trend_cache_code"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    stock_code: Mapped[str] = mapped_column(String(6), index=True)
+    as_of: Mapped[date] = mapped_column(Date)  # 계산 기준 최신 확정봉 날짜(신선도 판정)
+    payload: Mapped[dict] = mapped_column(JSONB, default=dict)  # CompanyTrend 응답(rs_rating 제외)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class FallbackEvent(Base):
     """폴백(1차 소스/방법 실패 → 2차 대안 전환) 발생 이력.
 
