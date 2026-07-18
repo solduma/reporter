@@ -310,6 +310,32 @@ def _done_codes(db: Session) -> set[str]:
     )
 
 
+def _reconcile_markers(db: Session, codes: list[str], done: set[str]) -> int:
+    """report_financials 행이 이미 있는데 마커가 없는 종목의 완료 마커를 복원(DART 재조회 없이).
+
+    report_financials 는 이 백필만 쓰는 전용 산출물이라, 있으면 과거에 백필이 완료된 종목이다.
+    sync_state 마커가 외부에서 삭제돼도(일회성 정리 등) 이미 채운 종목을 매일 재조회(종목당
+    document.xml 수MB)하지 않도록 마커를 되살린다. financials_backfill 과 동형. 반환: 복원 개수.
+    """
+    missing = [c for c in codes if c not in done]
+    if not missing:
+        return 0
+    has_report = set(
+        db.scalars(
+            select(ReportFinancial.stock_code)
+            .where(ReportFinancial.stock_code.in_(missing))
+            .distinct()
+        ).all()
+    )
+    for code in has_report:
+        sync_state.mark(db, _BACKFILL_DOMAIN, code)
+    if has_report:
+        db.commit()
+        done.update(has_report)
+        logger.info("report backfill: 마커 %d개 복원(report_financials 보유·마커 결손)", len(has_report))
+    return len(has_report)
+
+
 def run_backfill_progressive(
     db: Session, settings: Settings | None = None, per_run: int = _PER_RUN
 ) -> dict:
@@ -320,7 +346,9 @@ def run_backfill_progressive(
     codes = _universe_codes(db)
     if not codes:
         return {"done": 0, "failed": 0, "remaining": 0}
-    pending = [c for c in codes if c not in _done_codes(db)]
+    done_codes = _done_codes(db)
+    reconciled = _reconcile_markers(db, codes, done_codes)  # 마커 결손분 복원(재조회 낭비 방지)
+    pending = [c for c in codes if c not in done_codes]
     batch = pending[:per_run]
     # 주식수 시장맵을 배치당 1회만 조회(종목마다 전체시장 pull 반복 방지). 최신 스냅샷 기준.
     shares_map: dict[str, int] = {}
@@ -358,10 +386,10 @@ def run_backfill_progressive(
             logger.warning("report backfill failed for %s: %s", code, e)
     remaining = len(pending) - done
     logger.info(
-        "report backfill: done=%d failed=%d remaining=%d quota_hit=%s budget_hit=%s",
-        done, failed, remaining, quota_hit, budget_hit,
+        "report backfill: done=%d failed=%d reconciled=%d remaining=%d quota_hit=%s budget_hit=%s",
+        done, failed, reconciled, remaining, quota_hit, budget_hit,
     )
     return {
-        "done": done, "failed": failed, "remaining": remaining,
+        "done": done, "failed": failed, "reconciled": reconciled, "remaining": remaining,
         "quota_hit": quota_hit, "budget_hit": budget_hit,
     }
