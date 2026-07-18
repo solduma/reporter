@@ -14,6 +14,7 @@ import type {
   SharedDeepDive,
   CompanyTrend,
   FinancialPeriod,
+  FinancialsStatus,
   FlowMarket,
   Holding,
   HoldingInput,
@@ -296,6 +297,12 @@ export function fetchCompanyTrend(code: string): Promise<CompanyTrend> {
 
 export function fetchFinancials(code: string): Promise<FinancialPeriod[]> {
   return getJson<FinancialPeriod[]>(`/api/companies/${encodeURIComponent(code)}/financials`);
+}
+
+export function fetchFinancialsStatus(code: string): Promise<FinancialsStatus> {
+  return getJson<FinancialsStatus>(
+    `/api/companies/${encodeURIComponent(code)}/financials/status`,
+  );
 }
 
 export function fetchPeers(code: string): Promise<Peer[]> {

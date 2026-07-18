@@ -96,6 +96,25 @@
   font-weight: 700;
 }
 
+/* 재무 백필 진행 배지 — 가용분은 이미 표시되고 나머지를 채우는 중임을 은은히 알린다. */
+.backfillBadge {
+  margin-left: 8px;
+  padding: 2px 8px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  vertical-align: middle;
+  animation: backfillPulse 1.6s ease-in-out infinite;
+}
+
+@keyframes backfillPulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
 /* 성장 지표 헤더: 제목과 스냅샷 태그를 한 줄에 배치 */
 .growthHead {
   display: flex;

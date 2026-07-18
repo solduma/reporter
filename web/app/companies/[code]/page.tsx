@@ -25,6 +25,7 @@ import {
   fetchCompanySummary,
   fetchCompanyTrend,
   fetchFinancials,
+  fetchFinancialsStatus,
   fetchPeers,
 } from "@/lib/api";
 import { agoIso, dateToTs, monthsAgoIso } from "@/lib/chartTime";
@@ -38,6 +39,7 @@ import type {
   CompanySummary,
   CompanyTrend,
   FinancialPeriod,
+  FinancialsStatus,
   Peer,
   Timeframe,
 } from "@/lib/types";
@@ -169,6 +171,8 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
     status: "loading",
     data: [],
   });
+  // 재무 백필 진행상태(가용분은 위 financials 로 즉시 표시, 이 값으로 '백필 중' 배지). 미완이면 폴링.
+  const [finStatus, setFinStatus] = useState<FinancialsStatus | null>(null);
   const [peers, setPeers] = useState<SectionState<Peer[]>>({ status: "loading", data: [] });
   const [trend, setTrend] = useState<SectionState<CompanyTrend | null>>({
     status: "loading",
@@ -341,6 +345,30 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
     void load();
     return () => {
       active = false;
+    };
+  }, [code]);
+
+  // 재무 백필 진행상태 — 미완이면 폴링해 완료 시점에 배지를 내린다(백필은 /financials 가 트리거).
+  useEffect(() => {
+    let active = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    async function poll() {
+      try {
+        const s = await fetchFinancialsStatus(code);
+        if (!active) return;
+        setFinStatus(s);
+        if (!(s.financials_10y_done && s.report_10y_done)) {
+          timer = setTimeout(poll, 15000);  // 백필 진행 중 — 15초 후 재확인
+        }
+      } catch {
+        // 상태 조회 실패는 화면 표시에 치명적이지 않으므로 조용히 무시(다음 종목 로드 시 재시도).
+      }
+    }
+    setFinStatus(null);
+    void poll();
+    return () => {
+      active = false;
+      if (timer) clearTimeout(timer);
     };
   }, [code]);
 
@@ -695,6 +723,11 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
         <h2 className={styles.sectionTitle}>
           가치 지표
           <InfoDot termKey="band" />
+          {finStatus && !(finStatus.financials_10y_done && finStatus.report_10y_done) ? (
+            <span className={styles.backfillBadge} title="10년 재무·밸류에이션을 백그라운드로 채우는 중입니다. 완료되면 자동 갱신됩니다.">
+              백필 중…
+            </span>
+          ) : null}
         </h2>
         <ScoreBreakdown axis={axisByKey.value} />
         {financials.status === "ready" && financials.data.length > 0 ? (
