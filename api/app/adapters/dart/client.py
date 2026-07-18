@@ -50,6 +50,7 @@ _STOCK_TOTQY_URL = "https://opendart.fss.or.kr/api/stockTotqySttus.json"  # DS00
 _ALOTMATTER_URL = "https://opendart.fss.or.kr/api/alotMatter.json"  # DS002 배당에관한사항
 _FNLTT_INDX_URL = "https://opendart.fss.or.kr/api/fnlttSinglIndx.json"  # DS003 단일회사 주요 재무지표
 _HYSLR_URL = "https://opendart.fss.or.kr/api/hyslrSttus.json"  # DS005 최대주주 현황
+_OTR_CPR_URL = "https://opendart.fss.or.kr/api/otrCprInvstmntSttus.json"  # DS002 타법인 출자현황
 _DART_VIEWER = "https://dart.fss.or.kr/dsaf001/main.do?rcpNo={rcept_no}"
 
 # 분기 → DART 보고서 코드. 1Q=11013·반기=11012·3Q=11014·사업보고서(연간)=11011.
@@ -276,6 +277,81 @@ def fetch_largest_shareholders(
         top_holder=(top.get("nm") or "").strip() or None,
         group_stake_pct=round(total_pct, 2),
     )
+
+
+@dataclass
+class RelatedParty:
+    """관계사 1건 — 웹서치 관련성 판정 alias 원천."""
+
+    name: str  # 법인명(관계사)
+    relation: str  # 'parent'(모회사/지배주주) | 'subsidiary'(50%+) | 'investor'(그 외 출자)
+    stake_pct: float | None = None
+
+
+# 개인(법인 아님) 최대주주를 걸러내는 법인 접미사/키워드. 이 중 하나라도 있으면 법인으로 본다.
+_CORP_MARKERS = ("주식회사", "㈜", "(주)", "유한", "홀딩스", "그룹", "Inc", "Corp", "Ltd", "Co.")
+# 소계·합계 행(관계사 아님) — DART 응답 마지막에 붙는 집계 행 제외.
+_TOTAL_MARKERS = ("계", "합계", "소계")
+
+
+def _looks_corporate(name: str) -> bool:
+    return any(m in name for m in _CORP_MARKERS)
+
+
+def _is_total_row(name: str) -> bool:
+    return name.strip() in _TOTAL_MARKERS
+
+
+def fetch_related_companies(
+    api_key: str, corp_code: str, year: int, quarter: int, session: requests.Session
+) -> list[RelatedParty]:
+    """모회사(hyslrSttus 법인 최대주주) + 자회사·출자사(otrCprInvstmntSttus)를 관계사 목록으로.
+
+    - 모회사: 최대주주현황에서 relate='최대주주 본인'이며 법인으로 보이는 nm(개인 지배주주 제외).
+    - 자회사/출자사: 타법인출자현황의 inv_prm. 기말지분율 50%+ 는 subsidiary, 그 외는 investor.
+    실패·없음이면 빈 리스트(부분 실패 허용 — 한 소스 실패가 다른 소스를 막지 않는다).
+    """
+    reprt_code = DART_REPORT_CODES.get(quarter)
+    if not reprt_code:
+        return []
+    params = {"crtfc_key": api_key, "corp_code": corp_code, "bsns_year": str(year), "reprt_code": reprt_code}
+    out: list[RelatedParty] = []
+
+    # 모회사(지배주주 법인) — 최대주주현황.
+    try:
+        resp = dart_throttle.get(session, _HYSLR_URL, params=params, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+        _raise_if_quota(data)
+        if data.get("status") == "000":
+            for r in data.get("list", []):
+                nm = (r.get("nm") or "").strip()
+                # 최대주주 본인 행(relate 에 '최대주주' 포함, '임원'·'특수관계' 등 제외)이 법인이면 모회사.
+                relate = (r.get("relate") or "").strip()
+                if nm and not _is_total_row(nm) and relate == "최대주주" and _looks_corporate(nm):
+                    out.append(RelatedParty(nm, "parent", _float_field(r, "trmend_posesn_stock_qota_rt")))
+                    break
+    except (requests.RequestException, ValueError) as e:
+        logger.warning("dart related(parent) failed %s %sQ%s: %s", corp_code, year, quarter, e)
+
+    # 자회사/출자사 — 타법인 출자현황.
+    try:
+        resp = dart_throttle.get(session, _OTR_CPR_URL, params=params, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+        _raise_if_quota(data)
+        if data.get("status") == "000":
+            for r in data.get("list", []):
+                nm = (r.get("inv_prm") or "").strip()
+                if not nm or _is_total_row(nm):  # 소계·합계 행 제외
+                    continue
+                pct = _float_field(r, "trmend_blce_qota_rt")
+                relation = "subsidiary" if (pct is not None and pct >= 50.0) else "investor"
+                out.append(RelatedParty(nm, relation, pct))
+    except (requests.RequestException, ValueError) as e:
+        logger.warning("dart related(investment) failed %s %sQ%s: %s", corp_code, year, quarter, e)
+
+    return out
 
 
 @dataclass

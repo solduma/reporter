@@ -268,6 +268,32 @@ class SyncState(Base):
     )
 
 
+class RelatedCompany(Base):
+    """종목별 관계사(모/자회사·출자사) — DART 최대주주·타법인출자에서 수집.
+
+    웹서치 관련성 판정 alias 원천: 제목엔 종목명이 없어도 본문에 모/자회사가 언급된 기사를
+    관련으로 포착하기 위함. related_name 을 CorpCodeMap 로 역해석하면 상장 관계사(related_stock_code)
+    를 링크한다. 종목·관계사명·관계 유니크로 멱등 upsert.
+    """
+
+    __tablename__ = "related_company"
+    __table_args__ = (
+        UniqueConstraint("stock_code", "related_name", "relation", name="uq_related_company"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    stock_code: Mapped[str] = mapped_column(String(6), index=True)  # 기준 종목
+    related_name: Mapped[str] = mapped_column(String(128))  # 관계사명(alias 원천)
+    relation: Mapped[str] = mapped_column(String(12))  # parent | subsidiary | investor
+    stake_pct: Mapped[float | None] = mapped_column(Float)  # 지분율(%)
+    related_stock_code: Mapped[str | None] = mapped_column(String(6))  # 관계사가 상장사면 링크
+    source: Mapped[str] = mapped_column(String(24), default="")  # hyslrSttus | otrCprInvstmntSttus
+    bsns_year: Mapped[int | None] = mapped_column(Integer)  # 근거 사업연도
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class Disclosure(Base):
     """DART 공시 1건 + 주가 긍/부정 센티먼트."""
 
