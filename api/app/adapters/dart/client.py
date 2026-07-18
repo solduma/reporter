@@ -433,8 +433,13 @@ def fetch_disclosures(
     begin: date,
     end: date,
     session: requests.Session,
+    pblntf_ty: str | None = None,
 ) -> list[Disclosure]:
-    """corp_code + 기간으로 공시 목록을 조회한다(페이지네이션 처리)."""
+    """corp_code + 기간으로 공시 목록을 조회한다(페이지네이션 처리).
+
+    pblntf_ty 를 주면 공시유형을 서버에서 거른다(예: 'B'=주요사항보고 DS005 유증·CB·합병 등
+    정형 공시). 기본 None 은 전체 유형(기존 호출부 무영향).
+    """
     disclosures: list[Disclosure] = []
     page = 1
     while page <= 20:  # 안전 상한
@@ -446,6 +451,8 @@ def fetch_disclosures(
             "page_no": page,
             "page_count": 100,
         }
+        if pblntf_ty:
+            params["pblntf_ty"] = pblntf_ty
         try:
             resp = dart_throttle.get(session, _LIST_URL, params=params, timeout=15)
             resp.raise_for_status()

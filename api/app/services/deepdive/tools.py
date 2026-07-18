@@ -390,15 +390,28 @@ def tool_event_search(ctx: ToolContext, args: dict) -> dict:
     # DART 이벤트 공시(공급계약·소송·유증 등) 병행 — 구조화 정본.
     disclosures: list[dict] = []
     if ctx.corp_code and ctx.settings.dart_api_key:
+        begin = date.today() - timedelta(days=365)
         try:
+            seen: set[str] = set()
+            # 전체 공시 → 섹터 키워드 필터. + 주요사항보고(DS005, pblntf_ty='B')는 이미 정형이라
+            # 키워드 없이 전량 병합(유증·CB·자기주식·합병 등 촉매·리스크 정본).
             rows = dart.fetch_disclosures(
-                ctx.settings.dart_api_key, ctx.corp_code, ctx.code,
-                date.today() - timedelta(days=365), date.today(), ctx.session,
+                ctx.settings.dart_api_key, ctx.corp_code, ctx.code, begin, date.today(), ctx.session,
+            )
+            major = dart.fetch_disclosures(
+                ctx.settings.dart_api_key, ctx.corp_code, ctx.code, begin, date.today(),
+                ctx.session, pblntf_ty="B",
             )
             for d in rows:
                 if any(f in d.report_nm for f in kw.disclosure_filters):
+                    seen.add(d.rcept_no)
                     disclosures.append({"rcept_no": d.rcept_no, "report_nm": d.report_nm,
-                                        "rcept_dt": d.rcept_dt.isoformat()})
+                                        "rcept_dt": d.rcept_dt.isoformat(), "material": False})
+            for d in major:
+                if d.rcept_no not in seen:
+                    seen.add(d.rcept_no)
+                    disclosures.append({"rcept_no": d.rcept_no, "report_nm": d.report_nm,
+                                        "rcept_dt": d.rcept_dt.isoformat(), "material": True})
         except dart.DartQuotaExceeded:
             # event_search 는 뉴스가 주 소스이고 DART 공시는 보조라 여기선 중단하지 않고 뉴스로 진행.
             # (정기보고서·공시가 핵심인 overview·redflags 단계는 dispatch 가 전파해 중단됨.)
