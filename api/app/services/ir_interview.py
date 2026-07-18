@@ -26,7 +26,7 @@ from app.services.deepdive.stages import _with_feedback
 logger = logging.getLogger(__name__)
 
 _MAX_ITEMS = 8  # 전략 아이템 상한(시간·비용 관리)
-_MAX_Q_PER_ITEM = 10  # 아이템당 질문 상한
+_MAX_Q_PER_ITEM = 6  # 아이템당 질문 상한(핵심만 — 편중·중복 억제, 10→6)
 _MAX_TOTAL = 80  # 전체 질문 상한(요구사항)
 _REVIEW_ROUNDS = 2  # reviewer critique-refine 라운드(딥다이브 기본 3보다 낮춰 시간 관리)
 
@@ -36,7 +36,8 @@ _ITEMS_REVIEW = (
     "1) 각 아이템이 밸류에이션 민감변수(목표 PER/PBR·DCF 성장률/할인율·forward EBITDA/EPS·순차입 등)나 "
     "신뢰도 낮은 방식·경고와 실제로 연결되나 — 밸류와 무관한 일반 IR 질문거리가 아님.\n"
     "2) linked_valuation_assumption 이 구체적 가정을 지목하나(막연 아님).\n"
-    "3) 아이템이 성장·마진·capex·경쟁·자본배분·지배구조 등으로 골고루 퍼졌나(한 축 쏠림 아님).\n"
+    "3) 아이템이 성장·마진·capex·경쟁·자본배분·지배구조 등으로 골고루 퍼졌나 — 여러 아이템이 사실상 "
+    "같은 사업 드라이버 하나를 다른 이름으로 반복하고 있지 않나(한 축 쏠림 아님).\n"
     "4) why_matters 가 '이 변수가 목표가를 왜 크게 움직이는지'를 설명하나."
 )
 
@@ -44,11 +45,21 @@ _ITEMS_REVIEW = (
 _QUESTIONS_REVIEW = (
     "너는 주담 인터뷰 질문 배치의 절차 감사자다. 주어진 전략 아이템에 대해:\n"
     "1) 각 질문의 답변이 밸류 가정을 실제로 좁힐 수 있나 — 측정·검증 가능한 형태(수치·시점·조건)인가, "
-    "예/아니오나 IR 이 답 못할 막연한 질문이 아닌가.\n"
+    "예/아니오나 IR 이 답 못할 막연한 질문이 아닌가. **개수 상한을 채우려 만든 저가치·중복성 질문이 "
+    "섞이지 않았나(개수는 상한일 뿐, 의미 있는 질문만).**\n"
     "2) valuation_link 가 이 아이템의 밸류 가정을 지목하나.\n"
     "3) expected_signal 이 '답변이 목표가를 어느 방향으로 움직이는지'를 명시하나.\n"
-    "4) 질문끼리 중복되지 않고 아이템 하위 논점을 다양하게 커버하나."
+    "4) 질문끼리 중복되지 않고, **이미 물은 질문(already_asked)과 같은 것을 되묻지 않나** — 여러 아이템이 "
+    "같은 드라이버(예: 특정 사업 진척도)에 걸려도 각 아이템은 그 드라이버의 다른 측면을 물어야 한다.\n"
+    "5) 아이템 하위 논점을 다양하게 커버하나."
 )
+
+_Q_RE = __import__("re").compile(r"[^가-힣a-z0-9]+")
+
+
+def _q_key(q: str) -> str:
+    """질문 dedup 키 — 소문자·기호/공백 제거 후 앞 40자(같은 질문의 표현 편차 흡수)."""
+    return _Q_RE.sub("", (q or "").lower())[:40]
 
 
 def _sensitive_context(rep: DeepDiveReport) -> dict:
@@ -87,8 +98,10 @@ def _derive_items(llm, model: str, ctx: tools.ToolContext, context: dict) -> lis
         "이 종목의 밸류에이션에 가장 큰 영향을 주는 '불확실한 가정'을 겨냥해, 주담(IR)에게 물을 "
         f"인터뷰 '전략 아이템'을 최대 {_MAX_ITEMS}개 도출한다. 각 아이템은 밸류 민감변수(목표배수·"
         "성장률·할인율·forward 이익·순차입 등)나 신뢰도 낮은 밸류 방식·경고와 연결돼야 한다. "
-        "성장·마진·capex·경쟁·자본배분·지배구조 등으로 폭넓게. 각 아이템에 왜 목표가를 크게 "
-        "움직이는지(why_matters)와 연결된 밸류 가정(linked_valuation_assumption)을 명시한다."
+        "성장·마진·capex·경쟁·자본배분·지배구조 등으로 폭넓게. 여러 밸류 가정이 같은 사업 "
+        "드라이버 하나에 몰려 있어도, 아이템은 되도록 서로 다른 축을 겨냥해 다양성을 확보한다"
+        "(한 드라이버에 아이템을 몰지 말 것 — 단 인위적으로 쪼개지도 말 것). 각 아이템에 왜 목표가를 "
+        "크게 움직이는지(why_matters)와 연결된 밸류 가정(linked_valuation_assumption)을 명시한다."
     )
     schema = (
         '{"items": [{"item": "아이템명", "why_matters": "목표가에 왜 중대한지", '
@@ -106,24 +119,34 @@ def _derive_items(llm, model: str, ctx: tools.ToolContext, context: dict) -> lis
     return [it for it in (items or []) if isinstance(it, dict) and it.get("item")][:_MAX_ITEMS]
 
 
-def _questions_for_item(llm, model: str, ctx: tools.ToolContext, item: dict, context: dict) -> list[dict]:
-    """한 전략 아이템의 인터뷰 질문 fan-out(agent + reviewer). 최대 _MAX_Q_PER_ITEM 개."""
+def _questions_for_item(
+    llm, model: str, ctx: tools.ToolContext, item: dict, context: dict, asked: list[str]
+) -> list[dict]:
+    """한 전략 아이템의 인터뷰 질문 fan-out(agent + reviewer). 최대 _MAX_Q_PER_ITEM 개.
+
+    asked: 앞선 아이템들에서 이미 물은 질문 목록. 같은 드라이버(예: 과천 입주율)를 공유하는 여러
+    아이템이 같은 질문을 반복하지 않도록 context 로 주입하고 '다른 측면을 물으라' 지시한다.
+    """
     goal = (
         f"전략 아이템 '{item.get('item')}'(중요성: {item.get('why_matters')}, 연결 가정: "
         f"{item.get('linked_valuation_assumption')})에 대해, 답변이 밸류 가정을 좁힐 수 있는 주담 "
-        f"인터뷰 질문을 최대 {_MAX_Q_PER_ITEM}개 만든다. 각 질문은 측정·검증 가능(수치·시점·조건)해야 "
-        "하고, 왜 묻는지(intent), 어느 밸류 가정에 연결되는지(valuation_link), 답변이 목표가를 어느 "
-        "방향으로 움직이는지(expected_signal)를 함께 적는다."
+        f"인터뷰 질문을 최대 {_MAX_Q_PER_ITEM}개 만든다. **개수는 상한일 뿐이니 억지로 채우지 말고, "
+        "밸류에 실제 의미 있는 질문만 담아라(물을 게 3개뿐이면 3개, 없으면 0개).** 각 질문은 측정·검증 "
+        "가능(수치·시점·조건)해야 하고, 왜 묻는지(intent), 어느 밸류 가정에 연결되는지(valuation_link), "
+        "답변이 목표가를 어느 방향으로 움직이는지(expected_signal)를 함께 적는다. **already_asked 에 이미 "
+        "있는 질문은 되묻지 말고, 같은 드라이버라도 아직 안 물은 다른 측면(세분·조건·시나리오)을 물어라.**"
     )
     schema = (
         '{"questions": [{"q": "질문", "intent": "왜 묻는가", '
         '"valuation_link": "연결 밸류 가정", "expected_signal": "답변→목표가 방향"}]}'
     )
+    # 이미 물은 질문(최근 것 우선, 컨텍스트 폭주 방지 상한)을 주입.
+    ctx_data = {"item": item, "already_asked": asked[-40:], **context}
     result = review_loop.run_with_review(
         llm, model,
         lambda fb: agent.run_stage(
             llm, model, ctx, stage_goal=_with_feedback(goal, fb),
-            result_schema=schema, context_data={"item": item, **context}, max_tool_calls=2,
+            result_schema=schema, context_data=ctx_data, max_tool_calls=2,
         ),
         _QUESTIONS_REVIEW, label=f"ir_q:{item.get('item')}:{ctx.code}", max_rounds=_REVIEW_ROUNDS,
     )
@@ -151,10 +174,21 @@ def generate(db: Session, code: str, settings: Settings | None = None) -> dict:
 
     strategy: list[dict] = []
     total = 0
+    asked: list[str] = []  # 이미 물은 질문(다음 아이템 fan-out 에 주입, 교차 중복 방지)
+    seen_keys: set[str] = set()  # 정규화 dedup 키(생성 중복 2차 차단)
     for it in items:
         if total >= _MAX_TOTAL:
             break
-        questions = _questions_for_item(llm, model, ctx, it, context)
+        raw = _questions_for_item(llm, model, ctx, it, context, asked)
+        # 취합 dedup — 앞 아이템·같은 아이템 내 유사 질문(정규화 키 동일) 제거.
+        questions: list[dict] = []
+        for q in raw:
+            key = _q_key(q.get("q", ""))
+            if not key or key in seen_keys:
+                continue
+            seen_keys.add(key)
+            questions.append(q)
+            asked.append(q.get("q", ""))
         if total + len(questions) > _MAX_TOTAL:  # 전체 상한 초과분 잘라 담는다
             questions = questions[: _MAX_TOTAL - total]
         strategy.append({**it, "questions": questions})
