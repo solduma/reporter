@@ -293,6 +293,25 @@ def run_deepdive_queue(settings: Settings | None = None) -> dict:
         session.close()
 
 
+def run_ir_interview_queue(settings: Settings | None = None) -> dict:
+    """주담(IR) 인터뷰 DB 폴링 큐 — pending job 1건을 잡아 에이전틱 파이프라인 실행(직렬).
+
+    딥다이브와 독립된 큐. 짧은 interval 폴링, max_instances=1 로 겹침 방지. pending 없으면 부하 0."""
+    from app.services import ir_interview
+
+    session = SessionLocal()
+    try:
+        job = ir_interview.claim_next(session)
+        if job is None:
+            return {"claimed": 0}
+        job.model = (settings or get_settings()).insight_model
+        session.commit()
+        ir_interview.run_job(session, job, settings or get_settings())
+        return {"claimed": 1, "job_id": job.id, "code": job.stock_code, "status": job.status}
+    finally:
+        session.close()
+
+
 def run_us_disclosure_batch(settings: Settings | None = None) -> dict:
     """US 유니버스 종목의 최근 SEC 8-K 수집."""
     from app.services import us_disclosure_ingest
@@ -486,6 +505,15 @@ def build_scheduler(settings: Settings | None = None) -> BlockingScheduler:
         _logged("deepdive_queue", run_deepdive_queue),
         trigger=IntervalTrigger(seconds=15, timezone=_TZ),
         id="deepdive_queue",
+        max_instances=1,
+        coalesce=True,
+        replace_existing=True,
+    )
+    # 주담(IR) 인터뷰 큐 — 딥다이브와 독립된 폴링 큐(별개 호흡).
+    scheduler.add_job(
+        _logged("ir_interview_queue", run_ir_interview_queue),
+        trigger=IntervalTrigger(seconds=15, timezone=_TZ),
+        id="ir_interview_queue",
         max_instances=1,
         coalesce=True,
         replace_existing=True,

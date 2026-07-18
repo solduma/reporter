@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import Markdown from "@/components/Markdown";
@@ -144,6 +145,12 @@ export default function DeepDivePanel({ code }: { code: string }) {
           ) : null}
         </div>
         <div className={styles.headActions}>
+          {/* 딥다이브 완료 시 주담 전략(별도 호흡) 전용 페이지로 이동. */}
+          {report && !active && !paused ? (
+            <Link href={`/ir-interview/${code}`} className={styles.irLink}>
+              주담 전략 →
+            </Link>
+          ) : null}
           {report && !active && !paused ? <ShareLinkButton code={code} /> : null}
           <button type="button" className={styles.runBtn} onClick={onRequest} disabled={active || paused || requesting}>
             {active ? "분석 진행 중…" : paused ? "인풋 대기 중…" : report ? "다시 분석" : "딥다이브 실행"}

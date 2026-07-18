@@ -28,6 +28,7 @@ const LINKS = [
   { href: "/industries", label: "산업 흐름", featured: false },
   { href: "/calendar", label: "경제 캘린더", featured: false },
   { href: "/companies", label: "기업 분석", featured: false },
+  { href: "/ir-interview", label: "주담 전략", featured: false },
   { href: "/portfolio", label: "내 보유종목", featured: false },
   { href: "/archive", label: "브리핑 아카이브", featured: false },
 ] as const;

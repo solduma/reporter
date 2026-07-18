@@ -758,6 +758,49 @@ class DeepDiveReport(Base):
     )
 
 
+class IrInterviewJob(Base):
+    """주담(IR) 인터뷰 전략 생성 job — 딥다이브 완료 후 별도 호흡으로 실행하는 독립 큐.
+
+    worker 가 pending 을 폴링해 에이전틱 파이프라인(전략 아이템 도출 → 아이템별 질문 fan-out,
+    각 단계 reviewer 검증)을 실행한다. 딥다이브와 독립(HITL·단계 재개 없음)이라 상태가 단순하다.
+    """
+
+    __tablename__ = "ir_interview_job"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    stock_code: Mapped[str] = mapped_column(String(6), index=True)
+    status: Mapped[str] = mapped_column(String(12), default="pending", index=True)  # pending|running|done|failed
+    progress: Mapped[int] = mapped_column(SmallInteger, default=0)  # 0~100
+    model: Mapped[str] = mapped_column(String(64), default="")
+    error: Mapped[str | None] = mapped_column(Text)
+    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class IrInterviewReport(Base):
+    """주담 인터뷰 전략 결과 — 종목당 최신 1건. strategy_json 은 아이템→질문 트리(아래 구조).
+
+    strategy_json = {"strategy_items": [{"item","why_matters","linked_valuation_assumption",
+    "questions": [{"q","intent","valuation_link","expected_signal"}]}], "total_questions": N}.
+    valuation 민감변수 기반이라 딥다이브 밸류에이션이 갱신되면 재생성 대상(as_of 로 신선도).
+    """
+
+    __tablename__ = "ir_interview_report"
+    __table_args__ = (UniqueConstraint("stock_code", name="uq_ir_interview_report_code"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    stock_code: Mapped[str] = mapped_column(String(6), index=True)
+    job_id: Mapped[int | None] = mapped_column(Integer)
+    model: Mapped[str] = mapped_column(String(64), default="")
+    strategy_json: Mapped[dict | None] = mapped_column(JSONB)
+    total_questions: Mapped[int] = mapped_column(SmallInteger, default=0)
+    as_of: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class DeepDiveShare(Base):
     """딥다이브 결과의 무인증 임시 공유 스냅샷 — 로그인 게이트 밖에서 token 으로 조회.
 
