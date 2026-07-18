@@ -84,6 +84,18 @@ def index_flow_score(index_name: str, session: requests.Session | None = None) -
     return score
 
 
+def warm_cache() -> None:
+    """섹터·지수 flow 캐시를 미리 채운다(startup·주기 호출용).
+
+    compute_flows 는 첫 호출 시 섹터 ETF ~42종 봉(수만 행)을 cold Postgres 에서 읽어 수백ms~
+    수초 걸린다. 이 비용을 유저 첫 요청(종목 analysis·screener topdown)이 물지 않도록 미리
+    호출해 5분 TTL 캐시를 데운다. 각 함수가 자체 캐싱하므로 여기선 호출만 한다."""
+    for market in ("KR", "US"):
+        compute_flows(market)
+    for index_name in ("KOSPI", "KOSDAQ"):
+        index_flow_score(index_name)
+
+
 def compute_flows(market: str, session: requests.Session | None = None) -> list[SectorFlow]:
     """시장(KR|US)의 모든 섹터 ETF flow 를 계산해 flow_score 내림차순으로 반환한다.
 
