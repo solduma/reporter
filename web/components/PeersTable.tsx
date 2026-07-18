@@ -59,17 +59,17 @@ export default function PeersTable({ peers, baseCode }: Props) {
             <th className={styles.nameCol} scope="col">
               종목
             </th>
-            {METRIC_COLUMNS.map((col) => (
-              <th key={col.key} scope="col">
-                {col.label}
-              </th>
-            ))}
             {SCORE_COLUMNS.map((col, i) => (
               <th
                 key={col.key}
                 scope="col"
-                className={i === 0 ? styles.scoreHead : styles.scoreCell}
+                className={i === SCORE_COLUMNS.length - 1 ? styles.scoreHead : undefined}
               >
+                {col.label}
+              </th>
+            ))}
+            {METRIC_COLUMNS.map((col) => (
+              <th key={col.key} scope="col">
                 {col.label}
               </th>
             ))}
@@ -84,20 +84,19 @@ export default function PeersTable({ peers, baseCode }: Props) {
                   <span className={styles.name}>{peer.name}</span>
                   <span className={styles.code}>{peer.stock_code}</span>
                 </th>
-                {METRIC_COLUMNS.map((col) => (
-                  <td key={col.key}>{peer[col.key] ?? "—"}</td>
-                ))}
                 {SCORE_COLUMNS.map((col, i) => {
                   const v = peer[col.key];
+                  // 점수 묶음을 앞에 두고, 마지막 점수 컬럼에 우측 경계선으로 원시지표와 구분.
+                  const border = i === SCORE_COLUMNS.length - 1 ? styles.scoreHead : "";
                   return (
-                    <td
-                      key={col.key}
-                      className={`${i === 0 ? styles.scoreHead : styles.scoreCell} ${styles.score} ${scoreClass(v)}`}
-                    >
+                    <td key={col.key} className={`${border} ${styles.score} ${scoreClass(v)}`}>
                       {v === null || v === undefined ? "—" : Math.round(v)}
                     </td>
                   );
                 })}
+                {METRIC_COLUMNS.map((col) => (
+                  <td key={col.key}>{peer[col.key] ?? "—"}</td>
+                ))}
               </tr>
             );
           })}

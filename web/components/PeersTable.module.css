@@ -57,9 +57,9 @@
   color: var(--accent);
 }
 
-/* 점수 컬럼 — 첫 점수 컬럼(scoreHead)에만 좌측 경계선을 넣어 원시지표와 시각 구분. */
+/* 점수 묶음을 앞에 두고, 마지막 점수 컬럼(scoreHead)에 우측 경계선으로 원시지표와 시각 구분. */
 .scoreHead {
-  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
 }
 
 .score {
