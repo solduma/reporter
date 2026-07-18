@@ -19,7 +19,6 @@ class Settings(BaseSettings):
 
     # 인프라 (docker-compose 격리 포트). 호스트 개발 기본값 = localhost 매핑 포트.
     postgres_url: str = "postgresql+psycopg://reporter:reporter@localhost:5433/reporter"
-    redis_url: str = "redis://localhost:6380/0"
 
     minio_endpoint: str = "localhost:9010"
     minio_access_key: str = "reporter"
