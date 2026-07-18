@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import requests
 from sqlalchemy import or_, select
@@ -128,11 +128,24 @@ def tool_disclosure_text(ctx: ToolContext, args: dict) -> dict:
     return {"available": bool(text), "rcept_no": rcept, "text": text}
 
 
+def _largest_shareholders(ctx: ToolContext) -> dart.LargestShareholders | None:
+    """최근 확정 사업연도부터 최대주주 현황(DS005)을 조회. 사업보고서는 다음 해 제출이라 직전 연도부터."""
+    today = datetime.now(UTC).date()
+    for year in range(today.year - 1, today.year - 4, -1):
+        result = dart.fetch_largest_shareholders(
+            ctx.settings.dart_api_key, ctx.corp_code, year, 4, ctx.session
+        )
+        if result:
+            return result
+    return None
+
+
 def tool_ownership(ctx: ToolContext, args: dict) -> dict:
-    """주주구성·대주주 소유변동(임원·주요주주 보고)."""
+    """주주구성·대주주: 최대주주 지분(구조화) + 임원·주요주주 소유변동(임원·주요주주 보고)."""
     if not ctx.corp_code or not ctx.settings.dart_api_key:
         return {"available": False, "note": "DART 키·매핑 없음"}
     try:
+        top = _largest_shareholders(ctx)  # DS005 최대주주 현황(구조화 지분)
         changes = dart.fetch_ownership_changes(ctx.settings.dart_api_key, ctx.corp_code, ctx.session)
     except dart.DartQuotaExceeded:
         raise  # DART 한도초과는 딥다이브 중단
@@ -144,7 +157,11 @@ def tool_ownership(ctx: ToolContext, args: dict) -> dict:
          "shares_after": v.shares_after, "shares_delta": v.shares_delta}
         for k, v in list(changes.items())[:20]
     ]
-    return {"available": True, "count": len(items), "changes": items}
+    result = {"available": True, "count": len(items), "changes": items}
+    if top:  # 최대주주명·특수관계인 합산 지분율(LLM 자유서술 대신 구조화 수치)
+        result["largest_holder"] = top.top_holder
+        result["largest_group_stake_pct"] = top.group_stake_pct
+    return result
 
 
 def tool_reports(ctx: ToolContext, args: dict) -> dict:
