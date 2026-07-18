@@ -20,6 +20,7 @@ from app.adapters.dart.client import (
     fetch_document_text,
     fetch_income_and_equity,
     fetch_ownership_changes,
+    fetch_roe,
     fetch_stock_total,
     find_periodic_report,
 )
@@ -41,6 +42,7 @@ __all__ = [
     "fetch_income_and_equity",
     "fetch_ownership_changes",
     "fetch_report_zip",
+    "fetch_roe",
     "fetch_stock_total",
     "find_periodic_report",
     "parse_cf_depreciation",
