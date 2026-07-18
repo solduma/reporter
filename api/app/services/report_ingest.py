@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.adapters import dart
 from app.adapters.dart import report_parser as dart_report_parser
+from app.adapters.dart import throttle as dart_throttle
 from app.adapters.dart.disclosure_adapter import DartDisclosureAdapter
 from app.adapters.external import krx
 from app.config import Settings, get_settings
@@ -330,8 +331,13 @@ def run_backfill_progressive(
             for market in ("KOSPI", "KOSDAQ"):
                 shares_map.update(krx.fetch_shares_by_date(settings.krx_api, bas, s, market))
     done = failed = 0
-    quota_hit = False
+    quota_hit = budget_hit = False
     for code in batch:
+        # 정기공시·온디맨드 몫을 남기려 백필 예산을 넘으면 조기 중단(다음 밤에 이어서 처리).
+        if dart_throttle.backfill_budget_exhausted():
+            budget_hit = True
+            logger.info("report backfill: 백필 예산 소진 — 조기 중단(%d 종목 처리 후)", done)
+            break
         try:
             if backfill_stock(db, settings, code, shares=shares_map.get(code)):
                 sync_state.mark(db, _BACKFILL_DOMAIN, code)
@@ -352,7 +358,10 @@ def run_backfill_progressive(
             logger.warning("report backfill failed for %s: %s", code, e)
     remaining = len(pending) - done
     logger.info(
-        "report backfill: done=%d failed=%d remaining=%d quota_hit=%s",
-        done, failed, remaining, quota_hit,
+        "report backfill: done=%d failed=%d remaining=%d quota_hit=%s budget_hit=%s",
+        done, failed, remaining, quota_hit, budget_hit,
     )
-    return {"done": done, "failed": failed, "remaining": remaining, "quota_hit": quota_hit}
+    return {
+        "done": done, "failed": failed, "remaining": remaining,
+        "quota_hit": quota_hit, "budget_hit": budget_hit,
+    }

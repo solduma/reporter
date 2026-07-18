@@ -23,6 +23,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.adapters import dart
+from app.adapters.dart import throttle as dart_throttle
 from app.adapters.market import naver_quote as quote
 from app.config import Settings, get_settings
 from app.db.models import (
@@ -223,6 +224,32 @@ def _done_codes(db: Session) -> set[str]:
     )
 
 
+def _reconcile_markers(db: Session, codes: list[str], done: set[str]) -> int:
+    """마커는 없지만 백필 산출물(psr)이 이미 있는 종목의 완료 마커를 복원한다(DART 재조회 없이).
+
+    psr 은 이 백필만 쓰는 전용 출력값(backfill_stock → _upsert_financial)이라, psr 이 있으면
+    과거에 백필이 실제로 완료된 종목이다. sync_state 마커가 외부에서 삭제돼도(일회성 psql
+    정리 등) 이미 채운 종목을 매일 재조회하지 않도록 마커를 되살린다. 반환: 복원 개수.
+    """
+    missing = [c for c in codes if c not in done]
+    if not missing:
+        return 0
+    has_psr = set(
+        db.scalars(
+            select(Financial.stock_code)
+            .where(Financial.stock_code.in_(missing), Financial.psr.isnot(None))
+            .distinct()
+        ).all()
+    )
+    for code in has_psr:
+        sync_state.mark(db, _BACKFILL_DOMAIN, code)
+    if has_psr:
+        db.commit()
+        done.update(has_psr)
+        logger.info("financials 10y backfill: 마커 %d개 복원(psr 보유·마커 결손)", len(has_psr))
+    return len(has_psr)
+
+
 def run_backfill_progressive(
     db: Session, settings: Settings | None = None, per_run: int = _PER_RUN
 ) -> dict:
@@ -238,11 +265,18 @@ def run_backfill_progressive(
     if not codes:
         return {"done": 0, "failed": 0, "remaining": 0}
 
-    pending = [c for c in codes if c not in _done_codes(db)]
+    done_codes = _done_codes(db)
+    reconciled = _reconcile_markers(db, codes, done_codes)  # 마커 결손분 복원(재조회 낭비 방지)
+    pending = [c for c in codes if c not in done_codes]
     batch = pending[:per_run]
     done = failed = 0
-    quota_hit = False
+    quota_hit = budget_hit = False
     for code in batch:
+        # 정기공시·온디맨드 몫을 남기려 백필 예산을 넘으면 조기 중단(다음 밤에 이어서 처리).
+        if dart_throttle.backfill_budget_exhausted():
+            budget_hit = True
+            logger.info("financials 10y backfill: 백필 예산 소진 — 조기 중단(%d 종목 처리 후)", done)
+            break
         try:
             if backfill_stock(db, settings, code):
                 sync_state.mark(db, _BACKFILL_DOMAIN, code)
@@ -263,7 +297,11 @@ def run_backfill_progressive(
 
     remaining = len(pending) - done
     logger.info(
-        "financials 10y backfill: done=%d failed=%d remaining=%d quota_hit=%s",
-        done, failed, remaining, quota_hit,
+        "financials 10y backfill: done=%d failed=%d reconciled=%d remaining=%d "
+        "quota_hit=%s budget_hit=%s",
+        done, failed, reconciled, remaining, quota_hit, budget_hit,
     )
-    return {"done": done, "failed": failed, "remaining": remaining, "quota_hit": quota_hit}
+    return {
+        "done": done, "failed": failed, "reconciled": reconciled,
+        "remaining": remaining, "quota_hit": quota_hit, "budget_hit": budget_hit,
+    }

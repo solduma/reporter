@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import threading
 import time
+from datetime import UTC, datetime
 
 import requests
 
@@ -24,6 +25,41 @@ _MIN_INTERVAL_S = 0.34
 
 _lock = threading.Lock()
 _last_request_at = 0.0
+
+# 일일 콜 카운터 — 백필이 한도(키당 2만)를 독식해 정기공시·온디맨드를 굶기지 않도록,
+# 백필 계열은 예약분을 남기는 soft budget 을 넘으면 스스로 멈춘다. 자정(UTC)에 리셋.
+# DART 한도는 KST 자정 리셋이나, 백필(03:30 KST)·공시(07:40 KST) 모두 UTC 같은 날이라
+# UTC 경계로도 하루 단위 분리가 성립한다(보수적 근사).
+_call_count = 0
+_count_day: str = ""
+_count_lock = threading.Lock()
+
+
+def _record_call() -> None:
+    """일일 콜 카운터를 1 증가시킨다(날짜 바뀌면 리셋). 모든 DART GET 이 통과."""
+    global _call_count, _count_day
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
+    with _count_lock:
+        if today != _count_day:
+            _count_day, _call_count = today, 0
+        _call_count += 1
+
+
+def calls_today() -> int:
+    """오늘(UTC) 누적 DART 콜 수. 날짜가 바뀌었으면 0."""
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
+    with _count_lock:
+        return _call_count if today == _count_day else 0
+
+
+# 백필 계열(재무·리포트)이 하루에 쓸 수 있는 DART 콜 상한. 키당 한도 2만 중 예약분을 남겨
+# 정기공시(07:40)·딥다이브·온디맨드 조회가 굶지 않게 한다(백업키 있으면 실질 여유는 더 큼).
+BACKFILL_DAILY_BUDGET = 14000
+
+
+def backfill_budget_exhausted() -> bool:
+    """백필 계열이 오늘 예산(BACKFILL_DAILY_BUDGET)을 소진했으면 True. 백필 루프가 조기 중단용."""
+    return calls_today() >= BACKFILL_DAILY_BUDGET
 
 # 키 링 — 활성 인덱스는 020 폴오버로만 전진한다(성공 시 유지해 재낭비 방지).
 _keyring: list[str] = []
@@ -92,12 +128,14 @@ def get(session: requests.Session, url: str, **kwargs) -> requests.Response:
     # 링을 안 쓰는 호출(키 미설정·params 없음)은 단순 스로틀 GET.
     if not (ring_has_keys and uses_key):
         _wait_turn()
+        _record_call()
         return session.get(url, **kwargs)
 
     while True:
         key = active_key()
         params["crtfc_key"] = key
         _wait_turn()
+        _record_call()
         resp = session.get(url, **kwargs)
         if not _is_quota_body(resp.content):
             return resp
