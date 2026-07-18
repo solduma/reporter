@@ -415,39 +415,53 @@ def sector_report_industries(db: Session, code: str) -> list[str]:
     return list(sector_etf.kr_sector_to_report_industries(sector))
 
 
-def _coverage_filter(code: str, industries: list[str]):
-    """커버리지 대상 SQL 조건 — 종목 리포트 OR 종목 소속 산업 리포트.
+def _coverage_filter(code: str, industries: list[str], name: str | None):
+    """커버리지 대상 SQL 조건 — 종목 리포트 OR (소속 산업 리포트 & 본문에 회사명 언급).
 
-    산업 리포트는 stock_code 가 없어 industry_name 으로 연결한다. industries 비면 종목 리포트만."""
+    산업 리포트는 종목 커버가 아니라 섹터 전반이라, 섹터가 맞아도 이 회사가 본문에 안 나올 수
+    있다. 그래서 산업 리포트는 종목 소속 산업(industry_name)이면서 **full_text·rationale 에
+    회사명이 실제 언급된 것만** 포함한다(요약엔 대표주만 남아 소실되므로 full_text 우선).
+    name 이 없으면(종목명 미상) 산업 리포트는 넣지 않는다(오탐 방지). industries 비면 종목만.
+    """
     own = Report.stock_code == code
-    if not industries:
+    if not industries or not name:
         return own
-    industry = and_(Report.category == "industry", Report.industry_name.in_(industries))
+    mentioned = or_(
+        ReportAnalysis.full_text.contains(name),
+        ReportAnalysis.rationale.contains(name),
+    )
+    industry = and_(
+        Report.category == "industry",
+        Report.industry_name.in_(industries),
+        mentioned,
+    )
     return or_(own, industry)
 
 
 def coverage_counts(db: Session, code: str, since: date) -> tuple[int, int]:
-    """(리포트수, BUY수) since 이후. 종목 리포트 + 종목 소속 산업 리포트를 합산한다."""
+    """(리포트수, BUY수) since 이후. 종목 리포트 + 회사가 본문 언급된 소속 산업 리포트."""
     industries = sector_report_industries(db, code)
+    name = resolve_stock_name(db, code)
     cov = db.execute(
         select(
             func.count(Report.id),
             func.sum(case((ReportAnalysis.sentiment == Sentiment.BUY, 1), else_=0)),
         )
         .join(ReportAnalysis, ReportAnalysis.report_id == Report.id)
-        .where(_coverage_filter(code, industries), Report.published_date >= since)
+        .where(_coverage_filter(code, industries, name), Report.published_date >= since)
     ).one()
     return int(cov[0] or 0), int(cov[1] or 0)
 
 
 def coverage_reports(db: Session, code: str, since: date) -> list[tuple[Report, ReportAnalysis]]:
-    """커버리지 리포트 목록(종목 + 산업), since 이후 최신순. coverage_counts 와 동일 조건·창."""
+    """커버리지 리포트 목록(종목 + 회사 언급된 산업), since 이후 최신순. counts 와 동일 조건·창."""
     industries = sector_report_industries(db, code)
+    name = resolve_stock_name(db, code)
     return list(
         db.execute(
             select(Report, ReportAnalysis)
             .join(ReportAnalysis, ReportAnalysis.report_id == Report.id)
-            .where(_coverage_filter(code, industries), Report.published_date >= since)
+            .where(_coverage_filter(code, industries, name), Report.published_date >= since)
             .order_by(Report.published_date.desc())
         ).all()
     )
