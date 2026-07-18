@@ -91,6 +91,9 @@ _US_UNIVERSE_CRON = CronTrigger(hour=6, minute=10, timezone=_TZ)
 # US 일봉 10년 점진 백필: 06:20. 유니버스 스냅샷(06:10) 직후 — 최신 심볼 대상. momentum_3m 채움.
 _US_CANDLE_BACKFILL_CRON = CronTrigger(hour=6, minute=20, timezone=_TZ)
 _US_DISCLOSURE_CRON = CronTrigger(hour=6, minute=40, timezone=_TZ)
+# US 재무(SEC EDGAR) 점진 백필: 07:10. 유니버스(06:10)·공시(06:40) 뒤, 종목당 SEC 콜이 많아
+# sync_state 로 재개하며 per_run 씩 채운다(전 유니버스 커버까지 며칠).
+_US_FINANCIALS_CRON = CronTrigger(hour=7, minute=10, timezone=_TZ)
 # 국내 공시 순환 정기 배치: 매일 07:40. 유니버스를 오래된 순으로 per_run 개씩 최근 창 동기화
 # (몇 밤에 걸쳐 전수 순환). DART 콜이라 재무·리포트 백필(03:30·05:00)과 시차를 두고, 뉴스(07:00)
 # 뒤에 둔다. 온디맨드 타임라인 조회와 같은 DisclosureSyncState 캐시를 공유(중복 조회 방지).
@@ -299,6 +302,17 @@ def run_us_disclosure_batch(settings: Settings | None = None) -> dict:
         session.close()
 
 
+def run_us_financials_backfill(settings: Settings | None = None) -> dict:
+    """US 유니버스 종목의 SEC 재무를 점진 백필(재개 가능)."""
+    from app.services import us_company_service
+
+    session = SessionLocal()
+    try:
+        return us_company_service.run_financials_backfill(session, settings)
+    finally:
+        session.close()
+
+
 def run_calendar_batch(settings: Settings | None = None) -> dict:
     """경제/실적 캘린더 수집(FRED 미국 매크로 + 고정일정) + LLM 영향/기대치 텍스트."""
     from app.services import calendar_ingest, calendar_llm
@@ -328,6 +342,7 @@ MANUAL_BATCHES: list[tuple[str, str, object]] = [
     ("us_universe", "US 유니버스", run_us_universe_batch),
     ("us_candle_backfill", "US 일봉 백필(10년)", run_us_candle_backfill),
     ("us_disclosure", "US 공시(8-K)", run_us_disclosure_batch),
+    ("us_financials", "US 재무 백필(SEC)", run_us_financials_backfill),
     ("calendar", "경제·실적 캘린더", run_calendar_batch),
 ]
 
@@ -436,6 +451,14 @@ def build_scheduler(settings: Settings | None = None) -> BlockingScheduler:
         _logged("us_disclosure", run_us_disclosure_batch),
         trigger=_US_DISCLOSURE_CRON,
         id="us_disclosure",
+        max_instances=1,
+        coalesce=True,
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        _logged("us_financials", run_us_financials_backfill),
+        trigger=_US_FINANCIALS_CRON,
+        id="us_financials",
         max_instances=1,
         coalesce=True,
         replace_existing=True,

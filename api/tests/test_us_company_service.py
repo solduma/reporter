@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 from pathlib import Path
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
-from app.db.models import Base, UsFinancial
+from app.db.models import Base, SyncState, UsFinancial, UsUniverse
 from app.services import us_company_service
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "sec_nvda_facts.json"
@@ -22,6 +23,24 @@ def db():
     session = sessionmaker(bind=engine)()
     yield session
     session.close()
+
+
+@pytest.fixture
+def db_full():
+    """유니버스·마커 포함(백필 테스트용)."""
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(
+        engine, tables=[UsFinancial.__table__, UsUniverse.__table__, SyncState.__table__]
+    )
+    session = sessionmaker(bind=engine)()
+    yield session
+    session.close()
+
+
+def _seed_universe(db, tickers):
+    for t in tickers:
+        db.add(UsUniverse(snapshot_date=date(2026, 7, 18), ticker=t, naver_symbol=t, name=t))
+    db.commit()
 
 
 @pytest.fixture
@@ -77,3 +96,34 @@ def test_quote_resolves_symbol(monkeypatch):
 def test_quote_none_when_symbol_unresolved(monkeypatch):
     monkeypatch.setattr(us_company_service.us_market, "resolve_us_symbol", lambda t, session=None: None)
     assert us_company_service.quote("ZZZZ") is None
+
+
+def test_financials_backfill_marks_per_success(db_full, _mock_adapters):
+    # 유니버스 종목을 백필해 per 산출 성공분만 완료 마킹한다.
+    _seed_universe(db_full, ["NVDA", "AAPL"])
+    result = us_company_service.run_financials_backfill(db_full, per_run=10)
+    assert result["done"] == 2  # 둘 다 목킹된 facts 로 per 산출
+    marked = set(
+        db_full.scalars(
+            select(SyncState.stock_code).where(SyncState.domain == "us_financials_10y")
+        ).all()
+    )
+    assert marked == {"NVDA", "AAPL"}
+
+
+def test_financials_backfill_skips_already_done(db_full, _mock_adapters):
+    # 이미 마킹된 종목은 pending 에서 제외(재조회 안 함).
+    _seed_universe(db_full, ["NVDA", "AAPL"])
+    us_company_service.sync_state.mark(db_full, "us_financials_10y", "NVDA")
+    db_full.commit()
+    result = us_company_service.run_financials_backfill(db_full, per_run=10)
+    assert result["done"] == 1  # AAPL 만 신규 처리
+
+
+def test_financials_backfill_reconciles_orphan_markers(db_full):
+    # 재무 행(per)이 있는데 마커가 없으면 SEC 재조회 없이 마커 복원.
+    _seed_universe(db_full, ["NVDA"])
+    db_full.add(UsFinancial(ticker="NVDA", name="NVIDIA", per=30.0))
+    db_full.commit()
+    restored = us_company_service._reconcile_markers(db_full, ["NVDA"], set())
+    assert restored == 1
