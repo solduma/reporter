@@ -10,13 +10,15 @@ import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.adapters import sec
-from app.config import get_settings
-from app.db.models import UsFinancial
+from app.config import Settings, get_settings
+from app.db.models import SyncState, UsFinancial, UsUniverse
 from app.domain import us_financials
+from app.services import sync_state
 from reporter import us_market
 
 logger = logging.getLogger(__name__)
@@ -118,3 +120,84 @@ def get_financials(db: Session, ticker: str, *, force: bool = False) -> UsFinanc
     db.commit()
     logger.info("us financials synced for %s (cik=%s)", ticker, cik)
     return db.get(UsFinancial, ticker)
+
+
+# ── US 재무 점진 백필 (야간, 재개 가능) ──────────────────────────────────
+# get_financials 는 종목당 SEC 콜(ticker→CIK 매핑 + companyfacts + company_name)이 무거워
+# 유니버스 전체를 한 번에 못 돈다. KR financials_backfill 과 동일하게 per_run 씩 점진 백필하고
+# sync_state(us_financials_10y)로 완료 마킹해 재개한다. SEC throttle(0.12s)이 rate limit 방어.
+_BACKFILL_DOMAIN = "us_financials_10y"
+_PER_RUN = 200  # SEC 종목당 ~3콜, throttle 0.12s → per_run=200 이면 ~1~2분
+
+
+def _universe_tickers(db: Session) -> list[str]:
+    """최신 US 유니버스 스냅샷의 ticker 목록. 없으면 빈 리스트."""
+    snap = db.scalar(select(UsUniverse.snapshot_date).order_by(UsUniverse.snapshot_date.desc()).limit(1))
+    if snap is None:
+        return []
+    return list(db.scalars(select(UsUniverse.ticker).where(UsUniverse.snapshot_date == snap)).all())
+
+
+def _done_tickers(db: Session) -> set[str]:
+    return set(
+        db.scalars(select(SyncState.stock_code).where(SyncState.domain == _BACKFILL_DOMAIN)).all()
+    )
+
+
+def _reconcile_markers(db: Session, tickers: list[str], done: set[str]) -> int:
+    """재무 행(per 등)이 이미 있는데 마커가 없는 종목의 완료 마커를 복원(SEC 재조회 없이).
+
+    마커가 외부에서 삭제돼도 이미 채운 종목을 매일 재조회하지 않게 한다(KR reconcile 과 동형)."""
+    missing = [t for t in tickers if t not in done]
+    if not missing:
+        return 0
+    has_fin = set(
+        db.scalars(
+            select(UsFinancial.ticker)
+            .where(UsFinancial.ticker.in_(missing), UsFinancial.per.isnot(None))
+        ).all()
+    )
+    for t in has_fin:
+        sync_state.mark(db, _BACKFILL_DOMAIN, t)
+    if has_fin:
+        db.commit()
+        done.update(has_fin)
+        logger.info("us financials backfill: 마커 %d개 복원(재무 보유·마커 결손)", len(has_fin))
+    return len(has_fin)
+
+
+def run_financials_backfill(db: Session, settings: Settings | None = None, per_run: int = _PER_RUN) -> dict:
+    """US 유니버스 종목의 SEC 재무를 점진 백필한다(하룻밤 per_run 개, 재개 가능).
+
+    반환: {done, failed, reconciled, remaining}. 종목당 SEC 콜이 많아 순차 처리(throttle 방어)."""
+    tickers = _universe_tickers(db)
+    if not tickers:
+        logger.warning("no US universe tickers; skip us financials backfill")
+        return {"done": 0, "failed": 0, "reconciled": 0, "remaining": 0}
+
+    done_set = _done_tickers(db)
+    reconciled = _reconcile_markers(db, tickers, done_set)  # 마커 결손분 복원(재조회 낭비 방지)
+    pending = [t for t in tickers if t not in done_set]
+    batch = pending[:per_run]
+    done = failed = 0
+    for ticker in batch:
+        try:
+            row = get_financials(db, ticker, force=True)
+            # per 산출 성공분만 완료 마킹. CIK 미등록·facts 없음(row 그대로/None)은 재시도 여지 남김.
+            if row is not None and row.per is not None:
+                sync_state.mark(db, _BACKFILL_DOMAIN, ticker)
+                db.commit()
+                done += 1
+            else:
+                failed += 1
+        except Exception as e:  # 한 종목 실패가 배치를 막지 않도록
+            db.rollback()
+            failed += 1
+            logger.warning("us financials backfill failed for %s: %s", ticker, e)
+
+    remaining = len(pending) - done
+    logger.info(
+        "us financials backfill: done=%d failed=%d reconciled=%d remaining=%d",
+        done, failed, reconciled, remaining,
+    )
+    return {"done": done, "failed": failed, "reconciled": reconciled, "remaining": remaining}
