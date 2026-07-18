@@ -56,8 +56,8 @@ DART API 그룹: DS001 공시정보 · DS002 정기보고서 주요정보 · DS0
    - **fnlttSinglAcntAll**(2019020, 단일회사 전체재무제표 — 회사별 실계정값): 삼성·SK하이닉스·현대차 2024 사업보고서 CFS 현금흐름표에 감가/무형상각 add-back **미제출**. 대형사는 조정을 `ifrs-full_AdjustmentsForReconcileProfitLoss`(조정) 단일 합계로 요약하고 상각비를 유형·무형자산 주석에서 뺀다.
    - **xbrlTaxonomy**(2020001, 재무제표 양식/표준계정 정의): `dart_AdjustmentsForDepreciationExpense`·`dart_AdjustmentsForAmortisationExpense` 표준계정이 **정의는 되어 있으나**, 정의는 "채울 수 있는 칸"일 뿐 회사의 실제 제출 여부와 무관.
    - 결론: 구조화 API로 대체하면 대형사 EBITDA 과소계산 회귀 → `report_parser.py` 원문 XML 파싱(유형·무형자산 주석 fallback 포함) 유지가 정답. 선행조건 부정으로 판정, 코드 변경 없음.
-5. **DS002 주주현황 → 최대주주**: 딥다이브 원문 파싱 대체.
-6. **DS005 정형 이벤트**: 딥다이브 이벤트 탐색에 정형 공시 추가(뉴스 보조).
+5. ✅ **DS005 주주현황 → 최대주주** (#434 완료): hyslrSttus 로 최대주주명·특수관계인 합산 지분율을 딥다이브 overview 에 구조화 주입(LLM 자유서술 대신). 미공시·실패는 원문 서술 폴백.
+6. ✅ **DS005 정형 이벤트** (#435 완료): fetch_disclosures 에 pblntf_ty 인자 추가, tool_event_search 가 주요사항보고(B)를 키워드 필터 없이 전량 병합(뉴스 보조). 신규 API 없이 기존 함수 확장.
 
 ## 5. 확정된 결정 (2026-07-17)
 - **가격 소스**: 네이버/KRX 유지(OpenDART 미제공). 재무·배당·주식수·지표만 DART 통일.
