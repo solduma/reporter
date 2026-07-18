@@ -44,3 +44,17 @@ def test_foreign_delta_change():
 def test_foreign_delta_insufficient_data():
     assert foreign_delta([None, None]) is None
     assert foreign_delta([5.0]) is None
+
+
+def test_warm_cache_calls_flow_computations(monkeypatch):
+    # warm_cache 는 양 시장 flow + 양 지수 flow 를 미리 호출해 캐시를 데운다.
+    from app.services import sector_flow
+
+    markets, indices = [], []
+    monkeypatch.setattr(sector_flow, "compute_flows", lambda m, session=None: markets.append(m) or [])
+    monkeypatch.setattr(
+        sector_flow, "index_flow_score", lambda n, session=None: indices.append(n) or None
+    )
+    sector_flow.warm_cache()
+    assert set(markets) == {"KR", "US"}
+    assert set(indices) == {"KOSPI", "KOSDAQ"}

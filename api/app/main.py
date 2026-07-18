@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -42,10 +43,23 @@ async def lifespan(app: FastAPI):
     fallback.register_sink(fallback_store.db_sink)
     # KIS 실시간 시세 WebSocket 상시 연결(키 없으면 자동 비활성).
     realtime_manager.start()
+    # 섹터·지수 flow 캐시 워밍 — 종목 analysis·스크리너 첫 요청이 cold ETF 봉 읽기(수백ms~수초)를
+    # 물지 않도록 기동 직후 백그라운드 스레드로 데운다(startup 블로킹 방지). 실패는 무시(다음
+    # 온디맨드 호출이 채움).
+    threading.Thread(target=_warm_flow_cache, name="flow-warm", daemon=True).start()
     try:
         yield
     finally:
         await realtime_manager.stop()
+
+
+def _warm_flow_cache() -> None:
+    from app.services import sector_flow
+
+    try:
+        sector_flow.warm_cache()
+    except Exception as e:  # 워밍 실패는 치명적 아님(온디맨드가 폴백)
+        logging.getLogger(__name__).warning("flow cache warm failed: %s", e)
 
 
 app = FastAPI(title="reporter web API", lifespan=lifespan)
