@@ -124,6 +124,35 @@ def test_fetch_periodic_skips_halted_zero_bars():
     assert candles[0].ts.date().isoformat() == "2026-07-08"
 
 
+def test_fetch_periodic_skips_ohl_zero_with_volume():
+    # 소량 체결이 있어 volume>0 이지만 OHL 만 0 으로 오는 오염봉도 배제한다(시고저 정보 없음).
+    from datetime import datetime
+
+    payload = [
+        {
+            "localDate": "20200128",
+            "openPrice": 0.0,
+            "highPrice": 0.0,
+            "lowPrice": 0.0,
+            "closePrice": 829.0,
+            "accumulatedTradingVolume": 401,  # volume>0 이지만 OHL 전부 0
+        },
+        {
+            "localDate": "20200129",
+            "openPrice": 830.0,
+            "highPrice": 850.0,
+            "lowPrice": 820.0,
+            "closePrice": 845.0,
+            "accumulatedTradingVolume": 12000,
+        },
+    ]
+    candles = chart.fetch_periodic(
+        "033790", "day", datetime(2020, 1, 1), datetime(2020, 1, 29), _session_returning(payload)
+    )
+    assert len(candles) == 1
+    assert candles[0].ts.date().isoformat() == "2020-01-29"
+
+
 def test_fetch_periodic_handles_non_list_response():
     candles = chart.fetch_periodic(
         "005930", "month", __import__("datetime").datetime(2023, 1, 1),
