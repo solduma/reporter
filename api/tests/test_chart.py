@@ -94,6 +94,36 @@ def test_fetch_periodic_parses_daily():
     assert c.foreign_ratio == 46.5
 
 
+def test_fetch_periodic_skips_halted_zero_bars():
+    # 거래정지일: 네이버가 closePrice 만 얼리고 OHL·거래량을 0 으로 준다 → 저장하지 않는다.
+    from datetime import datetime
+
+    payload = [
+        {
+            "localDate": "20260707",
+            "openPrice": 0.0,
+            "highPrice": 0.0,
+            "lowPrice": 0.0,
+            "closePrice": 267.0,
+            "accumulatedTradingVolume": 0,
+            "foreignRetentionRate": 30.07,
+        },
+        {
+            "localDate": "20260708",
+            "openPrice": 285500.0,
+            "highPrice": 300000.0,
+            "lowPrice": 273500.0,
+            "closePrice": 277000.0,
+            "accumulatedTradingVolume": 27768050,
+        },
+    ]
+    candles = chart.fetch_periodic(
+        "000040", "day", datetime(2026, 7, 1), datetime(2026, 7, 8), _session_returning(payload)
+    )
+    assert len(candles) == 1  # zero-bar 제외, 정상봉만
+    assert candles[0].ts.date().isoformat() == "2026-07-08"
+
+
 def test_fetch_periodic_handles_non_list_response():
     candles = chart.fetch_periodic(
         "005930", "month", __import__("datetime").datetime(2023, 1, 1),

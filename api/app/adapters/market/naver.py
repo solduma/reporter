@@ -49,6 +49,12 @@ def _parse_periodic(rows: list[dict]) -> list[Candle]:
     candles: list[Candle] = []
     for r in rows:
         try:
+            volume = int(r.get("accumulatedTradingVolume", 0))
+            # 거래정지·정리매매·미체결일: 네이버가 closePrice 만 직전가로 얼리고 OHL·거래량을 0 으로
+            # 준다. 이 sentinel 봉을 저장하면 OHL 기반 지표(ATR·갭·추세)가 오염되므로 건너뛴다
+            # (KIS 폴백 파서 kis._parse_output2 와 동일 규약).
+            if volume == 0:
+                continue
             candles.append(
                 Candle(
                     ts=datetime.strptime(r["localDate"], "%Y%m%d"),
@@ -56,7 +62,7 @@ def _parse_periodic(rows: list[dict]) -> list[Candle]:
                     high=float(r["highPrice"]),
                     low=float(r["lowPrice"]),
                     close=float(r["closePrice"]),
-                    volume=int(r.get("accumulatedTradingVolume", 0)),
+                    volume=volume,
                     foreign_ratio=r.get("foreignRetentionRate"),  # 미국(foreign)은 없음 → None
                 )
             )
