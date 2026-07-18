@@ -215,3 +215,68 @@ def test_liq_min_none_keeps_all_listed(db):
     db.commit()
     codes = _codes(db, liq_min=None)
     assert codes == {"000001", "000002", "000003"}
+
+
+@pytest.fixture
+def db_peer(monkeypatch):
+    # peer_scores 는 UniverseSnapshot·GrowthMetric·Financial·SectorTheme(Stock) 을 조회한다.
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    from app.db.models import (
+        Financial,
+        GrowthMetric,
+        SectorTheme,
+        SectorThemeStock,
+        UniverseSnapshot,
+    )
+
+    eng = create_engine("sqlite://")
+    Base.metadata.create_all(
+        eng,
+        tables=[
+            UniverseSnapshot.__table__, GrowthMetric.__table__, Financial.__table__,
+            SectorTheme.__table__, SectorThemeStock.__table__,
+        ],
+    )
+    # 섹터 flow(외부 IO)는 이 테스트 관심사(축 산출) 밖 → 빈 값으로 목킹.
+    monkeypatch.setattr(screener.sector_flow, "compute_flows", lambda market, session=None: [])
+    monkeypatch.setattr(screener.sector_flow, "index_flow_score", lambda name, session=None: None)
+    s = sessionmaker(bind=eng)()
+    yield s
+    s.close()
+
+
+def test_peer_scores_computes_axes(db_peer):
+    # 동일업종 점수: 최신 스냅샷의 종목만 4축·종합 산출. trend_score 는 스냅샷값 그대로.
+    from app.db.models import GrowthMetric
+
+    s1 = _snap("000001", "A", close=10000, tv=500_000_000)
+    s1.trend_score = 72.0
+    s1.rs_rating = 88
+    s2 = _snap("000002", "B", close=20000, tv=500_000_000)
+    s2.trend_score = 40.0
+    db_peer.add_all([s1, s2])
+    db_peer.add(GrowthMetric(stock_code="000001", period="2026.03", revenue_yoy=0.3, op_yoy=0.4))
+    db_peer.commit()
+
+    scores = screener.peer_scores(db_peer, ["000001", "000002"])
+    assert set(scores) == {"000001", "000002"}
+    assert scores["000001"]["trend"] == 72.0  # 스냅샷 trend_score 그대로
+    assert scores["000002"]["trend"] == 40.0
+    # 종합은 계산 가능 축 평균(None 축 제외) — 최소 trend 는 있으니 None 아님.
+    assert scores["000001"]["overall"] is not None
+
+
+def test_peer_scores_skips_codes_not_in_snapshot(db_peer):
+    # 최신 스냅샷에 없는 종목은 키가 없다(계산 불가).
+    db_peer.add(_snap("000001", "A", close=10000, tv=500_000_000))
+    db_peer.commit()
+    scores = screener.peer_scores(db_peer, ["000001", "999999"])
+    assert "000001" in scores
+    assert "999999" not in scores
+
+
+def test_peer_scores_empty_codes():
+    # codes 비면 빈 dict (DB 접근 없음).
+    assert screener.peer_scores(None, []) == {}

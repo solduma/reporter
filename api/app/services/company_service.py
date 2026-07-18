@@ -275,7 +275,11 @@ def peers_fresh(db: Session, code: str) -> bool:
 
 
 def peer_valuations(db: Session, codes: list[str]) -> dict[str, tuple[str | None, str | None]]:
-    """peer 종목들의 최근(추정 아닌) 분기 ev_ebitda·psr 표시문자열. period desc 로 최신 채움."""
+    """peer 종목들의 최근(추정 아닌) ev_ebitda·psr 표시문자열. period desc 로 최신 채움.
+
+    ev_ebitda 는 연간(.12)에만, psr 은 분기에도 있어 서로 다른 period 에 산다. 한 지표가 있는
+    첫 행에서 종목을 확정하면 다른 지표를 놓치므로, 두 지표를 독립 dict 로 각각 최신값 채운다.
+    """
     if not codes:
         return {}
     rows = db.scalars(
@@ -283,15 +287,15 @@ def peer_valuations(db: Session, codes: list[str]) -> dict[str, tuple[str | None
         .where(Financial.stock_code.in_(codes), Financial.is_estimate.is_(False))
         .order_by(Financial.period.desc())
     ).all()
-    out: dict[str, tuple[str | None, str | None]] = {}
+    ev_map: dict[str, str] = {}
+    psr_map: dict[str, str] = {}
     for r in rows:
-        if r.stock_code in out:
-            continue
-        if r.ev_ebitda is not None or r.psr is not None:
-            ev = f"{r.ev_ebitda:.1f}" if r.ev_ebitda is not None else None
-            psr = f"{r.psr:.2f}" if r.psr is not None else None
-            out[r.stock_code] = (ev, psr)
-    return out
+        if r.ev_ebitda is not None and r.stock_code not in ev_map:
+            ev_map[r.stock_code] = f"{r.ev_ebitda:.1f}"
+        if r.psr is not None and r.stock_code not in psr_map:
+            psr_map[r.stock_code] = f"{r.psr:.2f}"
+    codes_with_val = set(ev_map) | set(psr_map)
+    return {c: (ev_map.get(c), psr_map.get(c)) for c in codes_with_val}
 
 
 def sync_peers(db: Session, code: str) -> None:

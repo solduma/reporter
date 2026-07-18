@@ -449,6 +449,49 @@ def _screen_topdown(db, base, as_of, sort, limit, offset) -> ScreenerResult:
     return ScreenerResult(as_of=as_of, total=total, items=items)
 
 
+def peer_scores(db: Session, codes: list[str]) -> dict[str, dict[str, float | None]]:
+    """동일업종 종목들의 4축(성장·가치·추세·탑다운)·종합 점수. {code: {overall,growth,value,trend,topdown}}.
+
+    종목분석·스크리너와 동일한 절대 밴드를 재사용해(집합 무관) 같은 점수를 낸다. 최신 스냅샷에
+    없는 종목은 키가 없다(계산 불가). 페이지네이션·정렬 없이 요청 종목만 산출한다.
+    """
+    if not codes:
+        return {}
+    as_of = _latest_date(db)
+    if as_of is None:
+        return {}
+    rows = db.execute(
+        select(UniverseSnapshot, GrowthMetric)
+        .outerjoin(GrowthMetric, GrowthMetric.stock_code == UniverseSnapshot.stock_code)
+        .where(UniverseSnapshot.snapshot_date == as_of, UniverseSnapshot.stock_code.in_(codes))
+    ).all()
+    fin_map = _latest_financials(db, codes)
+    div_map = _latest_dividends(db, codes)
+    for c, fin in fin_map.items():
+        dy = div_map.get(c)
+        if dy is not None:
+            fin.div_yield = dy  # 세션 객체 in-memory 보정(읽기 전용)
+    sector_map = _stock_sector_map(db, codes)
+    flows = _topdown_scores(db)
+    idx_cache: dict[str | None, float | None] = {}
+
+    out: dict[str, dict[str, float | None]] = {}
+    for u, g in rows:
+        gsc = _growth_score(u, g)
+        vsc = _value_score(fin_map.get(u.stock_code), g)
+        tsc = u.trend_score
+        kr_sec = sector_map.get(u.stock_code)
+        if u.market not in idx_cache:
+            idx_cache[u.market] = _index_flow(u.market)
+        rs = float(u.rs_rating) if u.rs_rating else None
+        dsc = _stock_topdown_score(kr_sec, flows, idx_cache[u.market], rs)
+        out[u.stock_code] = {
+            "overall": analysis_scoring.overall([gsc, vsc, tsc, dsc]),
+            "growth": gsc, "value": vsc, "trend": tsc, "topdown": dsc,
+        }
+    return out
+
+
 # ── 종합 전략(계산 가능한 축 평균) ──────────────────────────────────────
 def _screen_overall(db, base, as_of, sort, limit, offset) -> ScreenerResult:
     """성장·가치·추세·탑다운 중 계산 가능한 축의 단순 평균(테크노펀더멘탈 종합과 동일 규칙).
