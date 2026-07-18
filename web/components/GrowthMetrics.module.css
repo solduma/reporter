@@ -15,6 +15,24 @@
   min-width: 0;
 }
 
+/* 클릭 가능한 커버리지 타일 — 기본 타일 외형 유지 + 버튼 리셋 + hover 강조. */
+.tileButton {
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.tileButton:hover {
+  border-color: var(--buy);
+  background: var(--hold-bg);
+}
+
+.chevron {
+  color: var(--muted);
+  font-weight: 700;
+}
+
 .label {
   color: var(--muted);
   font-size: 0.8rem;

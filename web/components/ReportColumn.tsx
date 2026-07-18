@@ -9,9 +9,17 @@ interface Props {
   title?: string;
   icon?: string;
   showHeader?: boolean;
+  emptyLabel?: string;
 }
 
-export default function ReportColumn({ reports, loading, title, icon, showHeader = true }: Props) {
+export default function ReportColumn({
+  reports,
+  loading,
+  title,
+  icon,
+  showHeader = true,
+  emptyLabel = "오늘 발행된 리포트가 없습니다",
+}: Props) {
   return (
     <div className={styles.column}>
       {showHeader ? (
@@ -25,7 +33,7 @@ export default function ReportColumn({ reports, loading, title, icon, showHeader
       {loading ? (
         <p className={styles.placeholder}>불러오는 중…</p>
       ) : reports.length === 0 ? (
-        <p className={styles.placeholder}>오늘 발행된 리포트가 없습니다</p>
+        <p className={styles.placeholder}>{emptyLabel}</p>
       ) : (
         <div className={styles.list}>
           {reports.map((report) => (
