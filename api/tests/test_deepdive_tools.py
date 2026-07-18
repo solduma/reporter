@@ -37,6 +37,24 @@ def test_recent_periodic_report_not_found_note(monkeypatch):
     assert "찾지 못" in result["note"]
 
 
+def test_recent_periodic_report_caches_within_job(monkeypatch):
+    # overview·business 가 같은 문서를 요청하므로 첫 조회를 ctx 캐시로 재사용(라이브 중복 제거).
+    find_calls = {"n": 0}
+
+    def _find(*a, **k):
+        find_calls["n"] += 1
+        return "20260101000001"  # rcept_no
+
+    monkeypatch.setattr(tools.dart, "find_periodic_report", _find)
+    monkeypatch.setattr(tools.dart, "fetch_document_text", lambda *a, **k: "본문")
+    ctx = _ctx()
+    first = tools.tool_recent_periodic_report(ctx, {})
+    calls_after_first = find_calls["n"]
+    second = tools.tool_recent_periodic_report(ctx, {})
+    assert first == second and first["available"] is True
+    assert find_calls["n"] == calls_after_first  # 두 번째는 DART 재조회 없음(캐시 히트)
+
+
 def test_dispatch_propagates_quota_to_abort(monkeypatch):
     # DART 한도초과는 dispatch 가 오류 dict 로 삼키지 않고 전파 → run_stage→run_job 이 중단.
 

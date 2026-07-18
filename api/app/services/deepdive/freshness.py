@@ -29,19 +29,23 @@ logger = logging.getLogger(__name__)
 def refresh(db: Session, settings: Settings, code: str) -> None:
     """딥다이브 대상 종목의 재무를 신선화한다(stale 시 동기·백필 + 파생지표 재계산). 실패는 흡수."""
     if not company_service.financials_fresh(db, code):
+        before_fp = financials_fingerprint(db, code)
         try:
             company_service.sync_financials(db, code)  # 네이버 최신 분기 → financials
         except Exception as e:
             logger.warning("deepdive freshness: sync_financials 실패 %s: %s", code, e)
-        try:
-            # 보고서 원문 백필 — EV/EBITDA(정밀 D&A·역사시총) 재산출. sync_state 완료 마킹돼도
-            # 갱신을 위해 강제 재실행(backfill_stock 자체는 멱등 upsert).
-            if report_ingest.backfill_stock(db, settings, code):
-                sync_state.mark(db, "report_10y", code)
-                db.commit()
-        except Exception as e:
-            db.rollback()
-            logger.warning("deepdive freshness: report backfill 실패 %s: %s", code, e)
+        # 보고서 원문 백필(EV/EBITDA 재산출)은 종목당 document.xml(수MB) 다운로드라 무겁다.
+        # 재무가 실제로 바뀌었거나(지문 변화) 아직 한 번도 백필 안 된 종목만 재실행한다 —
+        # 야간 배치가 이미 채웠고 재무도 그대로면 재다운로드는 DART 콜·시간 낭비일 뿐이다.
+        changed = financials_fingerprint(db, code) != before_fp
+        if changed or not company_service.report_10y_done(db, code):
+            try:
+                if report_ingest.backfill_stock(db, settings, code):
+                    sync_state.mark(db, "report_10y", code)
+                    db.commit()
+            except Exception as e:
+                db.rollback()
+                logger.warning("deepdive freshness: report backfill 실패 %s: %s", code, e)
 
     # financials 가 갱신됐거나 EBITDA 가 새로 채워진 경우 EBITDA 성장축 정합(외부 호출 없음).
     try:
