@@ -5,10 +5,10 @@ from __future__ import annotations
 from datetime import date
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
-from app.db.models import Base, UniverseSnapshot
+from app.db.models import Base, ReportFinancial, SyncState, UniverseSnapshot
 from app.services import report_ingest as ri
 
 
@@ -16,6 +16,17 @@ from app.services import report_ingest as ri
 def db():
     engine = create_engine("sqlite://")
     Base.metadata.create_all(engine, tables=[UniverseSnapshot.__table__])
+    session = sessionmaker(bind=engine)()
+    yield session
+    session.close()
+
+
+@pytest.fixture
+def db_reconcile():
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(
+        engine, tables=[ReportFinancial.__table__, SyncState.__table__]
+    )
     session = sessionmaker(bind=engine)()
     yield session
     session.close()
@@ -78,3 +89,34 @@ def test_period_str():
     assert ri._period_str(2023, "annual") == "2023.12"
     assert ri._period_str(2026, "half") == "2026.06"
     assert ri._period_str(2026, "quarter") == "2026.03"
+
+
+def _rf(code, period="2025.12"):
+    return ReportFinancial(
+        stock_code=code, period=period, fs_div="CFS", report_kind="annual", rcept_no="20260101000001"
+    )
+
+
+def test_reconcile_restores_marker_for_report_financial_without_marker(db_reconcile):
+    # report_financials 행이 있는데 마커가 없는 종목 → DART 재조회 없이 마커 복원.
+    db_reconcile.add(_rf("000001"))
+    db_reconcile.commit()
+    restored = ri._reconcile_markers(db_reconcile, ["000001"], set())
+    assert restored == 1
+    marked = db_reconcile.scalars(
+        select(SyncState.stock_code).where(SyncState.domain == "report_10y")
+    ).all()
+    assert marked == ["000001"]
+
+
+def test_reconcile_skips_when_no_report_financial(db_reconcile):
+    # report_financials 없는 종목(미백필)은 복원하지 않는다 → 정상 백필 대상 유지.
+    restored = ri._reconcile_markers(db_reconcile, ["000002"], set())
+    assert restored == 0
+
+
+def test_reconcile_ignores_already_marked(db_reconcile):
+    db_reconcile.add(_rf("000003"))
+    db_reconcile.commit()
+    restored = ri._reconcile_markers(db_reconcile, ["000003"], {"000003"})
+    assert restored == 0
