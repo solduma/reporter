@@ -186,6 +186,19 @@ def run_job(db: Session, job: DeepDiveJob, settings: Settings | None = None) -> 
         _fail(db, job, f"실행 오류: {e}")
 
 
+def _build_verdict(entry, target, upside: float | None) -> str | None:
+    """최상단 배지 문자열 '분류 · 목표가 · 업사이드'. 있는 항목만 잇고, 전부 없으면 None.
+
+    목표가는 원 단위 천단위 콤마(양수일 때만), 업사이드는 정수 %.
+    """
+    parts: list[str] = [str(entry) if entry else "분석"]
+    if isinstance(target, (int, float)) and target > 0:
+        parts.append(f"목표가 {target:,.0f}원")
+    if upside is not None:
+        parts.append(f"업사이드 {upside:.0f}%")
+    return " · ".join(parts) if (upside is not None or entry or target) else None
+
+
 def _finalize(
     llm: LLMPort, model: str, code: str, prior: dict, rep: DeepDiveReport, fin_fingerprint: str = ""
 ) -> None:
@@ -193,12 +206,12 @@ def _finalize(
     val = prior.get("valuation", {}) or {}
     # 신 밸류에이션(다중 방식 blend)은 final_upside_pct, 구 스키마는 upside_pct.
     upside = val.get("final_upside_pct", val.get("upside_pct"))
-    entry = val.get("entry_case")
     rep.upside_pct = float(upside) if isinstance(upside, (int, float)) else None
-    if rep.upside_pct is not None:
-        rep.verdict = f"{entry or '분석'} · 업사이드 {rep.upside_pct:.0f}%"
-    elif entry:
-        rep.verdict = str(entry)
+    rep.verdict = _build_verdict(
+        val.get("entry_case"),
+        val.get("final_target_price", val.get("target_price")),
+        rep.upside_pct,
+    )
 
     user = (
         f"[종목] {code}\n\n5단계 딥다이브 구조화 결과를 종합해 마크다운 보고서를 써라.\n\n"
