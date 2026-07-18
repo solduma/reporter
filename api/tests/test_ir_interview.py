@@ -89,8 +89,9 @@ def test_total_cap_at_80(db, monkeypatch):
     )
     monkeypatch.setattr(
         ir_interview, "_questions_for_item",
-        lambda llm, model, ctx, item, context: [
-            {"q": f"q{i}", "intent": "i", "valuation_link": "l", "expected_signal": "s"}
+        # 아이템·질문마다 고유 텍스트(dedup 에 안 걸리게) → 순수 캡 로직 검증.
+        lambda llm, model, ctx, item, context, asked: [
+            {"q": f"{item['item']}-q{i}", "intent": "i", "valuation_link": "l", "expected_signal": "s"}
             for i in range(10)
         ],
     )
@@ -98,3 +99,28 @@ def test_total_cap_at_80(db, monkeypatch):
     monkeypatch.setattr(ir_interview.tools, "resolve_corp_code", lambda db, code: None)
     result = ir_interview.generate(db, "000001")
     assert result["total_questions"] == 80  # 100 → 80 캡
+
+
+def test_generate_dedupes_cross_item_questions(db, monkeypatch):
+    # 여러 아이템이 같은 질문을 반환해도 취합 dedup 으로 1건만 남는다(중복 최적화 핵심).
+    rep = DeepDiveReport(stock_code="000001", valuation_json={"methods": []})
+    db.add(rep)
+    db.commit()
+    monkeypatch.setattr(ir_interview, "get_llm", lambda s: object())
+    monkeypatch.setattr(
+        ir_interview, "_derive_items",
+        lambda llm, model, ctx, context: [{"item": f"item{i}", "why_matters": "w",
+                                           "linked_valuation_assumption": "a"} for i in range(3)],
+    )
+    # 세 아이템 모두 동일한 질문 2개 반환(같은 드라이버 반복 시뮬레이션).
+    monkeypatch.setattr(
+        ir_interview, "_questions_for_item",
+        lambda llm, model, ctx, item, context, asked: [
+            {"q": "과천 DC 현재 입주율은 몇 %입니까?", "intent": "i", "valuation_link": "l", "expected_signal": "s"},
+            {"q": "만실 예상 시점은 언제입니까?", "intent": "i", "valuation_link": "l", "expected_signal": "s"},
+        ],
+    )
+    monkeypatch.setattr(ir_interview.tools, "resolve_corp_code", lambda db, code: None)
+    result = ir_interview.generate(db, "000001")
+    # 3아이템 × 2질문 = 6이지만 중복 제거로 2개만.
+    assert result["total_questions"] == 2
