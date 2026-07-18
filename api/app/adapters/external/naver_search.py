@@ -36,6 +36,24 @@ def _strip(text: str) -> str:
     return _TAG_RE.sub("", unescape(text or "")).strip()
 
 
+def _norm_date(raw: str) -> str:
+    """블로그 postdate(YYYYMMDD) 또는 뉴스 pubDate(RFC822)를 YYYYMMDD 로 통일. 실패 시 ""(정렬 후순위).
+
+    뉴스 pubDate 예: 'Mon, 26 May 2026 09:24:00 +0900'. 파싱해 날짜 비교·recency 정렬에 쓴다.
+    """
+    raw = (raw or "").strip()
+    if not raw:
+        return ""
+    if raw.isdigit() and len(raw) == 8:  # 블로그 postdate
+        return raw
+    try:
+        from email.utils import parsedate_to_datetime
+
+        return parsedate_to_datetime(raw).strftime("%Y%m%d")
+    except (ValueError, TypeError):
+        return ""
+
+
 def _search(url: str, source: str, client_id: str, client_secret: str, query: str,
             display: int, sort: str, session: requests.Session) -> list[SearchHit]:
     if not client_id or not client_secret:
@@ -59,7 +77,7 @@ def _search(url: str, source: str, client_id: str, client_secret: str, query: st
             link=(it.get("link") or "").strip(),
             description=_strip(it.get("description", "")),
             source=source,
-            post_date=(it.get("postdate") or it.get("pubDate") or "").strip(),
+            post_date=_norm_date(it.get("postdate") or it.get("pubDate") or ""),
             blogger=_strip(it.get("bloggername", "")),
         ))
     return hits
