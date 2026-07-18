@@ -121,6 +121,35 @@ def _upsert_dividend(
     db.execute(stmt)
 
 
+# DS003 재무지표(fnlttSinglIndx)는 2023 3Q부터 제공 — 그 이전 연도는 조회해도 013(없음)이라
+# 콜만 낭비한다. 사업보고서(연간) 기준 2023 회계연도부터만 시도하고 이전은 네이버 ROE 폴백.
+_DS003_FROM_YEAR = 2023
+
+
+def _upsert_roe(
+    db: Session,
+    code: str,
+    period: str,
+    settings: Settings,
+    corp_code: str,
+    year: int,
+    session: requests.Session,
+) -> None:
+    """OpenDART 재무지표(DS003)의 ROE(%)를 financials 연간 행에 반영 — 소스 통일.
+
+    2023 회계연도부터만 조회한다(그 이전은 미제공 → 네이버 sync_financials.roe 폴백). roe 만
+    갱신해 같은 행의 per/pbr/psr(financials_backfill)·다른 값은 건드리지 않는다.
+    """
+    if year < _DS003_FROM_YEAR:
+        return
+    roe = dart.fetch_roe(settings.dart_api_key, corp_code, year, 4, session)
+    if roe is None:
+        return
+    stmt = insert(Financial).values(stock_code=code, period=period, is_estimate=False, roe=roe)
+    stmt = stmt.on_conflict_do_update(constraint="uq_financial", set_={"roe": roe})
+    db.execute(stmt)
+
+
 def _shares_from_snapshot(db: Session, code: str) -> int | None:
     """유니버스 스냅샷의 시가총액÷종가로 상장주식수를 역산(KRX shares 조회 실패 시 폴백).
 
@@ -202,6 +231,7 @@ def backfill_stock(
             # 배당(DS002 alotMatter)은 연간 항목 — annual 보고서에서만 조회해 financials 에 반영.
             if kind == "annual":
                 _upsert_dividend(db, code, period, settings, corp_code, year, session)
+                _upsert_roe(db, code, period, settings, corp_code, year, session)
             db.commit()
 
     if not any_data:

@@ -48,6 +48,7 @@ _DOCUMENT_URL = "https://opendart.fss.or.kr/api/document.xml"
 _ELESTOCK_URL = "https://opendart.fss.or.kr/api/elestock.json"
 _STOCK_TOTQY_URL = "https://opendart.fss.or.kr/api/stockTotqySttus.json"  # DS002 주식총수현황
 _ALOTMATTER_URL = "https://opendart.fss.or.kr/api/alotMatter.json"  # DS002 배당에관한사항
+_FNLTT_INDX_URL = "https://opendart.fss.or.kr/api/fnlttSinglIndx.json"  # DS003 단일회사 주요 재무지표
 _DART_VIEWER = "https://dart.fss.or.kr/dsaf001/main.do?rcpNo={rcept_no}"
 
 # 분기 → DART 보고서 코드. 1Q=11013·반기=11012·3Q=11014·사업보고서(연간)=11011.
@@ -189,6 +190,44 @@ def _dividend_row(rows: list[dict], se_key: str) -> float | None:
     common = next((r for r in matched if "보통주" in (r.get("stock_knd") or "")), None)
     row = common or next((r for r in matched if (r.get("stock_knd") or "").strip() == "-"), None)
     return _float_field(row, "thstrm") if row else None
+
+
+# DS003 재무지표 분류: 수익성/안정성/성장성/활동성. ROE 는 수익성(M210000)에 있다.
+_IDX_PROFITABILITY = "M210000"
+
+
+def fetch_roe(
+    api_key: str, corp_code: str, year: int, quarter: int, session: requests.Session
+) -> float | None:
+    """DS003 단일회사 주요재무지표(수익성)에서 ROE(%)를 뽑는다. 실패·없음이면 None.
+
+    fnlttSinglIndx 는 idx_cl_code(분류)별로 idx_nm(지표명)·idx_val(값) 행을 준다. 수익성지표
+    (M210000)의 'ROE' 행 값을 쓴다. **2023 3Q부터 제공** — 그 이전은 status 013 이라 None 이
+    돌아가고 호출측이 네이버 스크랩으로 폴백한다. 네이버 ROE 스크랩 대체(소스 통일).
+    """
+    reprt_code = DART_REPORT_CODES.get(quarter)
+    if not reprt_code:
+        return None
+    params = {
+        "crtfc_key": api_key,
+        "corp_code": corp_code,
+        "bsns_year": str(year),
+        "reprt_code": reprt_code,
+        "idx_cl_code": _IDX_PROFITABILITY,
+    }
+    try:
+        resp = dart_throttle.get(session, _FNLTT_INDX_URL, params=params, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+    except (requests.RequestException, ValueError) as e:
+        logger.warning("dart roe failed %s %sQ%s: %s", corp_code, year, quarter, e)
+        return None
+    _raise_if_quota(data)
+    if data.get("status") != "000":
+        return None
+    # idx_nm 은 'ROE' 정확히. 유사어(자기자본영업이익률 등)와 섞이지 않게 완전일치로 잡는다.
+    row = next((r for r in data["list"] if (r.get("idx_nm") or "").strip() == "ROE"), None)
+    return _float_field(row, "idx_val") if row else None
 
 
 @dataclass
