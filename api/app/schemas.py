@@ -629,6 +629,36 @@ class DeepDiveReportOut(BaseModel):
     as_of: datetime | None = None
 
 
+class IrInterviewStatus(BaseModel):
+    """주담(IR) 인터뷰 job 진행 상태(프론트 폴링)."""
+
+    stock_code: str
+    status: str  # pending|running|done|failed|none
+    progress: int  # 0~100
+    error: str | None = None
+    has_report: bool = False
+
+
+class IrInterviewReportOut(BaseModel):
+    """주담 인터뷰 전략 결과 — 아이템→질문 트리 + 종목 메타."""
+
+    stock_code: str
+    stock_name: str | None = None
+    model: str | None = None
+    strategy: dict | None = None  # {strategy_items: [...], total_questions: N}
+    total_questions: int = 0
+    as_of: datetime | None = None
+
+
+class IrInterviewListItem(BaseModel):
+    """주담 전략 목록 항목(최상단 메뉴 목록용)."""
+
+    stock_code: str
+    stock_name: str | None = None
+    total_questions: int = 0
+    as_of: datetime | None = None
+
+
 class DeepDiveShareOut(BaseModel):
     """공유 링크 생성 응답 — 프론트가 /share/{token} URL 을 조립."""
 

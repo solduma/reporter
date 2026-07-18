@@ -748,6 +748,50 @@ export interface DeepDiveShare {
   expires_at: string;
 }
 
+// 주담(IR) 인터뷰 전략 — 아이템→질문 트리.
+export interface IrInterviewQuestion {
+  q: string;
+  intent: string; // 왜 묻는가
+  valuation_link: string; // 연결된 밸류 가정
+  expected_signal: string; // 답변→목표가 방향
+}
+
+export interface IrInterviewItem {
+  item: string;
+  why_matters: string;
+  linked_valuation_assumption: string;
+  questions: IrInterviewQuestion[];
+}
+
+export interface IrInterviewStrategy {
+  strategy_items: IrInterviewItem[];
+  total_questions: number;
+}
+
+export interface IrInterviewStatus {
+  stock_code: string;
+  status: "pending" | "running" | "done" | "failed" | "none";
+  progress: number;
+  error: string | null;
+  has_report: boolean;
+}
+
+export interface IrInterviewReport {
+  stock_code: string;
+  stock_name: string | null;
+  model: string | null;
+  strategy: IrInterviewStrategy | null;
+  total_questions: number;
+  as_of: string | null;
+}
+
+export interface IrInterviewListItem {
+  stock_code: string;
+  stock_name: string | null;
+  total_questions: number;
+  as_of: string | null;
+}
+
 // 무인증 공유 페이지가 받는 스냅샷(생성 시점 고정).
 export interface SharedDeepDive {
   stock_code: string;

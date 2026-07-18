@@ -17,6 +17,9 @@ import type {
   FinancialsStatus,
   FlowMarket,
   Holding,
+  IrInterviewListItem,
+  IrInterviewReport,
+  IrInterviewStatus,
   HoldingInput,
   Industry,
   MarketBrief,
@@ -433,6 +436,27 @@ export async function submitDeepDiveHitl(code: string, input: string): Promise<D
     throw new Error(`HITL 인풋 제출 실패 (${res.status})`);
   }
   return (await res.json()) as DeepDiveStatus;
+}
+
+// ── 주담(IR) 인터뷰 전략 ──────────────────────────────────────────────
+export async function requestIrInterview(code: string): Promise<IrInterviewStatus> {
+  const res = await fetch(apiUrl(`/api/ir-interview/${code}`), { method: "POST", cache: "no-store" });
+  if (!res.ok) {
+    throw new Error(`주담 전략 요청 실패 (${res.status})`);
+  }
+  return (await res.json()) as IrInterviewStatus;
+}
+
+export function fetchIrInterviewStatus(code: string): Promise<IrInterviewStatus> {
+  return getJson<IrInterviewStatus>(`/api/ir-interview/${code}/status`);
+}
+
+export function fetchIrInterviewReport(code: string): Promise<IrInterviewReport> {
+  return getJson<IrInterviewReport>(`/api/ir-interview/${code}`);
+}
+
+export function fetchIrInterviewList(): Promise<IrInterviewListItem[]> {
+  return getJson<IrInterviewListItem[]>("/api/ir-interview");
 }
 
 // 현 보고서를 30분짜리 무인증 공유 스냅샷으로 굳힌다. token → /share/{token} 링크 조립용.
