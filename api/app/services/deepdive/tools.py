@@ -269,10 +269,13 @@ def tool_web_search(ctx: ToolContext, args: dict) -> dict:
     query = args.get("query")
     if not query:
         return {"available": False, "note": "query 필요"}
+    name = company_service.report_stock_name(ctx.db, ctx.code) or company_service.resolve_stock_name(ctx.db, ctx.code)
     res = websearch.research(
         ctx.settings, str(query), ctx.session,
         sort=args.get("sort", "sim"),
         crawl_bodies=int(args.get("crawl", 4)),
+        aliases=search_aliases(ctx, name),  # 종목·관계사명 관련성 필터
+        seen_titles=_seen_titles(ctx),  # job 스코프 중복 방지
     )
     res["available"] = bool(res.get("hits") or res.get("bodies"))
     return res
@@ -284,6 +287,27 @@ def sector_for(ctx: ToolContext) -> str | None:
 
     themes = company_service.theme_names(ctx.db, ctx.code)
     return sector_etf.stock_kr_sector(ctx.code, themes)
+
+
+def search_aliases(ctx: ToolContext, name: str | None) -> list[str]:
+    """웹서치 관련성 판정용 alias — 종목명·코드 + 관계사(모/자회사)명. job 스코프 캐시.
+
+    제목엔 종목명이 없어도 본문/스니펫에 모·자회사가 언급된 관련 기사(예: 모회사 기사에 이 종목
+    언급)를 포착하기 위해 관계사명을 alias 에 더한다(RelatedCompany, related_company_ingest 수집)."""
+    cached = ctx._cache.get("search_aliases")
+    if cached is not None:
+        return cached
+    from app.services import related_company_ingest
+
+    aliases = [a for a in (name, _no_space(name or ""), ctx.code) if a]
+    aliases += related_company_ingest.related_names(ctx.db, ctx.code)
+    ctx._cache["search_aliases"] = aliases
+    return aliases
+
+
+def _seen_titles(ctx: ToolContext) -> set:
+    """job 스코프 '이미 본 제목' 집합 — 단계 간 웹서치 중복 크롤·중복 주입 방지."""
+    return ctx._cache.setdefault("seen_titles", set())
 
 
 def _sector_industry_names(ctx: ToolContext) -> list[str]:
@@ -300,7 +324,8 @@ def _event_candidates(ctx: ToolContext, name: str, kw) -> list[dict]:
     (2) 섹터 키워드 검색 — 과거 이벤트 커버리지. 두 소스 병합, 종목명 포함 기사만, URL 중복 제거."""
     from app.adapters.external import naver_search, naver_stock_news
 
-    aliases = [name, _no_space(name), ctx.code]
+    # 종목명·코드 + 관계사(모/자회사)명 — 제목엔 종목명 없어도 관계사 언급 기사 포착.
+    aliases = search_aliases(ctx, name)
     cand: dict[str, dict] = {}  # url → {title, summary, press, datetime, trusted}
 
     # (1) 종목 직결 뉴스 — 종목코드 연결이라 주체가 이 종목(신뢰). trusted=True.
