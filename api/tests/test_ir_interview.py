@@ -52,8 +52,9 @@ def test_sensitive_context_extracts_valuation_assumptions(db):
     assert ctx["thesis"] == {"drivers": ["신규 수주"]}
 
 
-def test_generate_requires_valuation(db):
-    # 딥다이브 밸류 결과 없으면 생성 거부.
+def test_generate_requires_valuation(db, monkeypatch):
+    # 딥다이브 밸류 결과 없으면 생성 거부(LLM 은 있다고 목킹 — 밸류 부재만 검증).
+    monkeypatch.setattr(ir_interview, "get_llm", lambda s: object())
     with pytest.raises(RuntimeError, match="딥다이브"):
         ir_interview.generate(db, "000001")
 
