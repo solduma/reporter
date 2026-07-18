@@ -77,6 +77,9 @@ _BACKFILL_CRON = CronTrigger(hour=2, minute=0, timezone=_TZ)
 # 10년 재무·밸류(PER/PBR/PSR) 점진 백필: 매일 03:30. 종목당 40분기 DART 콜이라 무거워
 # 일봉 백필(02:00)과 시차를 둔다. sync_state 로 재개 가능, 완료되면 즉시 종료.
 _FIN_BACKFILL_CRON = CronTrigger(hour=3, minute=30, timezone=_TZ)
+# 관계사(모/자회사) 수집: 매일 04:30. 종목당 DART 2콜이라 가벼워 재무 백필(03:30) 뒤. 웹서치
+# 관련성 판정 alias 원천. sync_state 로 재개 가능.
+_RELATED_BACKFILL_CRON = CronTrigger(hour=4, minute=30, timezone=_TZ)
 # 보고서 원문 파싱 백필(정밀 감가상각·EV/EBITDA): 매일 05:00. 보고서당 document.xml(수MB)
 # 다운로드라 가장 무거워 재무 백필(03:30) 이후로 뺀다. sync_state 로 재개 가능.
 _REPORT_BACKFILL_CRON = CronTrigger(hour=5, minute=0, timezone=_TZ)
@@ -206,6 +209,17 @@ def run_financials_backfill(settings: Settings | None = None) -> dict:
     session = SessionLocal()
     try:
         return financials_backfill.run_backfill_progressive(session, settings)
+    finally:
+        session.close()
+
+
+def run_related_company_backfill(settings: Settings | None = None) -> dict:
+    """관계사(모/자회사) 수집 1회분(미완 종목 per_run 개). 여러 밤에 걸쳐 전체 완성."""
+    from app.services import related_company_ingest
+
+    session = SessionLocal()
+    try:
+        return related_company_ingest.run_backfill_progressive(session, settings)
     finally:
         session.close()
 
@@ -357,6 +371,7 @@ MANUAL_BATCHES: list[tuple[str, str, object]] = [
     ("news_events", "뉴스·종목이벤트", run_news_events),
     ("disclosure_batch", "공시 수집", run_disclosure_batch),
     ("financials_backfill", "재무 백필(10년)", run_financials_backfill),
+    ("related_company", "관계사 수집", run_related_company_backfill),
     ("report_backfill", "리포트 백필(10년)", run_report_backfill),
     ("report_fulltext", "리포트 원문 소급적재", run_report_fulltext_backfill),
     ("backfill_progressive", "일봉 백필(10년)", run_backfill_progressive),
@@ -424,6 +439,14 @@ def build_scheduler(settings: Settings | None = None) -> BlockingScheduler:
         _logged("financials_10y", run_financials_backfill),
         trigger=_FIN_BACKFILL_CRON,
         id="financials_10y",
+        max_instances=1,
+        coalesce=True,
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        _logged("related_company", run_related_company_backfill),
+        trigger=_RELATED_BACKFILL_CRON,
+        id="related_company",
         max_instances=1,
         coalesce=True,
         replace_existing=True,
