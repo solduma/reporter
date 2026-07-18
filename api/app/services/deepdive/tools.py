@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 
 import requests
@@ -31,13 +31,18 @@ def _no_space(s: str) -> str:
 
 @dataclass
 class ToolContext:
-    """도구 실행 컨텍스트 — 대상 종목 + 리소스 핸들."""
+    """도구 실행 컨텍스트 — 대상 종목 + 리소스 핸들.
+
+    job 1회당 하나 생성돼 여러 단계가 공유하므로, 무거운 라이브 조회(정기보고서 본문)를
+    단계 간 재사용하도록 실행 스코프 캐시를 둔다.
+    """
 
     db: Session
     settings: Settings
     session: requests.Session
     code: str
     corp_code: str | None = None
+    _cache: dict = field(default_factory=dict)
 
 
 # ── 정기보고서(사업/반기/분기 중 최신) ────────────────────────────────
@@ -69,13 +74,22 @@ def _recent_periodic_rcept(ctx: ToolContext) -> tuple[str, str] | None:
 def tool_recent_periodic_report(ctx: ToolContext, args: dict) -> dict:
     """최신 정기보고서(사업/반기/분기 중 접수 최신)의 본문 발췌 + 종류.
 
+    overview·business 단계가 같은 종목의 같은 문서를 요청하므로, 첫 조회 결과를 ctx 캐시에
+    담아 재사용한다(정기보고서 탐색 6콜 + 본문 다운로드 1콜의 중복 제거).
     DART 한도초과는 삼키지 않고 전파해 딥다이브를 중단시킨다(불완전한 데이터로 분석 강행 방지)."""
+    cached = ctx._cache.get("recent_periodic_report")
+    if cached is not None:
+        return cached
     picked = _recent_periodic_rcept(ctx)  # DartQuotaExceeded → 전파(중단)
     if not picked:
-        return {"available": False, "note": "해당 기업의 정기보고서를 찾지 못함(발췌 생략, 다른 도구로 진행)"}
+        result = {"available": False, "note": "해당 기업의 정기보고서를 찾지 못함(발췌 생략, 다른 도구로 진행)"}
+        ctx._cache["recent_periodic_report"] = result
+        return result
     rcept, kind = picked
     text = dart.fetch_document_text(ctx.settings.dart_api_key, rcept, ctx.session, max_chars=8000)
-    return {"available": True, "kind": kind, "rcept_no": rcept, "text": text}
+    result = {"available": True, "kind": kind, "rcept_no": rcept, "text": text}
+    ctx._cache["recent_periodic_report"] = result
+    return result
 
 
 def tool_financials(ctx: ToolContext, args: dict) -> dict:

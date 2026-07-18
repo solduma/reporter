@@ -59,6 +59,42 @@ def test_inputs_hash_reflects_fingerprint():
     assert orchestrator._inputs_hash("000000", "m") == orchestrator._inputs_hash("000000", "m", "")
 
 
+def test_refresh_skips_report_backfill_when_unchanged(db, monkeypatch):
+    # 재무 stale 이지만 sync 후에도 지문이 안 바뀌고 이미 백필된 종목이면 무거운 report
+    # backfill 을 재실행하지 않는다(DART 원문 재다운로드 낭비 방지).
+    monkeypatch.setattr(freshness.company_service, "financials_fresh", lambda *a, **k: False)
+    monkeypatch.setattr(freshness.company_service, "sync_financials", lambda *a, **k: None)
+    monkeypatch.setattr(freshness.company_service, "report_10y_done", lambda *a, **k: True)
+    monkeypatch.setattr(freshness.growth_ingest, "refresh_ebitda_axis", lambda *a, **k: False)
+    called = {"backfill": 0}
+
+    def _backfill(*a, **k):
+        called["backfill"] += 1
+        return True
+
+    monkeypatch.setattr(freshness.report_ingest, "backfill_stock", _backfill)
+    freshness.refresh(db, object(), "000000")
+    assert called["backfill"] == 0  # 미변경 + 이미 완료 → 스킵
+
+
+def test_refresh_runs_report_backfill_when_not_done(db, monkeypatch):
+    # 아직 한 번도 백필 안 된 종목은 재무 미변경이라도 최초 1회 백필한다.
+    monkeypatch.setattr(freshness.company_service, "financials_fresh", lambda *a, **k: False)
+    monkeypatch.setattr(freshness.company_service, "sync_financials", lambda *a, **k: None)
+    monkeypatch.setattr(freshness.company_service, "report_10y_done", lambda *a, **k: False)
+    monkeypatch.setattr(freshness.growth_ingest, "refresh_ebitda_axis", lambda *a, **k: False)
+    monkeypatch.setattr(freshness.sync_state, "mark", lambda *a, **k: None)
+    called = {"backfill": 0}
+
+    def _backfill(*a, **k):
+        called["backfill"] += 1
+        return True
+
+    monkeypatch.setattr(freshness.report_ingest, "backfill_stock", _backfill)
+    freshness.refresh(db, object(), "000000")
+    assert called["backfill"] == 1
+
+
 def test_refresh_ebitda_axis_fills_from_db(db):
     # 연간 EBITDA 2개 → EBITDA 성장축 산출. growth_metric 행이 미리 있어야 update 가 걸린다.
     db.add_all([
