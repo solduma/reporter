@@ -97,6 +97,30 @@ def _shares_from_dart(settings: Settings, corp_code: str, today: date) -> int | 
     return None
 
 
+def _upsert_dividend(
+    db: Session,
+    code: str,
+    period: str,
+    settings: Settings,
+    corp_code: str,
+    year: int,
+    session: requests.Session,
+) -> None:
+    """OpenDART 배당(DS002)의 당기 dps·현금배당수익률을 financials 연간 행에 반영 — 소스 통일.
+
+    배당은 사업보고서에만 있는 연간 항목이라 annual period(YYYY.12)에만 upsert 한다. 미공시·무배당
+    이면 조용히 건너뛴다(네이버 스크랩 dps/div_yield 가 폴백으로 남는다). dps·div_yield 만 갱신해
+    같은 행의 다른 재무값(백필·네이버 유래)은 건드리지 않는다.
+    """
+    div = dart.fetch_dividend(settings.dart_api_key, corp_code, year, 4, session)
+    if div is None or (div.dps is None and div.div_yield is None):
+        return
+    values = {k: v for k, v in (("dps", div.dps), ("div_yield", div.div_yield)) if v is not None}
+    stmt = insert(Financial).values(stock_code=code, period=period, is_estimate=False, **values)
+    stmt = stmt.on_conflict_do_update(constraint="uq_financial", set_=values)
+    db.execute(stmt)
+
+
 def _shares_from_snapshot(db: Session, code: str) -> int | None:
     """유니버스 스냅샷의 시가총액÷종가로 상장주식수를 역산(KRX shares 조회 실패 시 폴백).
 
@@ -175,6 +199,9 @@ def backfill_stock(
             # EBITDA = 영업이익 + D&A. 연간만 EV/EBITDA 대상(반기/분기 누적은 TTM 아님).
             if kind == "annual" and fin.operating_income is not None and dep is not None:
                 annual_ev[period] = (fin.operating_income + dep, fin.net_debt)
+            # 배당(DS002 alotMatter)은 연간 항목 — annual 보고서에서만 조회해 financials 에 반영.
+            if kind == "annual":
+                _upsert_dividend(db, code, period, settings, corp_code, year, session)
             db.commit()
 
     if not any_data:
