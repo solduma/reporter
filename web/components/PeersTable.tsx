@@ -7,12 +7,15 @@ interface Props {
   baseCode: string;
 }
 
-interface Column {
-  key: keyof Omit<Peer, "stock_code" | "name">;
+interface MetricColumn {
+  key: keyof Pick<
+    Peer,
+    "price" | "market_cap" | "foreign_ratio" | "per" | "pbr" | "psr" | "roe" | "ev_ebitda"
+  >;
   label: string;
 }
 
-const COLUMNS: Column[] = [
+const METRIC_COLUMNS: MetricColumn[] = [
   { key: "price", label: "현재가" },
   { key: "market_cap", label: "시가총액" },
   { key: "foreign_ratio", label: "외국인비율" },
@@ -23,6 +26,30 @@ const COLUMNS: Column[] = [
   { key: "ev_ebitda", label: "EV/EBITDA" },
 ];
 
+interface ScoreColumn {
+  key: keyof Pick<
+    Peer,
+    "overall_score" | "growth_score" | "value_score" | "trend_score" | "topdown_score"
+  >;
+  label: string;
+}
+
+const SCORE_COLUMNS: ScoreColumn[] = [
+  { key: "overall_score", label: "종합" },
+  { key: "growth_score", label: "성장" },
+  { key: "value_score", label: "가치" },
+  { key: "trend_score", label: "추세" },
+  { key: "topdown_score", label: "탑다운" },
+];
+
+// 종목분석 AnalysisPanel 과 동일 색 기준(60↑ 매수·40~60 중립·40↓ 매도).
+function scoreClass(score: number | null): string {
+  if (score === null) return styles.scoreNa;
+  if (score >= 60) return styles.scoreHigh;
+  if (score >= 40) return styles.scoreMid;
+  return styles.scoreLow;
+}
+
 export default function PeersTable({ peers, baseCode }: Props) {
   return (
     <div className={styles.scroll}>
@@ -32,8 +59,17 @@ export default function PeersTable({ peers, baseCode }: Props) {
             <th className={styles.nameCol} scope="col">
               종목
             </th>
-            {COLUMNS.map((col) => (
+            {METRIC_COLUMNS.map((col) => (
               <th key={col.key} scope="col">
+                {col.label}
+              </th>
+            ))}
+            {SCORE_COLUMNS.map((col, i) => (
+              <th
+                key={col.key}
+                scope="col"
+                className={i === 0 ? styles.scoreHead : styles.scoreCell}
+              >
                 {col.label}
               </th>
             ))}
@@ -48,9 +84,20 @@ export default function PeersTable({ peers, baseCode }: Props) {
                   <span className={styles.name}>{peer.name}</span>
                   <span className={styles.code}>{peer.stock_code}</span>
                 </th>
-                {COLUMNS.map((col) => (
+                {METRIC_COLUMNS.map((col) => (
                   <td key={col.key}>{peer[col.key] ?? "—"}</td>
                 ))}
+                {SCORE_COLUMNS.map((col, i) => {
+                  const v = peer[col.key];
+                  return (
+                    <td
+                      key={col.key}
+                      className={`${i === 0 ? styles.scoreHead : styles.scoreCell} ${styles.score} ${scoreClass(v)}`}
+                    >
+                      {v === null || v === undefined ? "—" : Math.round(v)}
+                    </td>
+                  );
+                })}
               </tr>
             );
           })}

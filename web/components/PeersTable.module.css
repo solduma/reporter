@@ -56,3 +56,30 @@
 .base .name {
   color: var(--accent);
 }
+
+/* 점수 컬럼 — 첫 점수 컬럼(scoreHead)에만 좌측 경계선을 넣어 원시지표와 시각 구분. */
+.scoreHead {
+  border-left: 1px solid var(--border);
+}
+
+.score {
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 종목분석 AnalysisPanel 과 동일 색 등급. */
+.scoreHigh {
+  color: var(--buy);
+}
+
+.scoreMid {
+  color: var(--hold);
+}
+
+.scoreLow {
+  color: var(--sell);
+}
+
+.scoreNa {
+  color: var(--muted);
+}

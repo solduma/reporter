@@ -281,6 +281,12 @@ class PeerOut(BaseModel):
     roe: str | None
     ev_ebitda: str | None = None
     psr: str | None = None
+    # 동일업종 4축·종합 점수(0~100, 종목분석과 동일 절대 밴드). 계산 불가 축은 None.
+    overall_score: float | None = None
+    growth_score: float | None = None
+    value_score: float | None = None
+    trend_score: float | None = None
+    topdown_score: float | None = None
 
 
 class CompanyGrowth(BaseModel):

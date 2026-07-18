@@ -39,6 +39,7 @@ from app.services import (
     analysis_comment,
     candle_service,
     company_service,
+    screener_service,
     today_service,
     trend,
 )
@@ -523,8 +524,16 @@ def company_peers(
         rows = company_service.peers_rows(db, code)
     elif not company_service.peers_fresh(db, code):
         bg.add_task(company_service.sync_peers_bg, code)
+    peer_codes = [r.peer_stock_code for r in rows]
     # EV/EBITDA·PSR 은 네이버 동일업종 테이블에 없어, 각 peer 의 최근 Financial(DART 산출)에서 채운다.
-    val = company_service.peer_valuations(db, [r.peer_stock_code for r in rows])
+    val = company_service.peer_valuations(db, peer_codes)
+    # 상세 조회된 적 없는 peer 는 report_10y 백필이 안 돌아 ev_ebitda 가 빈다 → 백그라운드 백필 트리거
+    # (본 종목 온디맨드 백필과 동일 패턴). 다음 조회부터 채워진다.
+    for pc in peer_codes:
+        if not company_service.report_10y_done(db, pc):
+            bg.add_task(company_service.backfill_reports_bg, pc)
+    # 동일업종 4축·종합 점수 — 종목분석·스크리너와 동일 절대 밴드(집합 무관 같은 점수).
+    scores = screener_service.peer_scores(db, peer_codes)
     return [
         PeerOut(
             stock_code=r.peer_stock_code,
@@ -537,6 +546,10 @@ def company_peers(
             roe=r.roe,
             ev_ebitda=val.get(r.peer_stock_code, (None, None))[0],
             psr=val.get(r.peer_stock_code, (None, None))[1],
+            **{
+                f"{k}_score": v
+                for k, v in scores.get(r.peer_stock_code, {}).items()
+            },
         )
         for r in rows
     ]
