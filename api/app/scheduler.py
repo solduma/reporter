@@ -149,13 +149,15 @@ def run_candle_batch(settings: Settings | None = None) -> dict:
 
     봉 갱신 직후 RS Rating(전종목 가격 모멘텀 백분위)을 최신 종가로 다시 매긴다.
     """
-    from app.services import candle_ingest, rs_rating_ingest  # 무거운 의존성 → 지연 임포트
+    from app.services import candle_ingest, rs_rating_ingest, trend  # 무거운 의존성 → 지연 임포트
 
     session = SessionLocal()
     try:
         result = candle_ingest.run_candle_batch(session, settings)
         rs = rs_rating_ingest.run_rs_rating_batch(session)
-        return {**result, "rs_rating": rs}
+        # 확정봉 기준 /trend 응답 사전계산(상세페이지 매 요청 재계산 제거).
+        tc = trend.run_trend_precompute_batch(session)
+        return {**result, "rs_rating": rs, "trend_precompute": tc}
     finally:
         session.close()
 
