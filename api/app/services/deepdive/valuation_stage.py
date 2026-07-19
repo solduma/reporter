@@ -369,11 +369,29 @@ def _pick(arg, anchor):
     return v if v is not None else anchor
 
 
+def _det_target_per(anc: dict) -> tuple[float | None, str]:
+    """결정론적 목표 PER 과 그 출처. PEG 정당 PER 우선, 없으면(성장률≤0 등) 과거 밴드 중앙값.
+
+    목표가를 LLM 자유값이 아니라 재현 가능한 규칙으로 확정한다(환각 배제). 둘 다 없으면 (None,'').
+    """
+    fair = _num(anc.get("fair_per"))
+    if fair is not None:
+        return fair, "PEG 정당 PER"
+    band = anc.get("per_band") or {}
+    med = _num(band.get("median"))
+    if med is not None:
+        return med, "과거 밴드 중앙값"
+    return None, ""
+
+
 def _t_per(a: dict, anc: dict) -> val.ValuationResult:
+    # 완전 결정론: forward_eps(외삽·HITL)·target_per(PEG 정당 PER→밴드 중앙값) 모두 코드가 확정.
+    # LLM 의 target_per 는 무시하고 rationale(해석)만 반영한다.
+    target_per, per_source = _det_target_per(anc)
     return val.per_valuation(
-        forward_eps=_pick(a.get("forward_eps"), anc.get("eps_ttm")),
-        target_per=_num(a.get("target_per")), current_price=anc.get("current_price"),
-        per_band=anc.get("per_band"), fair_per=anc.get("fair_per"),
+        forward_eps=anc.get("eps_ttm"),
+        target_per=target_per, current_price=anc.get("current_price"),
+        per_band=anc.get("per_band"), fair_per=anc.get("fair_per"), per_source=per_source,
     )
 
 
@@ -524,7 +542,7 @@ def _classify_for_fit(ctx: ToolContext, prior: dict, anchors: dict) -> dict:
 
 # 방식 도구 레지스트리: name → (계산 함수, 파라미터 JSON 스키마 properties).
 _METHOD_TOOLS = {
-    "compute_per": (_t_per, {"forward_eps": "number", "target_per": "number", "rationale": "string"}),
+    "compute_per": (_t_per, {"rationale": "string"}),  # 완전 결정론 — EPS·배수 코드 확정, LLM 은 해석만
     "compute_pbr": (_t_pbr, {"target_pbr": "number", "rationale": "string"}),
     "compute_ev_ebitda": (_t_ev_ebitda, {"forward_ebitda_eok": "number", "target_ev_ebitda": "number", "rationale": "string"}),
     "compute_dcf": (_t_dcf, {"fcf_base_eok": "number", "growth_rate": "number", "years": "number",
@@ -558,7 +576,8 @@ def _tool_schema(name: str, desc: str, props: dict) -> dict:
 
 
 _TOOL_DESCS = {
-    "compute_per": "PER 목표가 = 예상EPS(연환산) × 목표PER. forward_eps 미지정 시 앵커 TTM EPS 사용.",
+    "compute_per": "PER 목표가 = forward EPS(외삽·HITL, 코드 확정) × 목표PER(PEG 정당 PER, 없으면 밴드 "
+                   "중앙값, 코드 확정). 숫자는 모두 결정론적으로 계산되니 rationale(해석·평가)만 제시하라.",
     "compute_pbr": "PBR 목표가 = 주당순자산(BPS) × 목표PBR. 자산주·금융주.",
     "compute_ev_ebitda": "EV/EBITDA 목표가. 예상EBITDA(억원)×목표배수 − 순차입 → 주식수로 나눔.",
     "compute_dcf": "2단계 DCF. 기준FCF(억원)·성장률·연수·영구성장률·할인율(WACC)로 지분가치→주당.",
@@ -607,10 +626,9 @@ _SYSTEM = (
     "4) blend 로 최종 목표가·스프레드를 확인한다.\n"
     "5) finalize 로 진입성격(자산주/역발상|성장주)과 결론(어느 방식을 왜 더 신뢰하는지·업사이드 성격)을 낸다.\n\n"
     "가정은 반드시 앵커·피어·업종 특성에 근거한다. 예상 EPS 는 연환산(TTM) 기준이며 목표 멀티플도 연간 기준이다. "
-    "목표 PER 은 앵커의 per_band(과거 10년 PER 밴드)와 fair_per(PEG×장기성장률 정당 PER)를 함께 기준선으로 "
-    "삼는다. PER 은 forward EPS 로 1년 이익 수준만 담으므로 장기 고성장은 배율 리레이팅으로 반영해야 한다 — "
-    "과거 밴드를 넘더라도 fair_per(장기성장 정당 PER) 이내면 성장이 리레이팅을 정당화한다. 밴드·fair_per 를 크게 "
-    "벗어나면 리레이팅/디레이팅 근거를 rationale 에 명시한다(도구가 이탈 시 경고를 남긴다). "
+    "PER 은 완전 결정론이다 — forward EPS(외삽·HITL)와 목표 PER(PEG 정당 PER, 없으면 과거 밴드 중앙값)을 "
+    "코드가 확정하므로 너는 숫자를 주지 말고 compute_per 에 rationale(그 결정론적 목표가가 타당한지·리스크·"
+    "해석)만 제시한다. fair_per(PEG×장기성장 정당 PER)는 장기 고성장을 배율 리레이팅으로 반영한 값이다. "
     "추측·과장 금지. 레드플래그(이익의 질 문제)가 있으면 멀티플을 보수적으로 잡는다."
 )
 
@@ -771,7 +789,7 @@ def run_valuation(llm: LLMPort, model: str, ctx: ToolContext, prior: dict, serie
 
 
 # ── 원샷 폴백(tool-calling 미지원·실패 시) ───────────────────────────────
-_FALLBACK_SCHEMA = """{"per":{"target_per":수,"rationale":""},"pbr":{"target_pbr":수,"rationale":""},
+_FALLBACK_SCHEMA = """{"per":{"rationale":""},"pbr":{"target_pbr":수,"rationale":""},
 "ev_ebitda":{"forward_ebitda_eok":수,"target_ev_ebitda":수,"rationale":""},
 "dcf":{"fcf_base_eok":수,"growth_rate":수,"years":수,"terminal_growth":수,"discount_rate":수,"rationale":""},
 "ddm":{"dividend_growth":수,"cost_of_equity":수,"rationale":""},"asset":{"asset_premium":수,"rationale":""},

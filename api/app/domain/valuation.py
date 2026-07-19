@@ -98,12 +98,13 @@ def _band_warning(target: float, band: dict | None, unit: str, fair_per: float |
 
 def per_valuation(
     *, forward_eps: float | None, target_per: float | None, current_price: float | None,
-    per_band: dict | None = None, fair_per: float | None = None,
+    per_band: dict | None = None, fair_per: float | None = None, per_source: str = "",
 ) -> ValuationResult:
     """목표가 = 예상 EPS × 목표 PER. 성장주·이익 창출 기업의 기본.
 
-    per_band(과거 PER 밴드)가 주어지면 목표 PER 이 밴드[p25,p75] 밖일 때 경고를 note 에 남긴다(soft).
-    fair_per(PEG×장기성장 정당 PER)는 밴드 상회 시 리레이팅이 성장으로 정당화되는지 함께 안내한다.
+    forward_eps·target_per 는 결정론적으로 산출돼 들어온다(외삽·HITL EPS, PEG 정당 PER). per_source 는
+    목표배수 출처(예 'PEG 정당 PER'·'과거 밴드 중앙값') — process 에 노출해 재현성을 투명화한다.
+    per_band 가 있으면 목표 PER 이 밴드[p25,p75] 밖일 때 경고를, fair_per 로 리레이팅 정당성을 안내한다(soft).
     """
     r = ValuationResult("per", METHOD_LABELS["per"], applicable=False)
     if forward_eps is None or target_per is None:
@@ -117,9 +118,10 @@ def per_valuation(
     r.target_price = target
     r.upside_pct = _upside(target, current_price)
     r.assumptions = {"forward_eps": forward_eps, "target_per": target_per}
+    src = f" ({per_source})" if per_source else ""
     r.process = [
         f"예상 주당순이익(EPS) {_fmt(forward_eps)}원",
-        f"목표 PER {target_per:g}배 적용",
+        f"목표 PER {target_per:g}배 적용{src}",
         f"목표가 = {_fmt(forward_eps)} × {target_per:g} = {_fmt(target)}원",
     ]
     r.note = _band_warning(target_per, per_band, "PER", fair_per)
