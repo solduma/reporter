@@ -432,6 +432,19 @@ class MarketPremium(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class MarketFactor(Base):
+    """시장 전체 스칼라 팩터 캐시(PEG 등). 밸류에이션이 최신 값을 읽어 상수 대신 사용."""
+
+    __tablename__ = "market_factor"
+    __table_args__ = (UniqueConstraint("factor", "as_of_date", name="uq_market_factor"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    factor: Mapped[str] = mapped_column(String(32), index=True)  # market_peg 등
+    as_of_date: Mapped[date] = mapped_column(Date, index=True)
+    value: Mapped[float] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class AnalysisComment(Base):
     """종목 분석 LLM 종합 코멘트 캐시.
 

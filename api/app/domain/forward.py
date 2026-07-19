@@ -31,6 +31,15 @@ _FAIR_PEG = 1.5
 _LT_FWD_WEIGHT = 0.5  # 장기 g 결합에서 forward(단기 모멘텀) 가중 — 나머지는 과거 CAGR. 0.5=절충.
 
 
+def ttm_windows(quarterly: list[float]) -> list[float]:
+    """분기 값 시계열(오래된→최신) → 4분기 롤링 합(TTM) 목록. 분기 미만이면 빈 리스트.
+
+    long_term_growth·extrapolate_growth 의 입력(연환산 시계열). 시장 PEG 배치 등 dict 가 아닌
+    순수 값 리스트에서 TTM 창을 만들 때 쓴다.
+    """
+    return [sum(quarterly[i - 3 : i + 1]) for i in range(3, len(quarterly))]
+
+
 def _yoy_series(ttm_series: list[float]) -> list[float]:
     """TTM 연환산 이익 시계열에서 YoY 성장률 목록. g_t = E_t/E_{t-4} - 1.
 
@@ -100,18 +109,43 @@ def long_term_growth(ttm_series: list[float]) -> tuple[float | None, dict | None
     return g_long, meta
 
 
-def fair_per(ttm_series: list[float]) -> tuple[float | None, dict | None]:
-    """PEG 기반 정당 PER = PEG × 장기성장률(%). 리레이팅 정량 기준선(soft). 성장률 산출 불가 시 None.
+def market_peg(pairs: list[tuple[float, float]]) -> float | None:
+    """시장 PEG = 정상 성장 구간 종목의 PER/g% 중앙값. 표본 부족 시 None.
 
-    장기 g(long_term_growth)가 양수일 때만 의미. g≤0 이면 PEG 로 PER 을 논할 수 없어 None.
-    캡 [5,50]배로 극단 방지. 반환 메타에 사용한 g·PEG 를 담아 근거를 투명 노출한다.
+    각 종목 (PER, 장기성장률%) 쌍. PEG 는 '정상 성장주' 개념이라 초고성장(전환기·기저효과)은 정의 밖 —
+    성장률 IQR(사분위 [Q1,Q3]) 안의 종목만 남겨 소수 폭발값(성장률 최대 수만%)이 회귀를 지배하지
+    않게 한다. 데이터 분포에서 경계를 유도(임의 상수 범위 아님). 남은 종목의 PER/g 비의 중앙값이
+    시장 PEG(회귀 기울기보다 이상치에 강건). 양수 PER·양수 g 만.
     """
-    g_long, gmeta = long_term_growth(ttm_series)
-    if g_long is None or g_long <= 0:
-        return None, gmeta
-    fair = _FAIR_PEG * (g_long * 100.0)  # 임의 캡 없음 — g 는 결정론(장기 CAGR 결합)이라 자연 유계.
-    meta = {"fair_per": round(fair, 1), "peg": _FAIR_PEG,
-            "growth_pct": round(g_long * 100, 2), **(gmeta or {})}
+    xy = [(per, g) for per, g in pairs if per and per > 0 and g and g > 0]
+    if len(xy) < 20:  # 최소 표본
+        return None
+    gs_sorted = sorted(g for _, g in xy)
+    q1 = gs_sorted[len(gs_sorted) // 4]
+    q3 = gs_sorted[len(gs_sorted) * 3 // 4]
+    # 성장률 IQR 안(정상 성장 구간)만. 초고성장·초저성장 제외.
+    core = [(per, g) for per, g in xy if q1 <= g <= q3]
+    if len(core) < 10:
+        return None
+    ratios = sorted(per / g for per, g in core)  # PEG = PER / g% (종목별)
+    return round(ratios[len(ratios) // 2], 3)  # 중앙값(이상치 강건)
+
+
+def fair_per(ttm_series: list[float], peg: float | None = None) -> tuple[float | None, dict | None]:
+    """PEG 기반 정당 PER = PEG × 실현 EPS CAGR(%). 리레이팅 정량 기준선(soft). 성장률 산출 불가 시 None.
+
+    성장률은 실현 CAGR(추정 아님) — 시장 PEG 도 실현 CAGR 로 구하므로 단위·편향이 일치한다(PEG×g 정합).
+    peg 는 시장 횡단면 실측(market_peg) 우선, 없으면 _FAIR_PEG(1.5) 폴백. g≤0 이면 None(성장주 아님).
+    임의 캡 없음 — g 실측이라 자연 유계. 메타에 사용한 g·PEG·소스를 담아 근거를 투명 노출한다.
+    """
+    g = _cagr(ttm_series)  # 실현 EPS CAGR(시장 PEG 와 동일 기준)
+    if g is None or g <= 0:
+        return None, None
+    used_peg = peg if peg is not None else _FAIR_PEG
+    fair = used_peg * (g * 100.0)
+    meta = {"fair_per": round(fair, 1), "peg": round(used_peg, 3),
+            "peg_source": "market_realized_cagr" if peg is not None else "default",
+            "growth_pct": round(g * 100, 2)}
     return round(fair, 1), meta
 
 
