@@ -300,7 +300,11 @@ def collect_anchors(series: list[dict], price: dict) -> dict:
         net_debt = ebitda * ev_ebitda - market_cap / 1e8
 
     # PEG 기반 정당 PER — 장기성장을 배율 리레이팅으로 반영하는 정량 기준선(과거 밴드와 상보).
-    fair_per_val, fair_per_meta = fwd.fair_per(_ttm_windows(rows, "eps"))
+    eps_windows = _ttm_windows(rows, "eps")
+    fair_per_val, fair_per_meta = fwd.fair_per(eps_windows)
+    # 결정론 성장률(요인모형 earnings_growth·DCF·DDM 공통): 장기=결합 CAGR, 단기=앙상블 외삽.
+    g_long, _ = fwd.long_term_growth(eps_windows)
+    g_short, _ = fwd.extrapolate_growth(eps_windows)
 
     return {
         "current_price": current_price,
@@ -318,6 +322,8 @@ def collect_anchors(series: list[dict], price: dict) -> dict:
         "div_yield_pct": _latest_pointintime(rows, "div_yield"),
         "roe_pct": _latest_pointintime(rows, "roe"),  # H-Model 감쇠기간 정량 기준선
         "shares": shares, "net_debt_eok": net_debt,
+        "growth_lt": g_long,  # 장기 이익성장률(요인모형 earnings_growth·DDM 배당성장 결정론 소스)
+        "growth_st": g_short,  # 단기 이익성장률(DCF 명시구간 성장 결정론 소스)
     }
 
 
@@ -461,24 +467,34 @@ _FAIR_PBR_CAP_HIGH = 10.0
 _FAIR_PBR_CAP_LOW = 0.2
 
 
-def _fair_pbr(anc: dict) -> tuple[float | None, dict | None]:
-    """정당 PBR = ROE / 자기자본비용(COE). Residual Income/Gordon 정리의 g=0 근사.
+def _capm_coe(anc: dict) -> float | None:
+    """자기자본비용(COE) = CAPM = risk_free + β × market_premium. factor_betas 결측이면 None.
 
-    ROE=정규화 최근평균(roe_avg_pct, %), COE=CAPM(risk_free+β×market_premium). 둘 다 있고 COE>0,
-    ROE>0 일 때만. 캡 [0.2, 10]. ROE·COE 결측이면 None(밴드 중앙값 폴백에 위임).
+    PBR 정당배수·DDM 자본비용·(간접적으로)DCF WACC 의 공통 기준. 실데이터 베타·관례 프리미엄 기반.
     """
-    roe = _num(anc.get("roe_avg_pct"))
-    if roe is None or roe <= 0:
-        return None, None
     fb = anc.get("factor_betas") or {}
     rf = _num(fb.get("risk_free"))
     beta = _num(fb.get("market_beta"))
     mp = _num(fb.get("market_premium"))
     if rf is None or beta is None or mp is None:
-        return None, None
+        return None
     coe = rf + beta * mp  # 소수(0.092=9.2%)
-    if coe <= 0:
+    return coe if coe > 0 else None
+
+
+def _fair_pbr(anc: dict) -> tuple[float | None, dict | None]:
+    """정당 PBR = ROE / 자기자본비용(COE). Residual Income/Gordon 정리의 g=0 근사.
+
+    ROE=정규화 최근평균(roe_avg_pct, %), COE=CAPM. 둘 다 있고 COE>0, ROE>0 일 때만.
+    캡 [0.2, 10]. ROE·COE 결측이면 None(밴드 중앙값 폴백에 위임).
+    """
+    roe = _num(anc.get("roe_avg_pct"))
+    if roe is None or roe <= 0:
         return None, None
+    coe = _capm_coe(anc)
+    if coe is None:
+        return None, None
+    beta = _num((anc.get("factor_betas") or {}).get("market_beta"))
     raw = (roe / 100.0) / coe  # roe 는 % 라 소수화
     capped = max(_FAIR_PBR_CAP_LOW, min(_FAIR_PBR_CAP_HIGH, raw))
     meta = {"fair_pbr": round(capped, 2), "roe_pct": round(roe, 2), "coe_pct": round(coe * 100, 2),
@@ -542,10 +558,25 @@ def _t_dcf(a: dict, anc: dict) -> val.ValuationResult:
     )
 
 
+def _det_dividend_growth(anc: dict) -> float | None:
+    """결정론 배당성장률 = min(장기 이익성장률, rf 상한). 배당은 이익 따라 성장하되 rf 초과 영구성장 방지.
+
+    고든모형 발산(g≥COE) 예방 위해 무위험수익률로 상한. 성장률 없으면 None(방식 결측 처리).
+    """
+    g = _num(anc.get("growth_lt"))
+    if g is None:
+        return None
+    rf = _num((anc.get("factor_betas") or {}).get("risk_free"))
+    if rf is not None:
+        g = min(g, rf)
+    return max(g, 0.0)  # 배당 역성장 가정은 목표가 왜곡 — 0 하한
+
+
 def _t_ddm(a: dict, anc: dict) -> val.ValuationResult:
+    # 완전 결정론: dps(앵커)·cost_of_equity(CAPM)·dividend_growth(min(장기이익성장, rf)) 코드 확정.
     return val.ddm_valuation(
-        dps=_pick(a.get("dps"), anc.get("dps_annual")),
-        dividend_growth=_num(a.get("dividend_growth")), cost_of_equity=_num(a.get("cost_of_equity")),
+        dps=anc.get("dps_annual"),
+        dividend_growth=_det_dividend_growth(anc), cost_of_equity=_capm_coe(anc),
         current_price=anc.get("current_price"),
     )
 
@@ -558,21 +589,18 @@ def _t_asset(a: dict, anc: dict) -> val.ValuationResult:
 
 
 def _t_fama_french(a: dict, anc: dict) -> val.ValuationResult:
-    # 베타·프리미엄은 실데이터(anchors.factor_betas: 지수회귀 시장베타 + 시총/PBR 프록시 + 관례 프리미엄)
-    # 를 기본값으로, LLM 이 명시 제공하면 그 값으로 덮는다(_pick). 요인모형 강건화.
+    # 완전 결정론: 베타·프리미엄·rf 는 factor_betas(지수회귀+프록시+관례), forward_eps 는 앵커,
+    # earnings_growth 는 forward 엔진 장기성장률. LLM 은 rationale 만.
     fb = anc.get("factor_betas") or {}
     factors = [
-        val.FactorExposure("시장", _pick(a.get("market_beta"), fb.get("market_beta")) or 0,
-                           _pick(a.get("market_premium"), fb.get("market_premium")) or 0),
-        val.FactorExposure("SMB(규모)", _pick(a.get("smb_beta"), fb.get("smb_beta")) or 0,
-                           _pick(a.get("smb_premium"), fb.get("smb_premium")) or 0),
-        val.FactorExposure("HML(가치)", _pick(a.get("hml_beta"), fb.get("hml_beta")) or 0,
-                           _pick(a.get("hml_premium"), fb.get("hml_premium")) or 0),
+        val.FactorExposure("시장", _num(fb.get("market_beta")) or 0, _num(fb.get("market_premium")) or 0),
+        val.FactorExposure("SMB(규모)", _num(fb.get("smb_beta")) or 0, _num(fb.get("smb_premium")) or 0),
+        val.FactorExposure("HML(가치)", _num(fb.get("hml_beta")) or 0, _num(fb.get("hml_premium")) or 0),
     ]
     return val.fama_french_valuation(
-        forward_eps=_pick(a.get("forward_eps"), anc.get("eps_ttm")),
-        risk_free=_pick(a.get("risk_free"), fb.get("risk_free")),
-        factors=factors, earnings_growth=_num(a.get("earnings_growth")),
+        forward_eps=anc.get("eps_ttm"),
+        risk_free=_num(fb.get("risk_free")),
+        factors=factors, earnings_growth=_num(anc.get("growth_lt")),
         equity_value=anc.get("market_cap_eok"), net_debt=anc.get("net_debt_eok"),
         roe=anc.get("roe_pct"), moat=anc.get("moat"),
         current_price=anc.get("current_price"),
@@ -581,22 +609,17 @@ def _t_fama_french(a: dict, anc: dict) -> val.ValuationResult:
 
 def _t_apt(a: dict, anc: dict) -> val.ValuationResult:
     # LLM 이 factors 를 명시하면 그걸, 아니면 실데이터 거시요인(시장베타 대리 + 관례 프리미엄)을 쓴다.
+    # 완전 결정론: 거시요인 베타(시장베타 대리)·프리미엄·rf·forward_eps·earnings_growth 모두 코드 확정.
     fb = anc.get("factor_betas") or {}
-    if a.get("factors"):
-        factors = [
-            val.FactorExposure(str(f.get("name") or "요인"), _num(f.get("beta")) or 0, _num(f.get("premium")) or 0)
-            for f in a["factors"] if _num(f.get("beta")) is not None
-        ]
-    else:
-        mb = fb.get("market_beta") or 1.0
-        factors = [
-            val.FactorExposure(name, round(mb * w, 3), prem)
-            for (name, prem), w in zip(betamod.APT_FACTOR_PREMIUMS.items(), (1.0, 0.5, 0.5), strict=True)
-        ]
+    mb = fb.get("market_beta") or 1.0
+    factors = [
+        val.FactorExposure(name, round(mb * w, 3), prem)
+        for (name, prem), w in zip(betamod.APT_FACTOR_PREMIUMS.items(), (1.0, 0.5, 0.5), strict=True)
+    ]
     return val.apt_valuation(
-        forward_eps=_pick(a.get("forward_eps"), anc.get("eps_ttm")),
-        risk_free=_pick(a.get("risk_free"), fb.get("risk_free")),
-        factors=factors, earnings_growth=_num(a.get("earnings_growth")),
+        forward_eps=anc.get("eps_ttm"),
+        risk_free=_num(fb.get("risk_free")),
+        factors=factors, earnings_growth=_num(anc.get("growth_lt")),
         equity_value=anc.get("market_cap_eok"), net_debt=anc.get("net_debt_eok"),
         roe=anc.get("roe_pct"), moat=anc.get("moat"),
         current_price=anc.get("current_price"),
@@ -665,12 +688,10 @@ _METHOD_TOOLS = {
     "compute_ev_ebitda": (_t_ev_ebitda, {"rationale": "string"}),  # 완전 결정론 — EBITDA·배수·순차입 코드 확정
     "compute_dcf": (_t_dcf, {"fcf_base_eok": "number", "growth_rate": "number", "years": "number",
                              "terminal_growth": "number", "discount_rate": "number", "rationale": "string"}),
-    "compute_ddm": (_t_ddm, {"dividend_growth": "number", "cost_of_equity": "number", "rationale": "string"}),
+    "compute_ddm": (_t_ddm, {"rationale": "string"}),  # 완전 결정론 — DPS·자본비용·배당성장 코드 확정
     "compute_asset": (_t_asset, {"asset_premium": "number", "rationale": "string"}),
-    "compute_fama_french": (_t_fama_french, {"market_beta": "number", "smb_beta": "number", "hml_beta": "number",
-                                             "risk_free": "number", "market_premium": "number", "smb_premium": "number",
-                                             "hml_premium": "number", "earnings_growth": "number", "rationale": "string"}),
-    "compute_apt": (_t_apt, {"factors": "array", "risk_free": "number", "earnings_growth": "number", "rationale": "string"}),
+    "compute_fama_french": (_t_fama_french, {"rationale": "string"}),  # 완전 결정론 — 베타·프리미엄·성장 코드 확정
+    "compute_apt": (_t_apt, {"rationale": "string"}),  # 완전 결정론 — 거시요인·성장 코드 확정
 }
 
 # 도구명 → 방식 식별자(결과 dict 의 method 필드와 일치).
@@ -701,12 +722,13 @@ _TOOL_DESCS = {
     "compute_ev_ebitda": "EV/EBITDA 목표가 = forward EBITDA×목표배수(과거 밴드 중앙값, 코드 확정) − 순차입 "
                          "→ 주식수. 숫자는 결정론 계산되니 rationale(해석)만 제시하라.",
     "compute_dcf": "2단계 DCF. 기준FCF(억원)·성장률·연수·영구성장률·할인율(WACC)로 지분가치→주당.",
-    "compute_ddm": "고든 배당할인. DPS·배당성장률·자기자본비용. 무배당이면 부적합.",
+    "compute_ddm": "고든 배당할인 = DPS(앵커)×(1+배당성장)÷(자본비용−배당성장). 자본비용=CAPM, "
+                   "배당성장=min(장기이익성장,rf) 코드 확정. rationale(해석)만. 무배당이면 부적합.",
     "compute_asset": "자산가치 = 주당순자산 × 재평가/청산배수(청산할인<1<재평가할증).",
-    "compute_fama_french": "Fama-French 3요인. 베타(시장회귀·시총/PBR 프록시)·프리미엄은 실데이터로 "
-                           "자동 주입되므로 earnings_growth(이익성장률)만 주면 된다. 목표PER=1/(r−g).",
-    "compute_apt": "APT 다요인. 베타·프리미엄 실데이터 자동 주입 → earnings_growth 만 주면 됨. "
-                   "특정 요인 커스텀 시에만 factors=[{name,beta,premium}] 제공.",
+    "compute_fama_french": "Fama-French 3요인 목표PER=1/(r−g). 베타·프리미엄·rf·이익성장 모두 실데이터로 "
+                           "코드 확정되니 rationale(해석)만 제시하라.",
+    "compute_apt": "APT 다요인 목표PER. 거시요인 베타·프리미엄·rf·이익성장 모두 코드 확정되니 "
+                   "rationale(해석)만 제시하라.",
 }
 
 
@@ -746,10 +768,11 @@ _SYSTEM = (
     "4) blend 로 최종 목표가·스프레드를 확인한다.\n"
     "5) finalize 로 진입성격(자산주/역발상|성장주)과 결론(어느 방식을 왜 더 신뢰하는지·업사이드 성격)을 낸다.\n\n"
     "가정은 반드시 앵커·피어·업종 특성에 근거한다. 예상 EPS 는 연환산(TTM) 기준이며 목표 멀티플도 연간 기준이다. "
-    "PER·PBR·EV/EBITDA 는 완전 결정론이다 — PER=forward EPS×목표PER(PEG 정당 PER→밴드 중앙값), "
-    "PBR=BPS×목표PBR(정당 PBR=ROE/COE→밴드 중앙값), EV/EBITDA=forward EBITDA×목표배수(과거 밴드 중앙값)−순차입을 "
-    "코드가 확정하므로 너는 숫자를 주지 말고 해당 compute_* 에 rationale(그 결정론적 목표가가 타당한지·리스크·"
-    "해석)만 제시한다. fair_per(PEG×장기성장)·fair_pbr(ROE/COE)는 성장·수익성을 배율에 반영한 이론 정당 배수다. "
+    "PER·PBR·EV/EBITDA·DDM·Fama-French·APT 는 완전 결정론이다 — 배수·성장률·자본비용·베타를 모두 코드가 "
+    "실데이터로 확정한다(PER=forward EPS×PEG 정당 PER, PBR=BPS×ROE/COE, EV/EBITDA=EBITDA×밴드중앙−순차입, "
+    "DDM=고든[자본비용 CAPM·배당성장 min(장기이익성장,rf)], FF·APT=요인 Re→목표PER, 이익성장은 forward 엔진). "
+    "너는 이들 compute_* 에 숫자를 주지 말고 rationale(결정론적 목표가가 타당한지·리스크·해석)만 제시한다. "
+    "DCF·자산가치만 아직 가정을 받는다. fair_per·fair_pbr 은 성장·수익성 이론 정당 배수다. "
     "추측·과장 금지. 레드플래그(이익의 질 문제)가 있으면 멀티플을 보수적으로 잡는다."
 )
 
@@ -907,9 +930,8 @@ def run_valuation(llm: LLMPort, model: str, ctx: ToolContext, prior: dict, serie
 _FALLBACK_SCHEMA = """{"per":{"rationale":""},"pbr":{"rationale":""},
 "ev_ebitda":{"rationale":""},
 "dcf":{"fcf_base_eok":수,"growth_rate":수,"years":수,"terminal_growth":수,"discount_rate":수,"rationale":""},
-"ddm":{"dividend_growth":수,"cost_of_equity":수,"rationale":""},"asset":{"asset_premium":수,"rationale":""},
-"fama_french":{"market_beta":수,"smb_beta":수,"hml_beta":수,"risk_free":수,"market_premium":수,"smb_premium":수,"hml_premium":수,"earnings_growth":수,"rationale":""},
-"apt":{"factors":[{"name":"","beta":수,"premium":수}],"risk_free":수,"earnings_growth":수,"rationale":""},
+"ddm":{"rationale":""},"asset":{"asset_premium":수,"rationale":""},
+"fama_french":{"rationale":""},"apt":{"rationale":""},
 "forward_eps":수,"entry_case":"자산주/역발상|성장주","conclusion":""}"""
 
 
