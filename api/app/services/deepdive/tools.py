@@ -103,6 +103,7 @@ def tool_financials(ctx: ToolContext, args: dict) -> dict:
             "per": r.per, "pbr": r.pbr, "roe": r.roe, "ebitda": r.ebitda,
             "dps": r.dps, "div_yield": r.div_yield, "psr": r.psr, "ev_ebitda": r.ev_ebitda,
             "depreciation": r.depreciation, "capex": r.capex,  # FCFF 산출용(연간 억원)
+            "effective_tax_rate": r.effective_tax_rate, "cost_of_debt": r.cost_of_debt,  # WACC·NOPAT 실측
         }
         for r in rows
     ]

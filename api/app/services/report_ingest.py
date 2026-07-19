@@ -226,11 +226,18 @@ def backfill_stock(
                 depreciation=dep,  # parse_cf_depreciation 은 감가+무형 합산값(모델 주석 참조)
                 amortization=None,
                 capex=fin.capex,  # 구조화 API CF 투자활동(유형+무형 취득 합, 원)
+                income_tax=fin.income_tax,
+                pretax_income=fin.pretax_income,
+                interest_expense=fin.interest_expense,
             )
-            # EBITDA = 영업이익 + D&A. 연간만 EV/EBITDA 대상(반기/분기 누적은 TTM 아님).
-            # D&A·CAPEX 원값도 함께 실어 financials 에 반영(FCFF 산출용).
+            # 연간 financials 반영값: EBITDA·순차입·D&A·CAPEX(FCFF) + 실효세율·부채비용(WACC).
             if kind == "annual" and fin.operating_income is not None and dep is not None:
-                annual_ev[period] = (fin.operating_income + dep, fin.net_debt, dep, fin.capex)
+                annual_ev[period] = {
+                    "ebitda": fin.operating_income + dep, "net_debt": fin.net_debt,
+                    "dep": dep, "capex": fin.capex,
+                    "effective_tax_rate": _effective_tax_rate(fin),
+                    "cost_of_debt": _cost_of_debt(fin),
+                }
             # 배당(DS002 alotMatter)은 연간 항목 — annual 보고서에서만 조회해 financials 에 반영.
             if kind == "annual":
                 _upsert_dividend(db, code, period, settings, corp_code, year, session)
@@ -256,31 +263,47 @@ def backfill_stock(
     return True
 
 
+def _effective_tax_rate(fin) -> float | None:
+    """실효세율 = 법인세비용/세전이익. 세전이익≤0 이면 무의미 → None. 이상치는 [0,0.35] clamp."""
+    tax, pre = fin.income_tax, fin.pretax_income
+    if tax is None or pre is None or pre <= 0:
+        return None
+    return round(max(0.0, min(0.35, tax / pre)), 4)
+
+
+def _cost_of_debt(fin) -> float | None:
+    """부채비용 = 이자비용/총차입. 무차입(총차입 0/결측)이면 None(WACC 에서 D=0이라 무관)."""
+    intr, bor = fin.interest_expense, fin.borrowings
+    if intr is None or bor is None or bor <= 0:
+        return None
+    return round(intr / bor, 4)
+
+
 def _recompute_ev_ebitda(
-    db: Session,
-    code: str,
-    annual_ev: dict[str, tuple[float, float | None, float | None, float | None]],
-    shares: int | None,
+    db: Session, code: str, annual_ev: dict[str, dict], shares: int | None
 ) -> None:
-    """연간 EBITDA·순차입으로 EBITDA 절대액·EV/EBITDA 를 financials 에 반영 + D&A·CAPEX 원값(FCFF용).
+    """연간 EBITDA·순차입으로 EBITDA 절대액·EV/EBITDA 를 financials 에 반영 + D&A·CAPEX·세율·부채비용.
 
     EBITDA(영업이익+D&A) 절대액은 시총과 무관하므로 항상 저장(딥다이브 EBITDA 성장 축이 읽는다).
     EV/EBITDA 배수는 EV=시총(분기말 수정종가 x 주식수)+순차입 이 필요해 shares·종가 있을 때만 산출.
-    대형사 D&A 는 fnlttSinglAcntAll 에 없어(삼성·현대차 CF 에 상각 라인 부재) document.xml 원문 파싱만 정확.
-    D&A·CAPEX 는 억원 변환해 저장(FCFF=NOPAT+D&A−CAPEX 산출 시 매출·이익과 단위 일치).
+    D&A·CAPEX 는 억원 변환(FCFF), 실효세율·부채비용은 비율(WACC·NOPAT 실측). 결측은 상수 폴백에 위임.
     """
     if not annual_ev:
         return
-    for period, (ebitda, net_debt, dep, capex) in annual_ev.items():  # 원 단위 원자료
+    for period, d in annual_ev.items():
+        ebitda, net_debt = d["ebitda"], d["net_debt"]
         if ebitda <= 0:
             continue
-        # EBITDA 절대액은 shares 무관하게 항상 저장. Financial 의 매출·이익은 억원 단위이므로
-        # ebitda 도 억원(/1e8)으로 변환해 저장(딥다이브 EBITDA 마진 = ebitda/revenue 단위 일치).
+        # EBITDA 절대액(억원). 매출·이익과 단위 일치(딥다이브 EBITDA 마진 = ebitda/revenue).
         values: dict = {"ebitda": ebitda / 1e8}
-        if dep is not None:
-            values["depreciation"] = dep / 1e8
-        if capex is not None:
-            values["capex"] = capex / 1e8
+        if d.get("dep") is not None:
+            values["depreciation"] = d["dep"] / 1e8
+        if d.get("capex") is not None:
+            values["capex"] = d["capex"] / 1e8
+        if d.get("effective_tax_rate") is not None:
+            values["effective_tax_rate"] = d["effective_tax_rate"]
+        if d.get("cost_of_debt") is not None:
+            values["cost_of_debt"] = d["cost_of_debt"]
         # EV/EBITDA 배수는 EV(원)/EBITDA(원) 이라 원 단위 원자료로 계산(시총 산출 가능할 때만).
         if shares:
             year = int(period.split(".")[0])

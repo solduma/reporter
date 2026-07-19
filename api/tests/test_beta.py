@@ -110,3 +110,13 @@ def test_cap_neutral_when_roe_or_discount_missing():
     assert y == round(beta.MOAT_CAP_YEARS["중"] * 0.5, 1)
     y2, _ = beta.competitive_advantage_period(0.20, None, "중")
     assert y2 == round(beta.MOAT_CAP_YEARS["중"] * 0.5, 1)
+
+
+def test_wacc_uses_measured_tax_and_cost_of_debt():
+    # 실측 세율·부채비용 인자를 주면 상수 대신 그 값으로 계산(결측 시 상수 폴백).
+    w_const, _ = beta.wacc(0.10, 1000, 500, 0.038)  # 상수 폴백
+    w_meas, _ = beta.wacc(0.10, 1000, 500, 0.038, tax_rate=0.08, cost_of_debt=0.035)
+    assert w_const != w_meas  # 실측값이 반영돼 달라짐
+    # 부채 없으면 세율·부채비용 무관(Re 그대로).
+    w_nodebt, _ = beta.wacc(0.10, 1000, 0, 0.038, tax_rate=0.08, cost_of_debt=0.035)
+    assert abs(w_nodebt - 0.10) < 1e-9

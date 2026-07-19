@@ -59,6 +59,12 @@ _COLUMN_MIGRATIONS = (
     "ALTER TABLE report_financials ADD COLUMN IF NOT EXISTS capex DOUBLE PRECISION",
     "ALTER TABLE financials ADD COLUMN IF NOT EXISTS depreciation DOUBLE PRECISION",
     "ALTER TABLE financials ADD COLUMN IF NOT EXISTS capex DOUBLE PRECISION",
+    # 실효세율·부채비용 실측 — TAX_RATE·COST_OF_DEBT 상수 대체. 원자료(report_financials) + 비율(financials).
+    "ALTER TABLE report_financials ADD COLUMN IF NOT EXISTS income_tax DOUBLE PRECISION",
+    "ALTER TABLE report_financials ADD COLUMN IF NOT EXISTS pretax_income DOUBLE PRECISION",
+    "ALTER TABLE report_financials ADD COLUMN IF NOT EXISTS interest_expense DOUBLE PRECISION",
+    "ALTER TABLE financials ADD COLUMN IF NOT EXISTS effective_tax_rate DOUBLE PRECISION",
+    "ALTER TABLE financials ADD COLUMN IF NOT EXISTS cost_of_debt DOUBLE PRECISION",
 )
 
 # 데이터 정합성 정규화(멱등) — 스키마가 아닌 값 보정. init_db 마다 실행되나 조건절이 이미 보정된

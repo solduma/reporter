@@ -71,16 +71,21 @@ def wacc(
     equity_value: float,
     net_debt: float | None,
     risk_free: float,
+    tax_rate: float | None = None,
+    cost_of_debt: float | None = None,
 ) -> tuple[float, list[str]]:
     """WACC = Re·(E/V) + Rd(1−t)·(D/V). D 는 순차입(음수=순현금이면 0). 과정 스텝도 반환.
 
+    tax_rate·cost_of_debt 는 종목 실측값(결측 시 상수 TAX_RATE·rf+COST_OF_DEBT_SPREAD 폴백).
     equity_value·net_debt 는 같은 단위(억원). equity_value≤0 이면 Re 를 그대로 반환(부채가중 불가)."""
     e = equity_value
     d = max(0.0, net_debt or 0.0)  # 순현금(음수)은 부채 0 취급
     if e <= 0 or (e + d) <= 0:
         return cost_of_equity, [f"자기자본비용 {cost_of_equity:.1%} (자본구조 미반영)"]
     v = e + d
-    rd_after_tax = (risk_free + COST_OF_DEBT_SPREAD) * (1 - TAX_RATE)
+    t = tax_rate if tax_rate is not None else TAX_RATE
+    rd = cost_of_debt if cost_of_debt is not None else (risk_free + COST_OF_DEBT_SPREAD)
+    rd_after_tax = rd * (1 - t)
     w = cost_of_equity * (e / v) + rd_after_tax * (d / v)
     steps = [
         f"자기자본비용 Re {cost_of_equity:.1%} × 자본비중 {e / v:.0%}",
