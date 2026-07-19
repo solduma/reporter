@@ -801,7 +801,13 @@ def run_valuation(llm: LLMPort, model: str, ctx: ToolContext, prior: dict, serie
     반환 dict 가 valuation_json 으로 저장된다(프론트 ValuationCard 가 methods 배열을 렌더).
     tool-calling 미지원(구 LLM)·실패 시 원샷 폴백으로 최소 결과를 보장한다."""
     price = dispatch("price_context", ctx, {})
-    anchors = collect_anchors(series, price, market_peg=market_peg_ingest.latest_market_peg(ctx.db))
+    # 계층적 PEG: 종목 섹터·실현 CAGR 로 섹터→성장구간→전체 순 실측 PEG 선택.
+    _cagr = fwd._cagr(fwd.ttm_windows([_num(r.get("eps")) for r in _sorted_actuals(series)
+                                       if _num(r.get("eps")) is not None]))
+    peg, peg_src = market_peg_ingest.market_peg_for(
+        ctx.db, sector_for(ctx), _cagr * 100.0 if _cagr else None)
+    anchors = collect_anchors(series, price, market_peg=peg)
+    anchors["peg_source"] = peg_src  # 어느 계층 PEG 를 썼는지 고지
     # HITL 이익 증분을 forward 이익 앵커에 결정론적 반영(프롬프트 경로만으론 미반영되던 긍정 인풋을 계산에 직결).
     anchors = apply_hitl_to_anchors(anchors, prior.get("hitl"), series)
     # 이익 앵커를 forward(예상)로 대체 — 소스 우선순위 HITL(위)>컨센서스>성장률 외삽. 사용 소스는 forward_meta 고지.
