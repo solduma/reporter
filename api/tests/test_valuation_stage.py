@@ -201,7 +201,8 @@ def _patch_dispatch():
                      lambda n, c, a: {"close_price": 40000, "market_cap": 400_000_000_000}
                      if n == "price_context" else {"peers": []}),
         patch.object(vs, "compute_factor_betas", lambda ctx, anc, mkt: fb),
-        patch.object(vs.market_peg_ingest, "latest_market_peg", lambda db: 1.0),
+        patch.object(vs, "sector_for", lambda ctx: None),
+        patch.object(vs.market_peg_ingest, "market_peg_for", lambda db, sec, g: (1.0, "market")),
     ):
         yield
 
