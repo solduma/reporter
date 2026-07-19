@@ -86,6 +86,20 @@ def _sorted_actuals(series: list[dict]) -> list[dict]:
     return sorted(rows, key=lambda r: _period_key(r["period"]))  # type: ignore[arg-type,index]
 
 
+def _fcff_base(rows: list[dict]) -> float | None:
+    """진짜 FCFF(억원) = NOPAT + D&A − CAPEX, 최신 연간(.12). D&A·CAPEX 결측이면 None(순이익 폴백에 위임).
+
+    NOPAT = 영업이익 × (1−세율). 이자·비영업손익 제거(FCFF 는 자본구조 무관). CAPEX 는 성장투자 포함
+    실측치라 성장투자기(CAPEX≫D&A)엔 FCFF 가 작거나 음수 — DCF 부적합 신호로 정직하게 노출된다.
+    """
+    op = _latest_annual(rows, "operating_income")
+    dep = _latest_annual(rows, "depreciation")
+    capex = _latest_annual(rows, "capex")
+    if op is None or dep is None or capex is None:
+        return None
+    return round(op * (1 - betamod.TAX_RATE) + dep - capex, 2)
+
+
 def _latest_annual(rows: list[dict], field: str) -> float | None:
     """연간(.12) 행 중 field 최신 유효값. 연간 데이터가 정확한 지표(EBITDA·배당)에 쓴다."""
     for r in reversed(rows):
@@ -309,6 +323,7 @@ def collect_anchors(series: list[dict], price: dict) -> dict:
     # 결정론 성장률(요인모형 earnings_growth·DCF·DDM 공통): 장기=결합 CAGR, 단기=앙상블 외삽.
     g_long, _ = fwd.long_term_growth(eps_windows)
     g_short, _ = fwd.extrapolate_growth(eps_windows)
+    fcf_base = _fcff_base(rows)  # 진짜 FCFF(억원) = NOPAT + D&A − CAPEX, 최신 연간. 결측 시 None.
 
     return {
         "current_price": current_price,
@@ -328,6 +343,7 @@ def collect_anchors(series: list[dict], price: dict) -> dict:
         "shares": shares, "net_debt_eok": net_debt,
         "growth_lt": g_long,  # 장기 이익성장률(요인모형 earnings_growth·DDM 배당성장 결정론 소스)
         "growth_st": g_short,  # 단기 이익성장률(DCF 명시구간 성장 결정론 소스)
+        "fcf_base_eok": fcf_base,  # 진짜 FCFF(NOPAT+D&A−CAPEX) 최신 연간 — DCF 기준현금흐름
     }
 
 
@@ -554,9 +570,10 @@ def _det_dcf_inputs(anc: dict) -> dict:
     """
     fb = anc.get("factor_betas") or {}
     coe = _capm_coe(anc)
-    eps = _num(anc.get("eps_ttm"))
     shares = _num(anc.get("shares"))
-    fcf_base = eps * shares / 1e8 if (eps and shares) else None  # 원×주 → 억원
+    # FCF 기준: 진짜 FCFF(NOPAT+D&A−CAPEX)만 사용. 결측이면 None → DCF 스킵(순이익 근사 폴백 금지 —
+    # FCFF 는 핵심 지표라 정확 측정 가능할 때만 DCF 를 산출한다). D&A·CAPEX 백필돼야 값이 잡힌다.
+    fcf_base = _num(anc.get("fcf_base_eok"))
     wacc = None
     if coe is not None and shares is not None:
         equity_eok = _num(anc.get("market_cap_eok"))

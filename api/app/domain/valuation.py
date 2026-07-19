@@ -231,8 +231,11 @@ def dcf_valuation(
     from app.domain import beta as _beta
 
     r = ValuationResult("dcf", METHOD_LABELS["dcf"], applicable=False)
-    if None in (fcf_base, growth_rate, terminal_growth, discount_rate, shares) or shares <= 0:
-        r.note = "FCF·성장률·영구성장률·할인율·주식수 중 결측"
+    if fcf_base is None:
+        r.note = "FCFF(NOPAT+D&A−CAPEX) 결측 — D&A·CAPEX 미백필 시 DCF 부적합(순이익 근사 폴백 안 함)"
+        return r
+    if None in (growth_rate, terminal_growth, discount_rate, shares) or shares <= 0:
+        r.note = "성장률·영구성장률·할인율·주식수 중 결측"
         return r
     # 영구성장률은 입력값 그대로 사용(상한 없음 — 실측 금리 기반이라 인위적 캡 불필요).
     # 단, 할인율 ≤ 영구성장률이면 고든 잔존가치가 발산/음수라 방어.
