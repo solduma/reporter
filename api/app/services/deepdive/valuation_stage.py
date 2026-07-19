@@ -20,7 +20,12 @@ from app.domain import beta as betamod
 from app.domain import forward as fwd
 from app.domain import valuation as val
 from app.ports.llm import LLMError, LLMPort
-from app.services import company_service, market_premium_ingest, risk_free_ingest
+from app.services import (
+    company_service,
+    market_peg_ingest,
+    market_premium_ingest,
+    risk_free_ingest,
+)
 from app.services.deepdive.tools import ToolContext, dispatch, sector_for
 
 logger = logging.getLogger(__name__)
@@ -303,11 +308,12 @@ def _apply_growth_to_ebitda(anchors: dict, meta: dict, growth: float, *, source:
                       "growth_pct": round(growth * 100, 2), **(gmeta or {})}
 
 
-def collect_anchors(series: list[dict], price: dict) -> dict:
+def collect_anchors(series: list[dict], price: dict, market_peg: float | None = None) -> dict:
     """밸류에이션 실데이터 앵커. 기간 granularity 를 구분해 연환산·시점값을 올바르게 뽑는다.
 
     - eps: TTM(분기 EPS 4개 합 또는 연간). bps: 최신 시점값. ebitda/dps: 연간(.12).
     - shares = 시총/현재가. net_debt = ebitda×ev_ebitda − 시총(억원, EV 역산). 셋 다 있을 때만.
+    - market_peg: 시장 횡단면 실측 PEG(없으면 fair_per 가 상수 폴백).
     """
     rows = _sorted_actuals(series)
     current_price = _num(price.get("close_price"))
@@ -327,7 +333,7 @@ def collect_anchors(series: list[dict], price: dict) -> dict:
 
     # PEG 기반 정당 PER — 장기성장을 배율 리레이팅으로 반영하는 정량 기준선(과거 밴드와 상보).
     eps_windows = _ttm_windows(rows, "eps")
-    fair_per_val, fair_per_meta = fwd.fair_per(eps_windows)
+    fair_per_val, fair_per_meta = fwd.fair_per(eps_windows, peg=market_peg)
     # 결정론 성장률(요인모형 earnings_growth·DCF·DDM 공통): 장기=결합 CAGR, 단기=앙상블 외삽.
     g_long, _ = fwd.long_term_growth(eps_windows)
     g_short, _ = fwd.extrapolate_growth(eps_windows)
@@ -846,7 +852,7 @@ def run_valuation(llm: LLMPort, model: str, ctx: ToolContext, prior: dict, serie
     반환 dict 가 valuation_json 으로 저장된다(프론트 ValuationCard 가 methods 배열을 렌더).
     tool-calling 미지원(구 LLM)·실패 시 원샷 폴백으로 최소 결과를 보장한다."""
     price = dispatch("price_context", ctx, {})
-    anchors = collect_anchors(series, price)
+    anchors = collect_anchors(series, price, market_peg=market_peg_ingest.latest_market_peg(ctx.db))
     # HITL 이익 증분을 forward 이익 앵커에 결정론적 반영(프롬프트 경로만으론 미반영되던 긍정 인풋을 계산에 직결).
     anchors = apply_hitl_to_anchors(anchors, prior.get("hitl"), series)
     # 이익 앵커를 forward(예상)로 대체 — 소스 우선순위 HITL(위)>컨센서스>성장률 외삽. 사용 소스는 forward_meta 고지.
