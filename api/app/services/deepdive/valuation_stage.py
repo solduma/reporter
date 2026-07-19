@@ -20,12 +20,7 @@ from app.domain import beta as betamod
 from app.domain import forward as fwd
 from app.domain import valuation as val
 from app.ports.llm import LLMError, LLMPort
-from app.services import (
-    company_service,
-    market_peg_ingest,
-    market_premium_ingest,
-    risk_free_ingest,
-)
+from app.services import company_service, market_premium_ingest, risk_free_ingest
 from app.services.deepdive.tools import ToolContext, dispatch, sector_for
 
 logger = logging.getLogger(__name__)
@@ -302,12 +297,12 @@ def _apply_growth_to_ebitda(anchors: dict, meta: dict, growth: float, *, source:
                       "growth_pct": round(growth * 100, 2), **(gmeta or {})}
 
 
-def collect_anchors(series: list[dict], price: dict, market_peg: float | None = None) -> dict:
+def collect_anchors(series: list[dict], price: dict) -> dict:
     """밸류에이션 실데이터 앵커. 기간 granularity 를 구분해 연환산·시점값을 올바르게 뽑는다.
 
     - eps: TTM(분기 EPS 4개 합 또는 연간). bps: 최신 시점값. ebitda/dps: 연간(.12).
     - shares = 시총/현재가. net_debt = ebitda×ev_ebitda − 시총(억원, EV 역산). 셋 다 있을 때만.
-    - market_peg: 시장 횡단면 실측 PEG(없으면 fair_per 가 상수 폴백).
+    - 정당 PER(고든)은 COE 필요 → factor_betas 주입 후 _fair_per 가 별도 계산(여기선 eps_windows 노출).
     """
     rows = _sorted_actuals(series)
     current_price = _num(price.get("close_price"))
@@ -325,10 +320,8 @@ def collect_anchors(series: list[dict], price: dict, market_peg: float | None = 
     if ebitda and ev_ebitda and market_cap:
         net_debt = ebitda * ev_ebitda - market_cap / 1e8
 
-    # PEG 기반 정당 PER — 장기성장을 배율 리레이팅으로 반영하는 정량 기준선(과거 밴드와 상보).
-    eps_windows = _ttm_windows(rows, "eps")
-    fair_per_val, fair_per_meta = fwd.fair_per(eps_windows, peg=market_peg)
     # 결정론 성장률(요인모형 earnings_growth·DCF·DDM 공통): 장기=결합 CAGR, 단기=앙상블 외삽.
+    eps_windows = _ttm_windows(rows, "eps")
     g_long, _ = fwd.long_term_growth(eps_windows)
     g_short, _ = fwd.extrapolate_growth(eps_windows)
     fcf_base = _fcff_base(rows)  # 진짜 FCFF(억원) = NOPAT + D&A − CAPEX, 최신 연간. 결측 시 None.
@@ -337,13 +330,12 @@ def collect_anchors(series: list[dict], price: dict, market_peg: float | None = 
         "current_price": current_price,
         "market_cap_eok": market_cap / 1e8 if market_cap else None,
         "eps_ttm": eps_ttm, "bps": bps, "ebitda_eok_annual": ebitda, "dps_annual": dps,
+        "eps_windows": eps_windows,  # 정당 PER(고든) 산출용 — factor_betas 후 _fair_per 가 소비
         "current_per": _latest_pointintime(rows, "per"),
         "per_band": _multiple_band(rows, "per"),  # 과거 10년 PER 밴드 — 목표배수 soft 가드 기준선
-        "fair_per": fair_per_val,  # PEG×장기성장률 정당 PER — 리레이팅 정량 기준(밴드와 상보)
-        "fair_per_meta": fair_per_meta,
         "current_pbr": _latest_pointintime(rows, "pbr"),
         "pbr_band": _multiple_band(rows, "pbr"),  # 과거 10년 PBR 밴드
-        "roe_avg_pct": _avg_recent(rows, "roe", 8),  # 정당 PBR용 정규화 ROE(최근 8분기 평균)
+        "roe_avg_pct": _avg_recent(rows, "roe", 8),  # 정당 PBR·PER용 정규화 ROE(최근 8분기 평균)
         "current_ev_ebitda": ev_ebitda,
         "ev_ebitda_band": _multiple_band(rows, "ev_ebitda"),  # 과거 EV/EBITDA 밴드 — 목표배수 결정론 소스
         "div_yield_pct": _latest_pointintime(rows, "div_yield"),
@@ -496,6 +488,19 @@ def _capm_coe(anc: dict) -> float | None:
         return None
     coe = rf + beta * mp  # 소수(0.092=9.2%)
     return coe if coe > 0 else None
+
+
+def _fair_per(anc: dict) -> tuple[float | None, dict | None]:
+    """정당 PER = 고든 stable-growth. ROE(정규화 평균)·COE(CAPM)·배당성향(DPS/EPS)으로 산출. 결측 시 None."""
+    roe = _num(anc.get("roe_avg_pct"))
+    dps = _num(anc.get("dps_annual"))
+    eps = _num(anc.get("eps_ttm"))
+    payout = dps / eps if (dps is not None and eps and eps > 0) else None
+    return fwd.fair_per(
+        roe / 100.0 if roe is not None else None,  # % → 소수
+        _capm_coe(anc),
+        payout,
+    )
 
 
 def _fair_pbr(anc: dict) -> tuple[float | None, dict | None]:
@@ -801,23 +806,16 @@ def run_valuation(llm: LLMPort, model: str, ctx: ToolContext, prior: dict, serie
     반환 dict 가 valuation_json 으로 저장된다(프론트 ValuationCard 가 methods 배열을 렌더).
     tool-calling 미지원(구 LLM)·실패 시 원샷 폴백으로 최소 결과를 보장한다."""
     price = dispatch("price_context", ctx, {})
-    # 계층적 PEG: 종목 섹터·실현 CAGR 로 섹터→성장구간→전체 순 실측 PEG 선택.
-    _cagr = fwd._cagr(fwd.ttm_windows([_num(r.get("eps")) for r in _sorted_actuals(series)
-                                       if _num(r.get("eps")) is not None]))
-    peg, peg_src = market_peg_ingest.market_peg_for(
-        ctx.db, sector_for(ctx), _cagr * 100.0 if _cagr else None)
-    anchors = collect_anchors(series, price, market_peg=peg)
-    anchors["peg_source"] = peg_src  # 어느 계층 PEG 를 썼는지 고지
+    anchors = collect_anchors(series, price)
     # HITL 이익 증분을 forward 이익 앵커에 결정론적 반영(프롬프트 경로만으론 미반영되던 긍정 인풋을 계산에 직결).
     anchors = apply_hitl_to_anchors(anchors, prior.get("hitl"), series)
     # 이익 앵커를 forward(예상)로 대체 — 소스 우선순위 HITL(위)>컨센서스>성장률 외삽. 사용 소스는 forward_meta 고지.
     anchors = apply_forward_earnings(anchors, series)
-    # 실데이터 시장베타(지수 일봉 회귀) — CAPM COE(PBR·DDM·DCF) 가 LLM 추정 대신 사용.
+    # 실데이터 시장베타(지수 일봉 회귀) — CAPM COE(PER·PBR·DDM·DCF) 가 LLM 추정 대신 사용.
     anchors["factor_betas"] = compute_factor_betas(ctx, anchors, price.get("market"))
-    # 정당 PBR(ROE/COE) — factor_betas 로 COE(CAPM) 확정 후 계산(PBR 목표배수 결정론화).
-    fair_pbr_val, fair_pbr_meta = _fair_pbr(anchors)
-    anchors["fair_pbr"] = fair_pbr_val
-    anchors["fair_pbr_meta"] = fair_pbr_meta
+    # 정당 PER·PBR(고든/ROE·COE) — factor_betas 로 COE(CAPM) 확정 후 계산(목표배수 결정론화).
+    anchors["fair_per"], anchors["fair_per_meta"] = _fair_per(anchors)
+    anchors["fair_pbr"], anchors["fair_pbr_meta"] = _fair_pbr(anchors)
     # 해자 등급(business 단계 서술 → 강|중|약) — H-Model 감쇠기간 정성 배수(ROE 초과수익과 앙상블).
     anchors["moat"] = _grade_moat(prior.get("business", {}) or {})
     # 종목 유형별 방식 적합도(가중/제외) — blend 가 부적합 방식(금융주 EV/EBITDA·무배당 DDM 등)을 제외.
