@@ -105,6 +105,7 @@ _DISCLOSURE_CRON = CronTrigger(hour=7, minute=40, timezone=_TZ)
 # 발표(대개 밤)가 반영되도록 아침에 돌려 당일 과거 이벤트에 실적치·LLM 영향이 채워지게 한다.
 _CALENDAR_CRON = CronTrigger(hour=6, minute=50, timezone=_TZ)
 _RISK_FREE_CRON = CronTrigger(hour=6, minute=45, timezone=_TZ)  # 무위험금리(ECOS 국고채) 매일 1회
+_MARKET_PREMIUM_CRON = CronTrigger(day=1, hour=6, minute=55, timezone=_TZ)  # ERP(Damodaran) 월 1회
 
 
 def run_ingest_cycle(settings: Settings | None = None) -> dict:
@@ -384,6 +385,17 @@ def run_capex_backfill(settings: Settings | None = None) -> dict:
         session.close()
 
 
+def run_market_premium_batch(settings: Settings | None = None) -> dict:
+    """시장 ERP 수집(Damodaran Korea) — CAPM COE·factor model 이 상수 대신 실측 ERP 사용."""
+    from app.services import market_premium_ingest
+
+    session = SessionLocal()
+    try:
+        return market_premium_ingest.ingest_erp(session)
+    finally:
+        session.close()
+
+
 # 수동 실행 가능한 배치 레지스트리 — (key, 표시명, 함수). TUI '운영' 탭이 이 목록으로 버튼을 만든다.
 # 함수는 (settings) → dict 시그니처로 통일돼 있어 TUI 가 일괄 실행·이력 기록한다.
 MANUAL_BATCHES: list[tuple[str, str, object]] = [
@@ -405,6 +417,7 @@ MANUAL_BATCHES: list[tuple[str, str, object]] = [
     ("calendar", "경제·실적 캘린더", run_calendar_batch),
     ("risk_free", "무위험금리(국고채)", run_risk_free_batch),
     ("capex_backfill", "CAPEX 백필(FCFF)", run_capex_backfill),
+    ("market_premium", "시장 ERP(Damodaran)", run_market_premium_batch),
 ]
 
 
@@ -552,6 +565,14 @@ def build_scheduler(settings: Settings | None = None) -> BlockingScheduler:
         _logged("risk_free", run_risk_free_batch),
         trigger=_RISK_FREE_CRON,
         id="risk_free",
+        max_instances=1,
+        coalesce=True,
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        _logged("market_premium", run_market_premium_batch),
+        trigger=_MARKET_PREMIUM_CRON,
+        id="market_premium",
         max_instances=1,
         coalesce=True,
         replace_existing=True,

@@ -414,6 +414,19 @@ class RiskFreeRate(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class MarketPremium(Base):
+    """시장 위험프리미엄(ERP) 캐시(Damodaran 배치). 밸류에이션이 최신 행을 읽어 상수 대신 사용."""
+
+    __tablename__ = "market_premium"
+    __table_args__ = (UniqueConstraint("source", "as_of_date", name="uq_market_premium"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source: Mapped[str] = mapped_column(String(32), index=True)  # damodaran_kr_erp 등
+    as_of_date: Mapped[date] = mapped_column(Date, index=True)
+    erp: Mapped[float] = mapped_column(Float)  # 소수(0.0487 = 4.87%)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class AnalysisComment(Base):
     """종목 분석 LLM 종합 코멘트 캐시.
 
