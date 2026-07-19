@@ -74,18 +74,18 @@ def test_dcf_three_stage_for_high_growth():
     assert any("선형 감쇠" in s for s in r.process)
 
 
-def test_dcf_terminal_growth_capped_by_risk_free():
-    # 영구성장 8% 요청이어도 rf 3% 로 상한(Damodaran g ≤ rf).
+def test_dcf_terminal_growth_used_as_is():
+    # 영구성장률은 상한 없이 입력값 그대로 사용(실측 국고채 10년 기반). 할인율 미만이면 유효.
     r = v.dcf_valuation(
-        fcf_base=100, growth_rate=0.10, years=5, terminal_growth=0.08,
+        fcf_base=100, growth_rate=0.10, years=5, terminal_growth=0.04,
         discount_rate=0.10, net_debt=0, shares=1e8, current_price=None, risk_free=0.03,
     )
     assert r.applicable
-    assert r.assumptions["growth_long"] <= 0.03
+    assert r.assumptions["growth_long"] == 0.04  # 캡 없이 그대로
 
 
 def test_dcf_rejects_discount_le_terminal():
-    # 할인율 3% ≤ 영구성장(캡 후 4%→3%로 유계돼도 여전히 할인율 이상) → 발산 방어.
+    # 할인율 3% ≤ 영구성장 4% → 고든 잔존가치 발산 방어(유일하게 남은 가드).
     r = v.dcf_valuation(
         fcf_base=100, growth_rate=0.03, years=5, terminal_growth=0.04,
         discount_rate=0.03, net_debt=0, shares=1e8, current_price=None,
@@ -114,17 +114,6 @@ def test_ddm_gordon():
 def test_ddm_rejects_no_dividend():
     r = v.ddm_valuation(dps=0, dividend_growth=0.03, cost_of_equity=0.08, current_price=15000)
     assert not r.applicable and "무배당" in r.note
-
-
-def test_asset_liquidation_discount():
-    r = v.asset_valuation(book_equity_per_share=10000, asset_premium=0.7, current_price=5000)
-    assert r.applicable and r.target_price == 7000
-    assert "청산할인" in r.process[1]
-
-
-def test_asset_revaluation_premium():
-    r = v.asset_valuation(book_equity_per_share=10000, asset_premium=1.3, current_price=5000)
-    assert r.target_price == 13000 and "재평가할증" in r.process[1]
 
 
 # ── 요인모형(3단계: 성장국면 할인율 + 터미널 β→1 + CAP) ────────────────────
@@ -247,7 +236,7 @@ def test_blend_excludes_outlier():
     # 정상 3개(약 10000 근처) + 폭주 1개(100000) → 이상치 제외
     a = v.per_valuation(forward_eps=1000, target_per=10, current_price=9000)  # 10000
     b = v.pbr_valuation(bps=11000, target_pbr=1.0, current_price=9000)  # 11000
-    c = v.asset_valuation(book_equity_per_share=9500, asset_premium=1.0, current_price=9000)  # 9500
+    c = v.pbr_valuation(bps=9500, target_pbr=1.0, current_price=9000)  # 9500
     d = v.per_valuation(forward_eps=1000, target_per=100, current_price=9000)  # 100000 (폭주)
     for r in (a, b, c, d):
         r.confidence = "중"
@@ -262,7 +251,7 @@ def test_blend_growth_keeps_upside_method():
     # 성장주: 성장 반영 방식(높은 목표가)이 후행 앵커 클러스터 대비 높아도 이상치로 안 잘린다(상방 컷 완화).
     a = v.per_valuation(forward_eps=1000, target_per=10, current_price=9000)  # 10000
     b = v.pbr_valuation(bps=10000, target_pbr=1.0, current_price=9000)  # 10000
-    c = v.asset_valuation(book_equity_per_share=9500, asset_premium=1.0, current_price=9000)  # 9500
+    c = v.pbr_valuation(bps=9500, target_pbr=1.0, current_price=9000)  # 9500
     up = v.per_valuation(forward_eps=1000, target_per=20, current_price=9000)  # 20000 (중앙값 대비 +100%)
     for r in (a, b, c, up):
         r.confidence = "중"
@@ -280,7 +269,7 @@ def test_blend_growth_still_cuts_downside_outlier():
     # 성장주라도 하방 이상치(-60% 초과)는 그대로 제외(상방만 완화).
     a = v.per_valuation(forward_eps=1000, target_per=10, current_price=9000)  # 10000
     b = v.pbr_valuation(bps=10000, target_pbr=1.0, current_price=9000)  # 10000
-    low = v.asset_valuation(book_equity_per_share=3000, asset_premium=1.0, current_price=9000)  # 3000 (-70%)
+    low = v.pbr_valuation(bps=3000, target_pbr=1.0, current_price=9000)  # 3000 (-70%)
     for r in (a, b, low):
         r.confidence = "중"
     v.blend([a, b, low], current_price=9000, is_growth=True)
@@ -302,10 +291,11 @@ def test_method_fit_financial_excludes_ev_and_dcf():
 
 
 def test_method_fit_growth_downweights_book_methods():
-    # 성장주: PBR·자산가치 저가중(장부가 ≪ 실제가치), PER·DCF 우대.
+    # 성장주: PBR 저가중(장부가 ≪ 실제가치), PER·DCF 우대.
     f = v.method_fit("growth", div_yield_pct=2.0)
-    assert f["pbr"] < 1.0 and f["asset"] < 1.0
+    assert f["pbr"] < 1.0
     assert f["per"] > 1.0 and f["dcf"] > 1.0
+    assert "asset" not in f  # 자산가치 방식 제거됨
 
 
 def test_method_fit_dividend_and_loss_gates():

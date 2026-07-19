@@ -61,6 +61,29 @@
   font-weight: 700;
 }
 
+/* 예상 이익 근거 배너 */
+.forward {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.forwardLabel {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.forwardItem {
+  padding: 0.12rem 0.45rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  cursor: help;
+}
+
 .conclusion {
   font-size: 0.9rem;
   color: var(--text);

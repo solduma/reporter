@@ -398,6 +398,19 @@ class DailyMarketInfo(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class RiskFreeRate(Base):
+    """국고채 등 무위험수익률 일별 캐시(ECOS 배치). 밸류에이션이 최신 행을 읽어 상수 대신 사용."""
+
+    __tablename__ = "risk_free_rate"
+    __table_args__ = (UniqueConstraint("maturity", "rate_date", name="uq_risk_free_rate"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    maturity: Mapped[str] = mapped_column(String(32), index=True)  # kr_treasury_3y 등
+    rate_date: Mapped[date] = mapped_column(Date, index=True)
+    rate: Mapped[float] = mapped_column(Float)  # 연 % (예 3.24)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class AnalysisComment(Base):
     """종목 분석 LLM 종합 코멘트 캐시.
 

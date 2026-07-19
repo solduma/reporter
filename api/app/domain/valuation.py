@@ -4,11 +4,11 @@
 LLM 이 근거와 함께 제시하고, **산식과 목표가 계산·과정 서술은 여기(재현 가능한 순수 함수)가 소유**한다.
 환각 방지: 숫자가 스스로 굴러가지 않게, 모든 결과는 입력 가정에서 결정론적으로 유도된다.
 
-8개 방식: DCF·DDM·자산가치·PER·PBR·EV/EBITDA·Fama-French·APT.
-- PER/PBR/EV/EBITDA: 실데이터(eps·bps·ebitda) × LLM 목표 멀티플 → 주당 가치.
-- DCF: 2단계(명시적 성장 n년 → 영구성장) FCFF 현가 + 잔존가치, 순부채 차감, 주식수로 나눔.
-- DDM: 고든 성장(안정 배당) 또는 2단계 배당 현가.
-- 자산가치: 지배주주 자본(장부) × LLM 프리미엄/할인(청산·재평가 반영).
+7개 방식: PER·PBR·EV/EBITDA·DCF·DDM·Fama-French·APT. 모두 결정론(배수·성장률·자본비용을
+호출측이 실데이터로 확정해 넘기고, 여기선 산식만).
+- PER/PBR/EV/EBITDA: 실데이터(eps·bps·ebitda) × 목표 멀티플(정당배수/밴드) → 주당 가치.
+- DCF: 2/3단계(명시적 성장 → 영구성장) FCFF 현가 + 잔존가치, 순부채 차감, 주식수로 나눔.
+- DDM: 고든 성장(안정 배당).
 - Fama-French / APT: 요인 노출×프리미엄 → 요구수익률(할인율). 목표 PER=1/(r-g) 로 EPS 에 적용.
 
 각 방식은 ValuationResult(목표가·업사이드·신뢰도·가정·과정 스텝)를 낸다. 최종 목표가는
@@ -26,7 +26,6 @@ METHOD_LABELS: dict[str, str] = {
     "ev_ebitda": "EV/EBITDA",
     "dcf": "DCF (현금흐름할인)",
     "ddm": "DDM (배당할인)",
-    "asset": "자산가치 (Asset-Based)",
     "fama_french": "Fama-French 3요인",
     "apt": "APT (차익거래가격결정)",
 }
@@ -69,12 +68,15 @@ def _fmt(n: float | None) -> str:
 
 
 # ── 상대가치(멀티플) ────────────────────────────────────────────────────
-def _band_warning(target: float, band: dict | None, unit: str) -> str:
+def _band_warning(target: float, band: dict | None, unit: str, fair_value: float | None = None) -> str:
     """LLM 목표 배수가 과거 밴드[p25,p75] 밖이면 경고 문구. clamp 하지 않고 사유만 노출(soft 가드).
 
     band = {median, p25, p75, n}. 밴드 없거나 유효 표본 부족(n<4)이면 경고 없음.
     환각 방지: 배수는 LLM 자유값이라 EPS(결정론) 대비 비대칭 — 과거 자기 밴드로 이상치를 투명 경고한다.
+    fair_value(이론 정당 배수: PER=PEG×성장, PBR=ROE/COE)가 있으면 상회 경고에 함께 노출 — 목표배수가
+    정당 배수 이내면 밴드를 넘어도 (성장·수익성으로) 리레이팅이 정당화됨을 알린다.
     """
+    fair_txt = f" [정당 {unit} {fair_value:g}배]" if fair_value else ""
     if not band or band.get("n", 0) < 4:
         return ""
     p25, p75, med = band.get("p25"), band.get("p75"), band.get("median")
@@ -82,8 +84,11 @@ def _band_warning(target: float, band: dict | None, unit: str) -> str:
         return ""
     yrs = f"{band['n']}개 분기"
     if target > p75:
+        rerate = ""
+        if fair_value and target <= fair_value:
+            rerate = f" — 단, 이론 정당 {unit} 이내라 리레이팅이 정당화됨"
         return (f"⚠ 목표 {unit} {target:g}배는 과거 밴드(중앙값 {med:g}, {p25:g}~{p75:g}배, {yrs})를 "
-                f"상회 — 성장 가속 등 리레이팅 근거 필요")
+                f"상회{fair_txt} — 성장 가속 등 리레이팅 근거 필요{rerate}")
     if target < p25:
         return (f"⚠ 목표 {unit} {target:g}배는 과거 밴드(중앙값 {med:g}, {p25:g}~{p75:g}배, {yrs})를 "
                 f"하회 — 디레이팅 근거 필요")
@@ -92,11 +97,13 @@ def _band_warning(target: float, band: dict | None, unit: str) -> str:
 
 def per_valuation(
     *, forward_eps: float | None, target_per: float | None, current_price: float | None,
-    per_band: dict | None = None,
+    per_band: dict | None = None, fair_per: float | None = None, per_source: str = "",
 ) -> ValuationResult:
     """목표가 = 예상 EPS × 목표 PER. 성장주·이익 창출 기업의 기본.
 
-    per_band(과거 PER 밴드)가 주어지면 목표 PER 이 밴드[p25,p75] 밖일 때 경고를 note 에 남긴다(soft).
+    forward_eps·target_per 는 결정론적으로 산출돼 들어온다(외삽·HITL EPS, PEG 정당 PER). per_source 는
+    목표배수 출처(예 'PEG 정당 PER'·'과거 밴드 중앙값') — process 에 노출해 재현성을 투명화한다.
+    per_band 가 있으면 목표 PER 이 밴드[p25,p75] 밖일 때 경고를, fair_per 로 리레이팅 정당성을 안내한다(soft).
     """
     r = ValuationResult("per", METHOD_LABELS["per"], applicable=False)
     if forward_eps is None or target_per is None:
@@ -110,19 +117,25 @@ def per_valuation(
     r.target_price = target
     r.upside_pct = _upside(target, current_price)
     r.assumptions = {"forward_eps": forward_eps, "target_per": target_per}
+    src = f" ({per_source})" if per_source else ""
     r.process = [
         f"예상 주당순이익(EPS) {_fmt(forward_eps)}원",
-        f"목표 PER {target_per:g}배 적용",
+        f"목표 PER {target_per:g}배 적용{src}",
         f"목표가 = {_fmt(forward_eps)} × {target_per:g} = {_fmt(target)}원",
     ]
-    r.note = _band_warning(target_per, per_band, "PER")
+    r.note = _band_warning(target_per, per_band, "PER", fair_per)
     return r
 
 
 def pbr_valuation(
-    *, bps: float | None, target_pbr: float | None, current_price: float | None
+    *, bps: float | None, target_pbr: float | None, current_price: float | None,
+    pbr_band: dict | None = None, fair_pbr: float | None = None, pbr_source: str = "",
 ) -> ValuationResult:
-    """목표가 = 주당순자산(BPS) × 목표 PBR. 자산주·금융주·역발상에 유효."""
+    """목표가 = 주당순자산(BPS) × 목표 PBR. 자산주·금융주·역발상에 유효.
+
+    bps·target_pbr 은 결정론적으로 산출돼 들어온다(BPS 앵커, 정당 PBR=ROE/COE 또는 밴드 중앙값).
+    pbr_source 는 배수 출처(재현성), pbr_band 는 과거 밴드(soft 경고), fair_pbr 은 수익성 정당 배수.
+    """
     r = ValuationResult("pbr", METHOD_LABELS["pbr"], applicable=False)
     if bps is None or target_pbr is None:
         r.note = "BPS 또는 목표 PBR 결측"
@@ -135,11 +148,13 @@ def pbr_valuation(
     r.target_price = target
     r.upside_pct = _upside(target, current_price)
     r.assumptions = {"bps": bps, "target_pbr": target_pbr}
+    src = f" ({pbr_source})" if pbr_source else ""
     r.process = [
         f"주당순자산(BPS) {_fmt(bps)}원",
-        f"목표 PBR {target_pbr:g}배 적용",
+        f"목표 PBR {target_pbr:g}배 적용{src}",
         f"목표가 = {_fmt(bps)} × {target_pbr:g} = {_fmt(target)}원",
     ]
+    r.note = _band_warning(target_pbr, pbr_band, "PBR", fair_pbr)
     return r
 
 
@@ -150,8 +165,13 @@ def ev_ebitda_valuation(
     net_debt: float | None,  # 억원 (양수=순차입, 음수=순현금)
     shares: float | None,  # 주식수
     current_price: float | None,
+    ev_band: dict | None = None, ev_source: str = "",
 ) -> ValuationResult:
-    """EV = EBITDA × 목표배수 → 시총 = EV − 순차입 → 목표가 = 시총/주식수. 자본구조 중립 비교."""
+    """EV = EBITDA × 목표배수 → 시총 = EV − 순차입 → 목표가 = 시총/주식수. 자본구조 중립 비교.
+
+    forward_ebitda·net_debt·shares 는 결정론 앵커, target_ev_ebitda 는 과거 밴드 중앙값(코드 확정).
+    ev_source 는 배수 출처(재현성), ev_band 는 과거 밴드(soft 경고 — 배수=밴드중앙이라 실질 무발동).
+    """
     r = ValuationResult("ev_ebitda", METHOD_LABELS["ev_ebitda"], applicable=False)
     if forward_ebitda is None or target_ev_ebitda is None or shares is None or shares <= 0:
         r.note = "예상 EBITDA·목표 EV/EBITDA·주식수 중 결측"
@@ -173,11 +193,13 @@ def ev_ebitda_valuation(
         "forward_ebitda_eok": forward_ebitda, "target_ev_ebitda": target_ev_ebitda,
         "net_debt_eok": nd, "shares": shares,
     }
+    src = f" ({ev_source})" if ev_source else ""
     r.process = [
-        f"예상 EBITDA {_fmt(forward_ebitda)}억원 × 목표 배수 {target_ev_ebitda:g} = EV {_fmt(ev)}억원",
+        f"예상 EBITDA {_fmt(forward_ebitda)}억원 × 목표 배수 {target_ev_ebitda:g}{src} = EV {_fmt(ev)}억원",
         f"지분가치 = EV {_fmt(ev)}억 − 순차입 {_fmt(nd)}억 = {_fmt(equity_value)}억원",
         f"목표가 = {_fmt(equity_value)}억 ÷ {_fmt(shares)}주 = {_fmt(target)}원",
     ]
+    r.note = _band_warning(target_ev_ebitda, ev_band, "EV/EBITDA")
     return r
 
 
@@ -199,23 +221,22 @@ def dcf_valuation(
     current_price: float | None,
     roe: float | None = None,  # ROIC 대리 — CAP 산정 + 터미널 성장 상한(ROIC 초과분만 가치)
     moat: str | None = None,  # 해자 → CAP 기준연수
-    risk_free: float | None = None,  # 있으면 영구성장 상한 = min(GDP캡, rf)
+    risk_free: float | None = None,  # (미사용, 시그니처 호환용) 영구성장 상한 제거로 더는 안 씀
 ) -> ValuationResult:
     """FCFF DCF. 고성장주는 3단계(고성장 유지→선형 감쇠→영구), 완만성장주는 2단계로 자동 선택.
 
     Damodaran/CFA/McKinsey: 2단계의 '즉시 영구 전환'은 고성장주를 왜곡하므로, 성장률이 안정률보다
-    8%p 초과면 전환기를 둔 3단계(FF/APT 와 동일 CAP·선형 감쇠)를 쓴다. 영구성장은 rf/경제성장으로
-    상한(성장은 ROIC>WACC 일 때만 가치 — 과도한 터미널 성장 방지)."""
+    8%p 초과면 전환기를 둔 3단계(FF/APT 와 동일 CAP·선형 감쇠)를 쓴다. 영구성장률은 호출측이 실측
+    금리(국고채 10년) 기반으로 확정해 넘기므로 상한을 두지 않는다(할인율≤영구성장 발산만 방어)."""
     from app.domain import beta as _beta
 
     r = ValuationResult("dcf", METHOD_LABELS["dcf"], applicable=False)
     if None in (fcf_base, growth_rate, terminal_growth, discount_rate, shares) or shares <= 0:
         r.note = "FCF·성장률·영구성장률·할인율·주식수 중 결측"
         return r
-    # 영구성장 상한: 경제성장(GDP캡)·무위험수익률 이하(Damodaran). 발산·과대 방지.
-    g_l = min(terminal_growth, _beta.TERMINAL_GROWTH_CAP)
-    if risk_free is not None:
-        g_l = min(g_l, risk_free)
+    # 영구성장률은 입력값 그대로 사용(상한 없음 — 실측 금리 기반이라 인위적 캡 불필요).
+    # 단, 할인율 ≤ 영구성장률이면 고든 잔존가치가 발산/음수라 이 경우만 방어.
+    g_l = terminal_growth
     if discount_rate <= g_l:
         r.note = f"할인율({discount_rate:.1%}) ≤ 영구성장률({g_l:.1%}) — 잔존가치 발산"
         return r
@@ -279,7 +300,7 @@ def dcf_valuation(
             f"명시적 구간 현가 합 {_fmt(pv_explicit)}억원 (할인율 {discount_rate:.1%})",
         ]
     r.process += [
-        f"영구성장 {g_l:.1%}(rf/GDP 상한) → 잔존가치 {_fmt(terminal_value)}억, 현가 {_fmt(pv_terminal)}억원",
+        f"영구성장 {g_l:.1%}(국고채 10년 기준) → 잔존가치 {_fmt(terminal_value)}억, 현가 {_fmt(pv_terminal)}억원",
         f"기업가치 {_fmt(enterprise_value)}억 − 순차입 {_fmt(nd)}억 = 지분가치 {_fmt(equity_value)}억원",
         f"목표가 = {_fmt(equity_value)}억 ÷ {_fmt(shares)}주 = {_fmt(target)}원",
     ]
@@ -314,34 +335,6 @@ def ddm_valuation(
         f"주당배당금(DPS) {_fmt(dps)}원, 배당성장률 {dividend_growth:.1%}",
         f"차기 배당 D1 = {_fmt(dps)} × (1+{dividend_growth:.1%}) = {_fmt(d1)}원",
         f"목표가 = D1 ÷ (자본비용 {cost_of_equity:.1%} − 성장 {dividend_growth:.1%}) = {_fmt(target)}원",
-    ]
-    return r
-
-
-def asset_valuation(
-    *,
-    book_equity_per_share: float | None,  # 주당순자산(장부, 원) = BPS
-    asset_premium: float | None,  # 재평가/청산 배수(예 0.8=청산할인, 1.2=재평가할증)
-    current_price: float | None,
-) -> ValuationResult:
-    """자산가치: 주당순자산(장부) × 재평가/청산 배수. 자산주·지주사·청산가치 접근."""
-    r = ValuationResult("asset", METHOD_LABELS["asset"], applicable=False)
-    if book_equity_per_share is None or asset_premium is None:
-        r.note = "주당순자산 또는 재평가 배수 결측"
-        return r
-    if book_equity_per_share <= 0:
-        r.note = "자본잠식 — 자산가치 접근 부적합"
-        return r
-    target = _round_won(book_equity_per_share * asset_premium)
-    r.applicable = True
-    r.target_price = target
-    r.upside_pct = _upside(target, current_price)
-    r.assumptions = {"book_equity_per_share": book_equity_per_share, "asset_premium": asset_premium}
-    kind = "청산할인" if asset_premium < 1 else ("재평가할증" if asset_premium > 1 else "장부가")
-    r.process = [
-        f"주당순자산(장부) {_fmt(book_equity_per_share)}원",
-        f"{kind} 배수 {asset_premium:g} 적용(부동산·투자자산 재평가·청산가치 반영)",
-        f"목표가 = {_fmt(book_equity_per_share)} × {asset_premium:g} = {_fmt(target)}원",
     ]
     return r
 
@@ -489,21 +482,21 @@ def apt_valuation(**kwargs) -> ValuationResult:
 # fit 배수: 0=제외(부적합, blend 가중 0), 0.5=저가중, 1.0=표준, 1.5=고가중. 최종 blend 가중 =
 # 신뢰도(_CONF_WEIGHT) × 이 fit. 유형 규칙에 배당·이익 게이트를 곱(min)해 무배당 DDM·적자 PER 을 제외.
 _FIT_BY_TYPE: dict[str, dict[str, float]] = {
-    # 성장주: 초과수익 기업 — 장부가 방식(PBR·자산가치) 과소평가. PER·DCF·EV/EBITDA·요인모형 우대.
+    # 성장주: 초과수익 기업 — 장부가 방식(PBR) 과소평가. PER·DCF·EV/EBITDA·요인모형 우대.
     "growth": {"per": 1.5, "pbr": 0.5, "ev_ebitda": 1.0, "dcf": 1.5,
-               "ddm": 1.0, "asset": 0.5, "fama_french": 1.0, "apt": 1.0},
-    # 자산주/가치주: 성숙·고정자산 — 장부가가 실제가치 근사. 자산가치·PBR 우대.
+               "ddm": 1.0, "fama_french": 1.0, "apt": 1.0},
+    # 자산주/가치주: 성숙·고정자산 — 장부가가 실제가치 근사. PBR 우대.
     "asset": {"per": 1.0, "pbr": 1.5, "ev_ebitda": 1.0, "dcf": 1.0,
-              "ddm": 1.0, "asset": 1.5, "fama_french": 1.0, "apt": 1.0},
+              "ddm": 1.0, "fama_french": 1.0, "apt": 1.0},
     # 금융주(은행·보험): 부채=원재료 — EV·WACC 무의미 → EV/EBITDA·FCFF DCF 제외. DDM·P/B-ROE 우대.
     "financial": {"per": 1.0, "pbr": 1.5, "ev_ebitda": 0.0, "dcf": 0.0,
-                  "ddm": 1.5, "asset": 1.0, "fama_french": 1.0, "apt": 1.0},
+                  "ddm": 1.5, "fama_french": 1.0, "apt": 1.0},
     # 시클리컬: 현재 PER 오도(사이클 역행) — 저가중. 하방서도 산출되는 EV/EBITDA 우대. DCF 정규화 전 저가중.
     "cyclical": {"per": 0.5, "pbr": 1.0, "ev_ebitda": 1.5, "dcf": 0.5,
-                 "ddm": 1.0, "asset": 1.0, "fama_french": 1.0, "apt": 1.0},
+                 "ddm": 1.0, "fama_french": 1.0, "apt": 1.0},
     # 기타/일반: 중립(전부 표준 가중).
     "other": {"per": 1.0, "pbr": 1.0, "ev_ebitda": 1.0, "dcf": 1.0,
-              "ddm": 1.0, "asset": 1.0, "fama_french": 1.0, "apt": 1.0},
+              "ddm": 1.0, "fama_french": 1.0, "apt": 1.0},
 }
 _ALL_METHODS = tuple(METHOD_LABELS)
 

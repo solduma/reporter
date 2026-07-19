@@ -61,32 +61,36 @@ _RESEARCH_GOAL = (
     "뉴스·공시·리포트·웹으로 추가 리서치해 검증한다. 여러 주장이 섞였으면 개별 주장(claim)으로 나눈다.\n"
     "각 claim 을 먼저 claim_type 으로 분류한다:\n"
     "- 'fact_event': 정성·이벤트성 주장(수주·계약·소송 등 '있다/없다').\n"
-    "- 'numeric': 수치·규모 주장(용량 100MW·수주 5000억·CAPA 2배 등 '얼마').\n"
-    "**numeric 은 다음을 능동적으로 리서치해 numeric 필드를 채운다(핵심):**\n"
-    "  1) baseline: 현재 기준치(예 '현재 보유 IDC 용량 MW'). business/overview 단계와 "
-    "     web_search·reports·financials 로 파악한다. **공개 소스로 못 찾으면 사용자 인풋(IR 제공 등)의 "
-    "     값이나 합리적 추정을 baseline 으로 쓰고 그 출처·가정을 evidence 에 명시한다 — null 방치보다 낫다.**\n"
-    "  2) new_value·unit: 인풋의 신규치(예 100, 'MW').\n"
-    "  3) delta_pct: 기준치 대비 증분율(new/baseline). baseline 추정치라도 계산해 근거를 남긴다.\n"
-    "  4) segment_revenue_share: 그 사업/제품이 전체 매출에서 차지하는 비중(%). 미미하면 전사 영향도 작다.\n"
-    "  5) conversion_chain: '용량→매출→이익→밸류에이션' 환산 가정 사슬을 근거와 함께 명시(임의 숫자 금지).\n"
+    "- 'numeric': 수치·규모 주장(용량 100MW·수주 5000억·매출 2배 등 '얼마').\n\n"
+    "**[중요] 너는 플래너다 — 계산하지 마라.** 밸류에이션 이익 반영은 **코드가 실데이터로 결정론 계산**한다. "
+    "너는 곱셈·나눗셈·증분율·성장률 같은 *계산 결과*를 주지 말고, 계산에 필요한 **구성요소만** 정확히 뽑아라. "
+    "임의로 값을 가감·스케일·환산하면 안 된다(예: 용량 900%↑ 를 이익 증분으로 쓰지 마라).\n"
+    "**numeric 은 다음 구성요소를 채운다:**\n"
+    "  1) value: 인풋이 말하는 증가분의 크기. 출처의 숫자를 그대로(매출 '+50%' 면 50, 신규수주 '연 125억' 이면 125).\n"
+    "  2) unit: 'pct'(비율) | 'absolute_eok'(절대 금액, 억원). value 가 %면 pct, 금액이면 absolute_eok.\n"
+    "  3) target_metric: 이 증가가 어느 지표인가 — 'revenue'(매출) | 'operating_income'(영업이익) | "
+    "'net_income'(순이익). 매출이 늘면 revenue(코드가 과거 증분마진으로 이익 전이 계산). 이미 이익 수치면 그 지표.\n"
+    "  4) scope: value 의 적용 범위 — 'segment'(특정 사업/제품 단위 증분) | 'company'(이미 전사 기준). "
+    "segment 면 segment_revenue_share(그 사업의 전체 매출 대비 비중 %)도 채운다.\n"
+    "  5) conversion_chain: 근거 사슬을 서술(코드 계산 검증용). 여기에도 임의 계산값 금지, 사실·출처만.\n"
+    "  절대금액은 회사 재무 단위(억원)에 맞춘다. value≤0·구성요소 부족 시 코드가 자동 미반영한다.\n\n"
     "**출처(evidence) 인정 범위: 공개 소스(뉴스·공시·리포트·웹)뿐 아니라 사용자가 IR·경영진 미팅·회사 "
     "직접 제공으로 얻은 1차 정보도 유효한 근거다. 공개 검색으로 재확인이 안 된다는 이유만으로 신뢰할 "
     "1차 출처 정보를 배제하지 마라.**\n"
-    "판정(verdict): '반박'(근거가 반대/허위, probability=0) | '반영'(공개 팩트로 확인, probability=1) | "
-    "'출처확인'(공개 검증은 안 되나 IR 등 신뢰할 1차 출처가 명확, probability 0.7~0.9) | "
-    "'가능성'(개연성만, probability 0~0.6). valuation_impact 에는 가정 조정을 구체적으로("
-    "예 '이익성장률 +3%p', '목표 PER 12→15'). numeric 은 baseline·비중을 반영한 증분이어야 한다"
-    "(전체 매출 비중 5%인 사업이 2배 되면 전사 매출 +5%). 반영은 확률 가중 전 최대치. 출처를 evidence 에."
+    "**판정(refuted): HITL 인풋은 대개 내부정보라 공개검색으로 확인 안 되는 게 정상이다. 반박 근거"
+    "(사실과 배치)를 찾았거나 인풋 자체에 논리적 모순이 있을 때만 refuted=true(미반영). 반박 못 하면 "
+    "refuted=false(반영). 확률을 임의 숫자로 주지 마라 — 반영/미반영 이진 판단만 한다.**\n"
+    "valuation_impact 에는 가정 조정 방향을 서술한다(계산은 코드가 함)."
 )
 
 _RESEARCH_SCHEMA = (
     '{"claims": [{"claim": "주장 요지", "claim_type": "fact_event|numeric", '
-    '"verdict": "반박|반영|출처확인|가능성", "probability": 0.0~1.0, '
-    '"evidence": "추가 리서치 근거(출처 포함). IR·회사 제공 1차 출처면 그렇게 명시", "reasoning": "판정 이유", '
-    '"numeric": {"baseline": 수|null, "new_value": 수|null, "unit": "", "delta_pct": 수|null, '
-    '"segment_revenue_share": 수|null, "conversion_chain": "용량→매출→이익 환산 가정"}, '
-    '"valuation_impact": "밸류에이션 가정 조정(최대치)"}], '
+    '"refuted": false, "evidence": "리서치 근거(출처 포함). IR·회사 제공 1차 출처면 그렇게 명시", '
+    '"reasoning": "판정 이유(반박 근거 유무·논리 모순 여부)", '
+    '"numeric": {"value": 수|null, "unit": "pct|absolute_eok", '
+    '"target_metric": "revenue|operating_income|net_income", "scope": "segment|company", '
+    '"segment_revenue_share": 수|null, "conversion_chain": "근거 사슬(계산값 금지, 사실·출처만)"}, '
+    '"valuation_impact": "가정 조정 방향(서술)"}], '
     '"summary": "인풋이 밸류에이션에 미치는 순영향 요약"}'
 )
 
