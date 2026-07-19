@@ -386,14 +386,12 @@ def run_capex_backfill(settings: Settings | None = None) -> dict:
 
 
 def run_market_premium_batch(settings: Settings | None = None) -> dict:
-    """시장 팩터 수집 — ERP(Damodaran) + PEG(횡단면 회귀). 상수 대신 실측값 사용."""
-    from app.services import market_peg_ingest, market_premium_ingest
+    """시장 ERP 수집(Damodaran) — CAPM COE 가 상수 대신 실측 ERP 사용."""
+    from app.services import market_premium_ingest
 
     session = SessionLocal()
     try:
-        out = market_premium_ingest.ingest_erp(session)
-        out["peg"] = market_peg_ingest.ingest_market_peg(session)
-        return out
+        return market_premium_ingest.ingest_erp(session)
     finally:
         session.close()
 
