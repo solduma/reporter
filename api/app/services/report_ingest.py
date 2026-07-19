@@ -428,26 +428,29 @@ def run_backfill_progressive(
     }
 
 
-# ── CAPEX 경량 백필 ────────────────────────────────────────────────────
-# CAPEX 는 구조화 API(fnlttSinglAcntAll CF)로 얻으므로 D&A 원문(document.xml 수MB) 재다운로드 불필요.
-# capex 가 NULL 인 연간 report_financials 행만 골라 구조화 API 로 채우고 financials 에도 반영한다.
+# ── WACC·FCFF 재료 경량 백필(capex·D&A·실효세율·부채비용) ─────────────────
+# 모두 구조화 API(fnlttSinglAcntAll) 한 응답에서 파싱(D&A 원문 재다운로드 불필요, 추가 호출 0).
+# financials 에 capex·세율·부채비용 중 하나라도 결측인 연간행을 채운다.
 def backfill_capex(db: Session, settings: Settings | None = None, limit: int = 200) -> dict:
-    """FCFF 산출용 capex·D&A 를 financials 에 채운다(경량). capex 는 구조화 API, D&A 는 report_financials
-    원값 복사(이미 원문 파싱돼 있어 DART 재호출 불필요). 종목당 연간 행만. 반환: 처리 통계.
+    """FCFF·WACC 재료(capex·D&A·실효세율·부채비용)를 financials 에 채운다(경량, 추가 호출 0).
 
-    FCFF=NOPAT+D&A−CAPEX 는 둘 다 필요해, financials 에 capex·depreciation 을 함께 반영한다.
+    capex·세율·부채비용은 fetch_income_and_equity 한 응답에서, D&A 는 report_financials 원값 복사.
+    financials 에 셋 중 하나라도 결측인 연간행이 대상. 반환: 처리 통계.
     """
     settings = settings or get_settings()
-    # financials.capex 결측인 연간행 대상 — report_financials 의 D&A(원값)도 함께 끌어온다.
     rows = db.execute(
         select(ReportFinancial.stock_code, ReportFinancial.period, ReportFinancial.depreciation)
         .where(ReportFinancial.report_kind == "annual")
         .order_by(ReportFinancial.stock_code)
     ).all()
-    # financials 에 capex 이미 있는 (종목,기간)은 제외.
+    # financials 에 capex·세율·부채비용 모두 채워진 (종목,기간)만 제외(하나라도 결측이면 대상).
     done = {
         (c, p) for c, p in db.execute(
-            select(Financial.stock_code, Financial.period).where(Financial.capex.is_not(None))
+            select(Financial.stock_code, Financial.period).where(
+                Financial.capex.is_not(None),
+                Financial.effective_tax_rate.is_not(None),
+                Financial.cost_of_debt.is_not(None),
+            )
         ).all()
     }
     pending = [(c, p, dep) for c, p, dep in rows if (c, p) not in done][:limit]
@@ -467,18 +470,33 @@ def backfill_capex(db: Session, settings: Settings | None = None, limit: int = 2
                 for period, dep in items:
                     year = int(period.split(".")[0])
                     fin = dart.fetch_income_and_equity(settings.dart_api_key, corp_code, year, 4, session)
-                    if fin is None or fin.capex is None:
+                    if fin is None:
                         continue
-                    db.execute(
-                        insert(ReportFinancial)
-                        .values(stock_code=code, period=period, fs_div="CFS",
-                                report_kind="annual", rcept_no="", capex=fin.capex)
-                        .on_conflict_do_update(constraint="uq_report_financial", set_={"capex": fin.capex})
-                    )
-                    # financials 에 capex + D&A(report_financials 원값 억원 변환) 함께 반영 — FCFF 재료.
-                    vals: dict = {"capex": fin.capex / 1e8}
+                    # report_financials 원자료(capex·세율·이자) 저장.
+                    rf_vals = {"capex": fin.capex, "income_tax": fin.income_tax,
+                               "pretax_income": fin.pretax_income, "interest_expense": fin.interest_expense}
+                    rf_vals = {k: v for k, v in rf_vals.items() if v is not None}
+                    if rf_vals:
+                        db.execute(
+                            insert(ReportFinancial)
+                            .values(stock_code=code, period=period, fs_div="CFS",
+                                    report_kind="annual", rcept_no="", **rf_vals)
+                            .on_conflict_do_update(constraint="uq_report_financial", set_=rf_vals)
+                        )
+                    # financials 에 FCFF·WACC 재료 반영(capex·D&A 억원, 세율·부채비용 비율).
+                    vals: dict = {}
+                    if fin.capex is not None:
+                        vals["capex"] = fin.capex / 1e8
                     if dep is not None:
                         vals["depreciation"] = dep / 1e8
+                    etr = _effective_tax_rate(fin)
+                    if etr is not None:
+                        vals["effective_tax_rate"] = etr
+                    cod = _cost_of_debt(fin)
+                    if cod is not None:
+                        vals["cost_of_debt"] = cod
+                    if not vals:
+                        continue
                     db.execute(
                         insert(Financial)
                         .values(stock_code=code, period=period, is_estimate=False, **vals)
@@ -489,9 +507,9 @@ def backfill_capex(db: Session, settings: Settings | None = None, limit: int = 2
             except dart.DartQuotaExceeded:
                 db.rollback()
                 quota_hit = True
-                logger.warning("capex backfill: DART 한도초과 — 중단(%d 채움)", filled)
+                logger.warning("wacc/fcff backfill: DART 한도초과 — 중단(%d 채움)", filled)
                 break
             except Exception as e:
                 db.rollback()
-                logger.warning("capex backfill failed for %s: %s", code, e)
+                logger.warning("wacc/fcff backfill failed for %s: %s", code, e)
     return {"filled": filled, "codes": len(by_code), "quota_hit": quota_hit}
