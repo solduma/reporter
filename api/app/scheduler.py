@@ -104,6 +104,7 @@ _DISCLOSURE_CRON = CronTrigger(hour=7, minute=40, timezone=_TZ)
 # 경제·실적 캘린더: 매일 06:50. FRED 발표일은 자주 안 바뀌므로 하루 1회면 충분. 미국 지표
 # 발표(대개 밤)가 반영되도록 아침에 돌려 당일 과거 이벤트에 실적치·LLM 영향이 채워지게 한다.
 _CALENDAR_CRON = CronTrigger(hour=6, minute=50, timezone=_TZ)
+_RISK_FREE_CRON = CronTrigger(hour=6, minute=45, timezone=_TZ)  # 무위험금리(ECOS 국고채) 매일 1회
 
 
 def run_ingest_cycle(settings: Settings | None = None) -> dict:
@@ -361,6 +362,17 @@ def run_calendar_batch(settings: Settings | None = None) -> dict:
         session.close()
 
 
+def run_risk_free_batch(settings: Settings | None = None) -> dict:
+    """무위험수익률 수집(ECOS 국고채 3년/10년) — DCF·factor model 이 상수 대신 최신 시장금리 사용."""
+    from app.services import risk_free_ingest
+
+    session = SessionLocal()
+    try:
+        return risk_free_ingest.ingest_risk_free_rates(session, settings)
+    finally:
+        session.close()
+
+
 # 수동 실행 가능한 배치 레지스트리 — (key, 표시명, 함수). TUI '운영' 탭이 이 목록으로 버튼을 만든다.
 # 함수는 (settings) → dict 시그니처로 통일돼 있어 TUI 가 일괄 실행·이력 기록한다.
 MANUAL_BATCHES: list[tuple[str, str, object]] = [
@@ -380,6 +392,7 @@ MANUAL_BATCHES: list[tuple[str, str, object]] = [
     ("us_disclosure", "US 공시(8-K)", run_us_disclosure_batch),
     ("us_financials", "US 재무 백필(SEC)", run_us_financials_backfill),
     ("calendar", "경제·실적 캘린더", run_calendar_batch),
+    ("risk_free", "무위험금리(국고채)", run_risk_free_batch),
 ]
 
 
@@ -519,6 +532,14 @@ def build_scheduler(settings: Settings | None = None) -> BlockingScheduler:
         _logged("calendar", run_calendar_batch),
         trigger=_CALENDAR_CRON,
         id="calendar",
+        max_instances=1,
+        coalesce=True,
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        _logged("risk_free", run_risk_free_batch),
+        trigger=_RISK_FREE_CRON,
+        id="risk_free",
         max_instances=1,
         coalesce=True,
         replace_existing=True,

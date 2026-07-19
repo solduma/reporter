@@ -20,7 +20,7 @@ from app.domain import beta as betamod
 from app.domain import forward as fwd
 from app.domain import valuation as val
 from app.ports.llm import LLMError, LLMPort
-from app.services import company_service
+from app.services import company_service, risk_free_ingest
 from app.services.deepdive.tools import ToolContext, dispatch, sector_for
 
 logger = logging.getLogger(__name__)
@@ -40,11 +40,15 @@ def compute_factor_betas(ctx: ToolContext, anchors: dict, market: str | None) ->
         market_beta = betamod.market_beta(stock_closes, index_closes)
     if market_beta is None:
         market_beta = 1.0  # 회귀 불가(일봉 부족·지수 없음) 시 시장 평균 베타로 보수적 근사
+    # 무위험수익률: ECOS 국고채 3년 최신값(배치 적재) → 없으면 도메인 상수 폴백.
+    rf = risk_free_ingest.latest_rate(ctx.db, "kr_treasury_3y") or betamod.RISK_FREE
+    rf_10y = risk_free_ingest.latest_rate(ctx.db, "kr_treasury_10y")  # DCF 영구성장률 근사(장기 명목)
     return {
         "market_beta": market_beta,
         "smb_beta": betamod.smb_beta(anchors.get("market_cap_eok")),
         "hml_beta": betamod.hml_beta(anchors.get("current_pbr")),
-        "risk_free": betamod.RISK_FREE,
+        "risk_free": rf,
+        "risk_free_10y": rf_10y,
         "market_premium": betamod.MARKET_PREMIUM,
         "smb_premium": betamod.SMB_PREMIUM,
         "hml_premium": betamod.HML_PREMIUM,
@@ -545,16 +549,41 @@ def _t_ev_ebitda(a: dict, anc: dict) -> val.ValuationResult:
     )
 
 
+def _det_dcf_inputs(anc: dict) -> dict:
+    """DCF 입력을 결정론 산출: FCF 기준·성장률·영구성장률·WACC 모두 실데이터/코드.
+
+    - fcf_base(억원) = forward 순이익 근사 = forward EPS × 주식수 (FCF 프록시). 앵커만으로 결정.
+    - growth_rate = 단기 forward 성장률(growth_st). terminal_growth = 국고채 10년(장기 명목성장 근사).
+    - discount_rate = WACC(COE CAPM + 세후부채비용 자본가중, beta.wacc). 셋 중 하나라도 없으면 None.
+    """
+    fb = anc.get("factor_betas") or {}
+    coe = _capm_coe(anc)
+    eps = _num(anc.get("eps_ttm"))
+    shares = _num(anc.get("shares"))
+    fcf_base = eps * shares / 1e8 if (eps and shares) else None  # 원×주 → 억원
+    wacc = None
+    if coe is not None and shares is not None:
+        equity_eok = _num(anc.get("market_cap_eok"))
+        w, _ = betamod.wacc(coe, equity_eok or 0.0, anc.get("net_debt_eok"), _num(fb.get("risk_free")) or 0.0)
+        wacc = w
+    return {
+        "fcf_base": fcf_base,
+        "growth_rate": _num(anc.get("growth_st")),
+        "terminal_growth": _num(fb.get("risk_free_10y")),  # 상한 없이 실측 10년물 그대로
+        "discount_rate": wacc,
+    }
+
+
 def _t_dcf(a: dict, anc: dict) -> val.ValuationResult:
-    # roe·moat 로 고성장주는 3단계(CAP 기반 전환기), 완만성장주는 2단계 자동 선택. risk_free 로 영구성장 상한.
+    # 완전 결정론: FCF기준·성장률·영구성장률·WACC 모두 코드 확정(_det_dcf_inputs). roe·moat 로 2/3단계 자동.
+    d = _det_dcf_inputs(anc)
     return val.dcf_valuation(
-        fcf_base=_num(a.get("fcf_base_eok")), growth_rate=_num(a.get("growth_rate")),
-        years=int(_num(a.get("years")) or 5), terminal_growth=_num(a.get("terminal_growth")),
-        discount_rate=_num(a.get("discount_rate")),
-        net_debt=_pick(a.get("net_debt_eok"), anc.get("net_debt_eok")),
+        fcf_base=d["fcf_base"], growth_rate=d["growth_rate"],
+        years=5, terminal_growth=d["terminal_growth"],
+        discount_rate=d["discount_rate"],
+        net_debt=anc.get("net_debt_eok"),
         shares=anc.get("shares"), current_price=anc.get("current_price"),
         roe=anc.get("roe_pct"), moat=anc.get("moat"),
-        risk_free=(anc.get("factor_betas") or {}).get("risk_free"),
     )
 
 
@@ -686,8 +715,7 @@ _METHOD_TOOLS = {
     "compute_per": (_t_per, {"rationale": "string"}),  # 완전 결정론 — EPS·배수 코드 확정, LLM 은 해석만
     "compute_pbr": (_t_pbr, {"rationale": "string"}),  # 완전 결정론 — BPS·배수 코드 확정, LLM 은 해석만
     "compute_ev_ebitda": (_t_ev_ebitda, {"rationale": "string"}),  # 완전 결정론 — EBITDA·배수·순차입 코드 확정
-    "compute_dcf": (_t_dcf, {"fcf_base_eok": "number", "growth_rate": "number", "years": "number",
-                             "terminal_growth": "number", "discount_rate": "number", "rationale": "string"}),
+    "compute_dcf": (_t_dcf, {"rationale": "string"}),  # 완전 결정론 — FCF·성장·WACC·영구성장 코드 확정
     "compute_ddm": (_t_ddm, {"rationale": "string"}),  # 완전 결정론 — DPS·자본비용·배당성장 코드 확정
     "compute_asset": (_t_asset, {"asset_premium": "number", "rationale": "string"}),
     "compute_fama_french": (_t_fama_french, {"rationale": "string"}),  # 완전 결정론 — 베타·프리미엄·성장 코드 확정
@@ -721,7 +749,8 @@ _TOOL_DESCS = {
                    "숫자는 결정론 계산되니 rationale(해석)만 제시하라. 자산주·금융주.",
     "compute_ev_ebitda": "EV/EBITDA 목표가 = forward EBITDA×목표배수(과거 밴드 중앙값, 코드 확정) − 순차입 "
                          "→ 주식수. 숫자는 결정론 계산되니 rationale(해석)만 제시하라.",
-    "compute_dcf": "2단계 DCF. 기준FCF(억원)·성장률·연수·영구성장률·할인율(WACC)로 지분가치→주당.",
+    "compute_dcf": "DCF(2/3단계). FCF기준(forward순이익)·성장률(forward)·영구성장률(국고채10년)·WACC "
+                   "모두 코드 확정. 숫자는 결정론 계산되니 rationale(해석)만 제시하라.",
     "compute_ddm": "고든 배당할인 = DPS(앵커)×(1+배당성장)÷(자본비용−배당성장). 자본비용=CAPM, "
                    "배당성장=min(장기이익성장,rf) 코드 확정. rationale(해석)만. 무배당이면 부적합.",
     "compute_asset": "자산가치 = 주당순자산 × 재평가/청산배수(청산할인<1<재평가할증).",
@@ -768,11 +797,11 @@ _SYSTEM = (
     "4) blend 로 최종 목표가·스프레드를 확인한다.\n"
     "5) finalize 로 진입성격(자산주/역발상|성장주)과 결론(어느 방식을 왜 더 신뢰하는지·업사이드 성격)을 낸다.\n\n"
     "가정은 반드시 앵커·피어·업종 특성에 근거한다. 예상 EPS 는 연환산(TTM) 기준이며 목표 멀티플도 연간 기준이다. "
-    "PER·PBR·EV/EBITDA·DDM·Fama-French·APT 는 완전 결정론이다 — 배수·성장률·자본비용·베타를 모두 코드가 "
-    "실데이터로 확정한다(PER=forward EPS×PEG 정당 PER, PBR=BPS×ROE/COE, EV/EBITDA=EBITDA×밴드중앙−순차입, "
-    "DDM=고든[자본비용 CAPM·배당성장 min(장기이익성장,rf)], FF·APT=요인 Re→목표PER, 이익성장은 forward 엔진). "
+    "PER·PBR·EV/EBITDA·DCF·DDM·Fama-French·APT 는 완전 결정론이다 — 배수·성장률·자본비용·베타·FCF·WACC 를 "
+    "모두 코드가 실데이터로 확정한다(PER=forward EPS×PEG 정당 PER, PBR=BPS×ROE/COE, EV/EBITDA=EBITDA×밴드중앙−순차입, "
+    "DCF=forward FCF·성장·WACC·영구성장[국고채10년], DDM=고든, FF·APT=요인 Re→목표PER, 성장은 forward 엔진). "
     "너는 이들 compute_* 에 숫자를 주지 말고 rationale(결정론적 목표가가 타당한지·리스크·해석)만 제시한다. "
-    "DCF·자산가치만 아직 가정을 받는다. fair_per·fair_pbr 은 성장·수익성 이론 정당 배수다. "
+    "자산가치만 아직 가정(재평가/청산 배수)을 받는다. fair_per·fair_pbr 은 성장·수익성 이론 정당 배수다. "
     "추측·과장 금지. 레드플래그(이익의 질 문제)가 있으면 멀티플을 보수적으로 잡는다."
 )
 
@@ -929,7 +958,7 @@ def run_valuation(llm: LLMPort, model: str, ctx: ToolContext, prior: dict, serie
 # ── 원샷 폴백(tool-calling 미지원·실패 시) ───────────────────────────────
 _FALLBACK_SCHEMA = """{"per":{"rationale":""},"pbr":{"rationale":""},
 "ev_ebitda":{"rationale":""},
-"dcf":{"fcf_base_eok":수,"growth_rate":수,"years":수,"terminal_growth":수,"discount_rate":수,"rationale":""},
+"dcf":{"rationale":""},
 "ddm":{"rationale":""},"asset":{"asset_premium":수,"rationale":""},
 "fama_french":{"rationale":""},"apt":{"rationale":""},
 "forward_eps":수,"entry_case":"자산주/역발상|성장주","conclusion":""}"""

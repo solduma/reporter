@@ -74,18 +74,18 @@ def test_dcf_three_stage_for_high_growth():
     assert any("선형 감쇠" in s for s in r.process)
 
 
-def test_dcf_terminal_growth_capped_by_risk_free():
-    # 영구성장 8% 요청이어도 rf 3% 로 상한(Damodaran g ≤ rf).
+def test_dcf_terminal_growth_used_as_is():
+    # 영구성장률은 상한 없이 입력값 그대로 사용(실측 국고채 10년 기반). 할인율 미만이면 유효.
     r = v.dcf_valuation(
-        fcf_base=100, growth_rate=0.10, years=5, terminal_growth=0.08,
+        fcf_base=100, growth_rate=0.10, years=5, terminal_growth=0.04,
         discount_rate=0.10, net_debt=0, shares=1e8, current_price=None, risk_free=0.03,
     )
     assert r.applicable
-    assert r.assumptions["growth_long"] <= 0.03
+    assert r.assumptions["growth_long"] == 0.04  # 캡 없이 그대로
 
 
 def test_dcf_rejects_discount_le_terminal():
-    # 할인율 3% ≤ 영구성장(캡 후 4%→3%로 유계돼도 여전히 할인율 이상) → 발산 방어.
+    # 할인율 3% ≤ 영구성장 4% → 고든 잔존가치 발산 방어(유일하게 남은 가드).
     r = v.dcf_valuation(
         fcf_base=100, growth_rate=0.03, years=5, terminal_growth=0.04,
         discount_rate=0.03, net_debt=0, shares=1e8, current_price=None,

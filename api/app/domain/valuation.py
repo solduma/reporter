@@ -222,23 +222,22 @@ def dcf_valuation(
     current_price: float | None,
     roe: float | None = None,  # ROIC 대리 — CAP 산정 + 터미널 성장 상한(ROIC 초과분만 가치)
     moat: str | None = None,  # 해자 → CAP 기준연수
-    risk_free: float | None = None,  # 있으면 영구성장 상한 = min(GDP캡, rf)
+    risk_free: float | None = None,  # (미사용, 시그니처 호환용) 영구성장 상한 제거로 더는 안 씀
 ) -> ValuationResult:
     """FCFF DCF. 고성장주는 3단계(고성장 유지→선형 감쇠→영구), 완만성장주는 2단계로 자동 선택.
 
     Damodaran/CFA/McKinsey: 2단계의 '즉시 영구 전환'은 고성장주를 왜곡하므로, 성장률이 안정률보다
-    8%p 초과면 전환기를 둔 3단계(FF/APT 와 동일 CAP·선형 감쇠)를 쓴다. 영구성장은 rf/경제성장으로
-    상한(성장은 ROIC>WACC 일 때만 가치 — 과도한 터미널 성장 방지)."""
+    8%p 초과면 전환기를 둔 3단계(FF/APT 와 동일 CAP·선형 감쇠)를 쓴다. 영구성장률은 호출측이 실측
+    금리(국고채 10년) 기반으로 확정해 넘기므로 상한을 두지 않는다(할인율≤영구성장 발산만 방어)."""
     from app.domain import beta as _beta
 
     r = ValuationResult("dcf", METHOD_LABELS["dcf"], applicable=False)
     if None in (fcf_base, growth_rate, terminal_growth, discount_rate, shares) or shares <= 0:
         r.note = "FCF·성장률·영구성장률·할인율·주식수 중 결측"
         return r
-    # 영구성장 상한: 경제성장(GDP캡)·무위험수익률 이하(Damodaran). 발산·과대 방지.
-    g_l = min(terminal_growth, _beta.TERMINAL_GROWTH_CAP)
-    if risk_free is not None:
-        g_l = min(g_l, risk_free)
+    # 영구성장률은 입력값 그대로 사용(상한 없음 — 실측 금리 기반이라 인위적 캡 불필요).
+    # 단, 할인율 ≤ 영구성장률이면 고든 잔존가치가 발산/음수라 이 경우만 방어.
+    g_l = terminal_growth
     if discount_rate <= g_l:
         r.note = f"할인율({discount_rate:.1%}) ≤ 영구성장률({g_l:.1%}) — 잔존가치 발산"
         return r
@@ -302,7 +301,7 @@ def dcf_valuation(
             f"명시적 구간 현가 합 {_fmt(pv_explicit)}억원 (할인율 {discount_rate:.1%})",
         ]
     r.process += [
-        f"영구성장 {g_l:.1%}(rf/GDP 상한) → 잔존가치 {_fmt(terminal_value)}억, 현가 {_fmt(pv_terminal)}억원",
+        f"영구성장 {g_l:.1%}(국고채 10년 기준) → 잔존가치 {_fmt(terminal_value)}억, 현가 {_fmt(pv_terminal)}억원",
         f"기업가치 {_fmt(enterprise_value)}억 − 순차입 {_fmt(nd)}억 = 지분가치 {_fmt(equity_value)}억원",
         f"목표가 = {_fmt(equity_value)}억 ÷ {_fmt(shares)}주 = {_fmt(target)}원",
     ]
