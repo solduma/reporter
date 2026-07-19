@@ -409,44 +409,57 @@ def run_backfill_progressive(
 # CAPEX 는 구조화 API(fnlttSinglAcntAll CF)로 얻으므로 D&A 원문(document.xml 수MB) 재다운로드 불필요.
 # capex 가 NULL 인 연간 report_financials 행만 골라 구조화 API 로 채우고 financials 에도 반영한다.
 def backfill_capex(db: Session, settings: Settings | None = None, limit: int = 200) -> dict:
-    """capex 결측 연간 행을 구조화 API 로 채운다(경량). 종목당 연간 행들만 조회. 반환: 처리 통계."""
+    """FCFF 산출용 capex·D&A 를 financials 에 채운다(경량). capex 는 구조화 API, D&A 는 report_financials
+    원값 복사(이미 원문 파싱돼 있어 DART 재호출 불필요). 종목당 연간 행만. 반환: 처리 통계.
+
+    FCFF=NOPAT+D&A−CAPEX 는 둘 다 필요해, financials 에 capex·depreciation 을 함께 반영한다.
+    """
     settings = settings or get_settings()
-    # capex NULL 인 연간(annual) 행의 (종목, 기간) — 종목별로 묶어 조회 최소화.
+    # financials.capex 결측인 연간행 대상 — report_financials 의 D&A(원값)도 함께 끌어온다.
     rows = db.execute(
-        select(ReportFinancial.stock_code, ReportFinancial.period)
-        .where(ReportFinancial.report_kind == "annual", ReportFinancial.capex.is_(None))
+        select(ReportFinancial.stock_code, ReportFinancial.period, ReportFinancial.depreciation)
+        .where(ReportFinancial.report_kind == "annual")
         .order_by(ReportFinancial.stock_code)
-        .limit(limit)
     ).all()
-    if not rows:
+    # financials 에 capex 이미 있는 (종목,기간)은 제외.
+    done = {
+        (c, p) for c, p in db.execute(
+            select(Financial.stock_code, Financial.period).where(Financial.capex.is_not(None))
+        ).all()
+    }
+    pending = [(c, p, dep) for c, p, dep in rows if (c, p) not in done][:limit]
+    if not pending:
         return {"filled": 0, "codes": 0}
-    by_code: dict[str, list[str]] = {}
-    for code, period in rows:
-        by_code.setdefault(code, []).append(period)
+    by_code: dict[str, list[tuple[str, float | None]]] = {}
+    for code, period, dep in pending:
+        by_code.setdefault(code, []).append((period, dep))
     filled = 0
     quota_hit = False
     with requests.Session() as session:
-        for code, periods in by_code.items():
+        for code, items in by_code.items():
             corp_code = db.scalar(select(CorpCodeMap.corp_code).where(CorpCodeMap.stock_code == code))
             if not corp_code:
                 continue
             try:
-                for period in periods:
+                for period, dep in items:
                     year = int(period.split(".")[0])
                     fin = dart.fetch_income_and_equity(settings.dart_api_key, corp_code, year, 4, session)
                     if fin is None or fin.capex is None:
                         continue
-                    # report_financials 원값(원) + financials 억원 반영.
                     db.execute(
                         insert(ReportFinancial)
                         .values(stock_code=code, period=period, fs_div="CFS",
                                 report_kind="annual", rcept_no="", capex=fin.capex)
                         .on_conflict_do_update(constraint="uq_report_financial", set_={"capex": fin.capex})
                     )
+                    # financials 에 capex + D&A(report_financials 원값 억원 변환) 함께 반영 — FCFF 재료.
+                    vals: dict = {"capex": fin.capex / 1e8}
+                    if dep is not None:
+                        vals["depreciation"] = dep / 1e8
                     db.execute(
                         insert(Financial)
-                        .values(stock_code=code, period=period, is_estimate=False, capex=fin.capex / 1e8)
-                        .on_conflict_do_update(constraint="uq_financial", set_={"capex": fin.capex / 1e8})
+                        .values(stock_code=code, period=period, is_estimate=False, **vals)
+                        .on_conflict_do_update(constraint="uq_financial", set_=vals)
                     )
                     filled += 1
                 db.commit()
