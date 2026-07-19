@@ -55,24 +55,6 @@ def test_market_beta_clamped():
     assert b is not None and -1.0 <= b <= 3.0
 
 
-def test_smb_beta_small_cap_positive_large_negative():
-    assert beta.smb_beta(300) > 0.5  # 300억 소형 → 높은 SMB
-    assert beta.smb_beta(500_000) < 0  # 50조 대형 → 음의 SMB
-    assert beta.smb_beta(None) == 0.0
-
-
-def test_hml_beta_value_vs_growth():
-    assert beta.hml_beta(0.4) > 0.5  # 저PBR 가치주 → 높은 HML
-    assert beta.hml_beta(3.0) < 0  # 고PBR 성장주 → 음의 HML
-    assert beta.hml_beta(1.0) == 0.0  # PBR 1 기준점
-    assert beta.hml_beta(None) == 0.0
-
-
-def test_premiums_are_sane_constants():
-    assert 0.02 <= beta.RISK_FREE <= 0.05
-    assert 0.04 <= beta.MARKET_PREMIUM <= 0.08
-
-
 # ── 경쟁우위기간 CAP(해자 기준연수 × ROE 초과수익 지속성, 상한 12년) ────────
 def test_cap_moat_base_years():
     # 같은 ROE·할인율이면 해자 등급이 기준연수를 정한다(강>중>약).

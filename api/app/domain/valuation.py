@@ -4,12 +4,11 @@
 LLM 이 근거와 함께 제시하고, **산식과 목표가 계산·과정 서술은 여기(재현 가능한 순수 함수)가 소유**한다.
 환각 방지: 숫자가 스스로 굴러가지 않게, 모든 결과는 입력 가정에서 결정론적으로 유도된다.
 
-7개 방식: PER·PBR·EV/EBITDA·DCF·DDM·Fama-French·APT. 모두 결정론(배수·성장률·자본비용을
+5개 방식: PER·PBR·EV/EBITDA·DCF·DDM. 모두 결정론(배수·성장률·자본비용을
 호출측이 실데이터로 확정해 넘기고, 여기선 산식만).
 - PER/PBR/EV/EBITDA: 실데이터(eps·bps·ebitda) × 목표 멀티플(정당배수/밴드) → 주당 가치.
 - DCF: 2/3단계(명시적 성장 → 영구성장) FCFF 현가 + 잔존가치, 순부채 차감, 주식수로 나눔.
 - DDM: 고든 성장(안정 배당).
-- Fama-French / APT: 요인 노출×프리미엄 → 요구수익률(할인율). 목표 PER=1/(r-g) 로 EPS 에 적용.
 
 각 방식은 ValuationResult(목표가·업사이드·신뢰도·가정·과정 스텝)를 낸다. 최종 목표가는
 신뢰도 가중 평균(blend). 계산 불가(입력 결측)면 결과에서 제외하고 사유를 남긴다.
@@ -26,8 +25,6 @@ METHOD_LABELS: dict[str, str] = {
     "ev_ebitda": "EV/EBITDA",
     "dcf": "DCF (현금흐름할인)",
     "ddm": "DDM (배당할인)",
-    "fama_french": "Fama-French 3요인",
-    "apt": "APT (차익거래가격결정)",
 }
 
 
@@ -226,7 +223,7 @@ def dcf_valuation(
     """FCFF DCF. 고성장주는 3단계(고성장 유지→선형 감쇠→영구), 완만성장주는 2단계로 자동 선택.
 
     Damodaran/CFA/McKinsey: 2단계의 '즉시 영구 전환'은 고성장주를 왜곡하므로, 성장률이 안정률보다
-    8%p 초과면 전환기를 둔 3단계(FF/APT 와 동일 CAP·선형 감쇠)를 쓴다. 영구성장률은 호출측이 실측
+    8%p 초과면 전환기를 둔 3단계(CAP·선형 감쇠)를 쓴다. 영구성장률은 호출측이 실측
     금리(국고채 10년) 기반으로 확정해 넘기므로 상한을 두지 않는다(할인율≤영구성장 발산만 방어)."""
     from app.domain import beta as _beta
 
@@ -244,7 +241,7 @@ def dcf_valuation(
         r.note = f"할인율({discount_rate:.1%}) ≤ 영구성장률({g_l:.1%}) — 잔존가치 발산"
         return r
     # 저베타주는 CAPM WACC 가 낮아 (r−g_L) 스프레드가 좁아지면 고든 잔존가치 1/(r−g)가 폭발한다
-    # (저베타 이상현상). factor model 과 동일하게 최소 터미널 스프레드로 유계(할인율만 상향, g 는 실측 유지).
+    # (저베타 이상현상). 최소 터미널 스프레드로 유계(할인율만 상향, g 는 실측 유지).
     r_disc = max(discount_rate, g_l + _beta.MIN_TERM_SPREAD)
     if fcf_base <= 0:
         r.note = f"기준 FCF({_fmt(fcf_base)}억)가 0 이하 — DCF 부적합"
@@ -348,166 +345,21 @@ def ddm_valuation(
     return r
 
 
-# ── 요인모형(요구수익률 → 목표 PER) ──────────────────────────────────────
-@dataclass
-class FactorExposure:
-    """요인 하나: 베타(노출)·프리미엄(연 %, 소수). name 은 표시용."""
-
-    name: str
-    beta: float
-    premium: float
-
-
-def _required_return(risk_free: float, factors: list[FactorExposure]) -> tuple[float, list[str]]:
-    """요구수익률 r = rf + Σ(βi × premiumi). 과정 스텝도 반환."""
-    r = risk_free
-    steps = [f"무위험수익률 {risk_free:.1%}"]
-    for f in factors:
-        contrib = f.beta * f.premium
-        r += contrib
-        steps.append(f"+ {f.name}: β {f.beta:g} × 프리미엄 {f.premium:.1%} = {contrib:+.2%}")
-    steps.append(f"= 요구수익률 {r:.1%}")
-    return r, steps
-
-
-def _three_stage_pe(
-    g_s: float, g_l: float, plateau: float, fade: float, r_growth: float, r_term: float
-) -> tuple[float, float]:
-    """3단계(고성장 유지→선형감쇠→영구) 내재 목표 PER(forward EPS=1 기준)과 터미널가치 비중.
-
-    - 유지기(plateau 년): 이익을 g_s 로 복리, 성장국면 할인율 r_growth 로 현가.
-    - 감쇠기(fade 년): g 가 g_s→g_l 로 선형 감쇠, 계속 r_growth 로 현가.
-    - 터미널: 마지막 EPS 에 고든 PER=1/(r_term − g_l) 적용 후 성장국면 할인율로 현가.
-    forward EPS=1 이므로 현가 합이 곧 목표 PER. plateau·fade 는 정수 연수로 반올림해 명시적 누적.
-    """
-    eps = 1.0
-    pv = 0.0
-    year = 0
-    for _ in range(max(1, round(plateau))):  # 유지기: g_s 유지
-        year += 1
-        eps *= 1 + g_s
-        pv += eps / (1 + r_growth) ** year
-    n_fade = max(1, round(fade))
-    for i in range(1, n_fade + 1):  # 감쇠기: g_s → g_l 선형
-        g = g_s + (g_l - g_s) * i / n_fade
-        year += 1
-        eps *= 1 + g
-        pv += eps / (1 + r_growth) ** year
-    terminal_pe = 1.0 / (r_term - g_l)
-    tv = eps * (1 + g_l) * terminal_pe  # 터미널 EPS × 고든 PER
-    pv_tv = tv / (1 + r_growth) ** year
-    pv += pv_tv
-    return pv, (pv_tv / pv if pv > 0 else 0.0)
-
-
-def _factor_model_valuation(
-    method: str,
-    *,
-    forward_eps: float | None,
-    risk_free: float | None,
-    factors: list[FactorExposure],
-    earnings_growth: float | None,  # 명목 이익 성장률(단기 고성장 g_S).
-    equity_value: float | None = None,  # 시총(억원) — 터미널 WACC 자본가중
-    net_debt: float | None = None,  # 순차입(억원) — 터미널 WACC 부채가중
-    roe: float | None = None,  # ROE(초과수익 → CAP 지속성 기준선)
-    moat: str | None = None,  # 해자 판정(강|중|약, LLM) → CAP 기준연수
-    current_price: float | None = None,
-) -> ValuationResult:
-    """요인모형(Fama-French/APT) 3단계 목표가. 국면별 할인율로 저베타 성장주 저평가·FF=APT 동일값 해소.
-
-    저베타 이상현상(Frazzini-Pedersen 2014)에서 총 Re 를 8.2% 로 clamp 하면 FF·APT 가 둘 다 눌려
-    동일해지고 성장주가 저평가됐다(딥리서치 2건). 그래서:
-    - **성장국면 할인율** = 요인 Re(하한 없음, rf+2% 완만한 하한만 — 극단 저베타 PER 폭주 완화).
-      하한을 성장국면 총 Re 가 아니라 완만하게만 걸어 FF·APT 차등을 보존한다.
-    - **터미널 할인율** = β→1 수렴(Damodaran) WACC, 단 (r−g_L) 최소 스프레드로 목표 PER 폭발 방지.
-    - **3단계 성장**: 고성장 유지(CAP/2) → 선형 감쇠(CAP/2) → 영구(g_L≤rf). H-Model 이 없앤 유지구간 복원.
-    """
-    from app.domain import beta as _beta
-
-    r = ValuationResult(method, METHOD_LABELS[method], applicable=False)
-    if forward_eps is None or risk_free is None or earnings_growth is None or not factors:
-        r.note = "예상 EPS·무위험수익률·이익성장률·요인노출 중 결측"
-        return r
-    if forward_eps <= 0:
-        r.note = f"예상 EPS({_fmt(forward_eps)})가 0 이하 — 요인모형 PER 적용 불가"
-        return r
-    # 1) 요인 Re. 성장국면 할인율 = raw Re, 단 완만한 하한(rf+2%)만(FF·APT 차등 보존, 폭주 완화).
-    re_raw, ret_steps = _required_return(risk_free, factors)
-    growth_floor = risk_free + _beta.GROWTH_FLOOR_PREMIUM
-    r_growth = max(re_raw, growth_floor)
-    if r_growth > re_raw:
-        ret_steps.append(f"→ 성장국면 완만한 하한 {r_growth:.1%} (rf+{_beta.GROWTH_FLOOR_PREMIUM:.0%}, 극단 저베타 완화)")
-    # 2) 터미널 할인율: 성숙기 β→1 수렴(Damodaran). 시장 Re = rf + 시장프리미엄(첫 요인=시장).
-    market_premium = factors[0].premium if factors else _beta.MARKET_PREMIUM
-    re_terminal = risk_free + 1.0 * market_premium  # β→1
-    if equity_value:
-        r_term, wacc_steps = _beta.wacc(re_terminal, equity_value, net_debt, risk_free)
-    else:
-        r_term, wacc_steps = re_terminal, [f"터미널 할인율 = 시장 Re {re_terminal:.1%}(β→1, 시총 미상 WACC 생략)"]
-    # 3) 성장률·CAP. 영구성장 g_L = rf(무위험수익률 ≈ 명목GDP성장, Damodaran — GDP 직접캡 대신 rf,
-    #    분모 할인율과 일관). DCF 와 동일 정책. 단기 g_s 는 forward 엔진에서 이미 클립돼 옴(상수캡 제거).
-    #    터미널 (r−g_L) 최소 스프레드로 목표PER=1/(r−g) 폭발만 방지.
-    g_s = earnings_growth
-    g_l = risk_free
-    r_term = max(r_term, g_l + _beta.MIN_TERM_SPREAD)
-    cap, cap_steps = _beta.competitive_advantage_period(roe, r_term, moat)
-    plateau = round(cap / 2.0, 1)  # 유지기 = CAP 절반
-    fade = round(cap / 2.0, 1)  # 감쇠기 = CAP 절반
-    target_per, tv_frac = _three_stage_pe(g_s, g_l, plateau, fade, r_growth, r_term)
-    target = _round_won(forward_eps * target_per)
-    r.applicable = True
-    r.target_price = target
-    r.upside_pct = _upside(target, current_price)
-    r.confidence = "하"  # 요인·프리미엄 추정 불확실성이 커 기본 낮게
-    r.assumptions = {
-        "forward_eps": forward_eps, "risk_free": risk_free,
-        "discount_growth": round(r_growth, 4), "discount_terminal": round(r_term, 4),
-        "growth_high": round(g_s, 4), "growth_long": round(g_l, 4),
-        "cap_years": cap, "plateau_years": plateau, "fade_years": fade,
-        "moat": moat, "roe": roe, "terminal_value_frac": round(tv_frac, 3),
-        "factors": [{"name": f.name, "beta": f.beta, "premium": f.premium} for f in factors],
-        "implied_target_per": round(target_per, 2),
-    }
-    r.process = [
-        *ret_steps, *wacc_steps, *cap_steps,
-        f"3단계: 고성장 {g_s:.1%} {plateau:g}년 유지 → {fade:g}년간 {g_l:.1%}로 선형 감쇠 → 영구 {g_l:.1%}",
-        f"할인율: 성장국면 {r_growth:.1%} · 터미널 {r_term:.1%}(β→1, 터미널가치 비중 {tv_frac:.0%})",
-        f"내재 목표 PER = {target_per:.1f}배 (터미널 PER=1/({r_term:.1%}−{g_l:.1%}))",
-        f"목표가 = 예상 EPS {_fmt(forward_eps)} × {target_per:.1f} = {_fmt(target)}원",
-    ]
-    return r
-
-
-def fama_french_valuation(**kwargs) -> ValuationResult:
-    """Fama-French 3요인(시장·규모SMB·가치HML) 요구수익률 → 목표 PER → 목표가."""
-    return _factor_model_valuation("fama_french", **kwargs)
-
-
-def apt_valuation(**kwargs) -> ValuationResult:
-    """APT: 임의 다요인(금리·경기·인플레·환율 등) 요구수익률 → 목표 PER → 목표가."""
-    return _factor_model_valuation("apt", **kwargs)
-
-
 # ── 종목 유형별 방식 적합도(가중/제외) ────────────────────────────────────
 # 밸류에이션 방식은 종목 유형에 맞춰 선택해야 한다(Damodaran story→value, CFA·McKinsey).
 # fit 배수: 0=제외(부적합, blend 가중 0), 0.5=저가중, 1.0=표준, 1.5=고가중. 최종 blend 가중 =
 # 신뢰도(_CONF_WEIGHT) × 이 fit. 유형 규칙에 배당·이익 게이트를 곱(min)해 무배당 DDM·적자 PER 을 제외.
 _FIT_BY_TYPE: dict[str, dict[str, float]] = {
-    # 성장주: 초과수익 기업 — 장부가 방식(PBR) 과소평가. PER·DCF·EV/EBITDA·요인모형 우대.
-    "growth": {"per": 1.5, "pbr": 0.5, "ev_ebitda": 1.0, "dcf": 1.5,
-               "ddm": 1.0, "fama_french": 1.0, "apt": 1.0},
+    # 성장주: 초과수익 기업 — 장부가 방식(PBR) 과소평가. PER·DCF·EV/EBITDA 우대.
+    "growth": {"per": 1.5, "pbr": 0.5, "ev_ebitda": 1.0, "dcf": 1.5, "ddm": 1.0},
     # 자산주/가치주: 성숙·고정자산 — 장부가가 실제가치 근사. PBR 우대.
-    "asset": {"per": 1.0, "pbr": 1.5, "ev_ebitda": 1.0, "dcf": 1.0,
-              "ddm": 1.0, "fama_french": 1.0, "apt": 1.0},
+    "asset": {"per": 1.0, "pbr": 1.5, "ev_ebitda": 1.0, "dcf": 1.0, "ddm": 1.0},
     # 금융주(은행·보험): 부채=원재료 — EV·WACC 무의미 → EV/EBITDA·FCFF DCF 제외. DDM·P/B-ROE 우대.
-    "financial": {"per": 1.0, "pbr": 1.5, "ev_ebitda": 0.0, "dcf": 0.0,
-                  "ddm": 1.5, "fama_french": 1.0, "apt": 1.0},
+    "financial": {"per": 1.0, "pbr": 1.5, "ev_ebitda": 0.0, "dcf": 0.0, "ddm": 1.5},
     # 시클리컬: 현재 PER 오도(사이클 역행) — 저가중. 하방서도 산출되는 EV/EBITDA 우대. DCF 정규화 전 저가중.
-    "cyclical": {"per": 0.5, "pbr": 1.0, "ev_ebitda": 1.5, "dcf": 0.5,
-                 "ddm": 1.0, "fama_french": 1.0, "apt": 1.0},
+    "cyclical": {"per": 0.5, "pbr": 1.0, "ev_ebitda": 1.5, "dcf": 0.5, "ddm": 1.0},
     # 기타/일반: 중립(전부 표준 가중).
-    "other": {"per": 1.0, "pbr": 1.0, "ev_ebitda": 1.0, "dcf": 1.0,
-              "ddm": 1.0, "fama_french": 1.0, "apt": 1.0},
+    "other": {"per": 1.0, "pbr": 1.0, "ev_ebitda": 1.0, "dcf": 1.0, "ddm": 1.0},
 }
 _ALL_METHODS = tuple(METHOD_LABELS)
 

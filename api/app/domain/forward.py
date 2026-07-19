@@ -26,8 +26,7 @@ _AVG_WINDOW = 12  # 과거 3년 = 12개 분기 YoY.
 
 _MIN_MARGIN_POINTS = 4  # 증분마진 회귀 최소 표본(연간 창).
 
-# PEG 기반 정당 PER = PEG × 장기성장률(%). PEG=1.5(고성장 프리미엄 허용). 캡 없음 — g 결정론이라 자연 유계.
-_FAIR_PEG = 1.5
+# 정당 PER = 시장 실측 PEG × 실현 CAGR(%). PEG 상수 폴백 없음(실측 결측 시 미산출).
 _LT_FWD_WEIGHT = 0.5  # 장기 g 결합에서 forward(단기 모멘텀) 가중 — 나머지는 과거 CAGR. 0.5=절충.
 
 
@@ -135,17 +134,17 @@ def fair_per(ttm_series: list[float], peg: float | None = None) -> tuple[float |
     """PEG 기반 정당 PER = PEG × 실현 EPS CAGR(%). 리레이팅 정량 기준선(soft). 성장률 산출 불가 시 None.
 
     성장률은 실현 CAGR(추정 아님) — 시장 PEG 도 실현 CAGR 로 구하므로 단위·편향이 일치한다(PEG×g 정합).
-    peg 는 시장 횡단면 실측(market_peg) 우선, 없으면 _FAIR_PEG(1.5) 폴백. g≤0 이면 None(성장주 아님).
-    임의 캡 없음 — g 실측이라 자연 유계. 메타에 사용한 g·PEG·소스를 담아 근거를 투명 노출한다.
+    peg 는 시장 횡단면 실측(market_peg)만 사용 — 상수 폴백 없음. peg 결측이면 None(fair_per 미산출).
+    임의 캡 없음 — g 실측이라 자연 유계. 메타에 사용한 g·PEG 를 담아 근거를 투명 노출한다.
     """
+    if peg is None:  # 시장 PEG 실측 결측 — 상수로 메우지 않고 정당 PER 미산출.
+        return None, None
     g = _cagr(ttm_series)  # 실현 EPS CAGR(시장 PEG 와 동일 기준)
     if g is None or g <= 0:
         return None, None
-    used_peg = peg if peg is not None else _FAIR_PEG
-    fair = used_peg * (g * 100.0)
-    meta = {"fair_per": round(fair, 1), "peg": round(used_peg, 3),
-            "peg_source": "market_realized_cagr" if peg is not None else "default",
-            "growth_pct": round(g * 100, 2)}
+    fair = peg * (g * 100.0)
+    meta = {"fair_per": round(fair, 1), "peg": round(peg, 3),
+            "peg_source": "market_realized_cagr", "growth_pct": round(g * 100, 2)}
     return round(fair, 1), meta
 
 
