@@ -368,6 +368,7 @@ class IncomeEquity:
     operating_income: float | None = None  # 영업이익(EBITDA 산출용), 누적
     borrowings: float | None = None  # 총차입(단기·장기·사채, BS 시점값) — EV 순차입용
     cash: float | None = None  # 현금및현금성자산(BS 시점값)
+    capex: float | None = None  # 자본적지출(유형+무형자산 취득, CF 투자활동, 누적) — FCFF 산출용
 
     @property
     def net_debt(self) -> float | None:
@@ -392,6 +393,14 @@ _AID_EQ_OWNERS = {
     "ifrs_EquityAttributableToOwnersOfParent",
 }
 _AID_EQ = {"ifrs-full_Equity", "ifrs_Equity"}  # 지배주주 지분 없을 때 폴백
+# CAPEX: 유형·무형자산 취득(CF 투자활동). 회사마다 유출 부호가 양/음 혼재라 abs 로 합산.
+_AID_CAPEX = {
+    "ifrs-full_PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities",
+    "ifrs_PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities",
+    "ifrs-full_PurchaseOfIntangibleAssetsClassifiedAsInvestingActivities",
+    "ifrs_PurchaseOfIntangibleAssetsClassifiedAsInvestingActivities",
+    "ifrs-full_PurchaseOfIntangibleAssetsOtherThanGoodwill",
+}
 
 
 def fetch_income_and_equity(
@@ -432,12 +441,18 @@ def _parse_income_equity(rows: list[dict]) -> IncomeEquity:
     fin = IncomeEquity()
     borrowings = 0.0
     got_borrowing = False
+    capex = 0.0
+    got_capex = False
     for row in rows:
         aid = row.get("account_id") or ""
         nm = (row.get("account_nm") or "").replace(" ", "")
         sj = row.get("sj_div")
         amt = _amount(row)
         if amt is None:
+            continue
+        if aid in _AID_CAPEX:  # 유형+무형 취득 합산(유출, abs). CF 계정이라 손익/BS 매칭과 독립.
+            capex += abs(amt)
+            got_capex = True
             continue
         # 지배주주 항목을 우선하되(덮어쓰기), 없으면 전체 항목으로 채운다(setdefault 성격).
         if aid in _AID_REVENUE and fin.revenue is None:
@@ -464,6 +479,8 @@ def _parse_income_equity(rows: list[dict]) -> IncomeEquity:
             got_borrowing = True
     if got_borrowing:
         fin.borrowings = borrowings
+    if got_capex:
+        fin.capex = capex
     return fin
 
 

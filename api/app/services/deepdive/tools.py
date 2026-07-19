@@ -102,6 +102,7 @@ def tool_financials(ctx: ToolContext, args: dict) -> dict:
             "net_income": r.net_income, "eps": r.eps, "bps": r.bps,
             "per": r.per, "pbr": r.pbr, "roe": r.roe, "ebitda": r.ebitda,
             "dps": r.dps, "div_yield": r.div_yield, "psr": r.psr, "ev_ebitda": r.ev_ebitda,
+            "depreciation": r.depreciation, "capex": r.capex,  # FCFF 산출용(연간 억원)
         }
         for r in rows
     ]
