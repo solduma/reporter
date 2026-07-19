@@ -289,12 +289,17 @@ def collect_anchors(series: list[dict], price: dict) -> dict:
     if ebitda and ev_ebitda and market_cap:
         net_debt = ebitda * ev_ebitda - market_cap / 1e8
 
+    # PEG 기반 정당 PER — 장기성장을 배율 리레이팅으로 반영하는 정량 기준선(과거 밴드와 상보).
+    fair_per_val, fair_per_meta = fwd.fair_per(_ttm_windows(rows, "eps"))
+
     return {
         "current_price": current_price,
         "market_cap_eok": market_cap / 1e8 if market_cap else None,
         "eps_ttm": eps_ttm, "bps": bps, "ebitda_eok_annual": ebitda, "dps_annual": dps,
         "current_per": _latest_pointintime(rows, "per"),
         "per_band": _per_band(rows),  # 과거 10년 PER 밴드 — 목표배수 soft 가드 기준선
+        "fair_per": fair_per_val,  # PEG×장기성장률 정당 PER — 리레이팅 정량 기준(밴드와 상보)
+        "fair_per_meta": fair_per_meta,
         "current_pbr": _latest_pointintime(rows, "pbr"),
         "current_ev_ebitda": ev_ebitda,
         "div_yield_pct": _latest_pointintime(rows, "div_yield"),
@@ -368,7 +373,7 @@ def _t_per(a: dict, anc: dict) -> val.ValuationResult:
     return val.per_valuation(
         forward_eps=_pick(a.get("forward_eps"), anc.get("eps_ttm")),
         target_per=_num(a.get("target_per")), current_price=anc.get("current_price"),
-        per_band=anc.get("per_band"),
+        per_band=anc.get("per_band"), fair_per=anc.get("fair_per"),
     )
 
 
@@ -602,8 +607,10 @@ _SYSTEM = (
     "4) blend 로 최종 목표가·스프레드를 확인한다.\n"
     "5) finalize 로 진입성격(자산주/역발상|성장주)과 결론(어느 방식을 왜 더 신뢰하는지·업사이드 성격)을 낸다.\n\n"
     "가정은 반드시 앵커·피어·업종 특성에 근거한다. 예상 EPS 는 연환산(TTM) 기준이며 목표 멀티플도 연간 기준이다. "
-    "목표 PER 은 앵커의 per_band(과거 10년 PER 밴드: 중앙값·p25·p75)를 기준선으로 삼아 정하되, 밴드 밖으로 "
-    "잡을 땐 리레이팅/디레이팅 근거를 rationale 에 명시한다(도구가 밴드 이탈 시 경고를 남긴다). "
+    "목표 PER 은 앵커의 per_band(과거 10년 PER 밴드)와 fair_per(PEG×장기성장률 정당 PER)를 함께 기준선으로 "
+    "삼는다. PER 은 forward EPS 로 1년 이익 수준만 담으므로 장기 고성장은 배율 리레이팅으로 반영해야 한다 — "
+    "과거 밴드를 넘더라도 fair_per(장기성장 정당 PER) 이내면 성장이 리레이팅을 정당화한다. 밴드·fair_per 를 크게 "
+    "벗어나면 리레이팅/디레이팅 근거를 rationale 에 명시한다(도구가 이탈 시 경고를 남긴다). "
     "추측·과장 금지. 레드플래그(이익의 질 문제)가 있으면 멀티플을 보수적으로 잡는다."
 )
 

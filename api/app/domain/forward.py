@@ -27,6 +27,12 @@ _W_CONVEX = 0.3
 _MIN_YOY = 3  # YoY 표본이 이보다 적으면 외삽 신뢰 불가 → None(TTM 유지).
 _AVG_WINDOW = 12  # 과거 3년 = 12개 분기 YoY.
 
+# PEG 기반 정당 PER — 정당 PER ≈ PEG × 장기성장률(%). PEG=1.5(고성장 프리미엄 허용), 캡 [5,50]배.
+_FAIR_PEG = 1.5
+_FAIR_PER_CAP_HIGH = 50.0
+_FAIR_PER_CAP_LOW = 5.0
+_LT_FWD_WEIGHT = 0.5  # 장기 g 결합에서 forward(단기 모멘텀) 가중 — 나머지는 과거 CAGR. 0.5=절충.
+
 
 def _yoy_series(ttm_series: list[float]) -> list[float]:
     """TTM 연환산 이익 시계열에서 YoY 성장률 목록. g_t = E_t/E_{t-4} - 1.
@@ -55,6 +61,62 @@ def _convex_extrapolation(yoy: list[float]) -> float:
         return recent + slope
     curvature = (yoy[-1] - yoy[-2]) - (yoy[-2] - yoy[-3])
     return recent + slope + 0.5 * curvature
+
+
+def _cagr(series: list[float], periods_per_year: int = 4) -> float | None:
+    """시계열 시작→끝 CAGR(연복리). 시작값이 0/음수면 None(비율 왜곡). series 는 오래된→최신 순.
+
+    분기 TTM 시계열이면 periods_per_year=4 로 연수 = (len-1)/4. 장기 추세 성장률(지속성장) 근사.
+    """
+    if len(series) < periods_per_year + 1:
+        return None
+    start, end = series[0], series[-1]
+    if start <= 0 or end <= 0:
+        return None
+    years = (len(series) - 1) / periods_per_year
+    if years <= 0:
+        return None
+    return (end / start) ** (1.0 / years) - 1.0
+
+
+def long_term_growth(ttm_series: list[float]) -> tuple[float | None, dict | None]:
+    """장기 지속성장률 = forward 앙상블 g(단기 모멘텀)와 과거 EPS CAGR(장기 추세)의 감쇄 결합.
+
+    PER 리레이팅용 g 는 '다음 1년'이 아니라 '지속 가능한 장기'여야 하므로, 단기 앙상블 g 를 과거
+    CAGR 쪽으로 끌어당겨(감쇄) 극단 모멘텀을 눅인다. CAGR 이 없으면(적자 기저 등) 앙상블 g 만 감쇄.
+        g_long = w·g_fwd + (1-w)·g_cagr,  w=_LT_FWD_WEIGHT (없으면 g_fwd 를 감쇄계수로만 축소)
+    """
+    g_fwd, _fmeta = extrapolate_growth(ttm_series)
+    if g_fwd is None:
+        return None, None
+    g_cagr = _cagr(ttm_series)
+    if g_cagr is not None:
+        g_long = _LT_FWD_WEIGHT * g_fwd + (1.0 - _LT_FWD_WEIGHT) * g_cagr
+    else:
+        g_long = g_fwd * _LT_FWD_WEIGHT  # CAGR 없음 — 단기 모멘텀을 보수적으로 감쇄만.
+    g_long = max(_GROWTH_CAP_LOW, min(_GROWTH_CAP_HIGH, g_long))
+    meta = {
+        "g_long_pct": round(g_long * 100, 2),
+        "g_forward_pct": round(g_fwd * 100, 2),
+        "g_cagr_pct": round(g_cagr * 100, 2) if g_cagr is not None else None,
+    }
+    return g_long, meta
+
+
+def fair_per(ttm_series: list[float]) -> tuple[float | None, dict | None]:
+    """PEG 기반 정당 PER = PEG × 장기성장률(%). 리레이팅 정량 기준선(soft). 성장률 산출 불가 시 None.
+
+    장기 g(long_term_growth)가 양수일 때만 의미. g≤0 이면 PEG 로 PER 을 논할 수 없어 None.
+    캡 [5,50]배로 극단 방지. 반환 메타에 사용한 g·PEG 를 담아 근거를 투명 노출한다.
+    """
+    g_long, gmeta = long_term_growth(ttm_series)
+    if g_long is None or g_long <= 0:
+        return None, gmeta
+    raw = _FAIR_PEG * (g_long * 100.0)
+    capped = max(_FAIR_PER_CAP_LOW, min(_FAIR_PER_CAP_HIGH, raw))
+    meta = {"fair_per": round(capped, 1), "peg": _FAIR_PEG,
+            "growth_pct": round(g_long * 100, 2), "capped": raw != capped, **(gmeta or {})}
+    return round(capped, 1), meta
 
 
 def extrapolate_growth(ttm_series: list[float]) -> tuple[float | None, dict | None]:
