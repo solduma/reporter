@@ -118,6 +118,26 @@ def _latest_annual_ebitda_eok(rows: list[dict]) -> float | None:
     return None
 
 
+def _per_band(rows: list[dict], window: int = 40) -> dict | None:
+    """과거 PER 밴드 = 최근 window 분기(기본 40=10년) 중 양수 PER 의 중앙값·p25·p75.
+
+    목표 배수(LLM 자유값)의 soft 가드 기준선. 긴 창인 이유: 조선 등 초장기 사이클 산업의 정상 밴드를
+    잡으려면 긴 히스토리가 필요. 사분위 경계라 프로덕트 믹스 변화·이상치는 어느정도 상쇄된다.
+    적자 분기(음수 PER)는 무의미해 제외. 유효 표본 4개 미만이면 밴드 신뢰 불가 → None(가드 스킵).
+    """
+    pers = [_num(r.get("per")) for r in rows[-window:]]
+    pers = sorted(v for v in pers if v is not None and v > 0)
+    n = len(pers)
+    if n < 4:
+        return None
+
+    def _pct(p: float) -> float:
+        idx = min(n - 1, max(0, round(p * (n - 1))))
+        return round(pers[idx], 1)
+
+    return {"median": _pct(0.5), "p25": _pct(0.25), "p75": _pct(0.75), "n": n}
+
+
 def _ttm_eps(rows: list[dict]) -> float | None:
     """주당순이익 TTM(최근 4개 분기 EPS 합). 이 프로젝트 EPS 는 분기 개별값이라(.12=Q4 포함)
     분기값에 연간 목표 PER 을 곱하면 ~4배 과소평가된다 → 반드시 최근 4분기를 합해 연환산한다.
@@ -199,6 +219,7 @@ def collect_anchors(series: list[dict], price: dict) -> dict:
         "market_cap_eok": market_cap / 1e8 if market_cap else None,
         "eps_ttm": eps_ttm, "bps": bps, "ebitda_eok_annual": ebitda, "dps_annual": dps,
         "current_per": _latest_pointintime(rows, "per"),
+        "per_band": _per_band(rows),  # 과거 10년 PER 밴드 — 목표배수 soft 가드 기준선
         "current_pbr": _latest_pointintime(rows, "pbr"),
         "current_ev_ebitda": ev_ebitda,
         "div_yield_pct": _latest_pointintime(rows, "div_yield"),
@@ -272,6 +293,7 @@ def _t_per(a: dict, anc: dict) -> val.ValuationResult:
     return val.per_valuation(
         forward_eps=_pick(a.get("forward_eps"), anc.get("eps_ttm")),
         target_per=_num(a.get("target_per")), current_price=anc.get("current_price"),
+        per_band=anc.get("per_band"),
     )
 
 
@@ -502,6 +524,8 @@ _SYSTEM = (
     "4) blend 로 최종 목표가·스프레드를 확인한다.\n"
     "5) finalize 로 진입성격(자산주/역발상|성장주)과 결론(어느 방식을 왜 더 신뢰하는지·업사이드 성격)을 낸다.\n\n"
     "가정은 반드시 앵커·피어·업종 특성에 근거한다. 예상 EPS 는 연환산(TTM) 기준이며 목표 멀티플도 연간 기준이다. "
+    "목표 PER 은 앵커의 per_band(과거 10년 PER 밴드: 중앙값·p25·p75)를 기준선으로 삼아 정하되, 밴드 밖으로 "
+    "잡을 땐 리레이팅/디레이팅 근거를 rationale 에 명시한다(도구가 밴드 이탈 시 경고를 남긴다). "
     "추측·과장 금지. 레드플래그(이익의 질 문제)가 있으면 멀티플을 보수적으로 잡는다."
 )
 
