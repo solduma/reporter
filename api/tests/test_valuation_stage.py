@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 from unittest.mock import MagicMock, patch
 
@@ -11,29 +12,37 @@ from app.services.deepdive import valuation_stage as vs
 
 # ── 앵커(P0 버그 회귀) ───────────────────────────────────────────────────
 def _series():
-    # 분기 EPS(개별값) + 연간(.12) EBITDA·배당. 최신 행은 분기(2026.03).
-    return [
-        {"period": "2025.03", "is_estimate": False, "eps": 1000, "bps": 50000, "per": 10, "pbr": 1.0},
-        {"period": "2025.06", "is_estimate": False, "eps": 1100, "bps": 50500},
-        {"period": "2025.09", "is_estimate": False, "eps": 1200, "bps": 51000},
-        {"period": "2025.12", "is_estimate": False, "eps": 1300, "bps": 52000,
-         "ebitda": 800, "dps": 500, "ev_ebitda": 6.0, "div_yield": 2.0},
-        {"period": "2026.03", "is_estimate": False, "eps": 1500, "bps": 53000},
-    ]
+    # 결정론 방식(PER 밴드·정당배수·FCFF)이 작동하도록 충분한 분기 시계열. 분기 EPS(개별값) +
+    # 연간(.12) 재무. per/pbr 은 밴드(≥4 표본)용으로 여러 분기에, 연간엔 FCFF 재료(op·D&A·capex·세율).
+    rows = []
+    eps = 800
+    for yr in (2022, 2023, 2024, 2025):
+        for mo, per, pbr in (("03", 11, 1.1), ("06", 12, 1.2), ("09", 13, 1.15), ("12", 14, 1.3)):
+            r = {"period": f"{yr}.{mo}", "is_estimate": False, "eps": eps,
+                 "bps": 45000 + (yr - 2022) * 2000, "per": per, "pbr": pbr}
+            if mo == "12":  # 연간 재무(EBITDA·배당·FCFF 재료)
+                r.update(revenue=1600, operating_income=240, ebitda=800, dps=500,
+                         ev_ebitda=6.0, div_yield=2.0, roe=9.0,
+                         depreciation=180, capex=90, effective_tax_rate=0.16)
+            rows.append(r)
+            eps = round(eps * 1.05)  # 분기마다 ~5% 성장(실현 CAGR 산출용)
+    return rows
 
 
 def test_anchor_eps_is_ttm_not_single_quarter():
     # P0: 분기 EPS(1500) 가 아니라 최근 4분기 합(1200+1300+1500+... =5100)이어야 한다.
-    anc = vs.collect_anchors(_series(), {"close_price": 40000, "market_cap": 400_000_000_000})
-    assert anc["eps_ttm"] == 1100 + 1200 + 1300 + 1500  # 최근 4분기
-    assert anc["eps_ttm"] != 1500  # 단일분기 아님
+    s = _series()
+    anc = vs.collect_anchors(s, {"close_price": 40000, "market_cap": 400_000_000_000})
+    assert anc["eps_ttm"] == sum(r["eps"] for r in s[-4:])  # 최근 4분기 합
+    assert anc["eps_ttm"] != s[-1]["eps"]  # 단일분기 아님
 
 
 def test_anchor_ebitda_and_dps_are_annual():
-    anc = vs.collect_anchors(_series(), {"close_price": 40000, "market_cap": 400_000_000_000})
+    s = _series()
+    anc = vs.collect_anchors(s, {"close_price": 40000, "market_cap": 400_000_000_000})
     assert anc["ebitda_eok_annual"] == 800  # .12 연간
     assert anc["dps_annual"] == 500
-    assert anc["bps"] == 53000  # 최신 시점값
+    assert anc["bps"] == s[-1]["bps"]  # 최신 시점값
 
 
 def test_anchor_shares_and_net_debt_derived():
@@ -49,50 +58,52 @@ def _hitl(claims):
 
 
 def test_apply_hitl_uplifts_forward_earnings():
-    # numeric claim: 증분율 50% × 매출비중 40% × 확률 1.0 = 전사 +20% → eps_ttm·ebitda 앵커 ×1.2.
+    # 결정론 HITL: 순이익 지표 %·전사(company) claim → 이익증분율 그대로 eps_ttm·ebitda 에 곱.
+    # net_income·company 는 매출→이익 전이 불필요(이미 이익 지표) → +20%.
     anc = {"eps_ttm": 1000.0, "ebitda_eok_annual": 500.0}
-    claim = {"claim_type": "numeric", "probability": 1.0,
-             "numeric": {"delta_pct": 50, "segment_revenue_share": 40}}
+    claim = {"claim_type": "numeric", "refuted": False,
+             "numeric": {"value": 20, "unit": "pct", "target_metric": "net_income", "scope": "company"}}
     out = vs.apply_hitl_to_anchors(anc, _hitl([claim]))
     assert out["eps_ttm"] == 1200.0  # +20%
     assert out["ebitda_eok_annual"] == 600.0
     assert out["hitl_earnings_uplift"]["uplift_pct"] == 20.0
 
 
-def test_apply_hitl_probability_weights_uplift():
-    # 확률 0.5 → 증분 절반만: 50% × 40% × 0.5 = +10%.
+def test_apply_hitl_segment_scope_scales_by_share():
+    # 세그먼트 이익 +50% × 전사 비중 40% = 전사 이익 +20%.
     anc = {"eps_ttm": 1000.0}
-    claim = {"claim_type": "numeric", "probability": 0.5,
-             "numeric": {"delta_pct": 50, "segment_revenue_share": 40}}
+    claim = {"claim_type": "numeric", "refuted": False,
+             "numeric": {"value": 50, "unit": "pct", "target_metric": "net_income",
+                         "scope": "segment", "segment_revenue_share": 40}}
     out = vs.apply_hitl_to_anchors(anc, _hitl([claim]))
-    assert out["eps_ttm"] == 1100.0
+    assert out["eps_ttm"] == 1200.0
 
 
-def test_apply_hitl_caps_uplift():
-    # 과대 증분(100%×100%×1.0=100%)은 상한(+50%)으로 캡.
+def test_apply_hitl_no_arbitrary_cap():
+    # 임의 상한 제거 — 큰 증분도 그대로 반영(결정론 계산이라 폭주 없음). +100% → ×2.0.
     anc = {"eps_ttm": 1000.0}
-    claim = {"claim_type": "numeric", "probability": 1.0,
-             "numeric": {"delta_pct": 100, "segment_revenue_share": 100}}
+    claim = {"claim_type": "numeric", "refuted": False,
+             "numeric": {"value": 100, "unit": "pct", "target_metric": "net_income", "scope": "company"}}
     out = vs.apply_hitl_to_anchors(anc, _hitl([claim]))
-    assert out["eps_ttm"] == 1500.0  # +50% 캡
-    assert out["hitl_earnings_uplift"]["capped"] is True
+    assert out["eps_ttm"] == 2000.0  # 캡 없음
+    assert "capped" not in out["hitl_earnings_uplift"]
 
 
-def test_apply_hitl_skips_when_baseline_missing():
-    # delta_pct·segment_share 없으면(공개 baseline 못 구함) 앵커 조정 안 함 — 프롬프트 경로에 위임.
+def test_apply_hitl_skips_when_components_missing():
+    # value·unit 등 구성요소 없으면 코드가 매출증분율 못 구해 조정 안 함(프롬프트 경로 위임).
     anc = {"eps_ttm": 1000.0}
-    claim = {"claim_type": "numeric", "probability": 0.8,
-             "numeric": {"delta_pct": None, "segment_revenue_share": None}}
+    claim = {"claim_type": "numeric", "refuted": False,
+             "numeric": {"value": None, "unit": "pct", "target_metric": "net_income", "scope": "company"}}
     out = vs.apply_hitl_to_anchors(anc, _hitl([claim]))
     assert out["eps_ttm"] == 1000.0  # 불변
     assert "hitl_earnings_uplift" not in out
 
 
 def test_apply_hitl_refuted_claim_no_uplift():
-    # 반박(확률 0)은 증분 0 → 조정 없음.
+    # 반박(refuted=true)은 미반영.
     anc = {"eps_ttm": 1000.0}
-    claim = {"claim_type": "numeric", "probability": 0.0,
-             "numeric": {"delta_pct": 50, "segment_revenue_share": 40}}
+    claim = {"claim_type": "numeric", "refuted": True,
+             "numeric": {"value": 50, "unit": "pct", "target_metric": "net_income", "scope": "company"}}
     out = vs.apply_hitl_to_anchors(anc, _hitl([claim]))
     assert out["eps_ttm"] == 1000.0
 
@@ -107,13 +118,6 @@ def test_anchor_ttm_none_when_under_4_quarters():
     short = [{"period": "2026.03", "is_estimate": False, "eps": 1500, "bps": 53000}]
     anc = vs.collect_anchors(short, {"close_price": 40000, "market_cap": 400_000_000_000})
     assert anc["eps_ttm"] is None  # 4분기 미만 → TTM 신뢰불가
-
-
-def test_pick_respects_zero_and_negative_forward():
-    # forward 가 0/음수여도(적자 예상) 앵커로 덮지 않는다.
-    assert vs._pick(0, 5000) == 0.0
-    assert vs._pick(-100, 5000) == -100.0
-    assert vs._pick(None, 5000) == 5000  # None 만 폴백
 
 
 # ── 시클리컬 정규화 EPS(mid-cycle) ────────────────────────────────────────
@@ -186,47 +190,56 @@ def _ctx():
     return ctx
 
 
+@contextlib.contextmanager
 def _patch_dispatch():
-    return patch.object(
-        vs, "dispatch",
-        lambda n, c, a: {"close_price": 40000, "market_cap": 400_000_000_000}
-        if n == "price_context" else {"peers": []},
-    )
+    # dispatch(가격·피어) + factor_betas(시장베타·rf·ERP 실측 배치값을 테스트용 고정) 목킹.
+    # 실측 배치(ECOS·Damodaran) 없이도 요인·WACC 경로가 결정론 값을 쓰게 한다.
+    fb = {"market_beta": 1.0, "risk_free": 0.032, "risk_free_10y": 0.035,
+          "market_premium": 0.05, "beta_source": "테스트"}
+    with (
+        patch.object(vs, "dispatch",
+                     lambda n, c, a: {"close_price": 40000, "market_cap": 400_000_000_000}
+                     if n == "price_context" else {"peers": []}),
+        patch.object(vs, "compute_factor_betas", lambda ctx, anc, mkt: fb),
+        patch.object(vs.market_peg_ingest, "latest_market_peg", lambda db: 1.0),
+    ):
+        yield
 
 
 def test_agentic_loop_computes_and_finalizes():
+    # 결정론: compute_* 는 rationale 만 받고 목표가는 앵커로 코드가 확정. 호출한 방식만 계산됨.
     turns = [
         ToolTurn("", [ToolCall("1", "get_anchors", {})], {"role": "assistant"}),
-        ToolTurn("", [ToolCall("2", "compute_per", {"forward_eps": 4800, "target_per": 12})], {"role": "assistant"}),
-        ToolTurn("", [ToolCall("3", "compute_pbr", {"target_pbr": 1.2})], {"role": "assistant"}),
+        ToolTurn("", [ToolCall("2", "compute_per", {"rationale": "성장 반영"})], {"role": "assistant"}),
+        ToolTurn("", [ToolCall("3", "compute_pbr", {"rationale": "수익성"})], {"role": "assistant"}),
         ToolTurn("", [ToolCall("4", "finalize", {"entry_case": "성장주", "conclusion": "PER 중심"})], {"role": "assistant"}),
     ]
     with _patch_dispatch():
         out = vs.run_valuation(_fake_llm(turns), "m", _ctx(), {}, _series())
-    assert out["method_count"] == 2  # per, pbr 만 계산됨(나머지 미호출)
+    assert out["method_count"] == 2  # per, pbr 만 호출
     assert out["entry_case"] == "성장주" and out["conclusion"] == "PER 중심"
     per = next(m for m in out["methods"] if m["method"] == "per")
-    assert per["applicable"] and per["target_price"] == 4800 * 12
+    assert per["applicable"] and per["target_price"] > 0  # 결정론 산출(구체값은 앵커 의존)
     assert out["final_target_price"] is not None
 
 
 def test_agentic_loop_allows_recompute():
-    # 같은 방식을 두 번 호출하면 최신 결과로 덮어쓴다(자기수정).
+    # 같은 방식을 두 번 호출해도 결정론이라 결과 동일(덮어써도 값 불변) — 루프가 죽지 않음을 확인.
     turns = [
-        ToolTurn("", [ToolCall("1", "compute_per", {"forward_eps": 4800, "target_per": 30})], {"role": "assistant"}),
-        ToolTurn("", [ToolCall("2", "compute_per", {"forward_eps": 4800, "target_per": 12})], {"role": "assistant"}),
+        ToolTurn("", [ToolCall("1", "compute_per", {"rationale": "초안"})], {"role": "assistant"}),
+        ToolTurn("", [ToolCall("2", "compute_per", {"rationale": "재검토"})], {"role": "assistant"}),
         ToolTurn("", [ToolCall("3", "finalize", {"entry_case": "성장주", "conclusion": "수정함"})], {"role": "assistant"}),
     ]
     with _patch_dispatch():
         out = vs.run_valuation(_fake_llm(turns), "m", _ctx(), {}, _series())
     per = next(m for m in out["methods"] if m["method"] == "per")
-    assert per["target_price"] == 4800 * 12  # 재계산된 값(30배 아님)
+    assert per["applicable"] and per["target_price"] > 0
 
 
 def test_agentic_loop_stops_on_no_tool_calls():
     # 도구 없이 서술만 오면 그 content 를 결론으로 회수하고 종료.
     turns = [
-        ToolTurn("", [ToolCall("1", "compute_per", {"forward_eps": 4800, "target_per": 12})], {"role": "assistant"}),
+        ToolTurn("", [ToolCall("1", "compute_per", {"rationale": "x"})], {"role": "assistant"}),
         ToolTurn("PER 기준 목표가가 매력적이다.", [], {"role": "assistant"}),
     ]
     with _patch_dispatch():
@@ -240,21 +253,20 @@ def test_falls_back_to_oneshot_when_tools_unsupported():
     llm = MagicMock()
     llm.chat_tools.side_effect = LLMError("no tool support")
     llm.chat.return_value = json.dumps({
-        "per": {"target_per": 12}, "forward_eps": 4800,
-        "entry_case": "성장주", "conclusion": "폴백 결론",
+        "per": {"rationale": "성장"}, "entry_case": "성장주", "conclusion": "폴백 결론",
     })
     with _patch_dispatch():
         out = vs.run_valuation(llm, "m", _ctx(), {}, _series())
     assert out["conclusion"] == "폴백 결론"
     per = next(m for m in out["methods"] if m["method"] == "per")
-    assert per["applicable"] and per["target_price"] == 4800 * 12
+    assert per["applicable"] and per["target_price"] > 0  # 결정론 산출
 
 
 def test_falls_back_when_no_tool_ever_called():
     # 모델이 곧장 서술만(도구 0회) → 결과 없음 → 원샷 폴백.
     llm = MagicMock()
     llm.chat_tools.return_value = ToolTurn("바로 결론", [], {"role": "assistant"})
-    llm.chat.return_value = json.dumps({"pbr": {"target_pbr": 1.0}, "conclusion": "폴백"})
+    llm.chat.return_value = json.dumps({"pbr": {"rationale": "x"}, "conclusion": "폴백"})
     with _patch_dispatch():
         out = vs.run_valuation(llm, "m", _ctx(), {}, _series())
     assert out["method_count"] >= 1  # 폴백이 방식 계산

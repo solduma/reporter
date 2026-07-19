@@ -1,4 +1,4 @@
-"""딥다이브 5단계 Valuation — 7개 방식을 에이전틱 도구호출로 종합해 최종 목표가를 낸다.
+"""딥다이브 5단계 Valuation — 5개 방식을 에이전틱 도구호출로 종합해 최종 목표가를 낸다.
 
 역할 분리(hexagonal):
 - **판단(가정)**은 LLM: 예상 EPS·목표 멀티플·성장률·할인율·베타·요인 프리미엄 등을 근거와 함께 제시.
@@ -34,9 +34,9 @@ _INDEX_SYMBOL = {"KOSPI": "KOSPI", "KOSDAQ": "KOSDAQ"}
 
 
 def compute_factor_betas(ctx: ToolContext, anchors: dict, market: str | None) -> dict:
-    """실데이터 요인 베타. 시장베타는 지수·개별주 일봉 회귀, SMB/HML 은 시총·PBR 프록시.
+    """실데이터 시장베타(CAPM COE용). 지수·개별주 일봉 회귀로 구한다.
 
-    프리미엄·무위험수익률은 domain.beta 상수(한국 시장 관례). LLM 추정 대신 재현 가능한 실측값."""
+    무위험수익률·ERP 는 실측 배치 적재값. LLM 추정 대신 재현 가능한 실측값."""
     idx_sym = _INDEX_SYMBOL.get((market or "").upper())
     market_beta = None
     if idx_sym:
@@ -45,20 +45,15 @@ def compute_factor_betas(ctx: ToolContext, anchors: dict, market: str | None) ->
         market_beta = betamod.market_beta(stock_closes, index_closes)
     if market_beta is None:
         market_beta = 1.0  # 회귀 불가(일봉 부족·지수 없음) 시 시장 평균 베타로 보수적 근사
-    # 무위험수익률: ECOS 국고채 3년 최신값(배치 적재) → 없으면 도메인 상수 폴백.
-    rf = risk_free_ingest.latest_rate(ctx.db, "kr_treasury_3y") or betamod.RISK_FREE
+    # 무위험수익률·ERP 모두 실측(배치 적재)만 사용 — 상수 폴백 없음. 결측이면 None →
+    # 그 값을 쓰는 방식(CAPM COE·DCF WACC 등)이 자연히 결측 처리(applicable=false). 상수 근절 원칙.
+    rf = risk_free_ingest.latest_rate(ctx.db, "kr_treasury_3y")
     rf_10y = risk_free_ingest.latest_rate(ctx.db, "kr_treasury_10y")  # DCF 영구성장률 근사(장기 명목)
-    # 시장 ERP: Damodaran Korea 실측(월 배치) → 없으면 도메인 상수 폴백.
-    market_premium = market_premium_ingest.latest_erp(ctx.db) or betamod.MARKET_PREMIUM
     return {
         "market_beta": market_beta,
-        "smb_beta": betamod.smb_beta(anchors.get("market_cap_eok")),
-        "hml_beta": betamod.hml_beta(anchors.get("current_pbr")),
         "risk_free": rf,
         "risk_free_10y": rf_10y,
-        "market_premium": market_premium,
-        "smb_premium": betamod.SMB_PREMIUM,
-        "hml_premium": betamod.HML_PREMIUM,
+        "market_premium": market_premium_ingest.latest_erp(ctx.db),  # Damodaran 실측(결측 None)
         "beta_source": "회귀(지수 일봉)" if idx_sym and market_beta != 1.0 else "근사(1.0)",
     }
 
@@ -96,9 +91,9 @@ def _sorted_actuals(series: list[dict]) -> list[dict]:
 def _fcff_base(rows: list[dict]) -> float | None:
     """진짜 FCFF(억원) = NOPAT + D&A − CAPEX. 영업이익·D&A·CAPEX 가 **모두 있는 최신 연간**(.12)을 쓴다.
 
-    NOPAT = 영업이익 × (1−실효세율). 실효세율은 그 연도 실측(결측 시 상수 폴백). 이자·비영업손익 제거
-    (FCFF 는 자본구조 무관). CAPEX 는 성장투자 포함 실측치라 성장투자기(CAPEX≫D&A)엔 FCFF 가 작거나
-    음수 — DCF 부적합 신호로 정직하게 노출. 미완결산 최신연도는 건너뛰고 완전한 직전 연도로 폴백.
+    NOPAT = 영업이익 × (1−실효세율). 영업이익·D&A·CAPEX·실효세율이 **모두 실측**된 최신 연간만 쓴다
+    (세율 상수 폴백 없음 — 결측이면 그 연도 건너뛰고 이전 연도, 없으면 None→DCF 스킵). CAPEX 는 성장투자
+    포함 실측치라 성장투자기(CAPEX≫D&A)엔 FCFF 가 작거나 음수 — DCF 부적합 신호로 정직하게 노출.
     """
     for r in reversed(rows):
         if _period_key(r["period"])[1] != 12:  # type: ignore[index]
@@ -106,9 +101,8 @@ def _fcff_base(rows: list[dict]) -> float | None:
         op = _num(r.get("operating_income"))
         dep = _num(r.get("depreciation"))
         capex = _num(r.get("capex"))
-        if op is not None and dep is not None and capex is not None:
-            tax = _num(r.get("effective_tax_rate"))
-            tax = tax if tax is not None else betamod.TAX_RATE
+        tax = _num(r.get("effective_tax_rate"))
+        if None not in (op, dep, capex, tax):
             return round(op * (1 - tax) + dep - capex, 2)
     return None
 
@@ -629,44 +623,6 @@ def _t_ddm(a: dict, anc: dict) -> val.ValuationResult:
     )
 
 
-def _t_fama_french(a: dict, anc: dict) -> val.ValuationResult:
-    # 완전 결정론: 베타·프리미엄·rf 는 factor_betas(지수회귀+프록시+관례), forward_eps 는 앵커,
-    # earnings_growth 는 forward 엔진 장기성장률. LLM 은 rationale 만.
-    fb = anc.get("factor_betas") or {}
-    factors = [
-        val.FactorExposure("시장", _num(fb.get("market_beta")) or 0, _num(fb.get("market_premium")) or 0),
-        val.FactorExposure("SMB(규모)", _num(fb.get("smb_beta")) or 0, _num(fb.get("smb_premium")) or 0),
-        val.FactorExposure("HML(가치)", _num(fb.get("hml_beta")) or 0, _num(fb.get("hml_premium")) or 0),
-    ]
-    return val.fama_french_valuation(
-        forward_eps=anc.get("eps_ttm"),
-        risk_free=_num(fb.get("risk_free")),
-        factors=factors, earnings_growth=_num(anc.get("growth_lt")),
-        equity_value=anc.get("market_cap_eok"), net_debt=anc.get("net_debt_eok"),
-        roe=anc.get("roe_pct"), moat=anc.get("moat"),
-        current_price=anc.get("current_price"),
-    )
-
-
-def _t_apt(a: dict, anc: dict) -> val.ValuationResult:
-    # LLM 이 factors 를 명시하면 그걸, 아니면 실데이터 거시요인(시장베타 대리 + 관례 프리미엄)을 쓴다.
-    # 완전 결정론: 거시요인 베타(시장베타 대리)·프리미엄·rf·forward_eps·earnings_growth 모두 코드 확정.
-    fb = anc.get("factor_betas") or {}
-    mb = fb.get("market_beta") or 1.0
-    factors = [
-        val.FactorExposure(name, round(mb * w, 3), prem)
-        for (name, prem), w in zip(betamod.APT_FACTOR_PREMIUMS.items(), (1.0, 0.5, 0.5), strict=True)
-    ]
-    return val.apt_valuation(
-        forward_eps=anc.get("eps_ttm"),
-        risk_free=_num(fb.get("risk_free")),
-        factors=factors, earnings_growth=_num(anc.get("growth_lt")),
-        equity_value=anc.get("market_cap_eok"), net_debt=anc.get("net_debt_eok"),
-        roe=anc.get("roe_pct"), moat=anc.get("moat"),
-        current_price=anc.get("current_price"),
-    )
-
-
 def _grade_moat(business: dict) -> str | None:
     """business 단계의 해자 서술(prose)을 강|중|약 등급으로. 키워드 기반(LLM 자유서술 → 정성 배수용).
 
@@ -729,15 +685,12 @@ _METHOD_TOOLS = {
     "compute_ev_ebitda": (_t_ev_ebitda, {"rationale": "string"}),  # 완전 결정론 — EBITDA·배수·순차입 코드 확정
     "compute_dcf": (_t_dcf, {"rationale": "string"}),  # 완전 결정론 — FCF·성장·WACC·영구성장 코드 확정
     "compute_ddm": (_t_ddm, {"rationale": "string"}),  # 완전 결정론 — DPS·자본비용·배당성장 코드 확정
-    "compute_fama_french": (_t_fama_french, {"rationale": "string"}),  # 완전 결정론 — 베타·프리미엄·성장 코드 확정
-    "compute_apt": (_t_apt, {"rationale": "string"}),  # 완전 결정론 — 거시요인·성장 코드 확정
 }
 
 # 도구명 → 방식 식별자(결과 dict 의 method 필드와 일치).
 _TOOL_METHOD = {
     "compute_per": "per", "compute_pbr": "pbr", "compute_ev_ebitda": "ev_ebitda",
     "compute_dcf": "dcf", "compute_ddm": "ddm",
-    "compute_fama_french": "fama_french", "compute_apt": "apt",
 }
 
 
@@ -764,15 +717,11 @@ _TOOL_DESCS = {
                    "모두 코드 확정. 숫자는 결정론 계산되니 rationale(해석)만 제시하라.",
     "compute_ddm": "고든 배당할인 = DPS(앵커)×(1+배당성장)÷(자본비용−배당성장). 자본비용=CAPM, "
                    "배당성장=min(장기이익성장,rf) 코드 확정. rationale(해석)만. 무배당이면 부적합.",
-    "compute_fama_french": "Fama-French 3요인 목표PER=1/(r−g). 베타·프리미엄·rf·이익성장 모두 실데이터로 "
-                           "코드 확정되니 rationale(해석)만 제시하라.",
-    "compute_apt": "APT 다요인 목표PER. 거시요인 베타·프리미엄·rf·이익성장 모두 코드 확정되니 "
-                   "rationale(해석)만 제시하라.",
 }
 
 
 def _build_tools() -> list[dict]:
-    """7개 compute 도구 + get_anchors + blend + finalize 의 function 스키마."""
+    """5개 compute 도구 + get_anchors + blend + finalize 의 function 스키마."""
     tools = [_tool_schema(n, _TOOL_DESCS[n], props) for n, (_fn, props) in _METHOD_TOOLS.items()]
     tools.append(_tool_schema("get_anchors", "현재 실데이터 앵커(EPS TTM·BPS·EBITDA·배당·주식수·순차입)를 조회.", {}))
     tools.append(_tool_schema("blend", "지금까지 계산한 방식들의 신뢰도 가중 최종 목표가·스프레드를 확인.", {}))
@@ -790,10 +739,10 @@ def _result_to_dict(r: val.ValuationResult) -> dict:
     }
 
 
-_MAX_TURNS = 24  # 8방식 + 재계산 여유. 도구호출 없는 최종답변이 나오거나 이 한도면 종료.
+_MAX_TURNS = 24  # 5방식 + 재계산 여유. 도구호출 없는 최종답변이 나오거나 이 한도면 종료.
 
 _SYSTEM = (
-    "너는 한국 주식 밸류에이션 애널리스트다. 7개 방식(PER·PBR·EV/EBITDA·DCF·DDM·Fama-French·APT)으로 "
+    "너는 한국 주식 밸류에이션 애널리스트다. 5개 방식(PER·PBR·EV/EBITDA·DCF·DDM)으로 "
     "목표가를 구한다. 모든 방식이 완전 결정론(코드가 실데이터로 계산)이라 너는 각 compute_* 에 숫자를 주지 "
     "않고 rationale(해석)만 제시하며, 반환된 목표가·업사이드·경고(note)를 **직접 확인**한다.\n\n"
     "진행 절차:\n"
@@ -807,9 +756,9 @@ _SYSTEM = (
     "4) blend 로 최종 목표가·스프레드를 확인한다.\n"
     "5) finalize 로 진입성격(자산주/역발상|성장주)과 결론(어느 방식을 왜 더 신뢰하는지·업사이드 성격)을 낸다.\n\n"
     "가정은 반드시 앵커·피어·업종 특성에 근거한다. 예상 EPS 는 연환산(TTM) 기준이며 목표 멀티플도 연간 기준이다. "
-    "7방식 모두 완전 결정론이다 — 배수·성장률·자본비용·베타·FCF·WACC 를 코드가 실데이터로 확정한다"
+    "5방식 모두 완전 결정론이다 — 배수·성장률·자본비용·베타·FCF·WACC 를 코드가 실데이터로 확정한다"
     "(PER=forward EPS×PEG 정당 PER, PBR=BPS×ROE/COE, EV/EBITDA=EBITDA×밴드중앙−순차입, "
-    "DCF=forward FCF·성장·WACC·영구성장[국고채10년], DDM=고든, FF·APT=요인 Re→목표PER, 성장은 forward 엔진). "
+    "DCF=forward FCF·성장·WACC·영구성장[국고채10년], DDM=고든, 성장은 forward 엔진). "
     "너는 compute_* 에 숫자를 주지 말고 rationale(결정론적 목표가가 타당한지·리스크·해석)만 제시한다. "
     "fair_per·fair_pbr 은 성장·수익성 이론 정당 배수다. "
     "추측·과장 금지. 레드플래그(이익의 질 문제)가 있으면 멀티플을 보수적으로 잡는다."
@@ -857,7 +806,7 @@ def run_valuation(llm: LLMPort, model: str, ctx: ToolContext, prior: dict, serie
     anchors = apply_hitl_to_anchors(anchors, prior.get("hitl"), series)
     # 이익 앵커를 forward(예상)로 대체 — 소스 우선순위 HITL(위)>컨센서스>성장률 외삽. 사용 소스는 forward_meta 고지.
     anchors = apply_forward_earnings(anchors, series)
-    # 실데이터 요인 베타(지수 일봉 회귀 + 시총/PBR 프록시) — Fama-French·APT 가 LLM 추정 대신 사용.
+    # 실데이터 시장베타(지수 일봉 회귀) — CAPM COE(PBR·DDM·DCF) 가 LLM 추정 대신 사용.
     anchors["factor_betas"] = compute_factor_betas(ctx, anchors, price.get("market"))
     # 정당 PBR(ROE/COE) — factor_betas 로 COE(CAPM) 확정 후 계산(PBR 목표배수 결정론화).
     fair_pbr_val, fair_pbr_meta = _fair_pbr(anchors)
@@ -899,7 +848,7 @@ def run_valuation(llm: LLMPort, model: str, ctx: ToolContext, prior: dict, serie
     )
     messages: list[dict] = [
         {"role": "system", "content": _SYSTEM},
-        {"role": "user", "content": context + "\n\nget_anchors 로 시작해 7개 방식을 계산하고 finalize 로 마쳐라."},
+        {"role": "user", "content": context + "\n\nget_anchors 로 시작해 5개 방식을 계산하고 finalize 로 마쳐라."},
     ]
 
     def _run_tool(name: str, args: dict) -> dict:
@@ -970,7 +919,6 @@ _FALLBACK_SCHEMA = """{"per":{"rationale":""},"pbr":{"rationale":""},
 "ev_ebitda":{"rationale":""},
 "dcf":{"rationale":""},
 "ddm":{"rationale":""},
-"fama_french":{"rationale":""},"apt":{"rationale":""},
 "forward_eps":수,"entry_case":"자산주/역발상|성장주","conclusion":""}"""
 
 
@@ -981,7 +929,7 @@ def _oneshot_fallback(llm, model, ctx, prior, anchors, peers, series, fit=None, 
         f"[종목] {ctx.code}\n[앵커]\n{json.dumps(anchors, ensure_ascii=False)}\n"
         f"[피어]\n{json.dumps(peers, ensure_ascii=False)[:1500]}"
         + _hitl_context(prior.get("hitl"))
-        + f"\n7개 방식 가정 JSON 만 출력:\n{_FALLBACK_SCHEMA}"
+        + f"\n5개 방식 가정 JSON 만 출력:\n{_FALLBACK_SCHEMA}"
     )
     try:
         a = _extract_json(llm.chat(model, "밸류에이션 가정만 JSON 으로 출력.", user, temperature=0.2)) or {}

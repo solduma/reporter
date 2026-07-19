@@ -75,12 +75,17 @@ def ingest_market_peg(db: Session, today=None) -> dict:
     return {"inserted": 1, "market_peg": peg, "pairs": len(pairs)}
 
 
-def latest_market_peg(db: Session) -> float | None:
-    """최신 시장 PEG. 없으면 None(호출측이 상수 폴백)."""
+def latest_market_factor(db: Session, factor: str) -> float | None:
+    """최신 시장 팩터 값(factor 별). 없으면 None(호출측이 결측 처리 — 상수 폴백 없음)."""
     row = db.scalars(
         select(MarketFactor)
-        .where(MarketFactor.factor == _FACTOR)
+        .where(MarketFactor.factor == factor)
         .order_by(desc(MarketFactor.as_of_date))
         .limit(1)
     ).first()
     return row.value if row else None
+
+
+def latest_market_peg(db: Session) -> float | None:
+    """최신 시장 PEG(편의 래퍼)."""
+    return latest_market_factor(db, _FACTOR)

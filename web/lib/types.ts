@@ -726,7 +726,7 @@ export interface ForwardMeta {
   ebitda?: ForwardMetric;
 }
 
-// 밸류에이션 방식 하나(PER·PBR·EV/EBITDA·DCF·DDM·Fama-French·APT).
+// 밸류에이션 방식 하나(PER·PBR·EV/EBITDA·DCF·DDM).
 export interface ValuationMethod {
   method: string; // 기계 식별자
   label: string; // 표시명

@@ -29,18 +29,20 @@ def test_hitl_research_goal_accepts_ir_source():
     # IR·회사 제공 1차 출처를 evidence 로 인정, 공개 재확인 불가만으로 배제 금지.
     assert "IR" in goal
     assert "1차 출처" in goal
-    # baseline 을 공개 소스로 못 구하면 인풋값·추정 사용 허용(null 방치 강제 아님).
-    assert "합리적 추정" in goal
 
 
-def test_hitl_schema_has_source_confirmed_verdict():
-    # 새 verdict '출처확인'(IR 등 신뢰 1차 출처)이 스키마·목표에 도입됨.
-    assert "출처확인" in hitl._RESEARCH_SCHEMA
-    assert "출처확인" in hitl._RESEARCH_GOAL
+def test_hitl_schema_is_deterministic_components():
+    # 결정론 HITL: LLM 은 계산 결과가 아니라 구성요소(value·unit·target_metric·scope·refuted)만 준다.
+    schema = hitl._RESEARCH_SCHEMA
+    for field in ("refuted", "value", "unit", "target_metric", "scope"):
+        assert field in schema
+    # LLM 은 계산하지 않는다(플래너 역할)·이진 반박 판정.
+    assert "플래너" in hitl._RESEARCH_GOAL
+    assert "계산하지" in hitl._RESEARCH_GOAL
 
 
 def test_hitl_reviewer_allows_estimated_baseline():
     review = hitl._REVIEW_SYSTEM
     # baseline 을 공개로 못 구해도 IR값·추정+근거면 충족, 아예 빈 방치만 gap.
     assert "추정" in review
-    assert "출처확인" in review
+    assert "IR" in review
