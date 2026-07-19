@@ -308,23 +308,59 @@ def collect_anchors(series: list[dict], price: dict) -> dict:
     }
 
 
-# HITL 이익 증분의 앵커 반영 상한 — 단일 인풋이 forward 이익을 과대 상향(환각)하지 않도록 캡(+50%).
-_HITL_EARNINGS_UPLIFT_CAP = 0.5
+# HITL 이익 증분의 앵커 반영 안전상한 — 명백한 오추출(단일 % 폭주)만 방어. 정상 증분은 안 건드림.
+_HITL_EARNINGS_UPLIFT_CAP = 2.0
 
 
-def apply_hitl_to_anchors(anchors: dict, hitl: dict | None) -> dict:
-    """HITL numeric claim 의 전사 이익 증분을 forward 이익 앵커(eps_ttm·ebitda)에 결정론적으로 반영.
+def _hitl_revenue_growth(num: dict, base_revenue_eok: float | None) -> float | None:
+    """claim 의 구조화 필드에서 '전사 매출 증분율'을 결정론 계산. 계산 불가 시 None.
 
-    긍정 인풋이 '프롬프트 텍스트'로만 전달돼 LLM 이 forward 를 안 올리면 후행 앵커로 계산돼 목표가에
-    반영되지 않던 문제(업사이드 왜곡) 대응. numeric 필드가 구조화(delta_pct·segment_revenue_share)돼
-    있고 확률 가중 후 전사 증분을 계산할 수 있는 claim 만 적용한다:
-        전사 이익 증분율 = delta_pct/100 × segment_revenue_share/100 × probability  (반박=prob0 → 0)
-    합산 증분율을 상한(_HITL_EARNINGS_UPLIFT_CAP)으로 캡해 eps_ttm·ebitda 앵커에 곱한다. 조정 근거는
-    anchors['hitl_earnings_uplift'] 로 남겨 프론트·서술이 투명하게 노출한다. baseline/비중이 없어 증분을
-    못 구하는 claim 은 여기서 건너뛰고 기존 프롬프트 경로(LLM 판단)에 맡긴다.
+    LLM 은 구성요소(value·unit·scope·share)만 주고 산술은 여기서 한다:
+    - unit=pct, scope=segment  → value/100 × share/100        (세그먼트 증분 × 전사 비중)
+    - unit=pct, scope=company  → value/100                     (이미 전사)
+    - unit=absolute_eok        → value(억원) / 기존 TTM 매출(억원)
+    """
+    value = _num(num.get("value"))
+    if value is None or value <= 0:
+        return None
+    unit = str(num.get("unit") or "")
+    scope = str(num.get("scope") or "")
+    if unit == "absolute_eok":
+        if not base_revenue_eok or base_revenue_eok <= 0:
+            return None
+        return value / base_revenue_eok
+    if unit == "pct":
+        if scope == "segment":
+            share = _num(num.get("segment_revenue_share"))
+            if share is None or share <= 0:
+                return None
+            return (value / 100.0) * (share / 100.0)
+        if scope == "company":
+            return value / 100.0
+    return None
+
+
+def apply_hitl_to_anchors(anchors: dict, hitl: dict | None, series: list[dict] | None = None) -> dict:
+    """HITL claim 의 이익 증분을 forward 이익 앵커(eps_ttm·ebitda)에 **결정론적으로** 반영.
+
+    역할 분리: LLM 은 구성요소(value·unit·target_metric·scope·share·refuted)만 플래닝하고, 전사
+    매출증분율·매출→이익 전이·확률은 전부 코드가 실데이터로 계산한다(LLM 임의 가감 배제).
+        1) 매출증분율 = _hitl_revenue_growth (pct/절대금액 → 전사 매출 증분율)
+        2) 순이익 증분율:
+             target_metric=revenue          → 매출증분액 × 과거 증분마진 / 기존 순이익
+             target_metric=operating/net    → 매출증분율(=이익증분율 근사, 이미 이익 지표)
+        3) 확률(이진): refuted=true → 0(반박근거·논리모순), 아니면 → 1(내부정보라 검색불가가 정상)
+    합산 순이익 증분율을 안전상한으로만 캡해 eps_ttm·ebitda 에 곱한다. 근거는 hitl_earnings_uplift 로 노출.
     """
     if not hitl or not isinstance(hitl, dict):
         return anchors
+    rows = _sorted_actuals(series or [])
+    base_rev = _ttm_windows(rows, "revenue")
+    base_ni = _ttm_windows(rows, "net_income")
+    base_revenue_eok = base_rev[-1] if base_rev else None
+    base_ni_eok = base_ni[-1] if base_ni else None
+    incr_margin, margin_meta = fwd.incremental_margin(base_rev, _ttm_windows(rows, "operating_income"))
+
     total_uplift = 0.0
     applied: list[dict] = []
     for c in hitl.get("claims") or []:
@@ -333,16 +369,26 @@ def apply_hitl_to_anchors(anchors: dict, hitl: dict | None) -> dict:
         num = c.get("numeric") if isinstance(c.get("numeric"), dict) else None
         if not num:
             continue
-        delta_pct = _num(num.get("delta_pct"))
-        share_pct = _num(num.get("segment_revenue_share"))
-        prob = _num(c.get("probability"))
-        if delta_pct is None or share_pct is None or prob is None:
-            continue  # 구조화 증분 불가 — 프롬프트 경로에 위임
-        contrib = (delta_pct / 100.0) * (share_pct / 100.0) * prob
-        if contrib <= 0:
+        if bool(c.get("refuted")):  # 반박근거·논리모순 → 확률 0 → 미반영
             continue
-        total_uplift += contrib
-        applied.append({"claim": c.get("claim"), "contrib_pct": round(contrib * 100, 2)})
+        rev_growth = _hitl_revenue_growth(num, base_revenue_eok)
+        if rev_growth is None or rev_growth <= 0:
+            continue  # 구조화 증분 불가 — 프롬프트 경로(LLM 서술)에 위임
+        metric = str(num.get("target_metric") or "")
+        if metric == "revenue":
+            # 매출 증분 → 이익 전이: 매출증분액 × 증분마진 / 기존 순이익 = 순이익 증분율.
+            if incr_margin is None or not base_revenue_eok or not base_ni_eok or base_ni_eok <= 0:
+                continue
+            profit_growth = (rev_growth * base_revenue_eok * incr_margin) / base_ni_eok
+        elif metric in ("operating_income", "net_income"):
+            profit_growth = rev_growth  # 이미 이익 지표 증분율
+        else:
+            continue
+        if profit_growth <= 0:
+            continue
+        total_uplift += profit_growth
+        applied.append({"claim": c.get("claim"), "contrib_pct": round(profit_growth * 100, 2),
+                        "metric": metric, "rev_growth_pct": round(rev_growth * 100, 2)})
     if not applied:
         return anchors
     uplift = min(total_uplift, _HITL_EARNINGS_UPLIFT_CAP)
@@ -355,6 +401,7 @@ def apply_hitl_to_anchors(anchors: dict, hitl: dict | None) -> dict:
     adjusted["hitl_earnings_uplift"] = {
         "uplift_pct": round(uplift * 100, 2),
         "capped": total_uplift > _HITL_EARNINGS_UPLIFT_CAP,
+        "incremental_margin": margin_meta,
         "claims": applied,
     }
     return adjusted
@@ -636,39 +683,29 @@ _SYSTEM = (
 def _hitl_context(hitl: dict | None) -> str:
     """HITL 검증 결과(claims)를 밸류에이션 프롬프트 블록으로. 없으면 빈 문자열.
 
-    반박(probability 0)은 반영하지 않도록, 반영(1)은 100%, 가능성(0<p<1)은 그 비율만큼만 가정을
-    조정하도록 확률과 반영지시를 함께 노출한다. 밸류에이션 LLM 이 확률 가중으로 가정에 녹인다."""
+    numeric claim 의 이익 반영은 코드(apply_hitl_to_anchors)가 결정론 계산해 이미 eps_ttm·ebitda 앵커에
+    녹였다(forward_meta.source=hitl). 여기서는 LLM 이 맥락·정성 판단(어느 방식을 신뢰할지·리스크)에 쓰도록
+    claim 을 노출만 한다 — LLM 이 다시 수치를 가감하지 않게 '반영 완료'임을 명시한다."""
     if not hitl or not isinstance(hitl, dict):
         return ""
     claims = [c for c in (hitl.get("claims") or []) if isinstance(c, dict)]
     if not claims:
         return ""
     lines = [
-        "\n[사용자 인풋 검증(HITL)] — 아래는 사용자 인풋을 추가 리서치로 검증한 결과다. "
-        "verdict·probability 에 따라 밸류에이션 가정을 조정하라: 반박(prob 0)은 반영하지 말 것, "
-        "반영(prob 1)은 valuation_impact 를 100% 반영, 출처확인(IR 등 신뢰할 1차 출처, prob 0.7~0.9)은 "
-        "그 비율만큼 반영(공개 검증 안 됐다고 무시하지 말 것 — 신뢰할 출처다), 가능성(0<prob<0.6)은 "
-        "probability 비율만큼만 반영(예: prob 0.4·'성장률 +5%p' → +2%p). 근거 없는 낙관·비관 금지. "
-        "**수치형(numeric) claim 은 baseline(현재 기준치)+new_value 로 총량을 잡고, 전체 매출 비중"
-        "(segment_revenue_share)을 곱해 전사 영향으로 환산해 반영하라(예: 용량 X→X+Y, 비중 W% → 전사 매출 기여).**"
+        "\n[사용자 인풋 검증(HITL)] — 사용자 인풋을 추가 리서치로 검증한 결과다. **수치형(numeric·미반박) "
+        "claim 의 이익 영향은 코드가 실데이터(기존 매출·과거 증분마진)로 이미 계산해 forward 이익 앵커에 "
+        "반영했다(forward_meta.source=hitl).** 너는 이 숫자를 다시 가감하지 말고, 아래 claim 을 정성 맥락"
+        "(어느 방식을 더 신뢰할지·리스크·업사이드 성격)에만 활용하라. 반박(refuted)된 claim 은 미반영됐다."
     ]
-    if hitl.get("_procedure_incomplete"):
-        lines.append(
-            "  ⚠️ 절차 미완료 표시(_procedure_incomplete): 일부 claim 의 기준치·환산 절차가 미완이니 "
-            "해당 numeric 반영은 보수적으로(확률 하향) 취급하라."
-        )
     for c in claims:
-        base = (
-            f"- [{c.get('verdict')}·확률 {c.get('probability')}] {c.get('claim')} "
-            f"→ 조정: {c.get('valuation_impact')} (근거: {str(c.get('evidence') or '')[:180]})"
-        )
+        status = "반박(미반영)" if c.get("refuted") else "반영"
+        base = (f"- [{status}] {c.get('claim')} "
+                f"→ 영향: {c.get('valuation_impact')} (근거: {str(c.get('evidence') or '')[:180]})")
         num = c.get("numeric") if isinstance(c.get("numeric"), dict) else None
-        if c.get("claim_type") == "numeric" and num:
-            base += (
-                f"\n    [수치] 현재 {num.get('baseline')} + 신규 {num.get('new_value')}{num.get('unit') or ''}"
-                f"(증분 {num.get('delta_pct')}%), 매출비중 {num.get('segment_revenue_share')}% "
-                f"— 환산: {str(num.get('conversion_chain') or '')[:200]}"
-            )
+        if c.get("claim_type") == "numeric" and num and not c.get("refuted"):
+            base += (f"\n    [수치] {num.get('value')} {num.get('unit') or ''} · "
+                     f"{num.get('target_metric') or ''} · {num.get('scope') or ''}"
+                     f"(비중 {num.get('segment_revenue_share')}%)")
         lines.append(base)
     return "\n".join(lines)
 
@@ -681,7 +718,7 @@ def run_valuation(llm: LLMPort, model: str, ctx: ToolContext, prior: dict, serie
     price = dispatch("price_context", ctx, {})
     anchors = collect_anchors(series, price)
     # HITL 이익 증분을 forward 이익 앵커에 결정론적 반영(프롬프트 경로만으론 미반영되던 긍정 인풋을 계산에 직결).
-    anchors = apply_hitl_to_anchors(anchors, prior.get("hitl"))
+    anchors = apply_hitl_to_anchors(anchors, prior.get("hitl"), series)
     # 이익 앵커를 forward(예상)로 대체 — 소스 우선순위 HITL(위)>컨센서스>성장률 외삽. 사용 소스는 forward_meta 고지.
     anchors = apply_forward_earnings(anchors, series)
     # 실데이터 요인 베타(지수 일봉 회귀 + 시총/PBR 프록시) — Fama-French·APT 가 LLM 추정 대신 사용.

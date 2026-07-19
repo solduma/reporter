@@ -27,6 +27,11 @@ _W_CONVEX = 0.3
 _MIN_YOY = 3  # YoY 표본이 이보다 적으면 외삽 신뢰 불가 → None(TTM 유지).
 _AVG_WINDOW = 12  # 과거 3년 = 12개 분기 YoY.
 
+# 증분마진(Δ영업이익/Δ매출) 클립 — 신규 매출이 이익으로 전이되는 비율의 상식 범위.
+_INCR_MARGIN_HIGH = 0.6  # 고정비 레버리지로도 60% 초과 전이는 이례적.
+_INCR_MARGIN_LOW = 0.0  # 음수 전이(매출 늘수록 손실)는 forward 상향엔 미적용 → 0 하한.
+_MIN_MARGIN_POINTS = 4  # 증분마진 회귀 최소 표본(연간 창).
+
 # PEG 기반 정당 PER — 정당 PER ≈ PEG × 장기성장률(%). PEG=1.5(고성장 프리미엄 허용), 캡 [5,50]배.
 _FAIR_PEG = 1.5
 _FAIR_PER_CAP_HIGH = 50.0
@@ -143,3 +148,35 @@ def extrapolate_growth(ttm_series: list[float]) -> tuple[float | None, dict | No
         "yoy_samples": len(yoy),
     }
     return growth, meta
+
+
+def incremental_margin(rev_ttm: list[float], op_ttm: list[float]) -> tuple[float | None, dict | None]:
+    """증분 영업이익률 = ΔOP/ΔRevenue (연 단위 변화의 회귀 기울기). 신규 매출→이익 전이율.
+
+    HITL 신규 매출을 이익으로 환산할 때 쓴다. 단순 영업이익률(OP/Rev)이 아니라 '매출이 늘 때
+    이익이 얼마나 붙나'(고정비 레버리지 반영)를 과거 실적의 연간 변화분 회귀 기울기로 잡는다.
+    rev_ttm·op_ttm 은 같은 인덱스가 같은 시점인 TTM(4분기 합) 시계열(오래된→최신).
+
+    표본(연간 변화쌍) 부족·분모 0·기울기 음수/과대면 폴백: 최근 단순 영업이익률(양수)로 대체.
+    반환 마진은 [0, 0.6] 클립. 둘 다 실패하면 (None, None).
+    """
+    n = min(len(rev_ttm), len(op_ttm))
+    d_rev: list[float] = []
+    d_op: list[float] = []
+    for i in range(4, n):  # 4분기 전 대비 연간 변화(계절성 제거)
+        dr = rev_ttm[i] - rev_ttm[i - 4]
+        if dr > 0:  # 매출 증가 구간만(전이율 정의 대상)
+            d_rev.append(dr)
+            d_op.append(op_ttm[i] - op_ttm[i - 4])
+    if len(d_rev) >= _MIN_MARGIN_POINTS:
+        slope = sum(d_op) / sum(d_rev)  # ΣΔOP / ΣΔRev — 누적 증분마진(개별비율 평균보다 강건)
+        if _INCR_MARGIN_LOW < slope <= _INCR_MARGIN_HIGH:
+            return round(slope, 4), {"source": "incremental_regression", "points": len(d_rev),
+                                     "margin_pct": round(slope * 100, 2)}
+    # 폴백: 최근 단순 영업이익률(양수일 때만).
+    if rev_ttm and op_ttm and rev_ttm[-1] > 0:
+        simple = op_ttm[-1] / rev_ttm[-1]
+        if simple > 0:
+            simple = min(simple, _INCR_MARGIN_HIGH)
+            return round(simple, 4), {"source": "current_op_margin", "margin_pct": round(simple * 100, 2)}
+    return None, None
