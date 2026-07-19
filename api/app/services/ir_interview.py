@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 
 import requests
 from sqlalchemy import func, select
@@ -28,7 +29,9 @@ logger = logging.getLogger(__name__)
 _MAX_ITEMS = 8  # 전략 아이템 상한(시간·비용 관리)
 _MAX_Q_PER_ITEM = 6  # 아이템당 질문 상한(핵심만 — 편중·중복 억제, 10→6)
 _MAX_TOTAL = 80  # 전체 질문 상한(요구사항)
-_REVIEW_ROUNDS = 2  # reviewer critique-refine 라운드(딥다이브 기본 3보다 낮춰 시간 관리)
+_ITEMS_REVIEW_ROUNDS = 2  # 아이템 도출 reviewer 라운드 — 다양성·한축쏠림 감사가 핵심이라 유지.
+_Q_REVIEW_ROUNDS = 1  # 질문 fan-out reviewer 라운드 — dedup·강한 프롬프트에 위임해 축소(latency).
+_FANOUT_WORKERS = 4  # 질문 fan-out 병렬 웨이브 크기(4+4). Ollama HTTP IO 대기 → 스레드 동시성.
 
 # 전략 아이템 도출 reviewer — 밸류 겨냥·측정가능·커버리지 절차 감사.
 _ITEMS_REVIEW = (
@@ -113,7 +116,7 @@ def _derive_items(llm, model: str, ctx: tools.ToolContext, context: dict) -> lis
             llm, model, ctx, stage_goal=_with_feedback(goal, fb),
             result_schema=schema, context_data=context, max_tool_calls=2,
         ),
-        _ITEMS_REVIEW, label=f"ir_items:{ctx.code}", max_rounds=_REVIEW_ROUNDS,
+        _ITEMS_REVIEW, label=f"ir_items:{ctx.code}", max_rounds=_ITEMS_REVIEW_ROUNDS,
     )
     items = result.get("items") if isinstance(result, dict) else None
     return [it for it in (items or []) if isinstance(it, dict) and it.get("item")][:_MAX_ITEMS]
@@ -140,15 +143,17 @@ def _questions_for_item(
         '{"questions": [{"q": "질문", "intent": "왜 묻는가", '
         '"valuation_link": "연결 밸류 가정", "expected_signal": "답변→목표가 방향"}]}'
     )
-    # 이미 물은 질문(최근 것 우선, 컨텍스트 폭주 방지 상한)을 주입.
-    ctx_data = {"item": item, "already_asked": asked[-40:], **context}
+    # 이미 물은 질문(최근 것 우선, 컨텍스트 폭주·6000자 잘림 압박 완화 위해 상한 축소).
+    ctx_data = {"item": item, "already_asked": asked[-15:], **context}
+    # max_tool_calls=0: 질문 생성은 순수 추론(context 에 밸류 근거 이미 실림) — tool·DB 접근을 봉쇄해
+    # 병렬 스레드 안전(ctx.db/session 미접근) 확보 + tool-loop tail latency 제거.
     result = review_loop.run_with_review(
         llm, model,
         lambda fb: agent.run_stage(
             llm, model, ctx, stage_goal=_with_feedback(goal, fb),
-            result_schema=schema, context_data=ctx_data, max_tool_calls=2,
+            result_schema=schema, context_data=ctx_data, max_tool_calls=0,
         ),
-        _QUESTIONS_REVIEW, label=f"ir_q:{item.get('item')}:{ctx.code}", max_rounds=_REVIEW_ROUNDS,
+        _QUESTIONS_REVIEW, label=f"ir_q:{item.get('item')}:{ctx.code}", max_rounds=_Q_REVIEW_ROUNDS,
     )
     qs = result.get("questions") if isinstance(result, dict) else None
     return [q for q in (qs or []) if isinstance(q, dict) and q.get("q")][:_MAX_Q_PER_ITEM]
@@ -174,25 +179,39 @@ def generate(db: Session, code: str, settings: Settings | None = None) -> dict:
 
     strategy: list[dict] = []
     total = 0
-    asked: list[str] = []  # 이미 물은 질문(다음 아이템 fan-out 에 주입, 교차 중복 방지)
+    asked: list[str] = []  # 이미 물은 질문(다음 웨이브 fan-out 에 주입, 교차 중복 방지)
     seen_keys: set[str] = set()  # 정규화 dedup 키(생성 중복 2차 차단)
-    for it in items:
+    # 질문 fan-out 을 웨이브(4개씩) 병렬로 — 아이템 간 독립이라 llm.chat(Ollama HTTP IO)을
+    # ThreadPool 로 동시 실행(직렬 8회 → 웨이브 2회). 웨이브 사이엔 asked 를 주입해 교차중복
+    # 유도를 절반 보존하고, dedup(seen_keys)이 근접중복을 사후 제거해 다양성을 지킨다.
+    # tool 봉쇄(max_tool_calls=0)라 스레드가 ctx.db/session 을 건드리지 않아 안전하다.
+    for wave_start in range(0, len(items), _FANOUT_WORKERS):
         if total >= _MAX_TOTAL:
             break
-        raw = _questions_for_item(llm, model, ctx, it, context, asked)
-        # 취합 dedup — 앞 아이템·같은 아이템 내 유사 질문(정규화 키 동일) 제거.
-        questions: list[dict] = []
-        for q in raw:
-            key = _q_key(q.get("q", ""))
-            if not key or key in seen_keys:
-                continue
-            seen_keys.add(key)
-            questions.append(q)
-            asked.append(q.get("q", ""))
-        if total + len(questions) > _MAX_TOTAL:  # 전체 상한 초과분 잘라 담는다
-            questions = questions[: _MAX_TOTAL - total]
-        strategy.append({**it, "questions": questions})
-        total += len(questions)
+        wave = items[wave_start : wave_start + _FANOUT_WORKERS]
+        asked_snapshot = list(asked)  # 웨이브 내 모든 아이템은 동일 asked(웨이브 시작 시점)를 본다
+
+        def _run(it, _asked=asked_snapshot):  # 기본인자로 웨이브 스냅샷 바인딩(B023 회피)
+            return _questions_for_item(llm, model, ctx, it, context, _asked)
+
+        with ThreadPoolExecutor(max_workers=_FANOUT_WORKERS) as pool:
+            wave_raw = list(pool.map(_run, wave))
+        # 취합은 아이템 순서대로 순차(결정성 유지) — dedup·상한·asked 갱신.
+        for it, raw in zip(wave, wave_raw, strict=True):
+            if total >= _MAX_TOTAL:
+                break
+            questions: list[dict] = []
+            for q in raw:
+                key = _q_key(q.get("q", ""))
+                if not key or key in seen_keys:
+                    continue
+                seen_keys.add(key)
+                questions.append(q)
+                asked.append(q.get("q", ""))
+            if total + len(questions) > _MAX_TOTAL:  # 전체 상한 초과분 잘라 담는다
+                questions = questions[: _MAX_TOTAL - total]
+            strategy.append({**it, "questions": questions})
+            total += len(questions)
 
     return {"strategy_items": strategy, "total_questions": total}
 
