@@ -15,11 +15,8 @@
 
 from __future__ import annotations
 
-# 연간 외삽 성장률 클립 범위 — 단일 연도 이익 성장을 상식 범위로 제한(급성장·급감 모두 완충).
-_GROWTH_CAP_HIGH = 0.6
-_GROWTH_CAP_LOW = -0.5
-
-# 앙상블 가중치 — 3년평균(추세) 0.4, 최근(모멘텀) 0.3, convex 외삽(가속) 0.3.
+# 앙상블 가중치 — 3년평균(추세) 0.4, 최근(모멘텀) 0.3, convex 외삽(가속) 0.3. 임의 클립 캡은 없다
+# (극단은 앙상블 평균이 완충, 하류 fair_per·DCF 의 r-g>0 가드가 최종 방어).
 _W_AVG3Y = 0.4
 _W_RECENT = 0.3
 _W_CONVEX = 0.3
@@ -27,15 +24,10 @@ _W_CONVEX = 0.3
 _MIN_YOY = 3  # YoY 표본이 이보다 적으면 외삽 신뢰 불가 → None(TTM 유지).
 _AVG_WINDOW = 12  # 과거 3년 = 12개 분기 YoY.
 
-# 증분마진(Δ영업이익/Δ매출) 클립 — 신규 매출이 이익으로 전이되는 비율의 상식 범위.
-_INCR_MARGIN_HIGH = 0.6  # 고정비 레버리지로도 60% 초과 전이는 이례적.
-_INCR_MARGIN_LOW = 0.0  # 음수 전이(매출 늘수록 손실)는 forward 상향엔 미적용 → 0 하한.
 _MIN_MARGIN_POINTS = 4  # 증분마진 회귀 최소 표본(연간 창).
 
-# PEG 기반 정당 PER — 정당 PER ≈ PEG × 장기성장률(%). PEG=1.5(고성장 프리미엄 허용), 캡 [5,50]배.
+# PEG 기반 정당 PER = PEG × 장기성장률(%). PEG=1.5(고성장 프리미엄 허용). 캡 없음 — g 결정론이라 자연 유계.
 _FAIR_PEG = 1.5
-_FAIR_PER_CAP_HIGH = 50.0
-_FAIR_PER_CAP_LOW = 5.0
 _LT_FWD_WEIGHT = 0.5  # 장기 g 결합에서 forward(단기 모멘텀) 가중 — 나머지는 과거 CAGR. 0.5=절충.
 
 
@@ -99,7 +91,7 @@ def long_term_growth(ttm_series: list[float]) -> tuple[float | None, dict | None
         g_long = _LT_FWD_WEIGHT * g_fwd + (1.0 - _LT_FWD_WEIGHT) * g_cagr
     else:
         g_long = g_fwd * _LT_FWD_WEIGHT  # CAGR 없음 — 단기 모멘텀을 보수적으로 감쇄만.
-    g_long = max(_GROWTH_CAP_LOW, min(_GROWTH_CAP_HIGH, g_long))
+    # 임의 클립 없음 — CAGR 결합이 극단을 완충, 하류 r-g>0 가드가 최종 방어.
     meta = {
         "g_long_pct": round(g_long * 100, 2),
         "g_forward_pct": round(g_fwd * 100, 2),
@@ -117,11 +109,10 @@ def fair_per(ttm_series: list[float]) -> tuple[float | None, dict | None]:
     g_long, gmeta = long_term_growth(ttm_series)
     if g_long is None or g_long <= 0:
         return None, gmeta
-    raw = _FAIR_PEG * (g_long * 100.0)
-    capped = max(_FAIR_PER_CAP_LOW, min(_FAIR_PER_CAP_HIGH, raw))
-    meta = {"fair_per": round(capped, 1), "peg": _FAIR_PEG,
-            "growth_pct": round(g_long * 100, 2), "capped": raw != capped, **(gmeta or {})}
-    return round(capped, 1), meta
+    fair = _FAIR_PEG * (g_long * 100.0)  # 임의 캡 없음 — g 는 결정론(장기 CAGR 결합)이라 자연 유계.
+    meta = {"fair_per": round(fair, 1), "peg": _FAIR_PEG,
+            "growth_pct": round(g_long * 100, 2), **(gmeta or {})}
+    return round(fair, 1), meta
 
 
 def extrapolate_growth(ttm_series: list[float]) -> tuple[float | None, dict | None]:
@@ -135,11 +126,10 @@ def extrapolate_growth(ttm_series: list[float]) -> tuple[float | None, dict | No
     avg3y = sum(yoy[-_AVG_WINDOW:]) / len(yoy[-_AVG_WINDOW:])
     recent = yoy[-1]
     convex = _convex_extrapolation(yoy)
-    raw = _W_AVG3Y * avg3y + _W_RECENT * recent + _W_CONVEX * convex
-    growth = max(_GROWTH_CAP_LOW, min(_GROWTH_CAP_HIGH, raw))
+    # 임의 클립 없음 — 3요소 앙상블 평균이 극단을 완충하고, 하류(fair_per·DCF)의 r-g>0 가드가 최종 방어.
+    growth = _W_AVG3Y * avg3y + _W_RECENT * recent + _W_CONVEX * convex
     meta = {
         "growth_pct": round(growth * 100, 2),
-        "capped": raw != growth,
         "components": {
             "avg3y_pct": round(avg3y * 100, 2),
             "recent_pct": round(recent * 100, 2),
@@ -170,13 +160,13 @@ def incremental_margin(rev_ttm: list[float], op_ttm: list[float]) -> tuple[float
             d_op.append(op_ttm[i] - op_ttm[i - 4])
     if len(d_rev) >= _MIN_MARGIN_POINTS:
         slope = sum(d_op) / sum(d_rev)  # ΣΔOP / ΣΔRev — 누적 증분마진(개별비율 평균보다 강건)
-        if _INCR_MARGIN_LOW < slope <= _INCR_MARGIN_HIGH:
+        # 양수 전이만 forward 상향에 반영(음수=매출 늘수록 손실은 미반영). 상한 임의캡 없음(회귀 기울기 그대로).
+        if slope > 0:
             return round(slope, 4), {"source": "incremental_regression", "points": len(d_rev),
                                      "margin_pct": round(slope * 100, 2)}
     # 폴백: 최근 단순 영업이익률(양수일 때만).
     if rev_ttm and op_ttm and rev_ttm[-1] > 0:
         simple = op_ttm[-1] / rev_ttm[-1]
         if simple > 0:
-            simple = min(simple, _INCR_MARGIN_HIGH)
             return round(simple, 4), {"source": "current_op_margin", "margin_pct": round(simple * 100, 2)}
     return None, None
