@@ -314,6 +314,7 @@ def collect_anchors(series: list[dict], price: dict) -> dict:
         "pbr_band": _multiple_band(rows, "pbr"),  # 과거 10년 PBR 밴드
         "roe_avg_pct": _avg_recent(rows, "roe", 8),  # 정당 PBR용 정규화 ROE(최근 8분기 평균)
         "current_ev_ebitda": ev_ebitda,
+        "ev_ebitda_band": _multiple_band(rows, "ev_ebitda"),  # 과거 EV/EBITDA 밴드 — 목표배수 결정론 소스
         "div_yield_pct": _latest_pointintime(rows, "div_yield"),
         "roe_pct": _latest_pointintime(rows, "roe"),  # H-Model 감쇠기간 정량 기준선
         "shares": shares, "net_debt_eok": net_debt,
@@ -507,12 +508,24 @@ def _t_pbr(a: dict, anc: dict) -> val.ValuationResult:
     )
 
 
+def _det_target_ev_ebitda(anc: dict) -> tuple[float | None, str]:
+    """결정론적 목표 EV/EBITDA 와 출처. 과거 밴드 중앙값(이론 정당배수가 없어 밴드가 1차 기준)."""
+    band = anc.get("ev_ebitda_band") or {}
+    med = _num(band.get("median"))
+    if med is not None:
+        return med, "과거 밴드 중앙값"
+    return None, ""
+
+
 def _t_ev_ebitda(a: dict, anc: dict) -> val.ValuationResult:
+    # 완전 결정론: forward EBITDA·net_debt·shares(앵커)·target(과거 밴드 중앙값) 코드 확정. LLM 은 rationale 만.
+    target, ev_source = _det_target_ev_ebitda(anc)
     return val.ev_ebitda_valuation(
-        forward_ebitda=_pick(a.get("forward_ebitda_eok"), anc.get("ebitda_eok_annual")),
-        target_ev_ebitda=_num(a.get("target_ev_ebitda")),
-        net_debt=_pick(a.get("net_debt_eok"), anc.get("net_debt_eok")),
+        forward_ebitda=anc.get("ebitda_eok_annual"),
+        target_ev_ebitda=target,
+        net_debt=anc.get("net_debt_eok"),
         shares=anc.get("shares"), current_price=anc.get("current_price"),
+        ev_band=anc.get("ev_ebitda_band"), ev_source=ev_source,
     )
 
 
@@ -649,7 +662,7 @@ def _classify_for_fit(ctx: ToolContext, prior: dict, anchors: dict) -> dict:
 _METHOD_TOOLS = {
     "compute_per": (_t_per, {"rationale": "string"}),  # 완전 결정론 — EPS·배수 코드 확정, LLM 은 해석만
     "compute_pbr": (_t_pbr, {"rationale": "string"}),  # 완전 결정론 — BPS·배수 코드 확정, LLM 은 해석만
-    "compute_ev_ebitda": (_t_ev_ebitda, {"forward_ebitda_eok": "number", "target_ev_ebitda": "number", "rationale": "string"}),
+    "compute_ev_ebitda": (_t_ev_ebitda, {"rationale": "string"}),  # 완전 결정론 — EBITDA·배수·순차입 코드 확정
     "compute_dcf": (_t_dcf, {"fcf_base_eok": "number", "growth_rate": "number", "years": "number",
                              "terminal_growth": "number", "discount_rate": "number", "rationale": "string"}),
     "compute_ddm": (_t_ddm, {"dividend_growth": "number", "cost_of_equity": "number", "rationale": "string"}),
@@ -685,7 +698,8 @@ _TOOL_DESCS = {
                    "중앙값, 코드 확정). 숫자는 모두 결정론적으로 계산되니 rationale(해석·평가)만 제시하라.",
     "compute_pbr": "PBR 목표가 = BPS(앵커) × 목표PBR(정당 PBR=ROE/COE, 없으면 밴드 중앙값, 코드 확정). "
                    "숫자는 결정론 계산되니 rationale(해석)만 제시하라. 자산주·금융주.",
-    "compute_ev_ebitda": "EV/EBITDA 목표가. 예상EBITDA(억원)×목표배수 − 순차입 → 주식수로 나눔.",
+    "compute_ev_ebitda": "EV/EBITDA 목표가 = forward EBITDA×목표배수(과거 밴드 중앙값, 코드 확정) − 순차입 "
+                         "→ 주식수. 숫자는 결정론 계산되니 rationale(해석)만 제시하라.",
     "compute_dcf": "2단계 DCF. 기준FCF(억원)·성장률·연수·영구성장률·할인율(WACC)로 지분가치→주당.",
     "compute_ddm": "고든 배당할인. DPS·배당성장률·자기자본비용. 무배당이면 부적합.",
     "compute_asset": "자산가치 = 주당순자산 × 재평가/청산배수(청산할인<1<재평가할증).",
@@ -732,10 +746,10 @@ _SYSTEM = (
     "4) blend 로 최종 목표가·스프레드를 확인한다.\n"
     "5) finalize 로 진입성격(자산주/역발상|성장주)과 결론(어느 방식을 왜 더 신뢰하는지·업사이드 성격)을 낸다.\n\n"
     "가정은 반드시 앵커·피어·업종 특성에 근거한다. 예상 EPS 는 연환산(TTM) 기준이며 목표 멀티플도 연간 기준이다. "
-    "PER·PBR 은 완전 결정론이다 — PER=forward EPS×목표PER(PEG 정당 PER→밴드 중앙값), PBR=BPS×목표PBR"
-    "(정당 PBR=ROE/COE→밴드 중앙값)을 코드가 확정하므로 너는 숫자를 주지 말고 compute_per·compute_pbr 에 "
-    "rationale(그 결정론적 목표가가 타당한지·리스크·해석)만 제시한다. fair_per(PEG×장기성장)·fair_pbr(ROE/COE)는 "
-    "성장·수익성을 배율에 반영한 이론 정당 배수다. "
+    "PER·PBR·EV/EBITDA 는 완전 결정론이다 — PER=forward EPS×목표PER(PEG 정당 PER→밴드 중앙값), "
+    "PBR=BPS×목표PBR(정당 PBR=ROE/COE→밴드 중앙값), EV/EBITDA=forward EBITDA×목표배수(과거 밴드 중앙값)−순차입을 "
+    "코드가 확정하므로 너는 숫자를 주지 말고 해당 compute_* 에 rationale(그 결정론적 목표가가 타당한지·리스크·"
+    "해석)만 제시한다. fair_per(PEG×장기성장)·fair_pbr(ROE/COE)는 성장·수익성을 배율에 반영한 이론 정당 배수다. "
     "추측·과장 금지. 레드플래그(이익의 질 문제)가 있으면 멀티플을 보수적으로 잡는다."
 )
 
@@ -891,7 +905,7 @@ def run_valuation(llm: LLMPort, model: str, ctx: ToolContext, prior: dict, serie
 
 # ── 원샷 폴백(tool-calling 미지원·실패 시) ───────────────────────────────
 _FALLBACK_SCHEMA = """{"per":{"rationale":""},"pbr":{"rationale":""},
-"ev_ebitda":{"forward_ebitda_eok":수,"target_ev_ebitda":수,"rationale":""},
+"ev_ebitda":{"rationale":""},
 "dcf":{"fcf_base_eok":수,"growth_rate":수,"years":수,"terminal_growth":수,"discount_rate":수,"rationale":""},
 "ddm":{"dividend_growth":수,"cost_of_equity":수,"rationale":""},"asset":{"asset_premium":수,"rationale":""},
 "fama_french":{"market_beta":수,"smb_beta":수,"hml_beta":수,"risk_free":수,"market_premium":수,"smb_premium":수,"hml_premium":수,"earnings_growth":수,"rationale":""},

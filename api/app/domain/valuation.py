@@ -166,8 +166,13 @@ def ev_ebitda_valuation(
     net_debt: float | None,  # 억원 (양수=순차입, 음수=순현금)
     shares: float | None,  # 주식수
     current_price: float | None,
+    ev_band: dict | None = None, ev_source: str = "",
 ) -> ValuationResult:
-    """EV = EBITDA × 목표배수 → 시총 = EV − 순차입 → 목표가 = 시총/주식수. 자본구조 중립 비교."""
+    """EV = EBITDA × 목표배수 → 시총 = EV − 순차입 → 목표가 = 시총/주식수. 자본구조 중립 비교.
+
+    forward_ebitda·net_debt·shares 는 결정론 앵커, target_ev_ebitda 는 과거 밴드 중앙값(코드 확정).
+    ev_source 는 배수 출처(재현성), ev_band 는 과거 밴드(soft 경고 — 배수=밴드중앙이라 실질 무발동).
+    """
     r = ValuationResult("ev_ebitda", METHOD_LABELS["ev_ebitda"], applicable=False)
     if forward_ebitda is None or target_ev_ebitda is None or shares is None or shares <= 0:
         r.note = "예상 EBITDA·목표 EV/EBITDA·주식수 중 결측"
@@ -189,11 +194,13 @@ def ev_ebitda_valuation(
         "forward_ebitda_eok": forward_ebitda, "target_ev_ebitda": target_ev_ebitda,
         "net_debt_eok": nd, "shares": shares,
     }
+    src = f" ({ev_source})" if ev_source else ""
     r.process = [
-        f"예상 EBITDA {_fmt(forward_ebitda)}억원 × 목표 배수 {target_ev_ebitda:g} = EV {_fmt(ev)}억원",
+        f"예상 EBITDA {_fmt(forward_ebitda)}억원 × 목표 배수 {target_ev_ebitda:g}{src} = EV {_fmt(ev)}억원",
         f"지분가치 = EV {_fmt(ev)}억 − 순차입 {_fmt(nd)}억 = {_fmt(equity_value)}억원",
         f"목표가 = {_fmt(equity_value)}억 ÷ {_fmt(shares)}주 = {_fmt(target)}원",
     ]
+    r.note = _band_warning(target_ev_ebitda, ev_band, "EV/EBITDA")
     return r
 
 
