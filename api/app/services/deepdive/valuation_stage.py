@@ -17,6 +17,7 @@ import json
 import logging
 
 from app.domain import beta as betamod
+from app.domain import forward as fwd
 from app.domain import valuation as val
 from app.ports.llm import LLMError, LLMPort
 from app.services import company_service
@@ -190,6 +191,80 @@ def _normalized_eps(rows: list[dict], ttm_eps: float | None) -> tuple[float | No
         "cycle_quarters": n,
     }
     return norm_eps, meta
+
+
+def _consensus_eps_ttm(series: list[dict]) -> float | None:
+    """컨센서스 추정 EPS 로 forward TTM 근사 = 추정행 EPS 합(연환산). 추정 EPS 없으면 None.
+
+    네이버 (E) 행에 EPS 가 담긴 극소수 종목만 잡힌다(대부분 결측). 분기 추정이면 4개 합, 연간 추정
+    (.12(E))이면 그 값 자체가 연환산. 표기가 섞일 수 있어 추정행 EPS 를 모아 최대 4개까지 합한다.
+    """
+    est_eps = [_num(r.get("eps")) for r in series if r.get("is_estimate")]
+    est_eps = [v for v in est_eps if v is not None]
+    if not est_eps:
+        return None
+    return sum(est_eps[-4:])
+
+
+def apply_forward_earnings(anchors: dict, series: list[dict]) -> dict:
+    """이익 앵커(eps_ttm·ebitda_eok_annual)를 forward(예상)로 대체. 소스 우선순위로 성장률을 정한다.
+
+    우선순위:
+        (1) HITL — apply_hitl_to_anchors 가 이미 반영(hitl_earnings_uplift). 여기선 건드리지 않는다.
+        (2) 컨센서스 — 추정 EPS 가 있으면 그 TTM 을 forward EPS 로, 성장률은 컨센서스/현재 TTM 으로 역산.
+        (3) 성장률 외삽 — domain.forward 앙상블 성장률(과거3년평균·최근·convex)로 이익을 1년 전방 투영.
+
+    forward_meta[metric] = {source, growth_pct, base, forward, components?} 로 고지한다. 시클리컬
+    정규화 EPS 는 run_valuation 이 이 함수 뒤에 별도 대체하므로 여기서 eps 를 외삽해도 덮어써진다.
+    HITL uplift 가 이미 적용됐으면(hitl_earnings_uplift 존재) 이익은 그대로 두고 성장률 외삽을 생략한다.
+    """
+    rows = _sorted_actuals(series)
+    adjusted = dict(anchors)
+    meta: dict = {}
+
+    if anchors.get("hitl_earnings_uplift"):
+        meta["source"] = "hitl"  # (1) HITL 이 이미 이익 앵커를 상향 — 외삽으로 덮지 않는다.
+        adjusted["forward_meta"] = meta
+        return adjusted
+
+    # (2) 컨센서스 추정 EPS 우선.
+    consensus = _consensus_eps_ttm(series)
+    base_eps = anchors.get("eps_ttm")
+    if consensus is not None and consensus > 0:
+        adjusted["eps_ttm"] = round(consensus, 2)
+        g = round(consensus / base_eps - 1.0, 4) if base_eps and base_eps > 0 else None
+        meta["eps"] = {"source": "consensus", "base_ttm": base_eps,
+                       "forward": round(consensus, 2), "growth_pct": g * 100 if g is not None else None}
+        # 컨센서스 성장률을 EBITDA 에도 동일 적용(추정 EBITDA 는 없으므로 이익 성장 프록시).
+        if g is not None:
+            _apply_growth_to_ebitda(adjusted, meta, g, source="consensus")
+        adjusted["forward_meta"] = meta
+        return adjusted
+
+    # (3) 성장률 외삽. EPS 는 자체 TTM 시계열로(주식수 변동 반영), EBITDA 는 자체 TTM 시계열이 없어
+    # 순이익 성장을 프록시로 쓴다.
+    eps_growth, eps_gmeta = fwd.extrapolate_growth(_ttm_windows(rows, "eps"))
+    if base_eps is not None and eps_growth is not None:
+        adjusted["eps_ttm"] = round(base_eps * (1.0 + eps_growth), 2)
+        meta["eps"] = {"source": "extrapolation", "base_ttm": base_eps,
+                       "forward": round(base_eps * (1.0 + eps_growth), 2), **eps_gmeta}
+    ni_growth, ni_gmeta = fwd.extrapolate_growth(_ttm_windows(rows, "net_income"))
+    if ni_growth is not None:
+        _apply_growth_to_ebitda(adjusted, meta, ni_growth, source="extrapolation", gmeta=ni_gmeta)
+    if meta:
+        adjusted["forward_meta"] = meta
+    return adjusted
+
+
+def _apply_growth_to_ebitda(anchors: dict, meta: dict, growth: float, *, source: str, gmeta: dict | None = None) -> None:
+    """이익 성장률을 EBITDA 앵커에 동일 적용(추정 EBITDA 소스가 없어 이익 성장을 프록시로 씀)."""
+    base = anchors.get("ebitda_eok_annual")
+    if base is None:
+        return
+    fwd_val = round(base * (1.0 + growth), 2)
+    anchors["ebitda_eok_annual"] = fwd_val
+    meta["ebitda"] = {"source": source, "base_annual": base, "forward": fwd_val,
+                      "growth_pct": round(growth * 100, 2), **(gmeta or {})}
 
 
 def collect_anchors(series: list[dict], price: dict) -> dict:
@@ -517,7 +592,10 @@ _SYSTEM = (
     "APT)으로 목표가를 구한다. 계산은 도구가 하므로 너는 각 방식의 *가정*을 근거와 함께 정해 도구를 호출하고, "
     "반환된 목표가·업사이드·경고(note)를 **직접 확인**한다.\n\n"
     "진행 절차:\n"
-    "1) get_anchors 로 실데이터(EPS TTM·BPS·EBITDA·배당·주식수·순차입)를 먼저 확인한다.\n"
+    "1) get_anchors 로 실데이터(EPS·BPS·EBITDA·배당·주식수·순차입)를 먼저 확인한다. eps_ttm·ebitda 앵커는 "
+    "forward_meta 가 있으면 이미 예상(forward)치로 대체된 값이다(source: hitl|consensus|extrapolation, "
+    "성장률·근거 포함). forward_meta 를 확인해 어떤 근거의 예상 이익인지 파악하고, 추가로 예상치를 손보려면 "
+    "그 이유를 rationale 에 남긴다.\n"
     "2) 각 compute_* 도구를 호출해 방식별 목표가를 구한다. 무배당이면 compute_ddm 을 건너뛴다.\n"
     "3) 도구가 applicable=false·경고(note)를 주면(예: 할인율≤영구성장률, 적자로 PER 불가) 가정을 고쳐 "
     "재호출한다. 방식 간 목표가가 크게 어긋나면(예: 한 방식만 3배) 그 가정을 재검토한다.\n"
@@ -579,6 +657,8 @@ def run_valuation(llm: LLMPort, model: str, ctx: ToolContext, prior: dict, serie
     anchors = collect_anchors(series, price)
     # HITL 이익 증분을 forward 이익 앵커에 결정론적 반영(프롬프트 경로만으론 미반영되던 긍정 인풋을 계산에 직결).
     anchors = apply_hitl_to_anchors(anchors, prior.get("hitl"))
+    # 이익 앵커를 forward(예상)로 대체 — 소스 우선순위 HITL(위)>컨센서스>성장률 외삽. 사용 소스는 forward_meta 고지.
+    anchors = apply_forward_earnings(anchors, series)
     # 실데이터 요인 베타(지수 일봉 회귀 + 시총/PBR 프록시) — Fama-French·APT 가 LLM 추정 대신 사용.
     anchors["factor_betas"] = compute_factor_betas(ctx, anchors, price.get("market"))
     # 해자 등급(business 단계 서술 → 강|중|약) — H-Model 감쇠기간 정성 배수(ROE 초과수익과 앙상블).
@@ -676,6 +756,7 @@ def run_valuation(llm: LLMPort, model: str, ctx: ToolContext, prior: dict, serie
         "method_count": summary.method_count,
         "stock_type": cls["stock_type"],  # 분류(프론트·디버깅)
         "method_fit": fit,  # 방식별 적합도(0=제외) — 프론트가 제외 방식 표시 가능
+        "forward_meta": anchors.get("forward_meta"),  # 예상 이익 소스·성장률 고지(프론트·서술)
         "entry_case": final_meta.get("entry_case"),
         "conclusion": final_meta.get("conclusion"),
         "methods": [_result_to_dict(r) for r in ordered],
@@ -719,6 +800,7 @@ def _oneshot_fallback(llm, model, ctx, prior, anchors, peers, series, fit=None, 
     return {
         "final_target_price": summary.final_target, "final_upside_pct": summary.final_upside_pct,
         "current_price": summary.current_price, "method_count": summary.method_count,
-        "method_fit": fit, "entry_case": a.get("entry_case"), "conclusion": a.get("conclusion"),
+        "method_fit": fit, "forward_meta": anchors.get("forward_meta"),
+        "entry_case": a.get("entry_case"), "conclusion": a.get("conclusion"),
         "methods": [_result_to_dict(r) for r in results],
     }

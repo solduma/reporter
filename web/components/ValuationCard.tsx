@@ -1,7 +1,7 @@
 "use client";
 
 import Markdown from "@/components/Markdown";
-import type { ValuationMethod, ValuationResult } from "@/lib/types";
+import type { ForwardMeta, ForwardMetric, ValuationMethod, ValuationResult } from "@/lib/types";
 
 import styles from "./ValuationCard.module.css";
 
@@ -42,6 +42,52 @@ function AssumptionChips({ a }: { a: Record<string, unknown> }) {
       ))}
     </div>
   );
+}
+
+const FORWARD_SOURCE_LABEL: Record<string, string> = {
+  hitl: "인터뷰 반영",
+  consensus: "컨센서스",
+  extrapolation: "성장률 외삽",
+};
+
+// 예상(forward) 이익 근거 배너 — EPS·EBITDA 를 어느 소스·성장률로 전망했는지 고지.
+function ForwardBanner({ meta }: { meta: ForwardMeta }) {
+  const metrics = ([["EPS", meta.eps], ["EBITDA", meta.ebitda]] as [string, ForwardMetric | undefined][]).filter(
+    ([, v]) => v,
+  );
+  if (metrics.length === 0) {
+    // HITL 일괄 반영처럼 지표 세부가 없을 때는 소스만 노출.
+    if (!meta.source) return null;
+    return (
+      <div className={styles.forward}>
+        예상 이익 반영: {FORWARD_SOURCE_LABEL[meta.source] ?? meta.source}
+      </div>
+    );
+  }
+  return (
+    <div className={styles.forward}>
+      <span className={styles.forwardLabel}>예상 이익 기준</span>
+      {metrics.map(([name, v]) => {
+        const src = FORWARD_SOURCE_LABEL[v!.source] ?? v!.source;
+        const g = v!.growth_pct;
+        const gTxt = g === null || g === undefined ? "" : ` ${g > 0 ? "+" : ""}${g.toFixed(1)}%`;
+        return (
+          <span key={name} className={styles.forwardItem} title={forwardTitle(v!)}>
+            {name} {src}
+            {gTxt}
+            {v!.capped ? " (상한)" : ""}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+// 외삽 성분 툴팁(3요소 성장률 분해).
+function forwardTitle(v: ForwardMetric): string {
+  const c = v.components;
+  if (!c) return "";
+  return `과거3년평균 ${c.avg3y_pct}% · 최근 ${c.recent_pct}% · 가속외삽 ${c.convex_pct}% (YoY ${v.yoy_samples}개)`;
 }
 
 function MethodRow({ m }: { m: ValuationMethod }) {
@@ -112,6 +158,8 @@ export default function ValuationCard({ valuation }: { valuation: unknown }) {
           <span>{v.method_count}개 방식 종합</span>
         </div>
       </div>
+
+      {v.forward_meta ? <ForwardBanner meta={v.forward_meta} /> : null}
 
       {v.conclusion ? (
         <div className={styles.conclusion}>

@@ -701,6 +701,31 @@ export interface HitlResult {
   _procedure_incomplete?: boolean; // 절차 미완료(기준치·환산 미완) 마킹
 }
 
+// 예상 이익 성장률 앙상블 성분(외삽 시). 각 %.
+export interface ForwardComponents {
+  avg3y_pct: number;
+  recent_pct: number;
+  convex_pct: number;
+}
+
+// 지표별 forward(예상) 이익 고지. source: hitl|consensus|extrapolation.
+export interface ForwardMetric {
+  source: string;
+  base_ttm?: number;
+  base_annual?: number;
+  forward: number;
+  growth_pct?: number | null;
+  capped?: boolean;
+  components?: ForwardComponents;
+  yoy_samples?: number;
+}
+
+export interface ForwardMeta {
+  source?: string; // 최상위 소스(hitl 일괄 반영 시)
+  eps?: ForwardMetric;
+  ebitda?: ForwardMetric;
+}
+
 // 밸류에이션 방식 하나(PER·PBR·EV/EBITDA·DCF·DDM·자산가치·Fama-French·APT).
 export interface ValuationMethod {
   method: string; // 기계 식별자
@@ -722,6 +747,7 @@ export interface ValuationResult {
   method_count: number;
   stock_type?: string | null; // growth|asset|financial|cyclical|other — 방식 가중 근거
   method_fit?: Record<string, number> | null; // 방식별 적합도(0=제외)
+  forward_meta?: ForwardMeta | null; // 예상 이익 소스·성장률 고지(EPS·EBITDA)
   entry_case: string | null;
   conclusion: string | null;
   methods: ValuationMethod[];
