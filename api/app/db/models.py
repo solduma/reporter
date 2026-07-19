@@ -147,6 +147,8 @@ class Financial(Base):
     psr: Mapped[float | None] = mapped_column(Float)
     depreciation: Mapped[float | None] = mapped_column(Float)  # D&A(억원) — FCFF 산출용
     capex: Mapped[float | None] = mapped_column(Float)  # 자본적지출(억원) — FCFF 산출용
+    effective_tax_rate: Mapped[float | None] = mapped_column(Float)  # 실효세율(소수) — WACC·NOPAT
+    cost_of_debt: Mapped[float | None] = mapped_column(Float)  # 부채비용(소수, 이자/총차입) — WACC
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
@@ -182,6 +184,9 @@ class ReportFinancial(Base):
     depreciation: Mapped[float | None] = mapped_column(Float)  # 감가상각비+무형자산상각비 합
     amortization: Mapped[float | None] = mapped_column(Float)  # 예비(미사용)
     capex: Mapped[float | None] = mapped_column(Float)  # 자본적지출(유형+무형 취득, CF) — FCFF 산출용
+    income_tax: Mapped[float | None] = mapped_column(Float)  # 법인세비용 — 실효세율 분자
+    pretax_income: Mapped[float | None] = mapped_column(Float)  # 세전이익 — 실효세율 분모
+    interest_expense: Mapped[float | None] = mapped_column(Float)  # 이자비용 — 부채비용 분자
     parsed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

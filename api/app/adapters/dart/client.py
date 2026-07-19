@@ -369,6 +369,9 @@ class IncomeEquity:
     borrowings: float | None = None  # 총차입(단기·장기·사채, BS 시점값) — EV 순차입용
     cash: float | None = None  # 현금및현금성자산(BS 시점값)
     capex: float | None = None  # 자본적지출(유형+무형자산 취득, CF 투자활동, 누적) — FCFF 산출용
+    income_tax: float | None = None  # 법인세비용(누적) — 실효세율 분자
+    pretax_income: float | None = None  # 법인세비용차감전순이익(누적) — 실효세율 분모
+    interest_expense: float | None = None  # 이자비용(손익, 없으면 CF 이자지급 폴백) — 부채비용 분자
 
     @property
     def net_debt(self) -> float | None:
@@ -401,6 +404,13 @@ _AID_CAPEX = {
     "ifrs_PurchaseOfIntangibleAssetsClassifiedAsInvestingActivities",
     "ifrs-full_PurchaseOfIntangibleAssetsOtherThanGoodwill",
 }
+# 실효세율·부채비용 실측 계정.
+_AID_TAX = {"ifrs-full_IncomeTaxExpenseContinuingOperations", "ifrs_IncomeTaxExpenseContinuingOperations"}
+_AID_PRETAX = {"ifrs-full_ProfitLossBeforeTax", "ifrs_ProfitLossBeforeTax"}
+_AID_INTEREST = {"dart_InterestExpenseFinanceExpense", "ifrs-full_InterestExpense", "ifrs_InterestExpense"}
+# 대형사 폴백: 손익에 이자비용 계정이 없으면(삼성 등) CF 이자지급으로 근사.
+_AID_INTEREST_PAID_CF = {"ifrs-full_InterestPaidClassifiedAsOperatingActivities",
+                         "ifrs-full_InterestPaidClassifiedAsFinancingActivities"}
 
 
 def fetch_income_and_equity(
@@ -443,6 +453,7 @@ def _parse_income_equity(rows: list[dict]) -> IncomeEquity:
     got_borrowing = False
     capex = 0.0
     got_capex = False
+    interest_cf = None  # 손익 이자비용 없을 때 CF 이자지급 폴백(대형사).
     for row in rows:
         aid = row.get("account_id") or ""
         nm = (row.get("account_nm") or "").replace(" ", "")
@@ -453,6 +464,18 @@ def _parse_income_equity(rows: list[dict]) -> IncomeEquity:
         if aid in _AID_CAPEX:  # 유형+무형 취득 합산(유출, abs). CF 계정이라 손익/BS 매칭과 독립.
             capex += abs(amt)
             got_capex = True
+            continue
+        if aid in _AID_TAX and fin.income_tax is None:
+            fin.income_tax = abs(amt)  # 비용(부호 혼재 방어)
+            continue
+        if aid in _AID_PRETAX and fin.pretax_income is None:
+            fin.pretax_income = amt
+            continue
+        if aid in _AID_INTEREST and fin.interest_expense is None:
+            fin.interest_expense = abs(amt)  # 손익 이자비용 우선
+            continue
+        if aid in _AID_INTEREST_PAID_CF and interest_cf is None:
+            interest_cf = abs(amt)  # CF 이자지급(폴백 후보)
             continue
         # 지배주주 항목을 우선하되(덮어쓰기), 없으면 전체 항목으로 채운다(setdefault 성격).
         if aid in _AID_REVENUE and fin.revenue is None:
@@ -481,6 +504,8 @@ def _parse_income_equity(rows: list[dict]) -> IncomeEquity:
         fin.borrowings = borrowings
     if got_capex:
         fin.capex = capex
+    if fin.interest_expense is None and interest_cf is not None:
+        fin.interest_expense = interest_cf  # 손익 이자비용 없으면 CF 이자지급으로 폴백
     return fin
 
 
