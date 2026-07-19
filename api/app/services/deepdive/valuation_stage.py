@@ -101,6 +101,16 @@ def _latest_pointintime(rows: list[dict], field: str) -> float | None:
     return None
 
 
+def _avg_recent(rows: list[dict], field: str, n: int) -> float | None:
+    """최근 n개 유효값 평균. 단일 시점값의 분기 변동을 정규화(정당 PBR용 ROE 등). 없으면 None."""
+    vals = [_num(r.get(field)) for r in rows]
+    vals = [v for v in vals if v is not None]
+    if not vals:
+        return None
+    recent = vals[-n:]
+    return round(sum(recent) / len(recent), 4)
+
+
 def _ebitda_to_eok(ebitda: float, revenue: float | None) -> float:
     """EBITDA 억원 정규화(2차 방어). DB 정규화 마이그레이션이 근본 수정이나, 배치 지연·구 데이터
     대비 읽기 시점에도 방어한다. EBITDA 마진 |ebitda/revenue|>1e4 면 원 단위로 보고 /1e8."""
@@ -119,22 +129,22 @@ def _latest_annual_ebitda_eok(rows: list[dict]) -> float | None:
     return None
 
 
-def _per_band(rows: list[dict], window: int = 40) -> dict | None:
-    """과거 PER 밴드 = 최근 window 분기(기본 40=10년) 중 양수 PER 의 중앙값·p25·p75.
+def _multiple_band(rows: list[dict], field: str, window: int = 40) -> dict | None:
+    """과거 멀티플 밴드 = 최근 window 분기(기본 40=10년) 중 양수 값의 중앙값·p25·p75.
 
     목표 배수(LLM 자유값)의 soft 가드 기준선. 긴 창인 이유: 조선 등 초장기 사이클 산업의 정상 밴드를
     잡으려면 긴 히스토리가 필요. 사분위 경계라 프로덕트 믹스 변화·이상치는 어느정도 상쇄된다.
-    적자 분기(음수 PER)는 무의미해 제외. 유효 표본 4개 미만이면 밴드 신뢰 불가 → None(가드 스킵).
+    음수·0(적자 PER·자본잠식 PBR)은 무의미해 제외. 유효 표본 4개 미만이면 신뢰 불가 → None(가드 스킵).
     """
-    pers = [_num(r.get("per")) for r in rows[-window:]]
-    pers = sorted(v for v in pers if v is not None and v > 0)
-    n = len(pers)
+    vals = [_num(r.get(field)) for r in rows[-window:]]
+    vals = sorted(v for v in vals if v is not None and v > 0)
+    n = len(vals)
     if n < 4:
         return None
 
     def _pct(p: float) -> float:
         idx = min(n - 1, max(0, round(p * (n - 1))))
-        return round(pers[idx], 1)
+        return round(vals[idx], 1)
 
     return {"median": _pct(0.5), "p25": _pct(0.25), "p75": _pct(0.75), "n": n}
 
@@ -297,10 +307,12 @@ def collect_anchors(series: list[dict], price: dict) -> dict:
         "market_cap_eok": market_cap / 1e8 if market_cap else None,
         "eps_ttm": eps_ttm, "bps": bps, "ebitda_eok_annual": ebitda, "dps_annual": dps,
         "current_per": _latest_pointintime(rows, "per"),
-        "per_band": _per_band(rows),  # 과거 10년 PER 밴드 — 목표배수 soft 가드 기준선
+        "per_band": _multiple_band(rows, "per"),  # 과거 10년 PER 밴드 — 목표배수 soft 가드 기준선
         "fair_per": fair_per_val,  # PEG×장기성장률 정당 PER — 리레이팅 정량 기준(밴드와 상보)
         "fair_per_meta": fair_per_meta,
         "current_pbr": _latest_pointintime(rows, "pbr"),
+        "pbr_band": _multiple_band(rows, "pbr"),  # 과거 10년 PBR 밴드
+        "roe_avg_pct": _avg_recent(rows, "roe", 8),  # 정당 PBR용 정규화 ROE(최근 8분기 평균)
         "current_ev_ebitda": ev_ebitda,
         "div_yield_pct": _latest_pointintime(rows, "div_yield"),
         "roe_pct": _latest_pointintime(rows, "roe"),  # H-Model 감쇠기간 정량 기준선
@@ -442,10 +454,56 @@ def _t_per(a: dict, anc: dict) -> val.ValuationResult:
     )
 
 
+# 정당 PBR = (ROE−g)/(COE−g). g 는 지속성장(보수적으로 0 근사 → ROE/COE). COE=CAPM.
+# 상한: 극단 ROE/저 COE 조합의 폭주 방지(PER fair 캡과 정합).
+_FAIR_PBR_CAP_HIGH = 10.0
+_FAIR_PBR_CAP_LOW = 0.2
+
+
+def _fair_pbr(anc: dict) -> tuple[float | None, dict | None]:
+    """정당 PBR = ROE / 자기자본비용(COE). Residual Income/Gordon 정리의 g=0 근사.
+
+    ROE=정규화 최근평균(roe_avg_pct, %), COE=CAPM(risk_free+β×market_premium). 둘 다 있고 COE>0,
+    ROE>0 일 때만. 캡 [0.2, 10]. ROE·COE 결측이면 None(밴드 중앙값 폴백에 위임).
+    """
+    roe = _num(anc.get("roe_avg_pct"))
+    if roe is None or roe <= 0:
+        return None, None
+    fb = anc.get("factor_betas") or {}
+    rf = _num(fb.get("risk_free"))
+    beta = _num(fb.get("market_beta"))
+    mp = _num(fb.get("market_premium"))
+    if rf is None or beta is None or mp is None:
+        return None, None
+    coe = rf + beta * mp  # 소수(0.092=9.2%)
+    if coe <= 0:
+        return None, None
+    raw = (roe / 100.0) / coe  # roe 는 % 라 소수화
+    capped = max(_FAIR_PBR_CAP_LOW, min(_FAIR_PBR_CAP_HIGH, raw))
+    meta = {"fair_pbr": round(capped, 2), "roe_pct": round(roe, 2), "coe_pct": round(coe * 100, 2),
+            "beta": round(beta, 2), "capped": raw != capped}
+    return round(capped, 2), meta
+
+
+def _det_target_pbr(anc: dict) -> tuple[float | None, str]:
+    """결정론적 목표 PBR 과 출처. 정당 PBR(ROE/COE) 우선, 없으면 과거 PBR 밴드 중앙값."""
+    fair = _num(anc.get("fair_pbr"))
+    if fair is not None:
+        return fair, "정당 PBR(ROE/COE)"
+    band = anc.get("pbr_band") or {}
+    med = _num(band.get("median"))
+    if med is not None:
+        return med, "과거 밴드 중앙값"
+    return None, ""
+
+
 def _t_pbr(a: dict, anc: dict) -> val.ValuationResult:
+    # 완전 결정론: bps(앵커)·target_pbr(정당 PBR=ROE/COE→밴드 중앙값) 코드 확정. LLM 은 rationale 만.
+    target_pbr, pbr_source = _det_target_pbr(anc)
     return val.pbr_valuation(
-        bps=_pick(a.get("bps"), anc.get("bps")),
-        target_pbr=_num(a.get("target_pbr")), current_price=anc.get("current_price"),
+        bps=anc.get("bps"),
+        target_pbr=target_pbr, current_price=anc.get("current_price"),
+        pbr_band=anc.get("pbr_band"), fair_pbr=anc.get("fair_pbr"), pbr_source=pbr_source,
     )
 
 
@@ -590,7 +648,7 @@ def _classify_for_fit(ctx: ToolContext, prior: dict, anchors: dict) -> dict:
 # 방식 도구 레지스트리: name → (계산 함수, 파라미터 JSON 스키마 properties).
 _METHOD_TOOLS = {
     "compute_per": (_t_per, {"rationale": "string"}),  # 완전 결정론 — EPS·배수 코드 확정, LLM 은 해석만
-    "compute_pbr": (_t_pbr, {"target_pbr": "number", "rationale": "string"}),
+    "compute_pbr": (_t_pbr, {"rationale": "string"}),  # 완전 결정론 — BPS·배수 코드 확정, LLM 은 해석만
     "compute_ev_ebitda": (_t_ev_ebitda, {"forward_ebitda_eok": "number", "target_ev_ebitda": "number", "rationale": "string"}),
     "compute_dcf": (_t_dcf, {"fcf_base_eok": "number", "growth_rate": "number", "years": "number",
                              "terminal_growth": "number", "discount_rate": "number", "rationale": "string"}),
@@ -625,7 +683,8 @@ def _tool_schema(name: str, desc: str, props: dict) -> dict:
 _TOOL_DESCS = {
     "compute_per": "PER 목표가 = forward EPS(외삽·HITL, 코드 확정) × 목표PER(PEG 정당 PER, 없으면 밴드 "
                    "중앙값, 코드 확정). 숫자는 모두 결정론적으로 계산되니 rationale(해석·평가)만 제시하라.",
-    "compute_pbr": "PBR 목표가 = 주당순자산(BPS) × 목표PBR. 자산주·금융주.",
+    "compute_pbr": "PBR 목표가 = BPS(앵커) × 목표PBR(정당 PBR=ROE/COE, 없으면 밴드 중앙값, 코드 확정). "
+                   "숫자는 결정론 계산되니 rationale(해석)만 제시하라. 자산주·금융주.",
     "compute_ev_ebitda": "EV/EBITDA 목표가. 예상EBITDA(억원)×목표배수 − 순차입 → 주식수로 나눔.",
     "compute_dcf": "2단계 DCF. 기준FCF(억원)·성장률·연수·영구성장률·할인율(WACC)로 지분가치→주당.",
     "compute_ddm": "고든 배당할인. DPS·배당성장률·자기자본비용. 무배당이면 부적합.",
@@ -673,9 +732,10 @@ _SYSTEM = (
     "4) blend 로 최종 목표가·스프레드를 확인한다.\n"
     "5) finalize 로 진입성격(자산주/역발상|성장주)과 결론(어느 방식을 왜 더 신뢰하는지·업사이드 성격)을 낸다.\n\n"
     "가정은 반드시 앵커·피어·업종 특성에 근거한다. 예상 EPS 는 연환산(TTM) 기준이며 목표 멀티플도 연간 기준이다. "
-    "PER 은 완전 결정론이다 — forward EPS(외삽·HITL)와 목표 PER(PEG 정당 PER, 없으면 과거 밴드 중앙값)을 "
-    "코드가 확정하므로 너는 숫자를 주지 말고 compute_per 에 rationale(그 결정론적 목표가가 타당한지·리스크·"
-    "해석)만 제시한다. fair_per(PEG×장기성장 정당 PER)는 장기 고성장을 배율 리레이팅으로 반영한 값이다. "
+    "PER·PBR 은 완전 결정론이다 — PER=forward EPS×목표PER(PEG 정당 PER→밴드 중앙값), PBR=BPS×목표PBR"
+    "(정당 PBR=ROE/COE→밴드 중앙값)을 코드가 확정하므로 너는 숫자를 주지 말고 compute_per·compute_pbr 에 "
+    "rationale(그 결정론적 목표가가 타당한지·리스크·해석)만 제시한다. fair_per(PEG×장기성장)·fair_pbr(ROE/COE)는 "
+    "성장·수익성을 배율에 반영한 이론 정당 배수다. "
     "추측·과장 금지. 레드플래그(이익의 질 문제)가 있으면 멀티플을 보수적으로 잡는다."
 )
 
@@ -723,6 +783,10 @@ def run_valuation(llm: LLMPort, model: str, ctx: ToolContext, prior: dict, serie
     anchors = apply_forward_earnings(anchors, series)
     # 실데이터 요인 베타(지수 일봉 회귀 + 시총/PBR 프록시) — Fama-French·APT 가 LLM 추정 대신 사용.
     anchors["factor_betas"] = compute_factor_betas(ctx, anchors, price.get("market"))
+    # 정당 PBR(ROE/COE) — factor_betas 로 COE(CAPM) 확정 후 계산(PBR 목표배수 결정론화).
+    fair_pbr_val, fair_pbr_meta = _fair_pbr(anchors)
+    anchors["fair_pbr"] = fair_pbr_val
+    anchors["fair_pbr_meta"] = fair_pbr_meta
     # 해자 등급(business 단계 서술 → 강|중|약) — H-Model 감쇠기간 정성 배수(ROE 초과수익과 앙상블).
     anchors["moat"] = _grade_moat(prior.get("business", {}) or {})
     # 종목 유형별 방식 적합도(가중/제외) — blend 가 부적합 방식(금융주 EV/EBITDA·무배당 DDM 등)을 제외.
@@ -826,7 +890,7 @@ def run_valuation(llm: LLMPort, model: str, ctx: ToolContext, prior: dict, serie
 
 
 # ── 원샷 폴백(tool-calling 미지원·실패 시) ───────────────────────────────
-_FALLBACK_SCHEMA = """{"per":{"rationale":""},"pbr":{"target_pbr":수,"rationale":""},
+_FALLBACK_SCHEMA = """{"per":{"rationale":""},"pbr":{"rationale":""},
 "ev_ebitda":{"forward_ebitda_eok":수,"target_ev_ebitda":수,"rationale":""},
 "dcf":{"fcf_base_eok":수,"growth_rate":수,"years":수,"terminal_growth":수,"discount_rate":수,"rationale":""},
 "ddm":{"dividend_growth":수,"cost_of_equity":수,"rationale":""},"asset":{"asset_premium":수,"rationale":""},
