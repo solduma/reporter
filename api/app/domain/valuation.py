@@ -4,11 +4,11 @@
 LLM 이 근거와 함께 제시하고, **산식과 목표가 계산·과정 서술은 여기(재현 가능한 순수 함수)가 소유**한다.
 환각 방지: 숫자가 스스로 굴러가지 않게, 모든 결과는 입력 가정에서 결정론적으로 유도된다.
 
-8개 방식: DCF·DDM·자산가치·PER·PBR·EV/EBITDA·Fama-French·APT.
-- PER/PBR/EV/EBITDA: 실데이터(eps·bps·ebitda) × LLM 목표 멀티플 → 주당 가치.
-- DCF: 2단계(명시적 성장 n년 → 영구성장) FCFF 현가 + 잔존가치, 순부채 차감, 주식수로 나눔.
-- DDM: 고든 성장(안정 배당) 또는 2단계 배당 현가.
-- 자산가치: 지배주주 자본(장부) × LLM 프리미엄/할인(청산·재평가 반영).
+7개 방식: PER·PBR·EV/EBITDA·DCF·DDM·Fama-French·APT. 모두 결정론(배수·성장률·자본비용을
+호출측이 실데이터로 확정해 넘기고, 여기선 산식만).
+- PER/PBR/EV/EBITDA: 실데이터(eps·bps·ebitda) × 목표 멀티플(정당배수/밴드) → 주당 가치.
+- DCF: 2/3단계(명시적 성장 → 영구성장) FCFF 현가 + 잔존가치, 순부채 차감, 주식수로 나눔.
+- DDM: 고든 성장(안정 배당).
 - Fama-French / APT: 요인 노출×프리미엄 → 요구수익률(할인율). 목표 PER=1/(r-g) 로 EPS 에 적용.
 
 각 방식은 ValuationResult(목표가·업사이드·신뢰도·가정·과정 스텝)를 낸다. 최종 목표가는
@@ -26,7 +26,6 @@ METHOD_LABELS: dict[str, str] = {
     "ev_ebitda": "EV/EBITDA",
     "dcf": "DCF (현금흐름할인)",
     "ddm": "DDM (배당할인)",
-    "asset": "자산가치 (Asset-Based)",
     "fama_french": "Fama-French 3요인",
     "apt": "APT (차익거래가격결정)",
 }
@@ -340,34 +339,6 @@ def ddm_valuation(
     return r
 
 
-def asset_valuation(
-    *,
-    book_equity_per_share: float | None,  # 주당순자산(장부, 원) = BPS
-    asset_premium: float | None,  # 재평가/청산 배수(예 0.8=청산할인, 1.2=재평가할증)
-    current_price: float | None,
-) -> ValuationResult:
-    """자산가치: 주당순자산(장부) × 재평가/청산 배수. 자산주·지주사·청산가치 접근."""
-    r = ValuationResult("asset", METHOD_LABELS["asset"], applicable=False)
-    if book_equity_per_share is None or asset_premium is None:
-        r.note = "주당순자산 또는 재평가 배수 결측"
-        return r
-    if book_equity_per_share <= 0:
-        r.note = "자본잠식 — 자산가치 접근 부적합"
-        return r
-    target = _round_won(book_equity_per_share * asset_premium)
-    r.applicable = True
-    r.target_price = target
-    r.upside_pct = _upside(target, current_price)
-    r.assumptions = {"book_equity_per_share": book_equity_per_share, "asset_premium": asset_premium}
-    kind = "청산할인" if asset_premium < 1 else ("재평가할증" if asset_premium > 1 else "장부가")
-    r.process = [
-        f"주당순자산(장부) {_fmt(book_equity_per_share)}원",
-        f"{kind} 배수 {asset_premium:g} 적용(부동산·투자자산 재평가·청산가치 반영)",
-        f"목표가 = {_fmt(book_equity_per_share)} × {asset_premium:g} = {_fmt(target)}원",
-    ]
-    return r
-
-
 # ── 요인모형(요구수익률 → 목표 PER) ──────────────────────────────────────
 @dataclass
 class FactorExposure:
@@ -511,21 +482,21 @@ def apt_valuation(**kwargs) -> ValuationResult:
 # fit 배수: 0=제외(부적합, blend 가중 0), 0.5=저가중, 1.0=표준, 1.5=고가중. 최종 blend 가중 =
 # 신뢰도(_CONF_WEIGHT) × 이 fit. 유형 규칙에 배당·이익 게이트를 곱(min)해 무배당 DDM·적자 PER 을 제외.
 _FIT_BY_TYPE: dict[str, dict[str, float]] = {
-    # 성장주: 초과수익 기업 — 장부가 방식(PBR·자산가치) 과소평가. PER·DCF·EV/EBITDA·요인모형 우대.
+    # 성장주: 초과수익 기업 — 장부가 방식(PBR) 과소평가. PER·DCF·EV/EBITDA·요인모형 우대.
     "growth": {"per": 1.5, "pbr": 0.5, "ev_ebitda": 1.0, "dcf": 1.5,
-               "ddm": 1.0, "asset": 0.5, "fama_french": 1.0, "apt": 1.0},
-    # 자산주/가치주: 성숙·고정자산 — 장부가가 실제가치 근사. 자산가치·PBR 우대.
+               "ddm": 1.0, "fama_french": 1.0, "apt": 1.0},
+    # 자산주/가치주: 성숙·고정자산 — 장부가가 실제가치 근사. PBR 우대.
     "asset": {"per": 1.0, "pbr": 1.5, "ev_ebitda": 1.0, "dcf": 1.0,
-              "ddm": 1.0, "asset": 1.5, "fama_french": 1.0, "apt": 1.0},
+              "ddm": 1.0, "fama_french": 1.0, "apt": 1.0},
     # 금융주(은행·보험): 부채=원재료 — EV·WACC 무의미 → EV/EBITDA·FCFF DCF 제외. DDM·P/B-ROE 우대.
     "financial": {"per": 1.0, "pbr": 1.5, "ev_ebitda": 0.0, "dcf": 0.0,
-                  "ddm": 1.5, "asset": 1.0, "fama_french": 1.0, "apt": 1.0},
+                  "ddm": 1.5, "fama_french": 1.0, "apt": 1.0},
     # 시클리컬: 현재 PER 오도(사이클 역행) — 저가중. 하방서도 산출되는 EV/EBITDA 우대. DCF 정규화 전 저가중.
     "cyclical": {"per": 0.5, "pbr": 1.0, "ev_ebitda": 1.5, "dcf": 0.5,
-                 "ddm": 1.0, "asset": 1.0, "fama_french": 1.0, "apt": 1.0},
+                 "ddm": 1.0, "fama_french": 1.0, "apt": 1.0},
     # 기타/일반: 중립(전부 표준 가중).
     "other": {"per": 1.0, "pbr": 1.0, "ev_ebitda": 1.0, "dcf": 1.0,
-              "ddm": 1.0, "asset": 1.0, "fama_french": 1.0, "apt": 1.0},
+              "ddm": 1.0, "fama_french": 1.0, "apt": 1.0},
 }
 _ALL_METHODS = tuple(METHOD_LABELS)
 

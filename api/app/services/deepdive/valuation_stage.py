@@ -1,4 +1,4 @@
-"""딥다이브 5단계 Valuation — 8개 방식을 에이전틱 도구호출로 종합해 최종 목표가를 낸다.
+"""딥다이브 5단계 Valuation — 7개 방식을 에이전틱 도구호출로 종합해 최종 목표가를 낸다.
 
 역할 분리(hexagonal):
 - **판단(가정)**은 LLM: 예상 EPS·목표 멀티플·성장률·할인율·베타·요인 프리미엄 등을 근거와 함께 제시.
@@ -431,12 +431,8 @@ def apply_hitl_to_anchors(anchors: dict, hitl: dict | None, series: list[dict] |
 
 
 # ── 컴퓨트 도구(순수 domain 래퍼) ────────────────────────────────────────
-# 각 도구: LLM 이 준 가정 args + 앵커(anchors)로 domain.valuation 호출 → ValuationResult dict.
-# forward 값이 없으면 앵커로 폴백하되, 0/음수도 명시적으로 존중(_pick 이 None 만 폴백).
-def _pick(arg, anchor):
-    """arg 가 주어졌으면(0·음수 포함) 그 값, 아니면 anchor. None 만 폴백."""
-    v = _num(arg)
-    return v if v is not None else anchor
+# 각 도구: 앵커(anchors)의 결정론 값으로 domain.valuation 호출 → ValuationResult dict.
+# 모든 방식이 완전 결정론이라 LLM args 는 rationale(해석)만 쓰고 수치는 앵커에서 확정한다.
 
 
 def _det_target_per(anc: dict) -> tuple[float | None, str]:
@@ -610,13 +606,6 @@ def _t_ddm(a: dict, anc: dict) -> val.ValuationResult:
     )
 
 
-def _t_asset(a: dict, anc: dict) -> val.ValuationResult:
-    return val.asset_valuation(
-        book_equity_per_share=_pick(a.get("book_equity_per_share"), anc.get("bps")),
-        asset_premium=_num(a.get("asset_premium")), current_price=anc.get("current_price"),
-    )
-
-
 def _t_fama_french(a: dict, anc: dict) -> val.ValuationResult:
     # 완전 결정론: 베타·프리미엄·rf 는 factor_betas(지수회귀+프록시+관례), forward_eps 는 앵커,
     # earnings_growth 는 forward 엔진 장기성장률. LLM 은 rationale 만.
@@ -717,7 +706,6 @@ _METHOD_TOOLS = {
     "compute_ev_ebitda": (_t_ev_ebitda, {"rationale": "string"}),  # 완전 결정론 — EBITDA·배수·순차입 코드 확정
     "compute_dcf": (_t_dcf, {"rationale": "string"}),  # 완전 결정론 — FCF·성장·WACC·영구성장 코드 확정
     "compute_ddm": (_t_ddm, {"rationale": "string"}),  # 완전 결정론 — DPS·자본비용·배당성장 코드 확정
-    "compute_asset": (_t_asset, {"asset_premium": "number", "rationale": "string"}),
     "compute_fama_french": (_t_fama_french, {"rationale": "string"}),  # 완전 결정론 — 베타·프리미엄·성장 코드 확정
     "compute_apt": (_t_apt, {"rationale": "string"}),  # 완전 결정론 — 거시요인·성장 코드 확정
 }
@@ -725,7 +713,7 @@ _METHOD_TOOLS = {
 # 도구명 → 방식 식별자(결과 dict 의 method 필드와 일치).
 _TOOL_METHOD = {
     "compute_per": "per", "compute_pbr": "pbr", "compute_ev_ebitda": "ev_ebitda",
-    "compute_dcf": "dcf", "compute_ddm": "ddm", "compute_asset": "asset",
+    "compute_dcf": "dcf", "compute_ddm": "ddm",
     "compute_fama_french": "fama_french", "compute_apt": "apt",
 }
 
@@ -753,7 +741,6 @@ _TOOL_DESCS = {
                    "모두 코드 확정. 숫자는 결정론 계산되니 rationale(해석)만 제시하라.",
     "compute_ddm": "고든 배당할인 = DPS(앵커)×(1+배당성장)÷(자본비용−배당성장). 자본비용=CAPM, "
                    "배당성장=min(장기이익성장,rf) 코드 확정. rationale(해석)만. 무배당이면 부적합.",
-    "compute_asset": "자산가치 = 주당순자산 × 재평가/청산배수(청산할인<1<재평가할증).",
     "compute_fama_french": "Fama-French 3요인 목표PER=1/(r−g). 베타·프리미엄·rf·이익성장 모두 실데이터로 "
                            "코드 확정되니 rationale(해석)만 제시하라.",
     "compute_apt": "APT 다요인 목표PER. 거시요인 베타·프리미엄·rf·이익성장 모두 코드 확정되니 "
@@ -762,7 +749,7 @@ _TOOL_DESCS = {
 
 
 def _build_tools() -> list[dict]:
-    """8개 compute 도구 + get_anchors + blend + finalize 의 function 스키마."""
+    """7개 compute 도구 + get_anchors + blend + finalize 의 function 스키마."""
     tools = [_tool_schema(n, _TOOL_DESCS[n], props) for n, (_fn, props) in _METHOD_TOOLS.items()]
     tools.append(_tool_schema("get_anchors", "현재 실데이터 앵커(EPS TTM·BPS·EBITDA·배당·주식수·순차입)를 조회.", {}))
     tools.append(_tool_schema("blend", "지금까지 계산한 방식들의 신뢰도 가중 최종 목표가·스프레드를 확인.", {}))
@@ -783,9 +770,9 @@ def _result_to_dict(r: val.ValuationResult) -> dict:
 _MAX_TURNS = 24  # 8방식 + 재계산 여유. 도구호출 없는 최종답변이 나오거나 이 한도면 종료.
 
 _SYSTEM = (
-    "너는 한국 주식 밸류에이션 애널리스트다. 8개 방식(PER·PBR·EV/EBITDA·DCF·DDM·자산가치·Fama-French·"
-    "APT)으로 목표가를 구한다. 계산은 도구가 하므로 너는 각 방식의 *가정*을 근거와 함께 정해 도구를 호출하고, "
-    "반환된 목표가·업사이드·경고(note)를 **직접 확인**한다.\n\n"
+    "너는 한국 주식 밸류에이션 애널리스트다. 7개 방식(PER·PBR·EV/EBITDA·DCF·DDM·Fama-French·APT)으로 "
+    "목표가를 구한다. 모든 방식이 완전 결정론(코드가 실데이터로 계산)이라 너는 각 compute_* 에 숫자를 주지 "
+    "않고 rationale(해석)만 제시하며, 반환된 목표가·업사이드·경고(note)를 **직접 확인**한다.\n\n"
     "진행 절차:\n"
     "1) get_anchors 로 실데이터(EPS·BPS·EBITDA·배당·주식수·순차입)를 먼저 확인한다. eps_ttm·ebitda 앵커는 "
     "forward_meta 가 있으면 이미 예상(forward)치로 대체된 값이다(source: hitl|consensus|extrapolation, "
@@ -797,11 +784,11 @@ _SYSTEM = (
     "4) blend 로 최종 목표가·스프레드를 확인한다.\n"
     "5) finalize 로 진입성격(자산주/역발상|성장주)과 결론(어느 방식을 왜 더 신뢰하는지·업사이드 성격)을 낸다.\n\n"
     "가정은 반드시 앵커·피어·업종 특성에 근거한다. 예상 EPS 는 연환산(TTM) 기준이며 목표 멀티플도 연간 기준이다. "
-    "PER·PBR·EV/EBITDA·DCF·DDM·Fama-French·APT 는 완전 결정론이다 — 배수·성장률·자본비용·베타·FCF·WACC 를 "
-    "모두 코드가 실데이터로 확정한다(PER=forward EPS×PEG 정당 PER, PBR=BPS×ROE/COE, EV/EBITDA=EBITDA×밴드중앙−순차입, "
+    "7방식 모두 완전 결정론이다 — 배수·성장률·자본비용·베타·FCF·WACC 를 코드가 실데이터로 확정한다"
+    "(PER=forward EPS×PEG 정당 PER, PBR=BPS×ROE/COE, EV/EBITDA=EBITDA×밴드중앙−순차입, "
     "DCF=forward FCF·성장·WACC·영구성장[국고채10년], DDM=고든, FF·APT=요인 Re→목표PER, 성장은 forward 엔진). "
-    "너는 이들 compute_* 에 숫자를 주지 말고 rationale(결정론적 목표가가 타당한지·리스크·해석)만 제시한다. "
-    "자산가치만 아직 가정(재평가/청산 배수)을 받는다. fair_per·fair_pbr 은 성장·수익성 이론 정당 배수다. "
+    "너는 compute_* 에 숫자를 주지 말고 rationale(결정론적 목표가가 타당한지·리스크·해석)만 제시한다. "
+    "fair_per·fair_pbr 은 성장·수익성 이론 정당 배수다. "
     "추측·과장 금지. 레드플래그(이익의 질 문제)가 있으면 멀티플을 보수적으로 잡는다."
 )
 
@@ -889,7 +876,7 @@ def run_valuation(llm: LLMPort, model: str, ctx: ToolContext, prior: dict, serie
     )
     messages: list[dict] = [
         {"role": "system", "content": _SYSTEM},
-        {"role": "user", "content": context + "\n\nget_anchors 로 시작해 8개 방식을 계산하고 finalize 로 마쳐라."},
+        {"role": "user", "content": context + "\n\nget_anchors 로 시작해 7개 방식을 계산하고 finalize 로 마쳐라."},
     ]
 
     def _run_tool(name: str, args: dict) -> dict:
@@ -959,7 +946,7 @@ def run_valuation(llm: LLMPort, model: str, ctx: ToolContext, prior: dict, serie
 _FALLBACK_SCHEMA = """{"per":{"rationale":""},"pbr":{"rationale":""},
 "ev_ebitda":{"rationale":""},
 "dcf":{"rationale":""},
-"ddm":{"rationale":""},"asset":{"asset_premium":수,"rationale":""},
+"ddm":{"rationale":""},
 "fama_french":{"rationale":""},"apt":{"rationale":""},
 "forward_eps":수,"entry_case":"자산주/역발상|성장주","conclusion":""}"""
 
@@ -971,7 +958,7 @@ def _oneshot_fallback(llm, model, ctx, prior, anchors, peers, series, fit=None, 
         f"[종목] {ctx.code}\n[앵커]\n{json.dumps(anchors, ensure_ascii=False)}\n"
         f"[피어]\n{json.dumps(peers, ensure_ascii=False)[:1500]}"
         + _hitl_context(prior.get("hitl"))
-        + f"\n8개 방식 가정 JSON 만 출력:\n{_FALLBACK_SCHEMA}"
+        + f"\n7개 방식 가정 JSON 만 출력:\n{_FALLBACK_SCHEMA}"
     )
     try:
         a = _extract_json(llm.chat(model, "밸류에이션 가정만 JSON 으로 출력.", user, temperature=0.2)) or {}
