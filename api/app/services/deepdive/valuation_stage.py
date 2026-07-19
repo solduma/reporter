@@ -351,10 +351,6 @@ def collect_anchors(series: list[dict], price: dict) -> dict:
     }
 
 
-# HITL 이익 증분의 앵커 반영 안전상한 — 명백한 오추출(단일 % 폭주)만 방어. 정상 증분은 안 건드림.
-_HITL_EARNINGS_UPLIFT_CAP = 2.0
-
-
 def _hitl_revenue_growth(num: dict, base_revenue_eok: float | None) -> float | None:
     """claim 의 구조화 필드에서 '전사 매출 증분율'을 결정론 계산. 계산 불가 시 None.
 
@@ -434,7 +430,8 @@ def apply_hitl_to_anchors(anchors: dict, hitl: dict | None, series: list[dict] |
                         "metric": metric, "rev_growth_pct": round(rev_growth * 100, 2)})
     if not applied:
         return anchors
-    uplift = min(total_uplift, _HITL_EARNINGS_UPLIFT_CAP)
+    # 임의 상한 없음 — 각 claim 이 매출증분율×증분마진×확률(refuted=0)로 결정론 계산돼 자연 유계.
+    uplift = total_uplift
     adjusted = dict(anchors)
     factor = 1.0 + uplift
     if adjusted.get("eps_ttm") is not None:
@@ -443,7 +440,6 @@ def apply_hitl_to_anchors(anchors: dict, hitl: dict | None, series: list[dict] |
         adjusted["ebitda_eok_annual"] = round(adjusted["ebitda_eok_annual"] * factor, 2)
     adjusted["hitl_earnings_uplift"] = {
         "uplift_pct": round(uplift * 100, 2),
-        "capped": total_uplift > _HITL_EARNINGS_UPLIFT_CAP,
         "incremental_margin": margin_meta,
         "claims": applied,
     }
@@ -481,12 +477,6 @@ def _t_per(a: dict, anc: dict) -> val.ValuationResult:
     )
 
 
-# 정당 PBR = (ROE−g)/(COE−g). g 는 지속성장(보수적으로 0 근사 → ROE/COE). COE=CAPM.
-# 상한: 극단 ROE/저 COE 조합의 폭주 방지(PER fair 캡과 정합).
-_FAIR_PBR_CAP_HIGH = 10.0
-_FAIR_PBR_CAP_LOW = 0.2
-
-
 def _capm_coe(anc: dict) -> float | None:
     """자기자본비용(COE) = CAPM = risk_free + β × market_premium. factor_betas 결측이면 None.
 
@@ -506,7 +496,7 @@ def _fair_pbr(anc: dict) -> tuple[float | None, dict | None]:
     """정당 PBR = ROE / 자기자본비용(COE). Residual Income/Gordon 정리의 g=0 근사.
 
     ROE=정규화 최근평균(roe_avg_pct, %), COE=CAPM. 둘 다 있고 COE>0, ROE>0 일 때만.
-    캡 [0.2, 10]. ROE·COE 결측이면 None(밴드 중앙값 폴백에 위임).
+    임의 캡 없음(COE>0 가드로 자연 유계). ROE·COE 결측이면 None(밴드 중앙값 폴백에 위임).
     """
     roe = _num(anc.get("roe_avg_pct"))
     if roe is None or roe <= 0:
@@ -515,11 +505,10 @@ def _fair_pbr(anc: dict) -> tuple[float | None, dict | None]:
     if coe is None:
         return None, None
     beta = _num((anc.get("factor_betas") or {}).get("market_beta"))
-    raw = (roe / 100.0) / coe  # roe 는 % 라 소수화
-    capped = max(_FAIR_PBR_CAP_LOW, min(_FAIR_PBR_CAP_HIGH, raw))
-    meta = {"fair_pbr": round(capped, 2), "roe_pct": round(roe, 2), "coe_pct": round(coe * 100, 2),
-            "beta": round(beta, 2), "capped": raw != capped}
-    return round(capped, 2), meta
+    fair = (roe / 100.0) / coe  # ROE/COE (g=0 근사). 임의 캡 없음 — COE>0 가드로 자연 유계.
+    meta = {"fair_pbr": round(fair, 2), "roe_pct": round(roe, 2), "coe_pct": round(coe * 100, 2),
+            "beta": round(beta, 2)}
+    return round(fair, 2), meta
 
 
 def _det_target_pbr(anc: dict) -> tuple[float | None, str]:
