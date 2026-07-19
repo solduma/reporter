@@ -235,11 +235,14 @@ def dcf_valuation(
         r.note = "FCF·성장률·영구성장률·할인율·주식수 중 결측"
         return r
     # 영구성장률은 입력값 그대로 사용(상한 없음 — 실측 금리 기반이라 인위적 캡 불필요).
-    # 단, 할인율 ≤ 영구성장률이면 고든 잔존가치가 발산/음수라 이 경우만 방어.
+    # 단, 할인율 ≤ 영구성장률이면 고든 잔존가치가 발산/음수라 방어.
     g_l = terminal_growth
     if discount_rate <= g_l:
         r.note = f"할인율({discount_rate:.1%}) ≤ 영구성장률({g_l:.1%}) — 잔존가치 발산"
         return r
+    # 저베타주는 CAPM WACC 가 낮아 (r−g_L) 스프레드가 좁아지면 고든 잔존가치 1/(r−g)가 폭발한다
+    # (저베타 이상현상). factor model 과 동일하게 최소 터미널 스프레드로 유계(할인율만 상향, g 는 실측 유지).
+    r_disc = max(discount_rate, g_l + _beta.MIN_TERM_SPREAD)
     if fcf_base <= 0:
         r.note = f"기준 FCF({_fmt(fcf_base)}억)가 0 이하 — DCF 부적합"
         return r
@@ -249,7 +252,7 @@ def dcf_valuation(
     g_s = growth_rate
     three_stage = (g_s - g_l) > _TWO_STAGE_GAP
     if three_stage and roe is not None:
-        cap, _ = _beta.competitive_advantage_period(roe, discount_rate, moat)
+        cap, _ = _beta.competitive_advantage_period(roe, r_disc, moat)
         plateau = max(1, round(cap / 2.0))  # 유지기 = CAP 절반
         fade_n = max(1, round(cap / 2.0))  # 감쇠기 = CAP 절반
     else:
@@ -263,15 +266,15 @@ def dcf_valuation(
     for _ in range(plateau):  # 유지기: g_s 유지
         year += 1
         fcf *= 1 + g_s
-        pv_explicit += fcf / (1 + discount_rate) ** year
+        pv_explicit += fcf / (1 + r_disc) ** year
     for i in range(1, fade_n + 1):  # 감쇠기(3단계만): g_s → g_l 선형
         g = g_s + (g_l - g_s) * i / fade_n
         year += 1
         fcf *= 1 + g
-        pv_explicit += fcf / (1 + discount_rate) ** year
+        pv_explicit += fcf / (1 + r_disc) ** year
     terminal_fcf = fcf * (1 + g_l)
-    terminal_value = terminal_fcf / (discount_rate - g_l)
-    pv_terminal = terminal_value / (1 + discount_rate) ** year
+    terminal_value = terminal_fcf / (r_disc - g_l)
+    pv_terminal = terminal_value / (1 + r_disc) ** year
     enterprise_value = pv_explicit + pv_terminal  # 억원
     nd = net_debt or 0.0
     equity_value = enterprise_value - nd
@@ -286,19 +289,21 @@ def dcf_valuation(
     r.assumptions = {
         "fcf_base_eok": fcf_base, "growth_high": round(g_s, 4), "growth_long": round(g_l, 4),
         "stages": 3 if three_stage else 2, "plateau_years": plateau, "fade_years": fade_n,
-        "discount_rate": discount_rate, "net_debt_eok": nd, "shares": shares,
+        "discount_rate": round(r_disc, 4), "net_debt_eok": nd, "shares": shares,
         "terminal_value_frac": round(pv_terminal / enterprise_value, 3) if enterprise_value else None,
     }
+    # 최소 스프레드 가드로 할인율이 상향됐으면(저베타) 서술에 명시.
+    disc_txt = f"{r_disc:.1%}" + (f"(저베타 최소스프레드 유계, 원 WACC {discount_rate:.1%})" if r_disc > discount_rate else "")
     if three_stage:
         r.process = [
             f"기준 FCF {_fmt(fcf_base)}억원. 3단계: 고성장 {g_s:.1%} {plateau}년 유지 → "
             f"{fade_n}년간 {g_l:.1%}로 선형 감쇠 → 영구 {g_l:.1%}",
-            f"명시적 구간({year}년) 현가 합 {_fmt(pv_explicit)}억원 (할인율 {discount_rate:.1%})",
+            f"명시적 구간({year}년) 현가 합 {_fmt(pv_explicit)}억원 (할인율 {disc_txt})",
         ]
     else:
         r.process = [
             f"기준 FCF {_fmt(fcf_base)}억원, {plateau}년간 연 {g_s:.1%} 성장(2단계)",
-            f"명시적 구간 현가 합 {_fmt(pv_explicit)}억원 (할인율 {discount_rate:.1%})",
+            f"명시적 구간 현가 합 {_fmt(pv_explicit)}억원 (할인율 {disc_txt})",
         ]
     r.process += [
         f"영구성장 {g_l:.1%}(국고채 10년 기준) → 잔존가치 {_fmt(terminal_value)}억, 현가 {_fmt(pv_terminal)}억원",
