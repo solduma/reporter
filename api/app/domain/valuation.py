@@ -245,7 +245,8 @@ def dcf_valuation(
         return r
 
     # 성장 프로필로 2단계/3단계 선택. 고성장(격차>8%p)이면 CAP 기반 3단계.
-    g_s = min(growth_rate, _beta.NEAR_TERM_GROWTH_CAP)
+    # g_s 는 forward 엔진에서 이미 ±클립돼 옴(임의 상수캡 제거) — 명시적 구간은 유한 합이라 발산 없음.
+    g_s = growth_rate
     three_stage = (g_s - g_l) > _TWO_STAGE_GAP
     if three_stage and roe is not None:
         cap, _ = _beta.competitive_advantage_period(roe, discount_rate, moat)
@@ -435,9 +436,11 @@ def _factor_model_valuation(
         r_term, wacc_steps = _beta.wacc(re_terminal, equity_value, net_debt, risk_free)
     else:
         r_term, wacc_steps = re_terminal, [f"터미널 할인율 = 시장 Re {re_terminal:.1%}(β→1, 시총 미상 WACC 생략)"]
-    # 3) 성장률·CAP. g_L ≤ min(GDP캡, rf)(Damodaran). 터미널 (r−g_L) 최소 스프레드로 PER 폭발 방지.
-    g_s = min(earnings_growth, _beta.NEAR_TERM_GROWTH_CAP)
-    g_l = min(_beta.TERMINAL_GROWTH_CAP, risk_free)
+    # 3) 성장률·CAP. 영구성장 g_L = rf(무위험수익률 ≈ 명목GDP성장, Damodaran — GDP 직접캡 대신 rf,
+    #    분모 할인율과 일관). DCF 와 동일 정책. 단기 g_s 는 forward 엔진에서 이미 클립돼 옴(상수캡 제거).
+    #    터미널 (r−g_L) 최소 스프레드로 목표PER=1/(r−g) 폭발만 방지.
+    g_s = earnings_growth
+    g_l = risk_free
     r_term = max(r_term, g_l + _beta.MIN_TERM_SPREAD)
     cap, cap_steps = _beta.competitive_advantage_period(roe, r_term, moat)
     plateau = round(cap / 2.0, 1)  # 유지기 = CAP 절반
