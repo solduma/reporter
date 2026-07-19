@@ -15,6 +15,7 @@ dependencies = [
     # 기존 크롤/PDF/GLM 로직 재사용을 위해 루트 reporter 패키지를 editable 로 참조
     "reporter",
     "textual>=8.2.8",
+    "openpyxl>=3.1.5",
 ]
 
 [project.scripts]

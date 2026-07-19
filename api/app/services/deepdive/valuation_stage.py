@@ -20,7 +20,7 @@ from app.domain import beta as betamod
 from app.domain import forward as fwd
 from app.domain import valuation as val
 from app.ports.llm import LLMError, LLMPort
-from app.services import company_service, risk_free_ingest
+from app.services import company_service, market_premium_ingest, risk_free_ingest
 from app.services.deepdive.tools import ToolContext, dispatch, sector_for
 
 logger = logging.getLogger(__name__)
@@ -43,13 +43,15 @@ def compute_factor_betas(ctx: ToolContext, anchors: dict, market: str | None) ->
     # 무위험수익률: ECOS 국고채 3년 최신값(배치 적재) → 없으면 도메인 상수 폴백.
     rf = risk_free_ingest.latest_rate(ctx.db, "kr_treasury_3y") or betamod.RISK_FREE
     rf_10y = risk_free_ingest.latest_rate(ctx.db, "kr_treasury_10y")  # DCF 영구성장률 근사(장기 명목)
+    # 시장 ERP: Damodaran Korea 실측(월 배치) → 없으면 도메인 상수 폴백.
+    market_premium = market_premium_ingest.latest_erp(ctx.db) or betamod.MARKET_PREMIUM
     return {
         "market_beta": market_beta,
         "smb_beta": betamod.smb_beta(anchors.get("market_cap_eok")),
         "hml_beta": betamod.hml_beta(anchors.get("current_pbr")),
         "risk_free": rf,
         "risk_free_10y": rf_10y,
-        "market_premium": betamod.MARKET_PREMIUM,
+        "market_premium": market_premium,
         "smb_premium": betamod.SMB_PREMIUM,
         "hml_premium": betamod.HML_PREMIUM,
         "beta_source": "회귀(지수 일봉)" if idx_sym and market_beta != 1.0 else "근사(1.0)",
