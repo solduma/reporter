@@ -87,17 +87,21 @@ def _sorted_actuals(series: list[dict]) -> list[dict]:
 
 
 def _fcff_base(rows: list[dict]) -> float | None:
-    """진짜 FCFF(억원) = NOPAT + D&A − CAPEX, 최신 연간(.12). D&A·CAPEX 결측이면 None(순이익 폴백에 위임).
+    """진짜 FCFF(억원) = NOPAT + D&A − CAPEX. 영업이익·D&A·CAPEX 가 **모두 있는 최신 연간**(.12)을 쓴다.
 
     NOPAT = 영업이익 × (1−세율). 이자·비영업손익 제거(FCFF 는 자본구조 무관). CAPEX 는 성장투자 포함
     실측치라 성장투자기(CAPEX≫D&A)엔 FCFF 가 작거나 음수 — DCF 부적합 신호로 정직하게 노출된다.
+    최신 연간이 미완결산(D&A·CAPEX 결측)이면 완전한 직전 연도로 폴백. 셋 다 있는 연간이 없으면 None.
     """
-    op = _latest_annual(rows, "operating_income")
-    dep = _latest_annual(rows, "depreciation")
-    capex = _latest_annual(rows, "capex")
-    if op is None or dep is None or capex is None:
-        return None
-    return round(op * (1 - betamod.TAX_RATE) + dep - capex, 2)
+    for r in reversed(rows):
+        if _period_key(r["period"])[1] != 12:  # type: ignore[index]
+            continue
+        op = _num(r.get("operating_income"))
+        dep = _num(r.get("depreciation"))
+        capex = _num(r.get("capex"))
+        if op is not None and dep is not None and capex is not None:
+            return round(op * (1 - betamod.TAX_RATE) + dep - capex, 2)
+    return None
 
 
 def _latest_annual(rows: list[dict], field: str) -> float | None:
