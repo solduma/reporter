@@ -25,8 +25,8 @@ APT_FACTOR_PREMIUMS = {"경기(시장)": 0.055, "금리민감": 0.02, "환율민
 # WACC 파라미터.
 COST_OF_DEBT_SPREAD = 0.02  # 세전 부채비용 = rf + 신용스프레드
 TAX_RATE = 0.22  # 법인세 실효세율(한국 근사) — 부채 이자 세금방패
-TERMINAL_GROWTH_CAP = 0.04  # 영구성장률 g_L 상한(명목 GDP 수준). 실제로는 min(이 값, rf) 로 유계.
-NEAR_TERM_GROWTH_CAP = 0.30  # 단기 성장 g_S 상한(장기 지속 불가한 과도 추정 방어).
+# 영구성장률 상한은 rf(무위험수익률 ≈ 명목GDP성장, Damodaran) 로 유계 — DCF·요인모형 공통. 별도 GDP
+# 상수캡 폐기(rf 와 일관). 단기 성장률은 forward 엔진 외삽 클립(±)에 위임 — 임의 상수캡 폐기.
 
 # 요인모형 3단계(성장 유지→감쇠→영구) 파라미터. 저베타 이상현상(Frazzini-Pedersen 2014) 상
 # raw 요인 Re 를 8.2% 총하한으로 clamp 하면 FF·APT 가 둘 다 눌려 동일해지고 성장주가 저평가된다

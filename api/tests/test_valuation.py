@@ -211,12 +211,13 @@ def test_terminal_spread_floor_prevents_explosion():
     assert spread >= b.MIN_TERM_SPREAD - 1e-9
 
 
-def test_near_term_growth_capped_at_extreme():
-    # 비현실적 초고성장(200%)은 단기 상한(30%)으로만 방어(감쇠는 유지).
+def test_near_term_growth_used_as_is():
+    # 단기 성장 상수캡 제거 — 입력값 그대로 사용(클립은 forward 엔진 책임, domain 은 유한 구간이라 발산 없음).
     factors = [v.FactorExposure("시장", 1.0, 0.06)]
-    r = v.apt_valuation(forward_eps=1000, risk_free=0.03, factors=factors, earnings_growth=2.0,
+    r = v.apt_valuation(forward_eps=1000, risk_free=0.03, factors=factors, earnings_growth=0.25,
                         equity_value=1000, net_debt=0, current_price=12000)
-    assert r.assumptions["growth_high"] <= 0.30
+    assert r.assumptions["growth_high"] == 0.25  # 캡 없이 그대로
+    assert r.applicable
 
 
 # ── blend(최종 목표가) ───────────────────────────────────────────────────
