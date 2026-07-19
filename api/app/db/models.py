@@ -145,6 +145,8 @@ class Financial(Base):
     net_debt: Mapped[float | None] = mapped_column(Float)
     ev_ebitda: Mapped[float | None] = mapped_column(Float)
     psr: Mapped[float | None] = mapped_column(Float)
+    depreciation: Mapped[float | None] = mapped_column(Float)  # D&A(억원) — FCFF 산출용
+    capex: Mapped[float | None] = mapped_column(Float)  # 자본적지출(억원) — FCFF 산출용
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
@@ -179,6 +181,7 @@ class ReportFinancial(Base):
     # 불가한 종목이 많아). amortization 은 예비 컬럼(현재 미사용, 항상 None).
     depreciation: Mapped[float | None] = mapped_column(Float)  # 감가상각비+무형자산상각비 합
     amortization: Mapped[float | None] = mapped_column(Float)  # 예비(미사용)
+    capex: Mapped[float | None] = mapped_column(Float)  # 자본적지출(유형+무형 취득, CF) — FCFF 산출용
     parsed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

@@ -225,10 +225,12 @@ def backfill_stock(
                 eps=fin.eps,
                 depreciation=dep,  # parse_cf_depreciation 은 감가+무형 합산값(모델 주석 참조)
                 amortization=None,
+                capex=fin.capex,  # 구조화 API CF 투자활동(유형+무형 취득 합, 원)
             )
             # EBITDA = 영업이익 + D&A. 연간만 EV/EBITDA 대상(반기/분기 누적은 TTM 아님).
+            # D&A·CAPEX 원값도 함께 실어 financials 에 반영(FCFF 산출용).
             if kind == "annual" and fin.operating_income is not None and dep is not None:
-                annual_ev[period] = (fin.operating_income + dep, fin.net_debt)
+                annual_ev[period] = (fin.operating_income + dep, fin.net_debt, dep, fin.capex)
             # 배당(DS002 alotMatter)은 연간 항목 — annual 보고서에서만 조회해 financials 에 반영.
             if kind == "annual":
                 _upsert_dividend(db, code, period, settings, corp_code, year, session)
@@ -255,22 +257,30 @@ def backfill_stock(
 
 
 def _recompute_ev_ebitda(
-    db: Session, code: str, annual_ev: dict[str, tuple[float, float | None]], shares: int | None
+    db: Session,
+    code: str,
+    annual_ev: dict[str, tuple[float, float | None, float | None, float | None]],
+    shares: int | None,
 ) -> None:
-    """연간 EBITDA·순차입으로 EBITDA 절대액과 EV/EBITDA 를 financials 에 반영(EV/EBITDA 단일 소유자).
+    """연간 EBITDA·순차입으로 EBITDA 절대액·EV/EBITDA 를 financials 에 반영 + D&A·CAPEX 원값(FCFF용).
 
     EBITDA(영업이익+D&A) 절대액은 시총과 무관하므로 항상 저장(딥다이브 EBITDA 성장 축이 읽는다).
     EV/EBITDA 배수는 EV=시총(분기말 수정종가 x 주식수)+순차입 이 필요해 shares·종가 있을 때만 산출.
     대형사 D&A 는 fnlttSinglAcntAll 에 없어(삼성·현대차 CF 에 상각 라인 부재) document.xml 원문 파싱만 정확.
+    D&A·CAPEX 는 억원 변환해 저장(FCFF=NOPAT+D&A−CAPEX 산출 시 매출·이익과 단위 일치).
     """
     if not annual_ev:
         return
-    for period, (ebitda, net_debt) in annual_ev.items():  # ebitda·net_debt 는 원 단위 원자료
+    for period, (ebitda, net_debt, dep, capex) in annual_ev.items():  # 원 단위 원자료
         if ebitda <= 0:
             continue
         # EBITDA 절대액은 shares 무관하게 항상 저장. Financial 의 매출·이익은 억원 단위이므로
         # ebitda 도 억원(/1e8)으로 변환해 저장(딥다이브 EBITDA 마진 = ebitda/revenue 단위 일치).
         values: dict = {"ebitda": ebitda / 1e8}
+        if dep is not None:
+            values["depreciation"] = dep / 1e8
+        if capex is not None:
+            values["capex"] = capex / 1e8
         # EV/EBITDA 배수는 EV(원)/EBITDA(원) 이라 원 단위 원자료로 계산(시총 산출 가능할 때만).
         if shares:
             year = int(period.split(".")[0])
@@ -393,3 +403,59 @@ def run_backfill_progressive(
         "done": done, "failed": failed, "reconciled": reconciled, "remaining": remaining,
         "quota_hit": quota_hit, "budget_hit": budget_hit,
     }
+
+
+# ── CAPEX 경량 백필 ────────────────────────────────────────────────────
+# CAPEX 는 구조화 API(fnlttSinglAcntAll CF)로 얻으므로 D&A 원문(document.xml 수MB) 재다운로드 불필요.
+# capex 가 NULL 인 연간 report_financials 행만 골라 구조화 API 로 채우고 financials 에도 반영한다.
+def backfill_capex(db: Session, settings: Settings | None = None, limit: int = 200) -> dict:
+    """capex 결측 연간 행을 구조화 API 로 채운다(경량). 종목당 연간 행들만 조회. 반환: 처리 통계."""
+    settings = settings or get_settings()
+    # capex NULL 인 연간(annual) 행의 (종목, 기간) — 종목별로 묶어 조회 최소화.
+    rows = db.execute(
+        select(ReportFinancial.stock_code, ReportFinancial.period)
+        .where(ReportFinancial.report_kind == "annual", ReportFinancial.capex.is_(None))
+        .order_by(ReportFinancial.stock_code)
+        .limit(limit)
+    ).all()
+    if not rows:
+        return {"filled": 0, "codes": 0}
+    by_code: dict[str, list[str]] = {}
+    for code, period in rows:
+        by_code.setdefault(code, []).append(period)
+    filled = 0
+    quota_hit = False
+    with requests.Session() as session:
+        for code, periods in by_code.items():
+            corp_code = db.scalar(select(CorpCodeMap.corp_code).where(CorpCodeMap.stock_code == code))
+            if not corp_code:
+                continue
+            try:
+                for period in periods:
+                    year = int(period.split(".")[0])
+                    fin = dart.fetch_income_and_equity(settings.dart_api_key, corp_code, year, 4, session)
+                    if fin is None or fin.capex is None:
+                        continue
+                    # report_financials 원값(원) + financials 억원 반영.
+                    db.execute(
+                        insert(ReportFinancial)
+                        .values(stock_code=code, period=period, fs_div="CFS",
+                                report_kind="annual", rcept_no="", capex=fin.capex)
+                        .on_conflict_do_update(constraint="uq_report_financial", set_={"capex": fin.capex})
+                    )
+                    db.execute(
+                        insert(Financial)
+                        .values(stock_code=code, period=period, is_estimate=False, capex=fin.capex / 1e8)
+                        .on_conflict_do_update(constraint="uq_financial", set_={"capex": fin.capex / 1e8})
+                    )
+                    filled += 1
+                db.commit()
+            except dart.DartQuotaExceeded:
+                db.rollback()
+                quota_hit = True
+                logger.warning("capex backfill: DART 한도초과 — 중단(%d 채움)", filled)
+                break
+            except Exception as e:
+                db.rollback()
+                logger.warning("capex backfill failed for %s: %s", code, e)
+    return {"filled": filled, "codes": len(by_code), "quota_hit": quota_hit}

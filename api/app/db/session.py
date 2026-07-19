@@ -55,6 +55,10 @@ _COLUMN_MIGRATIONS = (
     # 딥다이브 HITL: 밸류에이션 직전 사용자 인풋(있으면 재개·반영). hitl_pending·prompt 는 모델 초기부터.
     "ALTER TABLE deepdive_job ADD COLUMN IF NOT EXISTS hitl_input TEXT",
     "ALTER TABLE deepdive_report ADD COLUMN IF NOT EXISTS hitl_json JSONB",
+    # CAPEX(자본적지출) — 진짜 FCFF(=NOPAT+D&A−CAPEX) 산출용. report_financials 원값 + financials 반영.
+    "ALTER TABLE report_financials ADD COLUMN IF NOT EXISTS capex DOUBLE PRECISION",
+    "ALTER TABLE financials ADD COLUMN IF NOT EXISTS depreciation DOUBLE PRECISION",
+    "ALTER TABLE financials ADD COLUMN IF NOT EXISTS capex DOUBLE PRECISION",
 )
 
 # 데이터 정합성 정규화(멱등) — 스키마가 아닌 값 보정. init_db 마다 실행되나 조건절이 이미 보정된
