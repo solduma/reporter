@@ -45,11 +45,20 @@ function Section({ title, data }: { title: string; data: Record<string, unknown>
   );
 }
 
-// verdict → 배지 색 클래스. 반박=회색(반영 안 함), 반영/출처확인=녹색(대부분 반영), 가능성=주황(확률 가중).
-function verdictClass(verdict: string): string {
-  if (verdict.includes("반박")) return styles.hitlRefute;
-  if (verdict.includes("반영") || verdict.includes("출처확인")) return styles.hitlReflect;
-  return styles.hitlMaybe;
+// claim 판정 라벨 — 실제 스키마는 refuted(불리언, 반박 못 하면 false=반영)다. verdict(문자열)는 구 스키마
+// 하위호환으로만 참조. 둘 다 없으면 미판정. 반박=회색·반영=녹색.
+function claimVerdict(c: HitlClaim): { label: string; cls: string } {
+  if (typeof c.verdict === "string" && c.verdict.length > 0) {
+    const refuted = c.verdict.includes("반박");
+    const reflected = c.verdict.includes("반영") || c.verdict.includes("출처확인");
+    return { label: c.verdict, cls: refuted ? styles.hitlRefute : reflected ? styles.hitlReflect : styles.hitlMaybe };
+  }
+  if (typeof c.refuted === "boolean") {
+    return c.refuted
+      ? { label: "반박", cls: styles.hitlRefute }
+      : { label: "반영", cls: styles.hitlReflect };
+  }
+  return { label: "미판정", cls: styles.hitlMaybe };
 }
 
 // HITL 인풋 검증 결과(반박/반영/가능성) 카드. claims 없으면 렌더 안 함.
@@ -68,11 +77,15 @@ function HitlResultCard({ hitl }: { hitl: DeepDiveReport["hitl"] }) {
         </p>
       ) : null}
       <ul className={styles.hitlClaims}>
-        {claims.map((c, i) => (
+        {claims.map((c, i) => {
+          const v = claimVerdict(c);
+          return (
           <li key={i} className={styles.hitlClaim}>
             <div className={styles.hitlClaimHead}>
-              <span className={`${styles.hitlBadge} ${verdictClass(c.verdict)}`}>{c.verdict}</span>
-              <span className={styles.hitlProb}>반영 {Math.round((c.probability ?? 0) * 100)}%</span>
+              <span className={`${styles.hitlBadge} ${v.cls}`}>{v.label}</span>
+              {typeof c.probability === "number" ? (
+                <span className={styles.hitlProb}>반영 {Math.round(c.probability * 100)}%</span>
+              ) : null}
               <span className={styles.hitlClaimText}>{c.claim}</span>
             </div>
             {c.numeric && c.claim_type === "numeric" ? (
@@ -94,7 +107,8 @@ function HitlResultCard({ hitl }: { hitl: DeepDiveReport["hitl"] }) {
             {c.evidence ? <p className={styles.hitlEvidence}>근거: {c.evidence}</p> : null}
             {c.reasoning ? <p className={styles.hitlEvidence}>판정: {c.reasoning}</p> : null}
           </li>
-        ))}
+          );
+        })}
       </ul>
     </div>
   );
