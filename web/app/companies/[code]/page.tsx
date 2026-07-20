@@ -12,7 +12,6 @@ import CompanyTimeline from "@/components/CompanyTimeline";
 import DateRangeSlider from "@/components/DateRangeSlider";
 import DeepDivePanel from "@/components/DeepDivePanel";
 import GrowthMetrics from "@/components/GrowthMetrics";
-import HoldingBadge from "@/components/HoldingBadge";
 import InfoDot from "@/components/InfoDot";
 import PeersTable from "@/components/PeersTable";
 import RealtimeQuoteBadge from "@/components/RealtimeQuoteBadge";
@@ -669,9 +668,6 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
         <h1 className={styles.title}>{displayName}</h1>
         <span className={styles.code}>{summary?.stock_code ?? code}</span>
         <RealtimeQuoteBadge code={summary?.stock_code ?? code} />
-        <span data-tour="holding">
-          <HoldingBadge code={summary?.stock_code ?? code} />
-        </span>
       </header>
 
       {error ? <p className={styles.error}>API 연결 실패: {error}</p> : null}

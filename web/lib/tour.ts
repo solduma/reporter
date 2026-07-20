@@ -35,7 +35,7 @@ const STEPS: Record<TourId, DriveStep[]> = {
       popover: {
         title: "③ 후보 보기",
         description:
-          "조건을 통과한 종목이 스코어 순으로 나옵니다. 헤더를 눌러 정렬하고, '보유' 배지로 이미 가진 종목을 구분합니다.",
+          "조건을 통과한 종목이 스코어 순으로 나옵니다. 헤더를 눌러 정렬할 수 있습니다.",
       },
     },
     {
@@ -69,14 +69,6 @@ const STEPS: Record<TourId, DriveStep[]> = {
         title: "③ 밸류에이션",
         description:
           "PER/PBR/PSR 이 과거 대비 싼지 비싼지. 하단(25%) 근처면 역사적 저평가 위치입니다.",
-      },
-    },
-    {
-      element: '[data-tour="holding"]',
-      popover: {
-        title: "④ 보유 등록",
-        description:
-          "매수했다면 수량·평단·손절선을 기록하세요. 손익과 손절 경보가 자동 계산됩니다.",
       },
     },
   ],
