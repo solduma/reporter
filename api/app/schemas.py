@@ -518,55 +518,6 @@ class UsDisclosureOut(BaseModel):
     sentiment: str | None
 
 
-class HoldingIn(BaseModel):
-    """보유종목 저장 입력."""
-
-    shares: float
-    avg_cost: float
-    stop_loss: float | None = None
-    note: str | None = None
-
-
-class HoldingOut(BaseModel):
-    """보유종목 응답 + 파생 계산(손익·손절 상태). 현재가 없으면 손익 필드는 None."""
-
-    stock_code: str
-    stock_name: str | None = None
-    shares: float
-    avg_cost: float
-    stop_loss: float | None
-    note: str | None
-    updated_at: datetime | None = None
-    current_price: float | None = None
-    market_value: float | None = None
-    cost_basis: float = 0.0
-    pnl: float | None = None
-    pnl_pct: float | None = None
-    stop_status: str = "none"  # none | ok | near | hit
-
-
-class PortfolioSummaryOut(BaseModel):
-    total_value: float
-    total_cost: float
-    total_pnl: float
-    total_pnl_pct: float | None
-    stop_hit: int
-    stop_near: int
-
-
-class SectorWeightOut(BaseModel):
-    sector: str
-    weight_pct: float
-
-
-class PortfolioView(BaseModel):
-    """포트폴리오 전체 뷰 — 보유목록 + 요약 + 섹터분산."""
-
-    holdings: list[HoldingOut]
-    summary: PortfolioSummaryOut
-    sectors: list[SectorWeightOut]
-
-
 class CalendarEventOut(BaseModel):
     """캘린더 이벤트 한 건. is_past 로 과거/미래 구분, 그에 따라 impact/expectation 중 하나가 찬다."""
 

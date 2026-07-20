@@ -16,16 +16,13 @@ import type {
   FinancialPeriod,
   FinancialsStatus,
   FlowMarket,
-  Holding,
   IrInterviewListItem,
   IrInterviewReport,
   IrInterviewStatus,
-  HoldingInput,
   Industry,
   MarketBrief,
   MarketOverview,
   Peer,
-  PortfolioView,
   Report,
   ReportCategory,
   ScreenerMarket,
@@ -373,38 +370,6 @@ export function fetchBroadcasts(query: BroadcastQuery = {}): Promise<BroadcastRe
 
 export function fetchBroadcast(id: number): Promise<BroadcastDetail> {
   return getJson<BroadcastDetail>(`/api/broadcasts/${id}`);
-}
-
-// ── 보유종목(포트폴리오) ──────────────────────────────────────────────
-export function fetchPortfolio(): Promise<PortfolioView> {
-  return getJson<PortfolioView>("/api/portfolio");
-}
-
-export function fetchHoldings(): Promise<Holding[]> {
-  return getJson<Holding[]>("/api/portfolio/holdings");
-}
-
-export async function saveHolding(code: string, body: HoldingInput): Promise<Holding> {
-  const res = await fetch(apiUrl(`/api/portfolio/holdings/${code}`), {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    cache: "no-store",
-  });
-  if (!res.ok) {
-    throw new Error(`보유종목 저장 실패 (${res.status})`);
-  }
-  return (await res.json()) as Holding;
-}
-
-export async function deleteHolding(code: string): Promise<void> {
-  const res = await fetch(apiUrl(`/api/portfolio/holdings/${code}`), {
-    method: "DELETE",
-    cache: "no-store",
-  });
-  if (!res.ok) {
-    throw new Error(`보유종목 삭제 실패 (${res.status})`);
-  }
 }
 
 // ── 종목 딥다이브 ──────────────────────────────────────────────────────

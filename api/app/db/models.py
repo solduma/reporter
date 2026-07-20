@@ -699,28 +699,6 @@ class UsDisclosure(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
-class Holding(Base):
-    """개인 보유종목 — 단일 사용자 상태(계정 시스템 없음, 공유 비밀번호 게이트 뒤 1인).
-
-    관심종목(웹 localStorage QUICK_PICKS)과 별개: 관심 != 보유. shares/avg_cost 로 손익,
-    stop_loss 로 손절선 판단(후속 기능의 토대). 종목당 1행(uq).
-    """
-
-    __tablename__ = "holdings"
-    __table_args__ = (UniqueConstraint("stock_code", name="uq_holding_stock"),)
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    stock_code: Mapped[str] = mapped_column(String(6), index=True)
-    shares: Mapped[float] = mapped_column(Float)  # 보유 수량(소수 허용 — 해외·분할 대비)
-    avg_cost: Mapped[float] = mapped_column(Float)  # 평균 매입단가(원)
-    stop_loss: Mapped[float | None] = mapped_column(Float)  # 손절선(원), 미설정 시 None
-    note: Mapped[str | None] = mapped_column(Text)  # 메모(투자 논리 등)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
-    )
-
-
 class CalendarEvent(Base):
     """경제/실적 캘린더 이벤트 — 매크로 지표 발표·주요기업 실적·중대일(FOMC·선거 등).
 

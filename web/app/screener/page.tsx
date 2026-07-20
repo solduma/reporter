@@ -7,7 +7,6 @@ import InfoDot from "@/components/InfoDot";
 import { fetchScreener, fetchScreenerSectors } from "@/lib/api";
 import { GLOSSARY } from "@/lib/glossary";
 import { useAutoTour } from "@/lib/useAutoTour";
-import { useHeldCodes } from "@/lib/useHeldCodes";
 import { usePersistentState } from "@/lib/usePersistentState";
 import type {
   ScreenerMarket,
@@ -323,7 +322,6 @@ function scoreFillClass(score: number): string {
 
 function ScreenerContent() {
   const router = useRouter();
-  const heldCodes = useHeldCodes();
   const searchParams = useSearchParams();
 
   // 산업 흐름 페이지에서 ?sector=<섹터명>으로 넘어오면 초기 섹터 필터로 적용.
@@ -728,9 +726,6 @@ function ScreenerContent() {
                     <th className={styles.nameCol} scope="row">
                       <span className={styles.name}>
                         {row.stock_name}
-                        {heldCodes.has(row.stock_code) ? (
-                          <span className={styles.heldBadge}>보유</span>
-                        ) : null}
                       </span>
                       <span className={styles.subRow}>
                         <span

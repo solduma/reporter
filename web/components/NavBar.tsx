@@ -6,7 +6,6 @@ import { useEffect, useRef, useState } from "react";
 
 import { startTour } from "@/lib/tour";
 import type { TourId } from "@/lib/tour";
-import { useStopAlertCount } from "@/lib/useStopAlert";
 
 import styles from "./NavBar.module.css";
 
@@ -29,7 +28,6 @@ const LINKS = [
   { href: "/calendar", label: "경제 캘린더", featured: false },
   { href: "/companies", label: "기업 분석", featured: false },
   { href: "/ir-interview", label: "주담 전략", featured: false },
-  { href: "/portfolio", label: "내 보유종목", featured: false },
   { href: "/archive", label: "브리핑 아카이브", featured: false },
 ] as const;
 
@@ -38,7 +36,6 @@ export default function NavBar() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const navRef = useRef<HTMLElement>(null);
-  const stopAlerts = useStopAlertCount();
   const tourId = tourForPath(pathname);
 
   // 경로가 바뀌면(다른 페이지 이동) 모바일 메뉴를 닫는다.
@@ -119,11 +116,6 @@ export default function NavBar() {
                   onClick={() => setOpen(false)}
                 >
                   {link.label}
-                  {link.href === "/portfolio" && stopAlerts > 0 ? (
-                    <span className={styles.alertBadge} aria-label={`손절 경보 ${stopAlerts}건`}>
-                      {stopAlerts}
-                    </span>
-                  ) : null}
                 </Link>
               </li>
             );
