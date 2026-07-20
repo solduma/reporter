@@ -234,6 +234,14 @@
   line-height: 1.5;
 }
 
+/* 적용 불가·제외 방식의 사유 — 가시성 위해 붉게. */
+.noteFlagged {
+  margin: 10px 0 0;
+  font-size: 0.82rem;
+  color: var(--sell, #d64545);
+  line-height: 1.5;
+}
+
 .chips {
   display: flex;
   flex-wrap: wrap;
