@@ -193,6 +193,24 @@ def _ttm_windows(rows: list[dict], field: str) -> list[float]:
     return out
 
 
+def _annual_series(rows: list[dict], field: str) -> list[float]:
+    """연간(.12) 시점의 field 값 시계열(오래된→최신). EBITDA·ROE 등 연간만 저장되는 지표의 CAGR 용."""
+    return [_num(r.get(field)) for r in rows  # type: ignore[misc]
+            if str(r.get("period", "")).endswith(".12") and _num(r.get(field)) is not None]
+
+
+def _forward_growth_drivers(rows: list[dict], eps_windows: list[float]) -> dict:
+    """성장반영 forward 멀티플용 forward 장기성장률 — 지표별(PER→EPS, EV/EBITDA→EBITDA).
+
+    forward 멀티플은 배당할인 정의식이라 과거 배수(밴드)가 아니라 미래 성장만 필요하다. PBR 은 fair PER×ROE
+    로 유도되므로 EPS forward 를 공유한다. 산출 불가(표본부족·적자기저)면 None → 방식 스킵(사유 노출).
+    """
+    eps_fwd, _ = fwd.long_term_growth(eps_windows) if len(eps_windows) >= 5 else (None, None)
+    ebitda_annual = _annual_series(rows, "ebitda")
+    ebitda_fwd, _ = fwd.long_term_growth(ebitda_annual) if len(ebitda_annual) >= 5 else (None, None)
+    return {"eps_fwd_growth": eps_fwd, "ebitda_fwd_growth": ebitda_fwd}
+
+
 def _normalized_eps(rows: list[dict], ttm_eps: float | None) -> tuple[float | None, dict | None]:
     """시클리컬 정규화 EPS = TTM EPS × (중간사이클 순마진 / 현재 TTM 순마진).
 
@@ -302,7 +320,7 @@ def collect_anchors(series: list[dict], price: dict) -> dict:
 
     - eps: TTM(분기 EPS 4개 합 또는 연간). bps: 최신 시점값. ebitda/dps: 연간(.12).
     - shares = 시총/현재가. net_debt = ebitda×ev_ebitda − 시총(억원, EV 역산). 셋 다 있을 때만.
-    - 정당 PER(고든)은 COE 필요 → factor_betas 주입 후 _fair_per 가 별도 계산(여기선 eps_windows 노출).
+    - fwd_growth: 상대가치 3방식(PER·PBR·EV/EBITDA) 성장반영 forward 멀티플용 forward 장기성장.
     """
     rows = _sorted_actuals(series)
     current_price = _num(price.get("close_price"))
@@ -325,19 +343,21 @@ def collect_anchors(series: list[dict], price: dict) -> dict:
     g_long, _ = fwd.long_term_growth(eps_windows)
     g_short, _ = fwd.extrapolate_growth(eps_windows)
     fcf_base = _fcff_base(rows)  # 진짜 FCFF(억원) = NOPAT + D&A − CAPEX, 최신 연간. 결측 시 None.
+    roe_avg = _avg_recent(rows, "roe", 8)  # 정규화 ROE(최근 8분기 평균) — forward 멀티플 자본수익률
+    fwd_growth = _forward_growth_drivers(rows, eps_windows)  # 성장반영 forward 멀티플용 forward 장기성장
 
     return {
         "current_price": current_price,
         "market_cap_eok": market_cap / 1e8 if market_cap else None,
         "eps_ttm": eps_ttm, "bps": bps, "ebitda_eok_annual": ebitda, "dps_annual": dps,
-        "eps_windows": eps_windows,  # 정당 PER(고든) 산출용 — factor_betas 후 _fair_per 가 소비
         "current_per": _latest_pointintime(rows, "per"),
-        "per_band": _multiple_band(rows, "per"),  # 과거 10년 PER 밴드 — 목표배수 soft 가드 기준선
+        "per_band": _multiple_band(rows, "per"),  # 과거 10년 PER 밴드 — 참고 표시(리레이팅 방향 안내)
         "current_pbr": _latest_pointintime(rows, "pbr"),
-        "pbr_band": _multiple_band(rows, "pbr"),  # 과거 10년 PBR 밴드
-        "roe_avg_pct": _avg_recent(rows, "roe", 8),  # 정당 PBR·PER용 정규화 ROE(최근 8분기 평균)
+        "pbr_band": _multiple_band(rows, "pbr"),  # 과거 10년 PBR 밴드 — 참고 표시
+        "roe_avg_pct": roe_avg,  # 정규화 ROE(최근 8분기 평균) — forward 멀티플 자본수익률
+        "fwd_growth": fwd_growth,  # 성장반영 forward 멀티플용 forward 장기성장(eps·ebitda)
         "current_ev_ebitda": ev_ebitda,
-        "ev_ebitda_band": _multiple_band(rows, "ev_ebitda"),  # 과거 EV/EBITDA 밴드 — 목표배수 결정론 소스
+        "ev_ebitda_band": _multiple_band(rows, "ev_ebitda"),  # 과거 10년 EV/EBITDA 밴드 — 참고 표시
         "div_yield_pct": _latest_pointintime(rows, "div_yield"),
         "roe_pct": _latest_pointintime(rows, "roe"),  # H-Model 감쇠기간 정량 기준선
         "shares": shares, "net_debt_eok": net_debt,
@@ -449,36 +469,10 @@ def apply_hitl_to_anchors(anchors: dict, hitl: dict | None, series: list[dict] |
 # 모든 방식이 완전 결정론이라 LLM args 는 rationale(해석)만 쓰고 수치는 앵커에서 확정한다.
 
 
-def _det_target_per(anc: dict) -> tuple[float | None, str]:
-    """결정론적 목표 PER 과 그 출처. PEG 정당 PER 우선, 없으면(성장률≤0 등) 과거 밴드 중앙값.
-
-    목표가를 LLM 자유값이 아니라 재현 가능한 규칙으로 확정한다(환각 배제). 둘 다 없으면 (None,'').
-    """
-    fair = _num(anc.get("fair_per"))
-    if fair is not None:
-        return fair, "PEG 정당 PER"
-    band = anc.get("per_band") or {}
-    med = _num(band.get("median"))
-    if med is not None:
-        return med, "과거 밴드 중앙값"
-    return None, ""
-
-
-def _t_per(a: dict, anc: dict) -> val.ValuationResult:
-    # 완전 결정론: forward_eps(외삽·HITL)·target_per(PEG 정당 PER→밴드 중앙값) 모두 코드가 확정.
-    # LLM 의 target_per 는 무시하고 rationale(해석)만 반영한다.
-    target_per, per_source = _det_target_per(anc)
-    return val.per_valuation(
-        forward_eps=anc.get("eps_ttm"),
-        target_per=target_per, current_price=anc.get("current_price"),
-        per_band=anc.get("per_band"), fair_per=anc.get("fair_per"), per_source=per_source,
-    )
-
-
 def _capm_coe(anc: dict) -> float | None:
     """자기자본비용(COE) = CAPM = risk_free + β × market_premium. factor_betas 결측이면 None.
 
-    PBR 정당배수·DDM 자본비용·(간접적으로)DCF WACC 의 공통 기준. 실데이터 베타·관례 프리미엄 기반.
+    성장반영 forward 멀티플·DDM 자본비용·(간접적으로)DCF WACC 의 공통 기준. 실데이터 베타·프리미엄 기반.
     """
     fb = anc.get("factor_betas") or {}
     rf = _num(fb.get("risk_free"))
@@ -490,67 +484,62 @@ def _capm_coe(anc: dict) -> float | None:
     return coe if coe > 0 else None
 
 
-def _fair_per(anc: dict) -> tuple[float | None, dict | None]:
-    """정당 PER = 고든 stable-growth. ROE(정규화 평균)·COE(CAPM)·배당성향(DPS/EPS)으로 산출. 결측 시 None."""
+def _det_forward_multiple(anc: dict, fwd_growth: float | None, label: str) -> tuple[float | None, str]:
+    """성장반영 3단계 forward 멀티플과 출처(결측 시 사유). 상대가치 3방식 공통. 폴백 없음.
+
+    fwd_growth(지표별 forward 성장)·ROE(정규화)·COE(CAPM)·terminal(국고채10년)·CAP(해자·지속성)로 산출.
+    결측·발산이면 (None, 사유) — 방식 스킵되며 사유 노출(임의 폴백 없음).
+    """
     roe = _num(anc.get("roe_avg_pct"))
-    dps = _num(anc.get("dps_annual"))
-    eps = _num(anc.get("eps_ttm"))
-    payout = dps / eps if (dps is not None and eps and eps > 0) else None
-    return fwd.fair_per(
-        roe / 100.0 if roe is not None else None,  # % → 소수
-        _capm_coe(anc),
-        payout,
+    coe = _capm_coe(anc)
+    terminal = _num((anc.get("factor_betas") or {}).get("risk_free_10y"))  # 국고채10년 = 장기 명목성장 근사
+    cap_years, _ = betamod.competitive_advantage_period(roe, coe, anc.get("moat"))
+    mult, meta = fwd.growth_forward_multiple(
+        fwd_growth, roe / 100.0 if roe is not None else None, coe, terminal, cap_years,
+    )
+    if mult is None:
+        return None, f"결측 — {(meta or {}).get('reason', '산출 불가')}"
+    return mult, (f"3단계 forward({label}) — 성장 {meta['fwd_growth_pct']}% · ROE {meta['roe_pct']}% · "
+                  f"COE {meta['coe_pct']}% · 영구 {meta['terminal_growth_pct']}% · CAP {meta['cap_years']}년")
+
+
+def _det_target_per(anc: dict) -> tuple[float | None, str]:
+    """목표 PER = 성장반영 3단계 forward 멀티플(EPS forward 성장 기준). 결측 시 (None, 사유)."""
+    return _det_forward_multiple(anc, _num((anc.get("fwd_growth") or {}).get("eps_fwd_growth")), "EPS")
+
+
+def _t_per(a: dict, anc: dict) -> val.ValuationResult:
+    # 완전 결정론: forward_eps(외삽·HITL)·target_per(3단계 forward 멀티플) 모두 코드가 확정.
+    target_per, per_source = _det_target_per(anc)
+    return val.per_valuation(
+        forward_eps=anc.get("eps_ttm"),
+        target_per=target_per, current_price=anc.get("current_price"),
+        per_band=anc.get("per_band"), per_source=per_source,
     )
 
 
-def _fair_pbr(anc: dict) -> tuple[float | None, dict | None]:
-    """정당 PBR = ROE / 자기자본비용(COE). Residual Income/Gordon 정리의 g=0 근사.
-
-    ROE=정규화 최근평균(roe_avg_pct, %), COE=CAPM. 둘 다 있고 COE>0, ROE>0 일 때만.
-    임의 캡 없음(COE>0 가드로 자연 유계). ROE·COE 결측이면 None(밴드 중앙값 폴백에 위임).
-    """
-    roe = _num(anc.get("roe_avg_pct"))
-    if roe is None or roe <= 0:
-        return None, None
-    coe = _capm_coe(anc)
-    if coe is None:
-        return None, None
-    beta = _num((anc.get("factor_betas") or {}).get("market_beta"))
-    fair = (roe / 100.0) / coe  # ROE/COE (g=0 근사). 임의 캡 없음 — COE>0 가드로 자연 유계.
-    meta = {"fair_pbr": round(fair, 2), "roe_pct": round(roe, 2), "coe_pct": round(coe * 100, 2),
-            "beta": round(beta, 2)}
-    return round(fair, 2), meta
-
-
 def _det_target_pbr(anc: dict) -> tuple[float | None, str]:
-    """결정론적 목표 PBR 과 출처. 정당 PBR(ROE/COE) 우선, 없으면 과거 PBR 밴드 중앙값."""
-    fair = _num(anc.get("fair_pbr"))
-    if fair is not None:
-        return fair, "정당 PBR(ROE/COE)"
-    band = anc.get("pbr_band") or {}
-    med = _num(band.get("median"))
-    if med is not None:
-        return med, "과거 밴드 중앙값"
-    return None, ""
+    """목표 PBR = 정당 PER × ROE (fair PBR = fair PER × ROE 항등식). 결측 시 (None, 사유)."""
+    per, src = _det_target_per(anc)
+    roe = _num(anc.get("roe_avg_pct"))
+    if per is None or roe is None or roe <= 0:
+        return None, src if per is None else "결측 — ROE 비양수"
+    return round(per * roe / 100.0, 2), src.replace("forward(EPS)", "forward(PBR=PER×ROE)")
 
 
 def _t_pbr(a: dict, anc: dict) -> val.ValuationResult:
-    # 완전 결정론: bps(앵커)·target_pbr(정당 PBR=ROE/COE→밴드 중앙값) 코드 확정. LLM 은 rationale 만.
+    # 완전 결정론: bps(앵커)·target_pbr(정당PER×ROE) 코드 확정. LLM 은 rationale 만.
     target_pbr, pbr_source = _det_target_pbr(anc)
     return val.pbr_valuation(
         bps=anc.get("bps"),
         target_pbr=target_pbr, current_price=anc.get("current_price"),
-        pbr_band=anc.get("pbr_band"), fair_pbr=anc.get("fair_pbr"), pbr_source=pbr_source,
+        pbr_band=anc.get("pbr_band"), pbr_source=pbr_source,
     )
 
 
 def _det_target_ev_ebitda(anc: dict) -> tuple[float | None, str]:
-    """결정론적 목표 EV/EBITDA 와 출처. 과거 밴드 중앙값(이론 정당배수가 없어 밴드가 1차 기준)."""
-    band = anc.get("ev_ebitda_band") or {}
-    med = _num(band.get("median"))
-    if med is not None:
-        return med, "과거 밴드 중앙값"
-    return None, ""
+    """목표 EV/EBITDA = 성장반영 3단계 forward 멀티플(EBITDA forward 성장 기준). 결측 시 (None, 사유)."""
+    return _det_forward_multiple(anc, _num((anc.get("fwd_growth") or {}).get("ebitda_fwd_growth")), "EBITDA")
 
 
 def _t_ev_ebitda(a: dict, anc: dict) -> val.ValuationResult:
@@ -712,12 +701,12 @@ def _tool_schema(name: str, desc: str, props: dict) -> dict:
 
 
 _TOOL_DESCS = {
-    "compute_per": "PER 목표가 = forward EPS(외삽·HITL, 코드 확정) × 목표PER(PEG 정당 PER, 없으면 밴드 "
-                   "중앙값, 코드 확정). 숫자는 모두 결정론적으로 계산되니 rationale(해석·평가)만 제시하라.",
-    "compute_pbr": "PBR 목표가 = BPS(앵커) × 목표PBR(정당 PBR=ROE/COE, 없으면 밴드 중앙값, 코드 확정). "
+    "compute_per": "PER 목표가 = forward EPS(외삽·HITL, 코드 확정) × 목표PER(성장반영 3단계 forward 멀티플, "
+                   "코드 확정). 숫자는 모두 결정론적으로 계산되니 rationale(해석·평가)만 제시하라.",
+    "compute_pbr": "PBR 목표가 = BPS(앵커) × 목표PBR(정당 PER×ROE, 코드 확정). "
                    "숫자는 결정론 계산되니 rationale(해석)만 제시하라. 자산주·금융주.",
-    "compute_ev_ebitda": "EV/EBITDA 목표가 = forward EBITDA×목표배수(과거 밴드 중앙값, 코드 확정) − 순차입 "
-                         "→ 주식수. 숫자는 결정론 계산되니 rationale(해석)만 제시하라.",
+    "compute_ev_ebitda": "EV/EBITDA 목표가 = forward EBITDA×목표배수(성장반영 3단계 forward 멀티플, 코드 확정) "
+                         "− 순차입 → 주식수. 숫자는 결정론 계산되니 rationale(해석)만 제시하라.",
     "compute_dcf": "DCF(2/3단계). FCF기준(forward순이익)·성장률(forward)·영구성장률(국고채10년)·WACC "
                    "모두 코드 확정. 숫자는 결정론 계산되니 rationale(해석)만 제시하라.",
     "compute_ddm": "고든 배당할인 = DPS(앵커)×(1+배당성장)÷(자본비용−배당성장). 자본비용=CAPM, "
@@ -762,10 +751,12 @@ _SYSTEM = (
     "5) finalize 로 진입성격(자산주/역발상|성장주)과 결론(어느 방식을 왜 더 신뢰하는지·업사이드 성격)을 낸다.\n\n"
     "가정은 반드시 앵커·피어·업종 특성에 근거한다. 예상 EPS 는 연환산(TTM) 기준이며 목표 멀티플도 연간 기준이다. "
     "5방식 모두 완전 결정론이다 — 배수·성장률·자본비용·베타·FCF·WACC 를 코드가 실데이터로 확정한다"
-    "(PER=forward EPS×PEG 정당 PER, PBR=BPS×ROE/COE, EV/EBITDA=EBITDA×밴드중앙−순차입, "
+    "(PER=forward EPS×3단계 forward 멀티플, PBR=BPS×(정당PER×ROE), EV/EBITDA=EBITDA×3단계 멀티플−순차입, "
     "DCF=forward FCF·성장·WACC·영구성장[국고채10년], DDM=고든, 성장은 forward 엔진). "
+    "상대가치 3방식의 목표배수는 성장반영 3단계 forward 멀티플(배당할인 정의식)로 낸다 — 고성장(g=min(forward,ROE)·"
+    "b=1−g/ROE)→fade(ROE→COE)→terminal(국고채10년). 성장은 재투자 상한 g≤ROE 로 캡되고 terminal 초과수익 0 "
+    "수렴이라 발산하지 않는다. ROE·COE·forward성장·국고채10년 결측이면 방식 스킵+사유(임의 폴백 없음). "
     "너는 compute_* 에 숫자를 주지 말고 rationale(결정론적 목표가가 타당한지·리스크·해석)만 제시한다. "
-    "fair_per·fair_pbr 은 성장·수익성 이론 정당 배수다. "
     "추측·과장 금지. 레드플래그(이익의 질 문제)가 있으면 멀티플을 보수적으로 잡는다."
 )
 
@@ -811,12 +802,9 @@ def run_valuation(llm: LLMPort, model: str, ctx: ToolContext, prior: dict, serie
     anchors = apply_hitl_to_anchors(anchors, prior.get("hitl"), series)
     # 이익 앵커를 forward(예상)로 대체 — 소스 우선순위 HITL(위)>컨센서스>성장률 외삽. 사용 소스는 forward_meta 고지.
     anchors = apply_forward_earnings(anchors, series)
-    # 실데이터 시장베타(지수 일봉 회귀) — CAPM COE(PER·PBR·DDM·DCF) 가 LLM 추정 대신 사용.
+    # 실데이터 시장베타(지수 일봉 회귀) — CAPM COE(DDM·DCF) 가 LLM 추정 대신 사용.
     anchors["factor_betas"] = compute_factor_betas(ctx, anchors, price.get("market"))
-    # 정당 PER·PBR(고든/ROE·COE) — factor_betas 로 COE(CAPM) 확정 후 계산(목표배수 결정론화).
-    anchors["fair_per"], anchors["fair_per_meta"] = _fair_per(anchors)
-    anchors["fair_pbr"], anchors["fair_pbr_meta"] = _fair_pbr(anchors)
-    # 해자 등급(business 단계 서술 → 강|중|약) — H-Model 감쇠기간 정성 배수(ROE 초과수익과 앙상블).
+    # 해자 등급(business 단계 서술 → 강|중|약) — DCF 감쇠기간(CAP)에 쓰임.
     anchors["moat"] = _grade_moat(prior.get("business", {}) or {})
     # 종목 유형별 방식 적합도(가중/제외) — blend 가 부적합 방식(금융주 EV/EBITDA·무배당 DDM 등)을 제외.
     cls = _classify_for_fit(ctx, prior, anchors)

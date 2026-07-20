@@ -65,15 +65,12 @@ def _fmt(n: float | None) -> str:
 
 
 # ── 상대가치(멀티플) ────────────────────────────────────────────────────
-def _band_warning(target: float, band: dict | None, unit: str, fair_value: float | None = None) -> str:
-    """LLM 목표 배수가 과거 밴드[p25,p75] 밖이면 경고 문구. clamp 하지 않고 사유만 노출(soft 가드).
+def _band_warning(target: float, band: dict | None, unit: str) -> str:
+    """리레이팅된 목표배수가 과거 밴드[p25,p75] 밖이면 위치 안내. clamp 하지 않고 사유만 노출(soft).
 
     band = {median, p25, p75, n}. 밴드 없거나 유효 표본 부족(n<4)이면 경고 없음.
-    환각 방지: 배수는 LLM 자유값이라 EPS(결정론) 대비 비대칭 — 과거 자기 밴드로 이상치를 투명 경고한다.
-    fair_value(이론 정당 배수: PER=PEG×성장, PBR=ROE/COE)가 있으면 상회 경고에 함께 노출 — 목표배수가
-    정당 배수 이내면 밴드를 넘어도 (성장·수익성으로) 리레이팅이 정당화됨을 알린다.
+    목표배수는 밴드 중앙값 × PEG 리레이팅(성장 가속/둔화)이라 밴드 밖이 정상 — 리레이팅 방향의 크기만 안내한다.
     """
-    fair_txt = f" [정당 {unit} {fair_value:g}배]" if fair_value else ""
     if not band or band.get("n", 0) < 4:
         return ""
     p25, p75, med = band.get("p25"), band.get("p75"), band.get("median")
@@ -81,26 +78,23 @@ def _band_warning(target: float, band: dict | None, unit: str, fair_value: float
         return ""
     yrs = f"{band['n']}개 분기"
     if target > p75:
-        rerate = ""
-        if fair_value and target <= fair_value:
-            rerate = f" — 단, 이론 정당 {unit} 이내라 리레이팅이 정당화됨"
-        return (f"⚠ 목표 {unit} {target:g}배는 과거 밴드(중앙값 {med:g}, {p25:g}~{p75:g}배, {yrs})를 "
-                f"상회{fair_txt} — 성장 가속 등 리레이팅 근거 필요{rerate}")
+        return (f"목표 {unit} {target:g}배는 과거 밴드(중앙값 {med:g}, {p25:g}~{p75:g}배, {yrs}) 상회 "
+                f"— forward 성장 가속에 따른 리레이팅")
     if target < p25:
-        return (f"⚠ 목표 {unit} {target:g}배는 과거 밴드(중앙값 {med:g}, {p25:g}~{p75:g}배, {yrs})를 "
-                f"하회 — 디레이팅 근거 필요")
+        return (f"목표 {unit} {target:g}배는 과거 밴드(중앙값 {med:g}, {p25:g}~{p75:g}배, {yrs}) 하회 "
+                f"— forward 성장 둔화에 따른 디레이팅")
     return ""
 
 
 def per_valuation(
     *, forward_eps: float | None, target_per: float | None, current_price: float | None,
-    per_band: dict | None = None, fair_per: float | None = None, per_source: str = "",
+    per_band: dict | None = None, per_source: str = "",
 ) -> ValuationResult:
     """목표가 = 예상 EPS × 목표 PER. 성장주·이익 창출 기업의 기본.
 
-    forward_eps·target_per 는 결정론적으로 산출돼 들어온다(외삽·HITL EPS, PEG 정당 PER). per_source 는
-    목표배수 출처(예 'PEG 정당 PER'·'과거 밴드 중앙값') — process 에 노출해 재현성을 투명화한다.
-    per_band 가 있으면 목표 PER 이 밴드[p25,p75] 밖일 때 경고를, fair_per 로 리레이팅 정당성을 안내한다(soft).
+    forward_eps·target_per 는 결정론적으로 산출돼 들어온다(외삽·HITL EPS, 밴드 PEG 리레이팅 PER). per_source
+    는 목표배수 출처(예 '밴드 N배 × EPS성장 리레이팅 ×1.3') — process 에 노출해 재현성을 투명화한다.
+    per_band 가 있으면 목표 PER 의 밴드 대비 위치(리레이팅 방향)를 안내한다(soft).
     """
     r = ValuationResult("per", METHOD_LABELS["per"], applicable=False)
     if forward_eps is None or target_per is None:
@@ -120,18 +114,18 @@ def per_valuation(
         f"목표 PER {target_per:g}배 적용{src}",
         f"목표가 = {_fmt(forward_eps)} × {target_per:g} = {_fmt(target)}원",
     ]
-    r.note = _band_warning(target_per, per_band, "PER", fair_per)
+    r.note = _band_warning(target_per, per_band, "PER")
     return r
 
 
 def pbr_valuation(
     *, bps: float | None, target_pbr: float | None, current_price: float | None,
-    pbr_band: dict | None = None, fair_pbr: float | None = None, pbr_source: str = "",
+    pbr_band: dict | None = None, pbr_source: str = "",
 ) -> ValuationResult:
     """목표가 = 주당순자산(BPS) × 목표 PBR. 자산주·금융주·역발상에 유효.
 
-    bps·target_pbr 은 결정론적으로 산출돼 들어온다(BPS 앵커, 정당 PBR=ROE/COE 또는 밴드 중앙값).
-    pbr_source 는 배수 출처(재현성), pbr_band 는 과거 밴드(soft 경고), fair_pbr 은 수익성 정당 배수.
+    bps·target_pbr 은 결정론적으로 산출돼 들어온다(BPS 앵커, 밴드 ROE 리레이팅 PBR).
+    pbr_source 는 배수 출처(재현성), pbr_band 는 과거 밴드(리레이팅 방향 안내).
     """
     r = ValuationResult("pbr", METHOD_LABELS["pbr"], applicable=False)
     if bps is None or target_pbr is None:
@@ -151,7 +145,7 @@ def pbr_valuation(
         f"목표 PBR {target_pbr:g}배 적용{src}",
         f"목표가 = {_fmt(bps)} × {target_pbr:g} = {_fmt(target)}원",
     ]
-    r.note = _band_warning(target_pbr, pbr_band, "PBR", fair_pbr)
+    r.note = _band_warning(target_pbr, pbr_band, "PBR")
     return r
 
 
@@ -166,8 +160,8 @@ def ev_ebitda_valuation(
 ) -> ValuationResult:
     """EV = EBITDA × 목표배수 → 시총 = EV − 순차입 → 목표가 = 시총/주식수. 자본구조 중립 비교.
 
-    forward_ebitda·net_debt·shares 는 결정론 앵커, target_ev_ebitda 는 과거 밴드 중앙값(코드 확정).
-    ev_source 는 배수 출처(재현성), ev_band 는 과거 밴드(soft 경고 — 배수=밴드중앙이라 실질 무발동).
+    forward_ebitda·net_debt·shares 는 결정론 앵커, target_ev_ebitda 는 밴드 EBITDA성장 리레이팅(코드 확정).
+    ev_source 는 배수 출처(재현성), ev_band 는 과거 밴드(리레이팅 방향 안내).
     """
     r = ValuationResult("ev_ebitda", METHOD_LABELS["ev_ebitda"], applicable=False)
     if forward_ebitda is None or target_ev_ebitda is None or shares is None or shares <= 0:

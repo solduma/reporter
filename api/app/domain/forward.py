@@ -98,24 +98,69 @@ def long_term_growth(ttm_series: list[float]) -> tuple[float | None, dict | None
     return g_long, meta
 
 
-def fair_per(roe: float | None, coe: float | None, payout: float | None) -> tuple[float | None, dict | None]:
-    """고든 stable-growth 정당 PER = payout·(1+g)/(COE−g), 지속가능성장 g = ROE × (1−payout).
+def growth_forward_multiple(
+    fwd_growth: float | None, roe: float | None, coe: float | None,
+    terminal_growth: float | None, cap_years: float | None,
+) -> tuple[float | None, dict | None]:
+    """성장반영 3단계 forward 멀티플(P0/E1) = 배당할인 복리 정의식의 폐형식.
 
-    재무이론 정석(Damodaran stable P/E). g 를 지속가능성장(재투자수익=ROE, 유보율=1−payout)으로 내생화 —
-    실현 CAGR(PER 과 역상관·과대) 대신 배당정책·수익성에서 유도해 편향·순환이 없다. payout 은 실제 배당성향
-    (DPS/EPS). ROE·COE·payout 결측이거나 g≥COE(고성장주 발산)면 미산출(밴드 폴백). 상수·임의 캡 없음.
+    상대가치 3방식(PER·PBR·EV/EBITDA)의 목표배수를 후행 밴드 대신 이론 forward 배수로 낸다. 배당할인모형
+    P0 = Σ_{k=1}^{N} b_k·E0·Π(1+g_j)/(1+r)^k + TV 를 선행이익 E1=E0(1+g1) 로 나눈 것(Damodaran 2/3단계 PE).
+
+    성장률과 배당성향을 독립 변수로 두면 저배당 성장주에서 배수가 5~46배로 요동치므로(payout 딜레마),
+    g=ROE×재투자율 회계항등식으로 강제 연동한다: b = max(0, 1 − g/ROE). 재투자율 = 1−b ∈ [0,1] 이므로
+    지속가능성장의 수학적 상한은 g ≤ ROE 다 — forward 외삽이 ROE 를 초과하면(재투자만으로 불가능한 성장,
+    예 ROE 9% 기업의 EPS 91% 외삽) g 를 ROE 로 캡한다(r−g>0 과 같은 급의 회계 항등식 가드, 임의 상수 아님).
+    이 캡이 없으면 g>ROE 에서 b=0 이어도 EPS 복리로 배수가 폭발한다.
+
+    3단계 궤적(모든 파라미터 실측·내생, 임의 상수 없음):
+      1) 고성장 n=cap_years 년: g=min(fwd_growth, ROE), ROE=현재, b=max(0,1−g/ROE)
+      2) fade n=cap_years 년: g·ROE 선형회귀(g→terminal_growth, ROE→COE)
+      3) terminal: g=terminal_growth(국고채10년), ROE=COE(초과수익 소멸) → b=1−g/COE
+    발산 방지: g≤ROE 캡 + terminal ROE→COE(초과수익 0 수렴) + terminal_growth<COE 강제(r−g>0 가드).
+    ROE·COE·fwd_growth·terminal_growth·cap 결측이거나 terminal_growth≥COE·ROE≤0 이면 (None, 사유) — 스킵.
     """
-    if roe is None or roe <= 0 or coe is None or coe <= 0 or payout is None:
-        return None, None
-    payout = max(0.0, min(1.0, payout))  # 배당성향 [0,1] (음수·초과배당 방어)
-    g = roe * (1.0 - payout)  # 지속가능성장률
-    if g >= coe:  # 고든 발산 — 성장이 자본비용 이상 영구 지속 불가(고성장주 → 밴드 폴백)
-        return None, None
-    fair = payout * (1 + g) / (coe - g)
-    meta = {"fair_per": round(fair, 1), "roe_pct": round(roe * 100, 2),
-            "coe_pct": round(coe * 100, 2), "growth_pct": round(g * 100, 2),
-            "payout": round(payout, 3), "source": "gordon_stable"}
-    return round(fair, 1), meta
+    if roe is None or roe <= 0 or coe is None or coe <= 0:
+        return None, {"reason": "ROE 또는 COE 결측·비양수"}
+    if fwd_growth is None or terminal_growth is None or cap_years is None or cap_years <= 0:
+        return None, {"reason": "forward 성장·영구성장·CAP 중 결측"}
+    if terminal_growth >= coe:  # 고든 발산 가드(r−g>0). terminal_growth 는 국고채10년이라 정상은 <COE.
+        return None, {"reason": f"영구성장률({terminal_growth*100:.1f}%)≥COE({coe*100:.1f}%) — terminal 발산"}
+
+    raw_growth = fwd_growth
+    fwd_growth = min(fwd_growth, roe)  # 지속가능성장 상한 g≤ROE(재투자율≤1 회계 항등식). 초과 외삽 억제.
+    n = round(cap_years)
+    pv = 0.0  # Σ 배당 현가 / E0
+    eps = 1.0  # E0 기준 상대 EPS(성장 복리 누적)
+    disc = 1.0  # (1+r)^k
+    # 1단계 — 고성장 n년: g·ROE 고정
+    for _ in range(n):
+        eps *= 1.0 + fwd_growth
+        disc *= 1.0 + coe
+        b = max(0.0, 1.0 - fwd_growth / roe)
+        pv += b * eps / disc
+    # 2단계 — fade n년: g·ROE 선형회귀(g→terminal_growth, ROE→COE)
+    for j in range(1, n + 1):
+        g = fwd_growth + (terminal_growth - fwd_growth) * j / n
+        roe_f = roe + (coe - roe) * j / n
+        eps *= 1.0 + g
+        disc *= 1.0 + coe
+        b = max(0.0, 1.0 - g / roe_f) if roe_f > 0 else 0.0
+        pv += b * eps / disc
+    # 3단계 — terminal: g=terminal_growth, ROE=COE → b=1−g/COE, 고든 영구가치
+    b_term = 1.0 - terminal_growth / coe
+    tv = b_term * eps * (1.0 + terminal_growth) / (coe - terminal_growth)
+    pv += tv / disc
+
+    fwd_mult = pv / (1.0 + fwd_growth)  # P0/E1
+    if fwd_mult <= 0:
+        return None, {"reason": "산출 배수 ≤0(초과수익 음수 누적)"}
+    meta = {"forward_multiple": round(fwd_mult, 1), "fwd_growth_pct": round(fwd_growth * 100, 2),
+            "raw_growth_pct": round(raw_growth * 100, 2), "growth_capped": raw_growth > roe,
+            "roe_pct": round(roe * 100, 2), "coe_pct": round(coe * 100, 2),
+            "terminal_growth_pct": round(terminal_growth * 100, 2), "cap_years": n,
+            "source": "growth_3stage_forward"}
+    return round(fwd_mult, 1), meta
 
 
 def extrapolate_growth(ttm_series: list[float]) -> tuple[float | None, dict | None]:
