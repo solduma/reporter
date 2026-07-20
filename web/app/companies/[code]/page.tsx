@@ -719,46 +719,41 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
         />
       </section>
 
-      <section className={`${styles.chartCard} ${expandedAxis.has("growth") ? styles.axisExpanded : styles.axisCollapsed}`} data-tour="snapshot">
-        <div className={styles.growthHead}>
-          <h2 className={styles.sectionTitle}>성장 지표</h2>
-          <span className={styles.growthTag}>성장주 스냅샷</span>
-        </div>
-        {expandedAxis.has("growth") ? (
-          <>
-            <ScoreBreakdown axis={axisByKey.growth} />
-            <GrowthMetrics code={code} />
-          </>
-        ) : (
-          <p className={styles.collapsedHint}>상단 성장 카드를 클릭하면 상세 지표가 표시됩니다</p>
-        )}
-      </section>
+      {expandedAxis.has("growth") ? (
+        <section className={styles.chartCard} data-tour="snapshot">
+          <div className={styles.growthHead}>
+            <h2 className={styles.sectionTitle}>성장 지표</h2>
+            <span className={styles.growthTag}>성장주 스냅샷</span>
+          </div>
+          <ScoreBreakdown axis={axisByKey.growth} />
+          <GrowthMetrics code={code} />
+        </section>
+      ) : null}
 
       {/* 가치 지표: PER·PBR·PSR 분위수 밴드 (자체 date-range 슬라이더로 3개 차트 동시 조작) */}
-      <section className={`${styles.chartCard} ${expandedAxis.has("value") ? styles.axisExpanded : styles.axisCollapsed}`} data-tour="valuation">
-        <h2 className={styles.sectionTitle}>
-          가치 지표
-          <InfoDot termKey="band" />
-          {finStatus && !(finStatus.financials_10y_done && finStatus.report_10y_done) ? (
-            <span className={styles.backfillBadge} title="10년 재무·밸류에이션을 백그라운드로 채우는 중입니다. 완료되면 자동 갱신됩니다.">
-              백필 중…
-            </span>
-          ) : null}
-        </h2>
-        {expandedAxis.has("value") ? (
-          <>
-        <ScoreBreakdown axis={axisByKey.value} />
-        {financials.status === "ready" && financials.data.length > 0 ? (
-          <>
-            {valuationRange && valuationAxis.length > 1 ? (
-              <div className={styles.controlBar}>
-                <DateRangeSlider
-                  dates={valuationAxis}
-                  from={valuationRange.from}
-                  to={valuationRange.to}
-                  onChange={(from, to) => setValuationRange({ from, to })}
-                />
-              </div>
+      {expandedAxis.has("value") ? (
+        <section className={styles.chartCard} data-tour="valuation">
+          <h2 className={styles.sectionTitle}>
+            가치 지표
+            <InfoDot termKey="band" />
+            {finStatus && !(finStatus.financials_10y_done && finStatus.report_10y_done) ? (
+              <span className={styles.backfillBadge} title="10년 재무·밸류에이션을 백그라운드로 채우는 중입니다. 완료되면 자동 갱신됩니다.">
+                백필 중…
+              </span>
+            ) : null}
+          </h2>
+          <ScoreBreakdown axis={axisByKey.value} />
+          {financials.status === "ready" && financials.data.length > 0 ? (
+            <>
+              {valuationRange && valuationAxis.length > 1 ? (
+                <div className={styles.controlBar}>
+                  <DateRangeSlider
+                    dates={valuationAxis}
+                    from={valuationRange.from}
+                    to={valuationRange.to}
+                    onChange={(from, to) => setValuationRange({ from, to })}
+                  />
+                </div>
             ) : null}
             <MultipleBandChart
               data={financials.data}
@@ -769,94 +764,82 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
         ) : (
           <div className={styles.sectionStatus}>재무 데이터가 없습니다</div>
         )}
-          </>
-        ) : (
-          <p className={styles.collapsedHint}>상단 가치 카드를 클릭하면 상세 지표가 표시됩니다</p>
-        )}
-      </section>
+        </section>
+      ) : null}
 
       {/* 추세 지표: 와인스타인 국면(단/중/장기) + Mansfield 상대강도 + 국면 배경밴드 종목차트. */}
-      <section className={`${styles.chartCard} ${expandedAxis.has("technical") ? styles.axisExpanded : styles.axisCollapsed}`}>
-        <div className={styles.growthHead}>
-          <h2 className={styles.sectionTitle}>추세 지표</h2>
-          <span className={styles.growthTag}>국면 · 상대강도</span>
-        </div>
-        {expandedAxis.has("technical") ? (
-          <>
-        <ScoreBreakdown axis={axisByKey.technical} />
-        <TrendPanel trend={trend.data} status={trend.status} message={trend.message} />
-        {/* 국면 배경밴드를 얹은 종목 차트 — 추세를 바로 눈으로 확인(탑다운 섹션과 동일 차트·상태 공유).
-            ref 없는 사본 컨트롤바(withRef=false)라 플로팅 가시성 추적은 탑다운 원본만 담당한다. */}
-        <div className={styles.compareStock}>
-          <h3 className={styles.subHead}>국면 차트</h3>
-          {renderControlBar(false, false)}
-          {stageLegendBar}
-          {stockChart}
-        </div>
-          </>
-        ) : (
-          <p className={styles.collapsedHint}>상단 추세 카드를 클릭하면 상세 지표가 표시됩니다</p>
-        )}
-      </section>
+      {expandedAxis.has("technical") ? (
+        <section className={styles.chartCard}>
+          <div className={styles.growthHead}>
+            <h2 className={styles.sectionTitle}>추세 지표</h2>
+            <span className={styles.growthTag}>국면 · 상대강도</span>
+          </div>
+          <ScoreBreakdown axis={axisByKey.technical} />
+          <TrendPanel trend={trend.data} status={trend.status} message={trend.message} />
+          {/* 국면 배경밴드를 얹은 종목 차트 — 추세를 바로 눈으로 확인(탑다운 섹션과 동일 차트·상태 공유).
+              ref 없는 사본 컨트롤바(withRef=false)라 플로팅 가시성 추적은 탑다운 원본만 담당한다. */}
+          <div className={styles.compareStock}>
+            <h3 className={styles.subHead}>국면 차트</h3>
+            {renderControlBar(false, false)}
+            {stageLegendBar}
+            {stockChart}
+          </div>
+        </section>
+      ) : null}
 
       {/* 탑다운 지표(비교 차트): 지수 → 섹터 → 종목 → 재무. 공용 컨트롤바(분/일/주·기간·MA). */}
-      <section className={`${styles.chartCard} ${expandedAxis.has("topdown") ? styles.axisExpanded : styles.axisCollapsed}`} ref={compareSectionRef}>
-        <div className={styles.growthHead}>
-          <div>
-            <h2 className={styles.sectionTitle}>탑다운 지표</h2>
-            <p className={styles.compareSub}>지수 · 섹터 · 종목 · 재무를 같은 기간으로 함께 본다</p>
+      {expandedAxis.has("topdown") ? (
+        <section className={styles.chartCard} ref={compareSectionRef}>
+          <div className={styles.growthHead}>
+            <div>
+              <h2 className={styles.sectionTitle}>탑다운 지표</h2>
+              <p className={styles.compareSub}>지수 · 섹터 · 종목 · 재무를 같은 기간으로 함께 본다</p>
+            </div>
           </div>
-        </div>
 
-        {expandedAxis.has("topdown") ? (
-          <>
+          <ScoreBreakdown axis={axisByKey.topdown} />
 
-        <ScoreBreakdown axis={axisByKey.topdown} />
+          {renderControlBar(false)}
 
-        {renderControlBar(false)}
-
-        {/* 지수 → 섹터 (2열 국장|미장) */}
-        {krSector ? (
-          <SectorCharts
-            industry={krSector}
-            timeframe={compareTf(timeframe)}
-            market={market ?? undefined}
-            dateRange={dateRange}
-            onRangeChange={handleChartRangeChange}
-          />
-        ) : (
-          <p className={styles.sectionStatus}>
-            이 종목의 섹터를 특정할 수 없어 지수·섹터 차트를 생략합니다.
-          </p>
-        )}
-
-        {/* 종목 */}
-        <div className={styles.compareStock}>
-          <h3 className={styles.subHead}>{displayName} (종목)</h3>
-          {stageLegendBar}
-          {stockChart}
-        </div>
-
-        {/* 재무 라인(종목 차트 아래, 같은 시간축·기간) */}
-        <div className={styles.compareStock}>
-          <h3 className={styles.subHead}>재무 지표</h3>
-          {financials.status === "ready" && financials.data.length > 0 ? (
-            <FinancialsLineChart
-              data={financials.data}
-              range={chartRange}
+          {/* 지수 → 섹터 (2열 국장|미장) */}
+          {krSector ? (
+            <SectorCharts
+              industry={krSector}
+              timeframe={compareTf(timeframe)}
+              market={market ?? undefined}
+              dateRange={dateRange}
               onRangeChange={handleChartRangeChange}
             />
-          ) : financials.status === "loading" ? (
-            <div className={styles.sectionStatus}>불러오는 중…</div>
           ) : (
-            <div className={styles.sectionStatus}>재무 데이터가 없습니다</div>
+            <p className={styles.sectionStatus}>
+              이 종목의 섹터를 특정할 수 없어 지수·섹터 차트를 생략합니다.
+            </p>
           )}
-        </div>
-          </>
-        ) : (
-          <p className={styles.collapsedHint}>상단 탑다운 카드를 클릭하면 상세 지표가 표시됩니다</p>
-        )}
-      </section>
+
+          {/* 종목 */}
+          <div className={styles.compareStock}>
+            <h3 className={styles.subHead}>{displayName} (종목)</h3>
+            {stageLegendBar}
+            {stockChart}
+          </div>
+
+          {/* 재무 라인(종목 차트 아래, 같은 시간축·기간) */}
+          <div className={styles.compareStock}>
+            <h3 className={styles.subHead}>재무 지표</h3>
+            {financials.status === "ready" && financials.data.length > 0 ? (
+              <FinancialsLineChart
+                data={financials.data}
+                range={chartRange}
+                onRangeChange={handleChartRangeChange}
+              />
+            ) : financials.status === "loading" ? (
+              <div className={styles.sectionStatus}>불러오는 중…</div>
+            ) : (
+              <div className={styles.sectionStatus}>재무 데이터가 없습니다</div>
+            )}
+          </div>
+        </section>
+      ) : null}
 
       <section className={styles.chartCard}>
         <h2 className={styles.sectionTitle}>동일업종비교</h2>
