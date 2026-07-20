@@ -8,9 +8,10 @@ report_ingest 가 각각 단일 소유한다(역사 시총 기준으로 통일).
 from __future__ import annotations
 
 import logging
+import re
 from datetime import date, timedelta
 
-from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy import and_, case, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -405,66 +406,107 @@ def daily_closes(db: Session, code: str, limit: int = 260) -> list[tuple[str, fl
     return [(d.isoformat(), c) for d, c in reversed(rows)]
 
 
-def sector_report_industries(db: Session, code: str) -> list[str]:
-    """종목의 대표 섹터를 산업 리포트 industry_name 후보로 변환(judal 테마 → 섹터 → 산업명).
-
-    섹터→산업 매핑은 reporter.sector_etf 소유(딥다이브·커버리지 공유). 매핑 없으면 빈 리스트."""
-    from reporter import sector_etf
-
-    sector = sector_etf.stock_kr_sector(code, theme_names(db, code))
-    return list(sector_etf.kr_sector_to_report_industries(sector))
+# 혼동 종목명(대상명을 부분문자열로 포함하는 다른 종목명)이 이 수 이상이면 재벌·그룹 약칭으로 보고
+# 산업 리포트의 종목명 매칭을 끈다(코드 매칭에만 의존). 측정 근거: 혼동명 0~3개는 오탐 거의 없고
+# (케이아이엔엑스 0·에코프로 3), 8개+ 는 오탐 다발(SK 37·LG 14·KT 8). 4 를 경계로 약칭을 분리한다.
+_CONFUSABLE_ABBREV_THRESHOLD = 4
 
 
-def _coverage_filter(code: str, industries: list[str], name: str | None):
-    """커버리지 대상 SQL 조건 — 종목 리포트 OR (소속 산업 리포트 & 본문에 회사명 언급).
+# 같은 회사의 파생상품(우선주·ETF·ETN) — 대상명을 포함해도 '다른 회사'가 아니라 오탐 소스가 아니다.
+# 이걸 혼동명에서 빼야 '삼성전자'(파생만 있음 → 고유명)와 'SK'(SK하이닉스 등 다른 회사 다수 → 약칭)가
+# 구별된다. 대상명 뒤 우선주 접미사, 또는 ETF/ETN 브랜드·상품어를 포함하면 파생으로 간주.
+_ETF_ETN_MARK = re.compile(
+    r"KODEX|TIGER|KIWOOM|SOL|RISE|PLUS|ACE|WON|UNICORN|HANARO|KOSEF|ARIRANG|KBSTAR|TIMEFOLIO|"
+    r"채권혼합|레버리지|인버스|단일종목|선물|ETN|액티브|커버드콜|밸류체인|그룹플러스|포커스|[0-9]+호$"
+)
 
-    산업 리포트는 종목 커버가 아니라 섹터 전반이라, 섹터가 맞아도 이 회사가 본문에 안 나올 수
-    있다. 그래서 산업 리포트는 종목 소속 산업(industry_name)이면서 **full_text·rationale 에
-    회사명이 실제 언급된 것만** 포함한다(요약엔 대표주만 남아 소실되므로 full_text 우선).
-    name 이 없으면(종목명 미상) 산업 리포트는 넣지 않는다(오탐 방지). industries 비면 종목만.
+
+def _confusable_names(db: Session, name: str) -> list[str]:
+    """대상명을 포함하는 '다른 회사' 종목명들(예: 'SK' → 'SK하이닉스'·'SK증권'…). 본문 매칭 오탐 소스.
+
+    산업 리포트 본문의 'SK하이닉스'가 'SK' 부분매칭으로 오탐하므로 매칭 제외에 쓴다. 단 같은 회사 파생
+    (우선주 '삼성전자우', ETF 'KODEX 삼성전자…')은 오탐 소스가 아니라 제외한다 — 이래야 파생만 있는
+    고유명(삼성전자, 혼동명 0)과 다른 회사가 많은 약칭(SK, 혼동명 다수)이 갈린다.
     """
-    own = Report.stock_code == code
-    if not industries or not name:
-        return own
-    mentioned = or_(
-        ReportAnalysis.full_text.contains(name),
-        ReportAnalysis.rationale.contains(name),
-    )
-    industry = and_(
-        Report.category == "industry",
-        Report.industry_name.in_(industries),
-        mentioned,
-    )
-    return or_(own, industry)
+    rows = db.execute(
+        select(UniverseSnapshot.stock_name)
+        .where(UniverseSnapshot.stock_name.is_not(None), UniverseSnapshot.stock_name.contains(name))
+        .distinct()
+    ).all()
+    pref = re.compile(rf"^{re.escape(name)}우[A-C]?$")  # 대상명의 우선주(같은 회사)
+    return [
+        r[0] for r in rows
+        if r[0] and r[0] != name and not pref.match(r[0]) and not _ETF_ETN_MARK.search(r[0])
+    ]
+
+
+def _mentions_target(text: str | None, name: str | None, confusables: list[str]) -> bool:
+    """본문 text 에 이 종목이 단어경계로 단독 언급됐는지(파이썬 판정, DB 정규식 비의존 → 이식성).
+
+    혼동명(다른 회사)을 먼저 제거한 뒤(부분문자열 오탐 차단), 남은 텍스트에서 종목명이 앞뒤가 한글·
+    영숫자가 아닌 독립 토큰으로 나오면 True. name 없으면 False.
+    """
+    if not text or not name:
+        return False
+    stripped = text
+    for c in confusables:
+        stripped = stripped.replace(c, " ")
+    return re.search(rf"(?<![가-힣A-Za-z0-9]){re.escape(name)}(?![가-힣A-Za-z0-9])", stripped) is not None
+
+
+def _coverage_rows(db: Session, code: str, since: date) -> list[tuple[Report, ReportAnalysis]]:
+    """커버리지 리포트(종목 + 본문 언급 산업) — since 이후 최신순. counts·reports 공용.
+
+    산업 리포트는 industry_name(섹터 분류, '기타'·오분류 사각지대)이 아니라 본문 언급으로 판정:
+      1) 종목코드(6자리) 언급 — 오탐 0(가장 확실), 또는
+      2) 종목명 단어경계 단독 언급(혼동명 제거 후) — 단 혼동명(다른 회사)이 임계 이상인 재벌 약칭
+         (SK·LG)은 표기변형·사전누락으로 오탐이 남아 이름 매칭을 끄고 코드에만 의존.
+    SQL 은 이식 가능한 contains 로 후보만 넓게 뽑고, 단어경계·혼동명 정밀 판정은 파이썬에서 한다
+    (산업 리포트가 수백 건 규모라 성능 무관, DB 정규식 비의존).
+    """
+    name = resolve_stock_name(db, code)
+    confusables = _confusable_names(db, name) if name else []
+    name_match_on = bool(name) and len(confusables) < _CONFUSABLE_ABBREV_THRESHOLD
+    text_cols = (ReportAnalysis.full_text, ReportAnalysis.rationale)
+
+    # SQL 후보: 종목 리포트 OR (산업 & (코드 언급 OR [이름매칭 켜졌으면] 이름 부분포함)).
+    candidate_terms = [col.contains(code) for col in text_cols]
+    if name_match_on:
+        candidate_terms += [col.contains(name) for col in text_cols]
+    industry_candidate = and_(Report.category == "industry", or_(*candidate_terms))
+    rows = db.execute(
+        select(Report, ReportAnalysis)
+        .join(ReportAnalysis, ReportAnalysis.report_id == Report.id)
+        .where(or_(Report.stock_code == code, industry_candidate), Report.published_date >= since)
+        .order_by(Report.published_date.desc())
+    ).all()
+
+    out: list[tuple[Report, ReportAnalysis]] = []
+    for rep, an in rows:
+        if rep.stock_code == code:  # 종목 직접 리포트
+            out.append((rep, an))
+            continue
+        # 산업 리포트 — 정밀 판정: 코드 언급 OR (이름매칭 켜졌고 단어경계 단독 언급)
+        by_code = (code in (an.full_text or "")) or (code in (an.rationale or ""))
+        by_name = name_match_on and (
+            _mentions_target(an.full_text, name, confusables)
+            or _mentions_target(an.rationale, name, confusables)
+        )
+        if by_code or by_name:
+            out.append((rep, an))
+    return out
 
 
 def coverage_counts(db: Session, code: str, since: date) -> tuple[int, int]:
-    """(리포트수, BUY수) since 이후. 종목 리포트 + 회사가 본문 언급된 소속 산업 리포트."""
-    industries = sector_report_industries(db, code)
-    name = resolve_stock_name(db, code)
-    cov = db.execute(
-        select(
-            func.count(Report.id),
-            func.sum(case((ReportAnalysis.sentiment == Sentiment.BUY, 1), else_=0)),
-        )
-        .join(ReportAnalysis, ReportAnalysis.report_id == Report.id)
-        .where(_coverage_filter(code, industries, name), Report.published_date >= since)
-    ).one()
-    return int(cov[0] or 0), int(cov[1] or 0)
+    """(리포트수, BUY수) since 이후. 종목 리포트 + 회사가 본문 언급된 산업 리포트."""
+    rows = _coverage_rows(db, code, since)
+    buys = sum(1 for _r, a in rows if a.sentiment == Sentiment.BUY)
+    return len(rows), buys
 
 
 def coverage_reports(db: Session, code: str, since: date) -> list[tuple[Report, ReportAnalysis]]:
     """커버리지 리포트 목록(종목 + 회사 언급된 산업), since 이후 최신순. counts 와 동일 조건·창."""
-    industries = sector_report_industries(db, code)
-    name = resolve_stock_name(db, code)
-    return list(
-        db.execute(
-            select(Report, ReportAnalysis)
-            .join(ReportAnalysis, ReportAnalysis.report_id == Report.id)
-            .where(_coverage_filter(code, industries, name), Report.published_date >= since)
-            .order_by(Report.published_date.desc())
-        ).all()
-    )
+    return _coverage_rows(db, code, since)
 
 
 def report_stock_name(db: Session, code: str) -> str | None:
