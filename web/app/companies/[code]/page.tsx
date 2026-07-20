@@ -173,6 +173,19 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
   // 재무 백필 진행상태(가용분은 위 financials 로 즉시 표시, 이 값으로 '백필 중' 배지). 미완이면 폴링.
   const [finStatus, setFinStatus] = useState<FinancialsStatus | null>(null);
   const [peers, setPeers] = useState<SectionState<Peer[]>>({ status: "loading", data: [] });
+  const [expandedAxis, setExpandedAxis] = useState<Set<string>>(new Set());
+  const toggleAxis = useCallback((axisKey: string) => {
+    setExpandedAxis((prev) => {
+      const next = new Set(prev);
+      if (next.has(axisKey)) {
+        next.delete(axisKey);
+      } else {
+        next.add(axisKey);
+      }
+      return next;
+    });
+  }, []);
+
   const [trend, setTrend] = useState<SectionState<CompanyTrend | null>>({
     status: "loading",
     data: null,
@@ -702,20 +715,27 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
           analysis={analysis.data}
           status={analysis.status}
           message={analysis.message}
+          onToggleAxis={toggleAxis}
         />
       </section>
 
-      <section className={styles.chartCard} data-tour="snapshot">
+      <section className={`${styles.chartCard} ${expandedAxis.has("growth") ? styles.axisExpanded : styles.axisCollapsed}`} data-tour="snapshot">
         <div className={styles.growthHead}>
           <h2 className={styles.sectionTitle}>성장 지표</h2>
           <span className={styles.growthTag}>성장주 스냅샷</span>
         </div>
-        <ScoreBreakdown axis={axisByKey.growth} />
-        <GrowthMetrics code={code} />
+        {expandedAxis.has("growth") ? (
+          <>
+            <ScoreBreakdown axis={axisByKey.growth} />
+            <GrowthMetrics code={code} />
+          </>
+        ) : (
+          <p className={styles.collapsedHint}>상단 성장 카드를 클릭하면 상세 지표가 표시됩니다</p>
+        )}
       </section>
 
       {/* 가치 지표: PER·PBR·PSR 분위수 밴드 (자체 date-range 슬라이더로 3개 차트 동시 조작) */}
-      <section className={styles.chartCard} data-tour="valuation">
+      <section className={`${styles.chartCard} ${expandedAxis.has("value") ? styles.axisExpanded : styles.axisCollapsed}`} data-tour="valuation">
         <h2 className={styles.sectionTitle}>
           가치 지표
           <InfoDot termKey="band" />
@@ -725,6 +745,8 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
             </span>
           ) : null}
         </h2>
+        {expandedAxis.has("value") ? (
+          <>
         <ScoreBreakdown axis={axisByKey.value} />
         {financials.status === "ready" && financials.data.length > 0 ? (
           <>
@@ -747,14 +769,20 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
         ) : (
           <div className={styles.sectionStatus}>재무 데이터가 없습니다</div>
         )}
+          </>
+        ) : (
+          <p className={styles.collapsedHint}>상단 가치 카드를 클릭하면 상세 지표가 표시됩니다</p>
+        )}
       </section>
 
       {/* 추세 지표: 와인스타인 국면(단/중/장기) + Mansfield 상대강도 + 국면 배경밴드 종목차트. */}
-      <section className={styles.chartCard}>
+      <section className={`${styles.chartCard} ${expandedAxis.has("technical") ? styles.axisExpanded : styles.axisCollapsed}`}>
         <div className={styles.growthHead}>
           <h2 className={styles.sectionTitle}>추세 지표</h2>
           <span className={styles.growthTag}>국면 · 상대강도</span>
         </div>
+        {expandedAxis.has("technical") ? (
+          <>
         <ScoreBreakdown axis={axisByKey.technical} />
         <TrendPanel trend={trend.data} status={trend.status} message={trend.message} />
         {/* 국면 배경밴드를 얹은 종목 차트 — 추세를 바로 눈으로 확인(탑다운 섹션과 동일 차트·상태 공유).
@@ -765,16 +793,23 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
           {stageLegendBar}
           {stockChart}
         </div>
+          </>
+        ) : (
+          <p className={styles.collapsedHint}>상단 추세 카드를 클릭하면 상세 지표가 표시됩니다</p>
+        )}
       </section>
 
       {/* 탑다운 지표(비교 차트): 지수 → 섹터 → 종목 → 재무. 공용 컨트롤바(분/일/주·기간·MA). */}
-      <section className={styles.chartCard} ref={compareSectionRef}>
+      <section className={`${styles.chartCard} ${expandedAxis.has("topdown") ? styles.axisExpanded : styles.axisCollapsed}`} ref={compareSectionRef}>
         <div className={styles.growthHead}>
           <div>
             <h2 className={styles.sectionTitle}>탑다운 지표</h2>
             <p className={styles.compareSub}>지수 · 섹터 · 종목 · 재무를 같은 기간으로 함께 본다</p>
           </div>
         </div>
+
+        {expandedAxis.has("topdown") ? (
+          <>
 
         <ScoreBreakdown axis={axisByKey.topdown} />
 
@@ -817,6 +852,10 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
             <div className={styles.sectionStatus}>재무 데이터가 없습니다</div>
           )}
         </div>
+          </>
+        ) : (
+          <p className={styles.collapsedHint}>상단 탑다운 카드를 클릭하면 상세 지표가 표시됩니다</p>
+        )}
       </section>
 
       <section className={styles.chartCard}>

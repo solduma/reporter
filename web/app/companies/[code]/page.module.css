@@ -311,3 +311,25 @@
   border-color: var(--accent);
   color: var(--text);
 }
+
+/* 축 상세 영역 접힘/펼침 */
+.axisCollapsed {
+  opacity: 0.7;
+  transition: opacity 0.2s ease;
+}
+
+.axisCollapsed:hover {
+  opacity: 1;
+}
+
+.axisExpanded {
+  opacity: 1;
+}
+
+.collapsedHint {
+  margin: 0;
+  padding: 20px 0;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.85rem;
+}

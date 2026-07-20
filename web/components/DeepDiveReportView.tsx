@@ -69,7 +69,6 @@ function HitlResultCard({ hitl }: { hitl: DeepDiveReport["hitl"] }) {
   }
   return (
     <div className={styles.hitlResult}>
-      <h4 className={styles.sectionTitle}>사용자 인풋 검증</h4>
       {hitl?.summary ? <p className={styles.hitlSummary}>{hitl.summary}</p> : null}
       {hitl?._procedure_incomplete ? (
         <p className={styles.hitlIncomplete}>
@@ -126,7 +125,10 @@ export default function DeepDiveReportView({ report }: { report: DeepDiveReport 
           </div>
         </details>
       ) : null}
-      <HitlResultCard hitl={report.hitl} />
+      <details className={styles.rawDetails}>
+        <summary className={styles.rawSummary}>사용자 인풋 검증</summary>
+        <HitlResultCard hitl={report.hitl} />
+      </details>
       {isMultiMethodValuation(report.valuation) ? (
         <details className={styles.rawDetails}>
           <summary className={styles.rawSummary}>밸류에이션·결론</summary>

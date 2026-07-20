@@ -52,14 +52,12 @@ function scoreText(score: number | null): string {
   return score === null ? "—" : `${Math.round(score)}`;
 }
 
-function AxisCard({ axis }: { axis: AnalysisAxis }) {
+function AxisCard({ axis, onToggle }: { axis: AnalysisAxis; onToggle?: () => void }) {
   const info = AXIS_INFO[axis.key];
-  // 계산 방식 설명: 서버 method 우선, 없으면 초보자 축 설명으로 폴백.
   const methodText = axis.method ?? info?.what;
-  // 기본은 헤더(라벨·점수)만, 클릭 시 상세 지표(metrics·근거) 노출.
   return (
-    <details className={styles.axis}>
-      <summary className={styles.axisHead}>
+    <div className={styles.axis} onClick={onToggle} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onToggle?.(); } }}>
+      <div className={styles.axisHead}>
         <span className={styles.axisLabel}>
           {axis.label}
           {info ? <InfoDot what={info.what} guide={info.guide} /> : null}
@@ -67,7 +65,7 @@ function AxisCard({ axis }: { axis: AnalysisAxis }) {
         <span className={`${styles.axisScore} ${scoreClass(axis.score)}`}>
           {scoreText(axis.score)}
         </span>
-      </summary>
+      </div>
       <dl className={styles.metrics}>
         {axis.metrics.map((m) => (
           <div key={m.label} className={styles.metric}>
@@ -109,7 +107,7 @@ function AxisCard({ axis }: { axis: AnalysisAxis }) {
           </ul>
         </div>
       ) : null}
-    </details>
+    </div>
   );
 }
 
@@ -120,9 +118,10 @@ interface Props {
   analysis?: CompanyAnalysis | null;
   status?: "loading" | "ready" | "error";
   message?: string;
+  onToggleAxis?: (axisKey: string) => void;
 }
 
-export default function AnalysisPanel({ code, analysis, status, message }: Props) {
+export default function AnalysisPanel({ code, analysis, status, message, onToggleAxis }: Props) {
   const [selfState, setSelfState] = useState<State>({ status: "loading", data: null });
   const controlled = status !== undefined;
 
@@ -230,7 +229,11 @@ export default function AnalysisPanel({ code, analysis, status, message }: Props
 
       <div className={styles.axes}>
         {a.axes.map((axis) => (
-          <AxisCard key={axis.key} axis={axis} />
+          <AxisCard
+            key={axis.key}
+            axis={axis}
+            onToggle={onToggleAxis ? () => onToggleAxis(axis.key) : undefined}
+          />
         ))}
       </div>
 
