@@ -68,9 +68,11 @@ def sync_disclosures(
             DisclosureSyncState.stock_code == stock_code
         )
     ).first()
-    # TTL 유효 + 요청 창이 이미 동기화된 깊이 안(begin >= synced_from)이면 캐시만 사용.
+    # TTL 유효 + 요청 창이 이미 동기화된 깊이 안(begin >= synced_from) + 마지막 동기화 이후
+    # 새 공시가 올라올 일자가 없으면(end <= synced_at.date()) 캐시만 사용.
+    # end > synced_at.date() 이면 동기화 시각 이후 새 공시가 있을 수 있으므로 재조회한다.
     fresh = state and state.synced_at and datetime.now(UTC) - state.synced_at < _SYNC_TTL
-    if fresh and state.synced_from is not None and begin >= state.synced_from:
+    if fresh and state.synced_from is not None and begin >= state.synced_from and end <= state.synced_at.date():
         return 0
 
     session = requests.Session()
