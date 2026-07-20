@@ -80,6 +80,28 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+/* 기본 disclosure 마커 제거(크로스브라우저) */
+.axisHead::-webkit-details-marker {
+  display: none;
+}
+
+/* 닫힘/열림 힌트 화살표 — 라벨 앞 */
+.axisLabel::before {
+  content: "▸ ";
+  color: var(--muted);
+  font-size: 0.8em;
+}
+
+.axis[open] .axisLabel::before {
+  content: "▾ ";
+}
+
+.axis[open] .axisHead {
   margin-bottom: 10px;
 }
 

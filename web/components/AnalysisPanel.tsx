@@ -56,9 +56,10 @@ function AxisCard({ axis }: { axis: AnalysisAxis }) {
   const info = AXIS_INFO[axis.key];
   // 계산 방식 설명: 서버 method 우선, 없으면 초보자 축 설명으로 폴백.
   const methodText = axis.method ?? info?.what;
+  // 기본은 헤더(라벨·점수)만, 클릭 시 상세 지표(metrics·근거) 노출.
   return (
-    <div className={styles.axis}>
-      <div className={styles.axisHead}>
+    <details className={styles.axis}>
+      <summary className={styles.axisHead}>
         <span className={styles.axisLabel}>
           {axis.label}
           {info ? <InfoDot what={info.what} guide={info.guide} /> : null}
@@ -66,7 +67,7 @@ function AxisCard({ axis }: { axis: AnalysisAxis }) {
         <span className={`${styles.axisScore} ${scoreClass(axis.score)}`}>
           {scoreText(axis.score)}
         </span>
-      </div>
+      </summary>
       <dl className={styles.metrics}>
         {axis.metrics.map((m) => (
           <div key={m.label} className={styles.metric}>
@@ -108,7 +109,7 @@ function AxisCard({ axis }: { axis: AnalysisAxis }) {
           </ul>
         </div>
       ) : null}
-    </div>
+    </details>
   );
 }
 
