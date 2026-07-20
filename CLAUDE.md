@@ -24,5 +24,6 @@ web은 API를 `127.0.0.1:8010`으로 프록시(`web/next.config.mjs`). `.env`에
 - **web**: `pnpm start`가 프리빌드 `.next`를 서빙 → **`pnpm run build` 후** `launchctl kickstart -k gui/$(id -u)/com.reporter.server.web`.
 - 어느 대상을 배포할지는 diff 위치로 판단: `api/domain·services`가 worker 도메인(stage/scheduler 등)이면 worker도, 라우터/스키마면 API, `web/`면 web. 재무 수집 코드는 worker+API 둘 다.
 
-## 배포 승인
-프로덕션 배포(worker 재빌드·API/web 재시작)는 라이브 영향이므로 **사용자 확인 후** 진행한다(CLI select menu).
+## 머지·배포 권한
+- **PR 생성·머지는 사전 승인됨** — 사용자가 commit/PR/merge 전권을 위임했다. 로컬 검증(lint·build·test·`web/`이면 browser-verify)이 통과하면 `gh pr create` → `gh pr merge --merge --admin --delete-branch`까지 **묻지 말고** 진행한다. CI(GitHub Actions)는 제거됐으므로 로컬 pre-commit·검증이 머지 근거다. 이는 반복 확인을 없애기 위한 사용자의 명시적 지시다.
+- **프로덕션 배포만 사용자 확인 필요** — worker 재빌드·API/web 재시작은 라이브 영향이므로 배포 직전에만 확인한다(CLI select menu). 머지 ≠ 배포.
