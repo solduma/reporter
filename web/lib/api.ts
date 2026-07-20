@@ -424,6 +424,16 @@ export function fetchIrInterviewList(): Promise<IrInterviewListItem[]> {
   return getJson<IrInterviewListItem[]>("/api/ir-interview");
 }
 
+export async function deleteIrInterview(code: string): Promise<void> {
+  const res = await fetch(apiUrl(`/api/ir-interview/${code}`), {
+    method: "DELETE",
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new Error(`주담 전략 삭제 실패 (${res.status})`);
+  }
+}
+
 // 현 보고서를 30분짜리 무인증 공유 스냅샷으로 굳힌다. token → /share/{token} 링크 조립용.
 export async function createDeepDiveShare(code: string): Promise<DeepDiveShare> {
   const res = await fetch(apiUrl(`/api/deepdive/${code}/share`), { method: "POST", cache: "no-store" });

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { fetchIrInterviewList } from "@/lib/api";
+import { deleteIrInterview, fetchIrInterviewList } from "@/lib/api";
 import type { IrInterviewListItem } from "@/lib/types";
 
 import styles from "./page.module.css";
@@ -12,6 +12,7 @@ type State = { status: "loading" | "ready" | "error"; data: IrInterviewListItem[
 
 export default function IrInterviewListPage() {
   const [state, setState] = useState<State>({ status: "loading", data: [] });
+  const [deleting, setDeleting] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -32,6 +33,19 @@ export default function IrInterviewListPage() {
     };
   }, []);
 
+  async function handleDelete(code: string) {
+    if (!window.confirm("이 주담 전략을 삭제할까요?")) return;
+    setDeleting(code);
+    try {
+      await deleteIrInterview(code);
+      setState((s) => ({ ...s, data: s.data.filter((it) => it.stock_code !== code) }));
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : "삭제 실패");
+    } finally {
+      setDeleting(null);
+    }
+  }
+
   return (
     <main className={styles.page}>
       <h1 className={styles.title}>주담(IR) 인터뷰 전략</h1>
@@ -50,7 +64,7 @@ export default function IrInterviewListPage() {
       ) : (
         <ul className={styles.list}>
           {state.data.map((it) => (
-            <li key={it.stock_code}>
+            <li key={it.stock_code} className={styles.row}>
               <Link href={`/ir-interview/${it.stock_code}`} className={styles.card}>
                 <span className={styles.name}>{it.stock_name ?? it.stock_code}</span>
                 <span className={styles.code}>{it.stock_code}</span>
@@ -59,6 +73,15 @@ export default function IrInterviewListPage() {
                   <span className={styles.asOf}>{it.as_of.slice(0, 10)}</span>
                 ) : null}
               </Link>
+              <button
+                type="button"
+                className={styles.delBtn}
+                disabled={deleting === it.stock_code}
+                onClick={() => handleDelete(it.stock_code)}
+                aria-label={`${it.stock_name ?? it.stock_code} 주담 전략 삭제`}
+              >
+                {deleting === it.stock_code ? "삭제 중…" : "삭제"}
+              </button>
             </li>
           ))}
         </ul>
