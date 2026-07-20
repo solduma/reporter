@@ -119,13 +119,19 @@ export default function DeepDiveReportView({ report }: { report: DeepDiveReport 
   return (
     <div className={styles.report}>
       {report.narrative_md ? (
-        <div className={styles.narrative}>
-          <Markdown content={report.narrative_md} />
-        </div>
+        <details className={styles.rawDetails}>
+          <summary className={styles.rawSummary}>보고서</summary>
+          <div className={styles.narrative}>
+            <Markdown content={report.narrative_md} />
+          </div>
+        </details>
       ) : null}
       <HitlResultCard hitl={report.hitl} />
       {isMultiMethodValuation(report.valuation) ? (
-        <ValuationCard valuation={report.valuation} />
+        <details className={styles.rawDetails}>
+          <summary className={styles.rawSummary}>밸류에이션·결론</summary>
+          <ValuationCard valuation={report.valuation} />
+        </details>
       ) : null}
       <details className={styles.rawDetails}>
         <summary className={styles.rawSummary}>단계별 상세 데이터</summary>

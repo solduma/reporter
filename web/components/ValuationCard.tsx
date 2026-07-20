@@ -93,11 +93,14 @@ function forwardTitle(v: ForwardMetric): string {
 function MethodRow({ m }: { m: ValuationMethod }) {
   // 종목 유형 부적합·이상치로 최종 평균에서 빠진 방식은 note 에 '제외'가 담긴다 → 배지로 표시.
   const excluded = typeof m.note === "string" && m.note.includes("제외");
+  // 적용 불가(결측 등)·제외는 좌측 배지로. 가격 자리(우측)는 값이 없으니 '-'.
+  const flagged = !m.applicable || excluded;
   return (
     <details className={`${styles.method} ${excluded ? styles.methodExcluded : ""}`}>
       <summary className={styles.methodSummary}>
         <span className={styles.methodName}>
           {m.label}
+          {!m.applicable ? <span className={styles.excludedTag}>적용 불가</span> : null}
           {excluded ? <span className={styles.excludedTag}>제외</span> : null}
         </span>
         <span className={styles.methodTarget}>
@@ -109,7 +112,7 @@ function MethodRow({ m }: { m: ValuationMethod }) {
               ) : null}
             </>
           ) : (
-            <span className={styles.na}>적용 불가</span>
+            <span className={styles.na}>-</span>
           )}
         </span>
         <span className={`${styles.conf} ${styles[`conf${m.confidence}`] ?? ""}`}>{m.confidence}</span>
@@ -122,7 +125,7 @@ function MethodRow({ m }: { m: ValuationMethod }) {
             ))}
           </ol>
         ) : null}
-        {m.note ? <p className={styles.note}>{m.note}</p> : null}
+        {m.note ? <p className={flagged ? styles.noteFlagged : styles.note}>{m.note}</p> : null}
         <AssumptionChips a={m.assumptions} />
       </div>
     </details>
