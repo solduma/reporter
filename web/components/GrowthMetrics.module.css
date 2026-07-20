@@ -1,7 +1,7 @@
 .grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
 }
 
 .tile {
@@ -133,7 +133,7 @@
   font-size: 0.88rem;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 900px) {
   .grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
