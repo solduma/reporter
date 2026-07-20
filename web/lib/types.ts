@@ -687,12 +687,13 @@ export interface HitlNumeric {
 export interface HitlClaim {
   claim: string;
   claim_type?: string; // fact_event | numeric
-  verdict: string; // 반박|반영|가능성
-  probability: number; // 0~1
-  evidence: string;
-  reasoning: string;
+  refuted?: boolean | null; // 실제 스키마: 반박 못 하면 false(반영). verdict 라벨은 이걸로 유도.
+  verdict?: string | null; // 구 스키마 하위호환(반박|반영|가능성). 신 스키마엔 결측.
+  probability?: number | null; // 0~1 (결측 가능)
+  evidence?: string | null;
+  reasoning?: string | null;
   numeric?: HitlNumeric | null; // numeric claim 일 때만
-  valuation_impact: string;
+  valuation_impact?: string | null;
 }
 
 export interface HitlResult {
