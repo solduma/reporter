@@ -51,11 +51,17 @@ def ingest_calendar(
     n_fred = 0
     for ev in fred.fetch_events(settings.fred_api_key, start, end):
         _upsert(
-            db, source="fred", source_key=f"{ev.release_id}:{ev.event_date.isoformat()}",
+            db,
+            source="fred",
+            source_key=f"{ev.release_id}:{ev.event_date.isoformat()}",
             values={
-                "event_date": ev.event_date, "region": "US", "kind": "macro",
-                "title": ev.title, "importance": ev.importance,
-                "actual": ev.latest_value, "previous": ev.prev_value,
+                "event_date": ev.event_date,
+                "region": "US",
+                "kind": "macro",
+                "title": ev.title,
+                "importance": ev.importance,
+                "actual": ev.latest_value,
+                "previous": ev.prev_value,
             },
         )
         n_fred += 1
@@ -63,25 +69,42 @@ def ingest_calendar(
     n_fixed = 0
     for fe in fixed_events.fetch_fixed(start, end):
         _upsert(
-            db, source="manual", source_key=f"{fe.event_date.isoformat()}:{fe.title}",
+            db,
+            source="manual",
+            source_key=f"{fe.event_date.isoformat()}:{fe.title}",
             values={
-                "event_date": fe.event_date, "region": fe.region, "kind": fe.kind,
-                "title": fe.title, "importance": fe.importance,
+                "event_date": fe.event_date,
+                "region": fe.region,
+                "kind": fe.kind,
+                "title": fe.title,
+                "importance": fe.importance,
             },
         )
         n_fixed += 1
 
     db.commit()
     logger.info("calendar ingest: fred=%d fixed=%d", n_fred, n_fixed)
-    return {"fred": n_fred, "fixed": n_fixed}
+
+    # ECOS 기준금리로 지난 한국 금통위 이벤트 actual 을 사후 채운다(파이프라인 일원).
+    n_ecos = update_past_fixed_events(db, settings, today)
+
+    return {"fred": n_fred, "fixed": n_fixed, "ecos": n_ecos}
 
 
 def _to_out(ev: CalendarEvent, today: date) -> CalendarEventOut:
     return CalendarEventOut(
-        event_date=ev.event_date, region=ev.region, kind=ev.kind, title=ev.title,
-        importance=ev.importance, is_past=ev.event_date <= today,
-        actual=ev.actual, previous=ev.previous, consensus=ev.consensus, unit=ev.unit,
-        impact_text=ev.impact_text, impact_direction=ev.impact_direction,
+        event_date=ev.event_date,
+        region=ev.region,
+        kind=ev.kind,
+        title=ev.title,
+        importance=ev.importance,
+        is_past=ev.event_date <= today,
+        actual=ev.actual,
+        previous=ev.previous,
+        consensus=ev.consensus,
+        unit=ev.unit,
+        impact_text=ev.impact_text,
+        impact_direction=ev.impact_direction,
         expectation_text=ev.expectation_text,
     )
 
@@ -103,7 +126,9 @@ def list_events(
     if kind:
         conds.append(CalendarEvent.kind == kind)
     rows = db.execute(select(CalendarEvent).where(*conds)).scalars().all()
-    past = sorted((e for e in rows if e.event_date <= today), key=lambda e: e.event_date, reverse=True)
+    past = sorted(
+        (e for e in rows if e.event_date <= today), key=lambda e: e.event_date, reverse=True
+    )
     upcoming = sorted((e for e in rows if e.event_date > today), key=lambda e: e.event_date)
     return CalendarView(
         as_of=today,
@@ -130,17 +155,21 @@ def update_past_fixed_events(
         return 0
 
     # actual 이 없는 과거 금통위 이벤트 조회
-    rows = db.execute(
-        select(CalendarEvent).where(
-            and_(
-                CalendarEvent.region == "KR",
-                CalendarEvent.kind == "macro",
-                CalendarEvent.title == "한국은행 금통위 (기준금리)",
-                CalendarEvent.event_date <= today,
-                CalendarEvent.actual.is_(None),
+    rows = (
+        db.execute(
+            select(CalendarEvent).where(
+                and_(
+                    CalendarEvent.region == "KR",
+                    CalendarEvent.kind == "macro",
+                    CalendarEvent.title == "한국은행 금통위 (기준금리)",
+                    CalendarEvent.event_date <= today,
+                    CalendarEvent.actual.is_(None),
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     if not rows:
         return 0
 
@@ -162,7 +191,11 @@ def update_past_fixed_events(
         rate = rate_by_ym.get(ym)
         if rate is None:
             # 해당 월 데이터가 없으면 직전 월 기준금리로 폴백
-            prev_ym = (ev.event_date.year, ev.event_date.month - 1) if ev.event_date.month > 1 else (ev.event_date.year - 1, 12)
+            prev_ym = (
+                (ev.event_date.year, ev.event_date.month - 1)
+                if ev.event_date.month > 1
+                else (ev.event_date.year - 1, 12)
+            )
             rate = rate_by_ym.get(prev_ym)
         if rate is not None:
             ev.actual = f"{rate:.2f}%"
@@ -171,7 +204,9 @@ def update_past_fixed_events(
 
     if updated:
         db.commit()
-        logger.info("calendar post-update: filled %d past fixed events with ECOS base rate", updated)
+        logger.info(
+            "calendar post-update: filled %d past fixed events with ECOS base rate", updated
+        )
     return updated
 
 

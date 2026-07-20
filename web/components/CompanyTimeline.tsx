@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import { fetchTimeline } from "@/lib/api";
+import { fetchTimeline, refreshTimeline } from "@/lib/api";
 import { broadcastKindLabel } from "@/lib/broadcast";
 import type { TimelineItem } from "@/lib/types";
 
@@ -11,8 +11,12 @@ import PdfViewer from "./PdfViewer";
 import styles from "./CompanyTimeline.module.css";
 import SentimentBadge from "./SentimentBadge";
 
-// 타임라인은 다른 섹션과 독립적으로 로딩/실패하도록 상태를 분리한다.
-type State = { status: "loading" | "ready" | "error"; data: TimelineItem[]; message?: string };
+// 3-페이즈 타임라인: 캐시 로드 → 표시+확인중 → 갱신 완료
+type Phase =
+  | { status: "loading" }
+  | { status: "checking"; data: TimelineItem[] }
+  | { status: "ready"; data: TimelineItem[] }
+  | { status: "error"; message: string };
 
 // 백엔드는 최신순 정렬로 과거 2년치를 반환. 10개씩 페이지네이션으로 '더보기' 하며 넓힌다.
 const PAGE_SIZE = 10;
@@ -119,25 +123,37 @@ function TimelineRow({ item }: { item: TimelineItem }) {
 }
 
 export default function CompanyTimeline({ code }: { code: string }) {
-  const [state, setState] = useState<State>({ status: "loading", data: [] });
+  const [phase, setPhase] = useState<Phase>({ status: "loading" });
   // 노출 개수 — '더보기' 마다 PAGE_SIZE 씩 늘린다. 종목 바뀌면 다시 첫 페이지로.
   const [visible, setVisible] = useState(PAGE_SIZE);
 
   useEffect(() => {
     let active = true;
     async function load() {
-      setState({ status: "loading", data: [] });
+      setPhase({ status: "loading" });
       setVisible(PAGE_SIZE);
       try {
+        // Phase 1: 캐시 로드
         const res = await fetchTimeline(code);
+        if (!active) return;
+
+        if (res.items.length === 0) {
+          setPhase({ status: "ready", data: [] });
+          return;
+        }
+
+        // Phase 2: 데이터 표시 + 최신공시 확인 중 배지
+        setPhase({ status: "checking", data: res.items });
+
+        // Phase 3: DART 신규 공시 확인 (비동기)
+        const refreshed = await refreshTimeline(code);
         if (active) {
-          setState({ status: "ready", data: res });
+          setPhase({ status: "ready", data: refreshed.items });
         }
       } catch (e) {
         if (active) {
-          setState({
+          setPhase({
             status: "error",
-            data: [],
             message: e instanceof Error ? e.message : "타임라인을 불러오지 못했습니다",
           });
         }
@@ -149,20 +165,23 @@ export default function CompanyTimeline({ code }: { code: string }) {
     };
   }, [code]);
 
-  if (state.status === "loading") {
+  if (phase.status === "loading") {
     return <div className={styles.status}>불러오는 중…</div>;
   }
-  if (state.status === "error") {
-    return <p className={styles.error}>API 연결 실패: {state.message}</p>;
+  if (phase.status === "error") {
+    return <p className={styles.error}>API 연결 실패: {phase.message}</p>;
   }
-  if (state.data.length === 0) {
+  if (phase.data.length === 0) {
     return <div className={styles.status}>타임라인 데이터가 없습니다</div>;
   }
 
-  const shown = state.data.slice(0, visible);
-  const remaining = state.data.length - shown.length;
+  const shown = phase.data.slice(0, visible);
+  const remaining = phase.data.length - shown.length;
   return (
     <>
+      {phase.status === "checking" ? (
+        <div className={styles.checkingBadge}>최신 공시 확인 중</div>
+      ) : null}
       <ul className={styles.list}>
         {shown.map((item, i) => (
           <TimelineRow key={`${item.type}-${item.report_id ?? item.broadcast_id ?? item.link ?? item.title}-${item.date}-${i}`} item={item} />

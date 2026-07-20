@@ -29,7 +29,7 @@ interface Preset<T> {
 // 전략 탭: 종합/성장/가치/추세/탑다운(테크노펀더멘탈 4축 + 종합). 각 탭이 컬럼·스코어를 전환한다.
 const STRATEGY_TABS: { value: ScreenerStrategy; label: string; desc: string }[] = [
   { value: "overall", label: "종합", desc: "성장·가치·추세·탑다운을 종합한 테크노펀더멘탈 점수로 정렬한다" },
-  { value: "growth", label: "성장", desc: "매출·영업이익 성장과 모멘텀으로 소형 성장주 후보를 좁힌다" },
+  { value: "growth", label: "성장", desc: "매출·영업이익 성장과 모멘텀으로 성장주 후보를 좁힌다" },
   { value: "value", label: "가치", desc: "저PER·저PBR·저EV/EBITDA·고ROE 로 저평가 우량주를 찾는다" },
   { value: "trend", label: "추세", desc: "신고가 근접·이평 정배열·거래량·수익률 종합 기술적 추세로 정렬한다" },
   { value: "topdown", label: "탑다운", desc: "종목이 속한 섹터의 국내·미국 수급(자금유입)으로 정렬한다" },
@@ -77,11 +77,14 @@ const DIV_MIN_PRESETS: Preset<number | undefined>[] = [
   { label: "5%↑", value: 5 },
 ];
 
-// undefined = 하한 없음 → 쿼리 파라미터 생략
+// undefined = 하한 없음 → 쿼리 파라미터 생략. 스몰캡~중형캡까지 커버.
 const MKTCAP_MIN_PRESETS: Preset<number | undefined>[] = [
   { label: "없음", value: undefined },
   { label: "500억", value: 50_000_000_000 },
   { label: "1000억", value: 100_000_000_000 },
+  { label: "3000억", value: 300_000_000_000 },
+  { label: "5000억", value: 500_000_000_000 },
+  { label: "1조", value: 1_000_000_000_000 },
 ];
 
 const LIQ_PRESETS: Preset<number>[] = [

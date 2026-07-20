@@ -164,7 +164,9 @@ def _compute_flows_uncached(
                 sector=etf.sector,
                 market=market,
                 symbol=etf.symbol,
-                flow_score=flow_score(tech, fd),
+                flow_score=domain_scoring.flow_score(
+                    tech.return_3m, tech.near_high_pct, tech.vol_ratio, fd, lookback=lookback
+                ),
                 return_3m=tech.return_3m,
                 near_high_pct=tech.near_high_pct,
                 vol_ratio=tech.vol_ratio,

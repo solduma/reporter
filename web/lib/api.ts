@@ -40,6 +40,7 @@ import type {
   SentimentPoint,
   StockSearchHit,
   Timeframe,
+  TimelineCacheResponse,
   TimelineItem,
   TradePoint,
   TradePresets,
@@ -332,19 +333,26 @@ export function fetchTrade(hs: string, start: string, end: string): Promise<Trad
 export function fetchTimeline(
   code: string,
   range?: { from?: string; to?: string },
-): Promise<TimelineItem[]> {
+): Promise<TimelineCacheResponse> {
   const params = new URLSearchParams();
-  if (range?.from) {
-    params.set("from", range.from);
-  }
-  if (range?.to) {
-    params.set("to", range.to);
-  }
-  const query = params.toString();
-  const suffix = query ? `?${query}` : "";
-  return getJson<TimelineItem[]>(
+  if (range?.from) params.set("from", range.from);
+  if (range?.to) params.set("to", range.to);
+  const qs = params.toString();
+  const suffix = qs ? `?${qs}` : "";
+  return getJson<TimelineCacheResponse>(
     `/api/companies/${encodeURIComponent(code)}/timeline${suffix}`,
   );
+}
+
+export async function refreshTimeline(code: string): Promise<TimelineCacheResponse> {
+  const res = await fetch(
+    apiUrl(`/api/companies/${encodeURIComponent(code)}/timeline/refresh`),
+    { method: "POST", cache: "no-store" },
+  );
+  if (!res.ok) {
+    throw new Error(`타임라인 갱신 실패 (${res.status})`);
+  }
+  return (await res.json()) as TimelineCacheResponse;
 }
 
 export interface BroadcastQuery {

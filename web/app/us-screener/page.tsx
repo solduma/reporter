@@ -28,6 +28,24 @@ const SORTS: { key: string; label: string }[] = [
   { key: "per", label: "저PER" },
   { key: "momentum", label: "모멘텀" },
   { key: "trading_value", label: "거래대금" },
+  { key: "change", label: "등락률" },
+];
+
+const MKTCAP_PRESETS: { label: string; value: number | undefined }[] = [
+  { label: "전체", value: undefined },
+  { label: "10B↓", value: 10_000_000_000 },
+  { label: "50B↓", value: 50_000_000_000 },
+  { label: "100B↓", value: 100_000_000_000 },
+  { label: "500B↓", value: 500_000_000_000 },
+  { label: "1T↓", value: 1_000_000_000_000 },
+];
+
+const MKTCAP_MIN_PRESETS: { label: string; value: number | undefined }[] = [
+  { label: "없음", value: undefined },
+  { label: "1B↑", value: 1_000_000_000 },
+  { label: "10B↑", value: 10_000_000_000 },
+  { label: "50B↑", value: 50_000_000_000 },
+  { label: "100B↑", value: 100_000_000_000 },
 ];
 
 const PAGE_SIZE = 50;
@@ -41,7 +59,10 @@ export default function UsScreenerPage() {
 
   // 필터 상태.
   const [sort, setSort] = useState("score");
+  const [mktcapMax, setMktcapMax] = useState<number | undefined>(undefined);
+  const [mktcapMin, setMktcapMin] = useState<number | undefined>(undefined);
   const [perMax, setPerMax] = useState<number | undefined>(undefined);
+  const [pbrMax, setPbrMax] = useState<number | undefined>(undefined);
   const [exchange, setExchange] = useState<"" | "NASDAQ" | "NYSE">("");
   const [hasEvent, setHasEvent] = useState(false);
   const [offset, setOffset] = useState(0);
@@ -52,7 +73,10 @@ export default function UsScreenerPage() {
     setError(null);
     const query: UsScreenerQuery = {
       sort,
+      mktcapMax,
+      mktcapMin,
       perMax,
+      pbrMax,
       exchange: exchange || undefined,
       hasEvent: hasEvent || undefined,
       limit: PAGE_SIZE,
@@ -70,7 +94,7 @@ export default function UsScreenerPage() {
     return () => {
       active = false;
     };
-  }, [sort, perMax, exchange, hasEvent, offset]);
+  }, [sort, mktcapMax, mktcapMin, perMax, pbrMax, exchange, hasEvent, offset]);
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
   const currentPage = Math.floor(offset / PAGE_SIZE) + 1;
@@ -103,6 +127,32 @@ export default function UsScreenerPage() {
           </select>
         </label>
         <label className={styles.filter}>
+          시총 상한
+          <select
+            value={mktcapMax ?? ""}
+            onChange={(e) => setMktcapMax(e.target.value ? Number(e.target.value) : undefined)}
+          >
+            {MKTCAP_PRESETS.map((p) => (
+              <option key={p.label} value={p.value ?? ""}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className={styles.filter}>
+          시총 하한
+          <select
+            value={mktcapMin ?? ""}
+            onChange={(e) => setMktcapMin(e.target.value ? Number(e.target.value) : undefined)}
+          >
+            {MKTCAP_MIN_PRESETS.map((p) => (
+              <option key={p.label} value={p.value ?? ""}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className={styles.filter}>
           PER 상한
           <select
             value={perMax ?? ""}
@@ -114,9 +164,21 @@ export default function UsScreenerPage() {
             <option value="30">30 이하</option>
           </select>
         </label>
+        <label className={styles.filter}>
+          PBR 상한
+          <select
+            value={pbrMax ?? ""}
+            onChange={(e) => setPbrMax(e.target.value ? Number(e.target.value) : undefined)}
+          >
+            <option value="">제한 없음</option>
+            <option value="1">1 이하</option>
+            <option value="2">2 이하</option>
+            <option value="3">3 이하</option>
+          </select>
+        </label>
         <label className={styles.checkbox}>
           <input type="checkbox" checked={hasEvent} onChange={(e) => setHasEvent(e.target.checked)} />
-          최근 8-K 있는 종목만
+          8-K 이벤트 커버리지
         </label>
       </div>
 
@@ -129,8 +191,8 @@ export default function UsScreenerPage() {
         <table className={styles.table}>
           <thead>
             <tr>
-              <th>종목</th>
               <th className={styles.num}>스코어</th>
+              <th>종목</th>
               <th>거래소</th>
               <th className={styles.num}>현재가</th>
               <th className={styles.num}>등락</th>
@@ -144,13 +206,13 @@ export default function UsScreenerPage() {
           <tbody>
             {rows.map((r) => (
               <tr key={r.ticker}>
+                <td className={`${styles.num} ${styles.score}`}>{n2(r.score)}</td>
                 <td>
                   <Link href={`/us/${r.ticker}`} className={styles.tickerLink}>
                     <span className={styles.ticker}>{r.ticker}</span>
                     <span className={styles.name}>{r.name}</span>
                   </Link>
                 </td>
-                <td className={`${styles.num} ${styles.score}`}>{n2(r.score)}</td>
                 <td className={styles.exch}>{r.exchange ?? "—"}</td>
                 <td className={styles.num}>{r.close_price !== null ? `$${r.close_price}` : "—"}</td>
                 <td className={`${styles.num} ${(r.change_pct ?? 0) >= 0 ? styles.up : styles.down}`}>

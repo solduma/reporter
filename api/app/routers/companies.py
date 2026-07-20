@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from sqlalchemy.orm import Session
@@ -28,6 +28,7 @@ from app.schemas import (
     ReportCard,
     ScoreFactor,
     StockSearchHit,
+    TimelineCacheResponse,
     TimelineItem,
     TopDownView,
 )
@@ -106,7 +107,9 @@ def company_candles(
         rows_i = candle_service.read_intraday_or_fetch(db, code, days=14)
         bg.add_task(candle_service.refresh_intraday, code)
         return [
-            CandlePoint(t=r.bar_ts.isoformat(), o=r.open, h=r.high, low=r.low, c=r.close, v=r.volume)
+            CandlePoint(
+                t=r.bar_ts.isoformat(), o=r.open, h=r.high, low=r.low, c=r.close, v=r.volume
+            )
             for r in rows_i
         ]
 
@@ -186,8 +189,10 @@ def company_analysis(
     )
     peg_val = analysis_scoring.peg(per, eps_yoy)
     peg_display = (
-        f"{peg_val:.2f}" if peg_val is not None
-        else net_status if net_status in ("흑자전환", "흑자지속") and net_margin_delta is not None
+        f"{peg_val:.2f}"
+        if peg_val is not None
+        else net_status
+        if net_status in ("흑자전환", "흑자지속") and net_margin_delta is not None
         else "—"
     )
     value_axis = AnalysisAxis(
@@ -204,9 +209,20 @@ def company_analysis(
         method=score_factors.VALUE_METHOD,
         factors=_factors(
             score_factors.value_factors(
-                per, pbr, ev, roe, dy, per_r, pbr_r, ev_r, peg_r, peg_val,
+                per,
+                pbr,
+                ev,
+                roe,
+                dy,
+                per_r,
+                pbr_r,
+                ev_r,
+                peg_r,
+                peg_val,
                 peg_surrogate_status=(
-                    net_status if peg_val is None and net_status in ("흑자전환", "흑자지속") else None
+                    net_status
+                    if peg_val is None and net_status in ("흑자전환", "흑자지속")
+                    else None
                 ),
             )
         ),
@@ -218,10 +234,15 @@ def company_analysis(
         overall_sc = analysis.overall([growth_sc, value_sc, None, None])
         j = judgment.summarize(overall_sc, {"growth": growth_sc, "value": value_sc})
         return CompanyAnalysis(
-            stock_code=code, stock_name=name, market=market,
-            overall_score=overall_sc, axes=axes,
-            topdown=None, judgment=_judgment_out(j),
-            comment=None, comment_pending=False,
+            stock_code=code,
+            stock_name=name,
+            market=market,
+            overall_score=overall_sc,
+            axes=axes,
+            topdown=None,
+            judgment=_judgment_out(j),
+            comment=None,
+            comment_pending=False,
         )
 
     # 기술 축 — 일봉 지표 + 와인스타인 중기 국면(주봉 30주). 외부 API 필요 시 느림.
@@ -236,7 +257,12 @@ def company_analysis(
         _mid.bar,
     )
     mid_stage = stage.classify(
-        _mid_b.closes, _mid.ma_period, _mid.slope_lookback, _mid_b.volumes, _mid_b.highs, _mid_b.lows
+        _mid_b.closes,
+        _mid.ma_period,
+        _mid.slope_lookback,
+        _mid_b.volumes,
+        _mid_b.highs,
+        _mid_b.lows,
     )
     tech = technicals.compute(candles, stage=mid_stage.stage)
     tech_axis = AnalysisAxis(
@@ -245,11 +271,20 @@ def company_analysis(
         score=tech.trend_score,
         metrics=[
             {"label": "와인스타인 국면", "value": mid_stage.label or "—"},
-            {"label": "RS Rating", "value": f"{snap.rs_rating}" if snap and snap.rs_rating else "—"},
-            {"label": "52주 고점 근접", "value": f"{tech.near_high_pct}%" if tech.near_high_pct else "—"},
+            {
+                "label": "RS Rating",
+                "value": f"{snap.rs_rating}" if snap and snap.rs_rating else "—",
+            },
+            {
+                "label": "52주 고점 근접",
+                "value": f"{tech.near_high_pct}%" if tech.near_high_pct else "—",
+            },
             {"label": "이평 정배열", "value": _yn(tech.ma_aligned)},
             {"label": "거래량비", "value": f"{tech.vol_ratio}x" if tech.vol_ratio else "—"},
-            {"label": "3개월 수익률", "value": f"{tech.return_3m}%" if tech.return_3m is not None else "—"},
+            {
+                "label": "3개월 수익률",
+                "value": f"{tech.return_3m}%" if tech.return_3m is not None else "—",
+            },
         ],
         method=score_factors.TREND_METHOD,
         factors=_factors(
@@ -325,9 +360,7 @@ def company_analysis(
         comment = analysis_comment.get_cached(db, code, h)
         if comment is None:
             comment_pending = True
-            bg.add_task(
-                analysis_comment.generate_and_store, code, name or code, axes_dump, h, ctx
-            )
+            bg.add_task(analysis_comment.generate_and_store, code, name or code, axes_dump, h, ctx)
 
     return CompanyAnalysis(
         stock_code=code,
@@ -475,9 +508,7 @@ def company_financials(
 
 
 @router.get("/{code}/financials/status", response_model=FinancialsStatusOut)
-def company_financials_status(
-    code: str, db: Session = Depends(get_session)
-) -> FinancialsStatusOut:
+def company_financials_status(code: str, db: Session = Depends(get_session)) -> FinancialsStatusOut:
     """재무 백필 진행상태. 프론트가 '가용분 즉시 표시 + 백필 중 배지'를 그리기 위한 경량 조회.
 
     /financials 가 백그라운드로 건 10년 재무·보고서원문 백필의 완료 여부를 읽기 전용으로 노출한다
@@ -522,10 +553,7 @@ def company_peers(
             roe=r.roe,
             ev_ebitda=val.get(r.peer_stock_code, (None, None))[0],
             psr=val.get(r.peer_stock_code, (None, None))[1],
-            **{
-                f"{k}_score": v
-                for k, v in scores.get(r.peer_stock_code, {}).items()
-            },
+            **{f"{k}_score": v for k, v in scores.get(r.peer_stock_code, {}).items()},
         )
         for r in rows
     ]
@@ -552,57 +580,58 @@ def company_coverage_reports(code: str, db: Session = Depends(get_session)) -> l
     ]
 
 
-_TIMELINE_WINDOW_DAYS = 730  # 기본 조회 창 — 과거 2년(프론트가 10개씩 페이지네이션).
-
-
-@router.get("/{code}/timeline", response_model=list[TimelineItem])
+@router.get("/{code}/timeline", response_model=TimelineCacheResponse)
 def company_timeline(
     code: str,
     from_: date | None = Query(default=None, alias="from"),
     to: date | None = Query(default=None),
     db: Session = Depends(get_session),
-) -> list[TimelineItem]:
+) -> TimelineCacheResponse:
     end = to or datetime.now().date()
-    begin = from_ or (end - timedelta(days=_TIMELINE_WINDOW_DAYS))
+    begin = from_ or (end - timedelta(days=company_service._TIMELINE_WINDOW_DAYS))
 
-    company_service.sync_disclosures_safe(db, code, begin, end)  # DART 공시 cache-aside
+    _TIMELINE_CACHE_TTL_HOURS = 24
 
-    items: list[TimelineItem] = []
-    for r, a in company_service.timeline_reports(db, code, begin, end):
-        items.append(
-            TimelineItem(
-                type="report", date=r.published_date, title=r.title, source=r.broker,
-                sentiment=a.sentiment.value, rationale=a.rationale, link=r.read_url, report_id=r.id,
+    # 1) 캐시 조회 — TTL 이내인 경우만 반환. 오래되면 재구축한다.
+    cache = company_service.get_timeline_cache(db, code)
+    if cache is not None and cache.cached_at is not None:
+        age = datetime.now(UTC) - cache.cached_at
+        if age < timedelta(hours=_TIMELINE_CACHE_TTL_HOURS):
+            return TimelineCacheResponse(
+                items=[TimelineItem(**item) for item in cache.payload["items"]],
+                cached_at=cache.cached_at,
+                last_disclosure_date=cache.last_disclosure_date,
             )
-        )
-    for d in company_service.timeline_disclosures(db, code, begin, end):
-        items.append(
-            TimelineItem(
-                type="disclosure", date=d.rcept_dt, title=d.report_nm, source=d.flr_nm,
-                sentiment=d.sentiment.value, rationale=d.rationale, link=d.dart_url, report_id=None,
-            )
-        )
-    for b in company_service.timeline_broadcasts(db, code, begin, end):
-        items.append(
-            TimelineItem(
-                type="broadcast", date=b.ref_date, title=b.title, source="텔레그램 브리핑",
-                sentiment="HOLD", rationale=_snippet(b.body), link=None, report_id=None,
-                broadcast_id=b.id, kind=b.kind.value,
-            )
-        )
 
-    items.sort(key=lambda x: x.date, reverse=True)  # 최신순
-    return items
+    # 2) 캐시 미스/TTL 만료 → DB 에서 빌드
+    company_service.sync_disclosures_safe(db, code, begin, end)
+    items, last_disc_date = company_service.build_timeline_items(db, code, begin, end)
+    company_service.store_timeline_cache(db, code, items, last_disc_date)
+
+    return TimelineCacheResponse(
+        items=[TimelineItem(**item) for item in items],
+        cached_at=None,
+        last_disclosure_date=last_disc_date,
+    )
 
 
-_TIMELINE_SNIPPET = 160
+@router.post("/{code}/timeline/refresh", response_model=TimelineCacheResponse)
+def company_timeline_refresh(
+    code: str,
+    db: Session = Depends(get_session),
+) -> TimelineCacheResponse:
+    """DART 신규 공시 확인 → 캐시 재구축 → 갱신된 타임라인 반환.
 
-
-def _snippet(body: str) -> str:
-    """브로드캐스트 본문에서 헤더·구분선을 제외한 앞부분 미리보기."""
-    lines = [ln for ln in body.splitlines() if ln.strip() and set(ln.strip()) != {"─"}]
-    text = " ".join(lines[1:]) if len(lines) > 1 else " ".join(lines)
-    return text[:_TIMELINE_SNIPPET] + ("…" if len(text) > _TIMELINE_SNIPPET else "")
+    프론트가 타임라인을 먼저 보여준 뒤, 이 엔드포인트를 호출해 최신 공시를
+    백그라운드에서 확인한다. refresh 는 last_disclosure_date 이후 공시만
+    조회하므로 빠르다(보통 0건 또는 소수).
+    """
+    items, last_disc_date = company_service.refresh_timeline_cache(db, code)
+    return TimelineCacheResponse(
+        items=[TimelineItem(**item) for item in items],
+        cached_at=datetime.now(),
+        last_disclosure_date=last_disc_date,
+    )
 
 
 @router.get("/{code}/growth", response_model=CompanyGrowth)
@@ -610,7 +639,9 @@ def company_growth(code: str, db: Session = Depends(get_session)) -> CompanyGrow
     """종목 성장지표 — universe 스냅샷(시총·모멘텀) + growth_metric(YoY) + 커버리지."""
     u = company_service.growth_snapshot(db, code)
     g = company_service.growth_metric(db, code)
-    cov_count, buy_count = company_service.coverage_counts(db, code, date.today() - timedelta(days=_COVERAGE_DAYS))
+    cov_count, buy_count = company_service.coverage_counts(
+        db, code, date.today() - timedelta(days=_COVERAGE_DAYS)
+    )
     # 성장지표는 스냅샷에 없는 종목이면 이름도 리포트 폴백만(레거시 동작 보존 — 시세 필드와 일관).
     name = u.stock_name if u else company_service.report_stock_name(db, code)
     return CompanyGrowth(
