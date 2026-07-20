@@ -97,10 +97,33 @@ def sync_disclosures(
 
     client = get_llm(settings)
     if client is None:
-        # LLM 없으면 센티먼트 분류 불가 → 공시를 HOLD 로 영구 오적재하지 않도록 저장을 건너뛴다
-        # (다음에 키가 생기면 재분류되도록 _mark_synced 도 하지 않는다).
-        logger.warning("no LLM (OLLAMA_API_KEY); skip disclosure sentiment for %s", stock_code)
-        return 0
+        # LLM 없으면 센티먼트 분류 불가 → HOLD 로 저장해 타임라인에 공시가 보이게만 한다.
+        # _mark_synced 는 하지 않아 LLM 복구 시 재분류된다.
+        logger.warning("no LLM (OLLAMA_API_KEY); store disclosures as HOLD for %s", stock_code)
+        saved = 0
+        for d in fetched:
+            if d.rcept_no in existing:
+                continue
+            stmt = (
+                insert(Disclosure)
+                .values(
+                    stock_code=d.stock_code,
+                    corp_code=d.corp_code,
+                    rcept_no=d.rcept_no,
+                    report_nm=d.report_nm,
+                    flr_nm=d.flr_nm,
+                    rcept_dt=d.rcept_dt,
+                    dart_url=d.dart_url,
+                    sentiment=Sentiment.HOLD,
+                    rationale="LLM 미사용으로 자동 HOLD 처리",
+                )
+                .on_conflict_do_nothing(constraint="uq_disclosure_rcept")
+            )
+            db.execute(stmt)
+            db.commit()
+            saved += 1
+        logger.info("stored %d disclosures as HOLD for %s (no LLM)", saved, stock_code)
+        return saved
 
     # 소유상황보고서가 신규로 하나라도 있으면 elestock 을 corp 단위로 한 번만 조회해 방향을 확보한다.
     ownership_changes: dict = {}

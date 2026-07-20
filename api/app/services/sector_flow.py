@@ -3,6 +3,8 @@
 각 섹터 ETF 의 기술 지표(technicals)를 자금 흐름 관점으로 재조합한다:
 모멘텀(추세) + 거래량 급증(관심) + 신고가 근접(주도력) + (국내)외국인 순증.
 스코어 계산은 순수 함수, 데이터 조립(compute_flows)은 섹터 ETF 차트를 조회한다.
+
+lookback 파라미터로 기간 축(당일/주/월/3개월/1년)을 지원한다.
 """
 
 from __future__ import annotations
@@ -24,6 +26,16 @@ from reporter import sector_etf
 _FLOW_TTL_S = 300.0  # 5분
 _flow_cache: dict[str, tuple[float, list]] = {}
 _flow_lock = threading.Lock()
+
+# 기간 축 → 거래일 수 매핑
+LOOKBACK_MAP: dict[str, int] = {
+    "1d": 1,
+    "1w": 5,
+    "1m": 21,
+    "3m": 63,
+    "1y": 252,
+}
+_DEFAULT_LOOKBACK = "3m"
 
 
 @dataclass
@@ -96,28 +108,37 @@ def warm_cache() -> None:
         index_flow_score(index_name)
 
 
-def compute_flows(market: str, session: requests.Session | None = None) -> list[SectorFlow]:
+def compute_flows(
+    market: str,
+    lookback: str = _DEFAULT_LOOKBACK,
+    session: requests.Session | None = None,
+) -> list[SectorFlow]:
     """시장(KR|US)의 모든 섹터 ETF flow 를 계산해 flow_score 내림차순으로 반환한다.
 
+    lookback: 기간 축("1d"/"1w"/"1m"/"3m"/"1y"). 기본 3m.
     5분 TTL 프로세스 캐시. 외부 조회(~1초)를 반복하지 않는다.
     """
+    cache_key = f"{market}:{lookback}"
     now = time.monotonic()
     with _flow_lock:
-        cached = _flow_cache.get(market)
+        cached = _flow_cache.get(cache_key)
         if cached and now - cached[0] < _FLOW_TTL_S:
             return cached[1]
 
-    flows = _compute_flows_uncached(market, session)
+    flows = _compute_flows_uncached(market, lookback, session)
     if flows:  # 전량 실패(빈 결과)는 캐시하지 않고 다음 호출에서 재시도
         with _flow_lock:
-            _flow_cache[market] = (time.monotonic(), flows)
+            _flow_cache[cache_key] = (time.monotonic(), flows)
     return flows
 
 
 def _compute_flows_uncached(
-    market: str, session: requests.Session | None = None
+    market: str,
+    lookback: str = _DEFAULT_LOOKBACK,
+    session: requests.Session | None = None,
 ) -> list[SectorFlow]:
     etfs = sector_etf.KR_SECTOR_ETFS if market == "KR" else sector_etf.US_SECTOR_ETFS
+    return_days = LOOKBACK_MAP.get(lookback, 63)
 
     # DB 우선: 저장된 ETF 일봉을 쓰고, 없을 때만 외부 조회(candle_service 가 저장까지 함).
     # 지연 import(순환 방지: candle_service→adapters, 여기선 candle_service 만 필요).
@@ -136,7 +157,7 @@ def _compute_flows_uncached(
     for etf, candles in zip(etfs, candle_lists, strict=True):
         if not candles:
             continue
-        tech = technicals.compute(candles)
+        tech = technicals.compute(candles, return_days=return_days)
         fd = foreign_delta([c.foreign_ratio for c in candles]) if market == "KR" else None
         flows.append(
             SectorFlow(

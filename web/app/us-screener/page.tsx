@@ -30,6 +30,8 @@ const SORTS: { key: string; label: string }[] = [
   { key: "trading_value", label: "거래대금" },
 ];
 
+const PAGE_SIZE = 50;
+
 export default function UsScreenerPage() {
   const [rows, setRows] = useState<UsScreenerRow[]>([]);
   const [total, setTotal] = useState(0);
@@ -42,6 +44,7 @@ export default function UsScreenerPage() {
   const [perMax, setPerMax] = useState<number | undefined>(undefined);
   const [exchange, setExchange] = useState<"" | "NASDAQ" | "NYSE">("");
   const [hasEvent, setHasEvent] = useState(false);
+  const [offset, setOffset] = useState(0);
 
   useEffect(() => {
     let active = true;
@@ -52,7 +55,8 @@ export default function UsScreenerPage() {
       perMax,
       exchange: exchange || undefined,
       hasEvent: hasEvent || undefined,
-      limit: 100,
+      limit: PAGE_SIZE,
+      offset,
     };
     void fetchUsScreener(query)
       .then((r) => {
@@ -66,13 +70,16 @@ export default function UsScreenerPage() {
     return () => {
       active = false;
     };
-  }, [sort, perMax, exchange, hasEvent]);
+  }, [sort, perMax, exchange, hasEvent, offset]);
+
+  const totalPages = Math.ceil(total / PAGE_SIZE);
+  const currentPage = Math.floor(offset / PAGE_SIZE) + 1;
 
   return (
     <div className={styles.page}>
       <header className={styles.head}>
         <h1 className={styles.title}>US 스크리너</h1>
-        <span className={styles.tag}>S&amp;P500 + 나스닥 · SEC/네이버</span>
+        <span className={styles.tag}>S&amp;P500 + 나스닥 + 성장주 · SEC/네이버</span>
         {asOf ? <span className={styles.asof}>{asOf} 기준</span> : null}
       </header>
 
@@ -123,6 +130,7 @@ export default function UsScreenerPage() {
           <thead>
             <tr>
               <th>종목</th>
+              <th className={styles.num}>스코어</th>
               <th>거래소</th>
               <th className={styles.num}>현재가</th>
               <th className={styles.num}>등락</th>
@@ -130,7 +138,6 @@ export default function UsScreenerPage() {
               <th className={styles.num}>PER</th>
               <th className={styles.num}>PBR</th>
               <th className={styles.num}>모멘텀</th>
-              <th className={styles.num}>스코어</th>
               <th>8-K</th>
             </tr>
           </thead>
@@ -143,6 +150,7 @@ export default function UsScreenerPage() {
                     <span className={styles.name}>{r.name}</span>
                   </Link>
                 </td>
+                <td className={`${styles.num} ${styles.score}`}>{n2(r.score)}</td>
                 <td className={styles.exch}>{r.exchange ?? "—"}</td>
                 <td className={styles.num}>{r.close_price !== null ? `$${r.close_price}` : "—"}</td>
                 <td className={`${styles.num} ${(r.change_pct ?? 0) >= 0 ? styles.up : styles.down}`}>
@@ -152,7 +160,6 @@ export default function UsScreenerPage() {
                 <td className={styles.num}>{n2(r.per)}</td>
                 <td className={styles.num}>{n2(r.pbr)}</td>
                 <td className={styles.num}>{n2(r.momentum_3m, "%")}</td>
-                <td className={`${styles.num} ${styles.score}`}>{n2(r.score)}</td>
                 <td>{r.has_recent_8k ? <span className={styles.badge}>NEW</span> : null}</td>
               </tr>
             ))}
@@ -160,6 +167,31 @@ export default function UsScreenerPage() {
         </table>
         {!loading && rows.length === 0 ? (
           <p className={styles.empty}>조건에 맞는 종목이 없습니다</p>
+        ) : null}
+
+        {/* 페이지네이션 */}
+        {total > PAGE_SIZE ? (
+          <div className={styles.pagination}>
+            <button
+              type="button"
+              className={styles.pageBtn}
+              disabled={offset <= 0}
+              onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
+            >
+              ← 이전
+            </button>
+            <span className={styles.pageInfo}>
+              {currentPage} / {totalPages}
+            </span>
+            <button
+              type="button"
+              className={styles.pageBtn}
+              disabled={offset + PAGE_SIZE >= total}
+              onClick={() => setOffset(offset + PAGE_SIZE)}
+            >
+              다음 →
+            </button>
+          </div>
         ) : null}
       </section>
     </div>
