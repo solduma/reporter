@@ -121,9 +121,16 @@ def company_candles(
 
 @router.get("/{code}/analysis", response_model=CompanyAnalysis)
 def company_analysis(
-    code: str, bg: BackgroundTasks, db: Session = Depends(get_session)
+    code: str,
+    bg: BackgroundTasks,
+    db: Session = Depends(get_session),
+    quick: bool = Query(default=False),
 ) -> CompanyAnalysis:
-    """테크노펀더멘탈 종합 — 성장·기술적 추세·탑다운."""
+    """테크노펀더멘탈 종합 — 성장·기술적 추세·탑다운.
+
+    quick=true: 외부 API 가 필요 없는 성장·가치 축만 반환(추세·탑다운은 score None).
+    프론트가 빠르게 1차 렌더 후 전체 재조회하는 패턴용.
+    """
     settings = get_settings()
     if candle_service.is_stale(db, code, "day"):
         bg.add_task(candle_service.refresh_periodic, code, "day")
@@ -131,7 +138,7 @@ def company_analysis(
     name = (snap.stock_name if snap else None) or company_service.resolve_stock_name(db, code)
     market = snap.market if snap else None
 
-    # 성장 축 — GrowthMetric.
+    # 성장 축 — GrowthMetric (DB only, 항상 빠름).
     g = company_service.growth_metric(db, code)
     growth_sc = analysis.growth_score(
         g.revenue_yoy if g else None,
@@ -142,7 +149,6 @@ def company_analysis(
         g.ebitda_status if g else None,
         g.ebitda_margin_delta if g else None,
     )
-    # 성장축은 점수 해석만 보여준다 — 원시 YoY 수치는 '성장 지표 스냅샷'이 단일 소유(중복 제거).
     growth_axis = AnalysisAxis(
         key="growth",
         label="성장",
@@ -165,22 +171,20 @@ def company_analysis(
         ),
     )
 
-    # 가치 축 — 최신 밸류에이션(저PER·저PBR·저EV/EBITDA + 고ROE·고배당). 절대 밴드(value_score_abs)로
-    # 계산해 스크리너와 동일 점수를 낸다(집합 무관). 데이터 없으면 score None.
+    # 가치 축 — 최신 밸류에이션 (DB only, 항상 빠름).
     fin = company_service.latest_valuation(db, code)
     per = fin.per if fin else None
     pbr = fin.pbr if fin else None
     ev = fin.ev_ebitda if fin else None
     roe = fin.roe if fin else None
     dy = fin.div_yield if fin else None
-    eps_yoy = g.eps_yoy if g else None  # PEG 산출용(성장축과 동일 EPS YoY)
+    eps_yoy = g.eps_yoy if g else None
     net_status = g.net_status if g else None
     net_margin_delta = g.net_margin_delta if g else None
     value_sc, (per_r, pbr_r, ev_r, peg_r) = analysis_scoring.value_score_abs(
         per, pbr, ev, roe, dy, eps_yoy, net_status, net_margin_delta
     )
     peg_val = analysis_scoring.peg(per, eps_yoy)
-    # eps_yoy 로 PEG 를 못 구한 흑자전환·흑자지속 종목은 수치 대신 상태 라벨로 표시(대체점이 점수엔 반영).
     peg_display = (
         f"{peg_val:.2f}" if peg_val is not None
         else net_status if net_status in ("흑자전환", "흑자지속") and net_margin_delta is not None
@@ -208,7 +212,19 @@ def company_analysis(
         ),
     )
 
-    # 기술 축 — 일봉 지표 + 와인스타인 중기 국면(주봉 30주). 국면은 추세 점수에 보조 가중 반영.
+    if quick:
+        # quick 모드: 외부 API 가 필요한 추세·탑다운은 생략하고 성장·가치만 반환.
+        axes = [growth_axis, value_axis]
+        overall_sc = analysis.overall([growth_sc, value_sc, None, None])
+        j = judgment.summarize(overall_sc, {"growth": growth_sc, "value": value_sc})
+        return CompanyAnalysis(
+            stock_code=code, stock_name=name, market=market,
+            overall_score=overall_sc, axes=axes,
+            topdown=None, judgment=_judgment_out(j),
+            comment=None, comment_pending=False,
+        )
+
+    # 기술 축 — 일봉 지표 + 와인스타인 중기 국면(주봉 30주). 외부 API 필요 시 느림.
     candles = company_service.ensure_day_candles(db, code)
     _mid = stage.FRAMES["mid"]
     _mid_b = stage.resample_ohlcv(
@@ -288,7 +304,6 @@ def company_analysis(
     axes = [growth_axis, value_axis, tech_axis, topdown_axis]
     overall_sc = analysis.overall([growth_sc, value_sc, tech.trend_score, topdown_sc])
 
-    # 판단 요약(강점·약점·확인 + 신호) — 점수의 규칙 기반 요약(자문 아님, 프론트가 면책 노출).
     j = judgment.summarize(
         overall_sc,
         {
@@ -298,15 +313,9 @@ def company_analysis(
             "topdown": topdown_sc,
         },
     )
-    judgment_out = JudgmentOut(
-        signal=j.signal,
-        signal_label=j.signal_label,
-        strengths=j.strengths,
-        weaknesses=j.weaknesses,
-        checks=j.checks,
-    )
+    judgment_out = _judgment_out(j)
 
-    # LLM 종합 코멘트 — 3축 + 시장 맥락·정성 재료를 함께 종합. 캐시 우선, 미스면 백그라운드 생성.
+    # LLM 종합 코멘트 — 캐시 우선, 미스면 백그라운드 생성.
     axes_dump = [a.model_dump() for a in axes]
     comment = None
     comment_pending = False
@@ -330,6 +339,17 @@ def company_analysis(
         judgment=judgment_out,
         comment=comment,
         comment_pending=comment_pending,
+    )
+
+
+def _judgment_out(j: judgment.Judgment) -> JudgmentOut:
+    """judgment.summarize 결과를 JudgmentOut 으로 변환."""
+    return JudgmentOut(
+        signal=j.signal,
+        signal_label=j.signal_label,
+        strengths=j.strengths,
+        weaknesses=j.weaknesses,
+        checks=j.checks,
     )
 
 

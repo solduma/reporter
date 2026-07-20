@@ -218,6 +218,14 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
     async function load(poll = false, attempt = 0) {
       if (!poll) {
         setAnalysis({ status: "loading", data: null });
+        // 1차: quick 모드로 성장·가치만 빠르게 조회
+        try {
+          const quickRes = await fetchCompanyAnalysis(code, true);
+          if (!active) return;
+          setAnalysis({ status: "ready", data: quickRes });
+        } catch {
+          // quick 실패는 무시 — full 에서 재시도
+        }
       }
       try {
         const res = await fetchCompanyAnalysis(code);

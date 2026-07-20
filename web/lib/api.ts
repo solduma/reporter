@@ -291,8 +291,9 @@ export function fetchCompanyGrowth(code: string): Promise<CompanyGrowth> {
   return getJson<CompanyGrowth>(`/api/companies/${encodeURIComponent(code)}/growth`);
 }
 
-export function fetchCompanyAnalysis(code: string): Promise<CompanyAnalysis> {
-  return getJson<CompanyAnalysis>(`/api/companies/${encodeURIComponent(code)}/analysis`);
+export function fetchCompanyAnalysis(code: string, quick?: boolean): Promise<CompanyAnalysis> {
+  const qs = quick ? "?quick=true" : "";
+  return getJson<CompanyAnalysis>(`/api/companies/${encodeURIComponent(code)}/analysis${qs}`);
 }
 
 export function fetchCandles(code: string, tf: Timeframe): Promise<CandlePoint[]> {
