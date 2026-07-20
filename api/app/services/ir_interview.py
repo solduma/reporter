@@ -14,7 +14,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 
 import requests
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -266,6 +266,19 @@ def list_reports(db: Session, limit: int = 100) -> list[IrInterviewReport]:
             select(IrInterviewReport).order_by(IrInterviewReport.updated_at.desc()).limit(limit)
         ).all()
     )
+
+
+def delete_report(db: Session, code: str) -> bool:
+    """종목의 주담 전략 결과 + 관련 job 을 모두 삭제. 삭제된 리포트가 있으면 True.
+
+    목록·상세에서 개별 전략 삭제용. job 도 함께 지워 '재생성 없는 유령 상태'를 남기지 않는다.
+    """
+    rep = get_report(db, code)
+    db.execute(delete(IrInterviewJob).where(IrInterviewJob.stock_code == code))
+    if rep is not None:
+        db.delete(rep)
+    db.commit()
+    return rep is not None
 
 
 def run_job(db: Session, job: IrInterviewJob, settings: Settings | None = None) -> None:

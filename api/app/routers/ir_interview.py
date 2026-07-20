@@ -54,6 +54,12 @@ def ir_interview_status(code: str, db: Session = Depends(get_session)) -> IrInte
     return _status(code, job, has)
 
 
+@router.delete("/{code}", status_code=204)
+def delete_ir_interview(code: str, db: Session = Depends(get_session)) -> None:
+    """주담 전략 삭제(결과 + 관련 job). 목록·상세의 개별 삭제용. 없어도 204(멱등)."""
+    ir_interview.delete_report(db, code)
+
+
 @router.get("/{code}", response_model=IrInterviewReportOut)
 def ir_interview_report(code: str, db: Session = Depends(get_session)) -> IrInterviewReportOut:
     """주담 전략 결과(아이템→질문 트리). 없으면 빈 결과(strategy=None)."""

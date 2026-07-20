@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import IrInterviewView from "@/components/IrInterviewView";
 import {
+  deleteIrInterview,
   fetchIrInterviewReport,
   fetchIrInterviewStatus,
   requestIrInterview,
@@ -15,10 +17,12 @@ import styles from "../page.module.css";
 
 export default function IrInterviewCodePage({ params }: { params: { code: string } }) {
   const { code } = params;
+  const router = useRouter();
   const [report, setReport] = useState<IrInterviewReport | null>(null);
   const [status, setStatus] = useState<IrInterviewStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout>>();
 
   const loadReport = useCallback(async () => {
@@ -71,6 +75,18 @@ export default function IrInterviewCodePage({ params }: { params: { code: string
     }
   };
 
+  const onDelete = async () => {
+    if (!window.confirm("이 주담 전략을 삭제할까요?")) return;
+    setDeleting(true);
+    try {
+      await deleteIrInterview(code);
+      router.push("/ir-interview");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "삭제 실패");
+      setDeleting(false);
+    }
+  };
+
   const active = status?.status === "running" || status?.status === "pending";
   const hasStrategy = !!report?.strategy?.strategy_items?.length;
 
@@ -86,9 +102,21 @@ export default function IrInterviewCodePage({ params }: { params: { code: string
             {report?.as_of ? <span> · 생성 {report.as_of.slice(0, 10)}</span> : null}
           </p>
         </div>
-        <button type="button" className={styles.genBtn} onClick={onGenerate} disabled={active}>
-          {active ? "생성 중…" : hasStrategy ? "다시 생성" : "주담 전략 생성"}
-        </button>
+        <div className={styles.headerActions}>
+          <button type="button" className={styles.genBtn} onClick={onGenerate} disabled={active}>
+            {active ? "생성 중…" : hasStrategy ? "다시 생성" : "주담 전략 생성"}
+          </button>
+          {hasStrategy ? (
+            <button
+              type="button"
+              className={styles.delBtn}
+              onClick={onDelete}
+              disabled={deleting || active}
+            >
+              {deleting ? "삭제 중…" : "삭제"}
+            </button>
+          ) : null}
+        </div>
       </div>
 
       {error ? <p className={styles.error}>{error}</p> : null}
