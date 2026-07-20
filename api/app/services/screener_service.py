@@ -13,6 +13,8 @@ analysis_scoring, 결과는 ScreenerResult 읽기모델(read-model)로 반환한
 
 from __future__ import annotations
 
+import threading
+import time
 from datetime import date, datetime, timedelta
 
 from sqlalchemy import case, func, or_, select
@@ -449,33 +451,74 @@ def _screen_topdown(db, base, as_of, sort, limit, offset) -> ScreenerResult:
     return ScreenerResult(as_of=as_of, total=total, items=items)
 
 
+# ── Peer 스코어 인메모리 TTL 캐시 ──────────────────────────────────────
+# peer_scores 는 매 요청마다 모든 peer 의 4축 스코어를 재계산한다. 입력 데이터
+# (UniverseSnapshot·GrowthMetric·Financial)는 야간 배치/분기 단위로만 바뀌므로
+# 1시간 TTL 캐시로 중복 계산을 방지한다. sector_flow.py 와 동일 패턴.
+_PEER_CACHE_TTL_S = 3600.0  # 1시간
+_peer_cache: dict[str, tuple[float, dict[str, float | None]]] = {}
+_peer_cache_lock = threading.Lock()
+
+
+def _get_cached_peer_score(code: str) -> dict[str, float | None] | None:
+    """개별 종목의 캐시된 스코어. TTL 만료 시 None."""
+    now = time.monotonic()
+    with _peer_cache_lock:
+        cached = _peer_cache.get(code)
+        if cached and now - cached[0] < _PEER_CACHE_TTL_S:
+            return cached[1]
+    return None
+
+
+def _set_cached_peer_score(code: str, scores: dict[str, float | None]) -> None:
+    """개별 종목 스코어를 캐시에 저장."""
+    with _peer_cache_lock:
+        _peer_cache[code] = (time.monotonic(), scores)
+
+
 def peer_scores(db: Session, codes: list[str]) -> dict[str, dict[str, float | None]]:
     """동일업종 종목들의 4축(성장·가치·추세·탑다운)·종합 점수. {code: {overall,growth,value,trend,topdown}}.
 
     종목분석·스크리너와 동일한 절대 밴드를 재사용해(집합 무관) 같은 점수를 낸다. 최신 스냅샷에
     없는 종목은 키가 없다(계산 불가). 페이지네이션·정렬 없이 요청 종목만 산출한다.
+
+    개별 종목 스코어를 1시간 TTL 인메모리 캐시 — 동일 종목이 다른 회사의 peer 로도 조회될 때
+    DB 조회·스코어링을 재사용한다.
     """
     if not codes:
         return {}
+
+    # 캐시 히트 확인
+    out: dict[str, dict[str, float | None]] = {}
+    miss: list[str] = []
+    for code in codes:
+        cached = _get_cached_peer_score(code)
+        if cached is not None:
+            out[code] = cached
+        else:
+            miss.append(code)
+
+    if not miss:
+        return out  # 전부 캐시 히트
+
     as_of = _latest_date(db)
     if as_of is None:
-        return {}
+        return out
     rows = db.execute(
         select(UniverseSnapshot, GrowthMetric)
         .outerjoin(GrowthMetric, GrowthMetric.stock_code == UniverseSnapshot.stock_code)
-        .where(UniverseSnapshot.snapshot_date == as_of, UniverseSnapshot.stock_code.in_(codes))
+        .where(UniverseSnapshot.snapshot_date == as_of, UniverseSnapshot.stock_code.in_(miss))
     ).all()
-    fin_map = _latest_financials(db, codes)
-    div_map = _latest_dividends(db, codes)
+    fin_map = _latest_financials(db, miss)
+    div_map = _latest_dividends(db, miss)
     for c, fin in fin_map.items():
         dy = div_map.get(c)
         if dy is not None:
             fin.div_yield = dy  # 세션 객체 in-memory 보정(읽기 전용)
-    sector_map = _stock_sector_map(db, codes)
+    sector_map = _stock_sector_map(db, miss)
     flows = _topdown_scores(db)
     idx_cache: dict[str | None, float | None] = {}
 
-    out: dict[str, dict[str, float | None]] = {}
     for u, g in rows:
         gsc = _growth_score(u, g)
         vsc = _value_score(fin_map.get(u.stock_code), g)
@@ -485,10 +528,12 @@ def peer_scores(db: Session, codes: list[str]) -> dict[str, dict[str, float | No
             idx_cache[u.market] = _index_flow(u.market)
         rs = float(u.rs_rating) if u.rs_rating else None
         dsc = _stock_topdown_score(kr_sec, flows, idx_cache[u.market], rs)
-        out[u.stock_code] = {
+        scores = {
             "overall": analysis_scoring.overall([gsc, vsc, tsc, dsc]),
             "growth": gsc, "value": vsc, "trend": tsc, "topdown": dsc,
         }
+        out[u.stock_code] = scores
+        _set_cached_peer_score(u.stock_code, scores)
     return out
 
 
