@@ -472,6 +472,13 @@ export interface TimelineItem {
   kind?: string | null; // 브로드캐스트 종류(digest_market 등)
 }
 
+// 타임라인 캐시 응답 (/api/companies/{code}/timeline)
+export interface TimelineCacheResponse {
+  items: TimelineItem[];
+  cached_at: string | null;
+  last_disclosure_date: string | null;
+}
+
 // 텔레그램으로 발송된 콘텐츠 종류
 export type BroadcastKind =
   | "digest_market"

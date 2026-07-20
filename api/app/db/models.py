@@ -86,9 +86,7 @@ class PriceCandle(Base):
     """일/주/월봉 캐시. 네이버 신형 차트 API 응답을 upsert 한다."""
 
     __tablename__ = "price_candles"
-    __table_args__ = (
-        UniqueConstraint("stock_code", "timeframe", "bar_date", name="uq_candle"),
-    )
+    __table_args__ = (UniqueConstraint("stock_code", "timeframe", "bar_date", name="uq_candle"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     # 국내 6자리 코드·지수(KOSPI)뿐 아니라 미국 심볼(QQQ.O·XLK 등)도 저장하므로 16자.
@@ -169,7 +167,9 @@ class ReportFinancial(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     stock_code: Mapped[str] = mapped_column(String(6), index=True)
-    period: Mapped[str] = mapped_column(String(16))  # '2023.12'(사업)·'2023.06'(반기)·'2024.03'(분기)
+    period: Mapped[str] = mapped_column(
+        String(16)
+    )  # '2023.12'(사업)·'2023.06'(반기)·'2024.03'(분기)
     fs_div: Mapped[str] = mapped_column(String(3))  # CFS(연결) | OFS(별도)
     report_kind: Mapped[str] = mapped_column(String(8))  # annual | half | quarter
     rcept_no: Mapped[str] = mapped_column(String(14))  # 출처 접수번호
@@ -183,7 +183,9 @@ class ReportFinancial(Base):
     # 불가한 종목이 많아). amortization 은 예비 컬럼(현재 미사용, 항상 None).
     depreciation: Mapped[float | None] = mapped_column(Float)  # 감가상각비+무형자산상각비 합
     amortization: Mapped[float | None] = mapped_column(Float)  # 예비(미사용)
-    capex: Mapped[float | None] = mapped_column(Float)  # 자본적지출(유형+무형 취득, CF) — FCFF 산출용
+    capex: Mapped[float | None] = mapped_column(
+        Float
+    )  # 자본적지출(유형+무형 취득, CF) — FCFF 산출용
     income_tax: Mapped[float | None] = mapped_column(Float)  # 법인세비용 — 실효세율 분자
     pretax_income: Mapped[float | None] = mapped_column(Float)  # 세전이익 — 실효세율 분모
     interest_expense: Mapped[float | None] = mapped_column(Float)  # 이자비용 — 부채비용 분자
@@ -196,9 +198,7 @@ class Peer(Base):
     """동일업종비교 한 종목. 표시값을 JSON 유사 컬럼 대신 정규 컬럼으로 저장."""
 
     __tablename__ = "peers"
-    __table_args__ = (
-        UniqueConstraint("base_stock_code", "peer_stock_code", name="uq_peer"),
-    )
+    __table_args__ = (UniqueConstraint("base_stock_code", "peer_stock_code", name="uq_peer"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     base_stock_code: Mapped[str] = mapped_column(String(6), index=True)
@@ -355,9 +355,13 @@ class UniverseSnapshot(Base):
     market_cap: Mapped[int | None] = mapped_column(BigInteger, index=True)
     trading_value: Mapped[int | None] = mapped_column(BigInteger)
     three_month_rate: Mapped[float | None] = mapped_column(Float)  # 네이버 제공(대개 결측)
-    momentum_3m: Mapped[float | None] = mapped_column(Float)  # price_candles 로 계산한 3개월 수익률%
+    momentum_3m: Mapped[float | None] = mapped_column(
+        Float
+    )  # price_candles 로 계산한 3개월 수익률%
     rs_rating: Mapped[int | None] = mapped_column(SmallInteger)  # IBD RS Rating 1~99(전종목 백분위)
-    trend_score: Mapped[float | None] = mapped_column(Float)  # 기술적 추세 종합 0~100(야간 배치, 종목분석과 동일)
+    trend_score: Mapped[float | None] = mapped_column(
+        Float
+    )  # 기술적 추세 종합 0~100(야간 배치, 종목분석과 동일)
 
 
 class GrowthMetric(Base):
@@ -475,6 +479,27 @@ class TrendCache(Base):
     )
 
 
+class TimelineCache(Base):
+    """종목 타임라인 응답 캐시.
+
+    GET /companies/{code}/timeline 은 매 요청 3개 테이블(reports+report_analysis, disclosures,
+    broadcasts)을 조인·정렬한다. 이 응답을 stock_code 당 1행 JSONB 로 캐시해 조회를 즉시 반환하고,
+    POST /timeline/refresh 가 DART 신규 공시 동기화 후 캐시를 재구축한다.
+    last_disclosure_date 는 다음 refresh 시 DART 조회 시작일로 사용한다.
+    """
+
+    __tablename__ = "timeline_cache"
+    __table_args__ = (UniqueConstraint("stock_code", name="uq_timeline_cache_code"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    stock_code: Mapped[str] = mapped_column(String(6), index=True)
+    payload: Mapped[dict] = mapped_column(JSONB, default=dict)  # list[TimelineItem] as JSON
+    last_disclosure_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    cached_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class FallbackEvent(Base):
     """폴백(1차 소스/방법 실패 → 2차 대안 전환) 발생 이력.
 
@@ -485,7 +510,9 @@ class FallbackEvent(Base):
     __tablename__ = "fallback_event"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    ts: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
     key: Mapped[str] = mapped_column(String(64), index=True)  # 계층 식별자 예: "chart.naver_to_kis"
     reason: Mapped[str] = mapped_column(Text, default="")  # 무엇이 실패했는지(사람이 읽는 요약)
     detail: Mapped[str] = mapped_column(Text, default="")  # 대상 식별자(종목코드·URL 등) 옵션
@@ -503,7 +530,9 @@ class IngestLog(Base):
     __tablename__ = "ingest_log"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    ts: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
     job: Mapped[str] = mapped_column(String(32), index=True)  # 예: "ingest_cycle" | "candle_batch"
     status: Mapped[str] = mapped_column(String(8), default="ok")  # ok | fail
     rows: Mapped[int] = mapped_column(Integer, default=0)  # 수집·적재 건수(잡별 대표 수치)
@@ -546,7 +575,9 @@ class StockEvent(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     stock_code: Mapped[str] = mapped_column(String(6), index=True)
     news_id: Mapped[int] = mapped_column(ForeignKey("news_article.id"), index=True)
-    event_kind: Mapped[str] = mapped_column(String(16), default="")  # 신기술|공급망|규제|매크로|실적
+    event_kind: Mapped[str] = mapped_column(
+        String(16), default=""
+    )  # 신기술|공급망|규제|매크로|실적
     theme: Mapped[str] = mapped_column(String(64), default="")
     summary: Mapped[str] = mapped_column(Text, default="")
     event_date: Mapped[date] = mapped_column(Date, index=True)  # 뉴스 발행일
@@ -714,7 +745,9 @@ class CalendarEvent(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     event_date: Mapped[date] = mapped_column(Date, index=True)  # 발표·발생 예정/실제일
     region: Mapped[str] = mapped_column(String(8), default="US")  # US | KR | GLOBAL
-    kind: Mapped[str] = mapped_column(String(16), default="macro")  # macro|earnings|fomc|election|geo
+    kind: Mapped[str] = mapped_column(
+        String(16), default="macro"
+    )  # macro|earnings|fomc|election|geo
     title: Mapped[str] = mapped_column(String(200))  # 예: "미국 CPI (6월)"
     importance: Mapped[int] = mapped_column(SmallInteger, default=2)  # 1(낮음)~3(높음)
     # 수치(있을 때만) — 문자열로 원표기 보존(단위·부호·% 다양).
@@ -748,7 +781,9 @@ class DeepDiveJob(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     stock_code: Mapped[str] = mapped_column(String(6), index=True)
-    status: Mapped[str] = mapped_column(String(12), default="pending", index=True)  # pending|running|paused|done|failed
+    status: Mapped[str] = mapped_column(
+        String(12), default="pending", index=True
+    )  # pending|running|paused|done|failed
     current_stage: Mapped[int] = mapped_column(SmallInteger, default=0)  # 0~5(완료 단계)
     progress: Mapped[int] = mapped_column(SmallInteger, default=0)  # 0~100
     model: Mapped[str] = mapped_column(String(64), default="")
@@ -759,7 +794,9 @@ class DeepDiveJob(Base):
     hitl_pending: Mapped[bool] = mapped_column(default=False)  # 인풋 대기 중(프론트가 입력창 노출)
     hitl_prompt: Mapped[str | None] = mapped_column(Text)  # 사용자에게 보일 질문
     hitl_input: Mapped[str | None] = mapped_column(Text)  # 사용자가 제출한 인풋(있으면 재개·반영)
-    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    requested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
@@ -787,7 +824,9 @@ class DeepDiveReport(Base):
     hitl_json: Mapped[dict | None] = mapped_column(JSONB)
     valuation_json: Mapped[dict | None] = mapped_column(JSONB)
     narrative_md: Mapped[str | None] = mapped_column(Text)  # 5단계 통합 서술 본문
-    verdict: Mapped[str | None] = mapped_column(String(120))  # 결론 요약(예: '성장주 · 업사이드 62%')
+    verdict: Mapped[str | None] = mapped_column(
+        String(120)
+    )  # 결론 요약(예: '성장주 · 업사이드 62%')
     upside_pct: Mapped[float | None] = mapped_column(Float)  # 목표가 업사이드(정렬·필터용)
     inputs_hash: Mapped[str | None] = mapped_column(String(64))  # 재생성 판정
     as_of: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -807,11 +846,15 @@ class IrInterviewJob(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     stock_code: Mapped[str] = mapped_column(String(6), index=True)
-    status: Mapped[str] = mapped_column(String(12), default="pending", index=True)  # pending|running|done|failed
+    status: Mapped[str] = mapped_column(
+        String(12), default="pending", index=True
+    )  # pending|running|done|failed
     progress: Mapped[int] = mapped_column(SmallInteger, default=0)  # 0~100
     model: Mapped[str] = mapped_column(String(64), default="")
     error: Mapped[str | None] = mapped_column(Text)
-    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    requested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
@@ -850,7 +893,9 @@ class DeepDiveShare(Base):
     __tablename__ = "deepdive_share"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    token: Mapped[str] = mapped_column(String(43), unique=True, index=True)  # secrets.token_urlsafe(32)
+    token: Mapped[str] = mapped_column(
+        String(43), unique=True, index=True
+    )  # secrets.token_urlsafe(32)
     stock_code: Mapped[str] = mapped_column(String(6), index=True)
     stock_name: Mapped[str | None] = mapped_column(String(120))  # 스냅샷 당시 종목명(표시용)
     payload_json: Mapped[dict] = mapped_column(JSONB)  # DeepDiveReportOut 스냅샷

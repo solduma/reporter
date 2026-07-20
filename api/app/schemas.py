@@ -435,6 +435,14 @@ class TimelineItem(BaseModel):
     kind: str | None = None  # 브로드캐스트 종류(digest_market 등)
 
 
+class TimelineCacheResponse(BaseModel):
+    """타임라인 캐시 응답 — items + 캐시 메타데이터."""
+
+    items: list[TimelineItem]
+    cached_at: datetime | None = None
+    last_disclosure_date: date | None = None
+
+
 class BroadcastRef(BaseModel):
     """브로드캐스트 목록 항목(본문 미포함, snippet 만)."""
 

@@ -42,9 +42,12 @@ def _weighted(parts: list[tuple[float, float]]) -> float | None:
 _GROWTH_YOY_BAND = (-0.2, 0.6)
 GROWTH_WEIGHTS = {
     "rev": 0.24,
-    "op_status": 0.16, "op_margin": 0.14,
-    "net_status": 0.13, "net_margin": 0.11,
-    "ebitda_status": 0.12, "ebitda_margin": 0.10,
+    "op_status": 0.16,
+    "op_margin": 0.14,
+    "net_status": 0.13,
+    "net_margin": 0.11,
+    "ebitda_status": 0.12,
+    "ebitda_margin": 0.10,
 }
 
 # 손익 상태 4단계 기본점(0~1). 방향(적자→흑자 전환)을 크게 인정, 상태 악화는 강하게 감점.
@@ -260,29 +263,44 @@ def topdown_flow_score(
 
 
 # ── 섹터 자금유입(flow) ───────────────────────────────────────────────
+# 기간 축별 flow_score 가중치. 짧을수록 거래량(관심)·외국인 단기 수급 비중을 높이고,
+# 길수록 추세(모멘텀) 비중을 높인다. 값은 합 1.0.
+_FLOW_WEIGHTS: dict[str, tuple[float, float, float, float]] = {
+    "1d": (0.20, 0.25, 0.45, 0.10),  # 당일: 거래량 급등/외국인 단기 수급 중시
+    "1w": (0.30, 0.30, 0.30, 0.10),  # 주간: 추세+신고가+거래량 균형
+    "1m": (0.35, 0.30, 0.25, 0.10),  # 월간: 추세 약간 우선
+    "3m": (0.40, 0.30, 0.20, 0.10),  # 분기: 추세 핵심(레거시)
+    "1y": (0.45, 0.25, 0.20, 0.10),  # 연간: 장기 추세 중시
+}
+
+
 def flow_score(
     return_3m: float | None,
     near_high_pct: float | None,
     vol_ratio: float | None,
     foreign_delta: float | None,
+    lookback: str = "3m",
 ) -> float | None:
     """섹터 ETF 기술 지표를 0~100 자금유입 스코어로. 계산 가능한 항목만 가중 평균.
 
-    return_3m -20%~+40%, near_high 70%~100%, vol_ratio 0.5~2배, foreign_delta -1pp~+1pp.
+    return_3m 은 실제로 lookback 기간 수익률(%)이 들어온다. 기간 축에 따라 가중치가 달라진다.
+    near_high 70%~100%, vol_ratio 0.5~2배, foreign_delta -1pp~+1pp.
     """
+    weights = _FLOW_WEIGHTS.get(lookback, _FLOW_WEIGHTS["3m"])
+    trend_w, near_w, vol_w, fd_w = weights
     parts: list[tuple[float, float]] = []
     r = band(return_3m, -20, 40)
     if r is not None:
-        parts.append((r, 0.40))  # 추세가 핵심 가중
+        parts.append((r, trend_w))
     if near_high_pct is not None:
         # 70%~100% 근접 → 0~1. 리터럴 0.3 나눗셈으로 부동소수 결과를 레거시와 동일하게 유지.
-        parts.append((clamp01((near_high_pct / 100 - 0.7) / 0.3), 0.30))  # 신고가권일수록 주도
+        parts.append((clamp01((near_high_pct / 100 - 0.7) / 0.3), near_w))
     vr = band(vol_ratio, 0.5, 2.0)
     if vr is not None:
-        parts.append((vr, 0.20))  # 관심 유입
+        parts.append((vr, vol_w))
     fd = band(foreign_delta, -1.0, 1.0)
     if fd is not None:
-        parts.append((fd, 0.10))  # 국내 전용 외국인 수급
+        parts.append((fd, fd_w))
     return _weighted(parts)
 
 

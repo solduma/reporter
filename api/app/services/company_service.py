@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
-from sqlalchemy import and_, case, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -29,6 +29,7 @@ from app.db.models import (
     SectorThemeStock,
     Sentiment,
     SyncState,
+    TimelineCache,
     UniverseSnapshot,
 )
 from app.db.session import SessionLocal
@@ -210,16 +211,33 @@ def sync_financials(db: Session, code: str) -> None:
     fetched = quote.fetch_financials(code, session)
     for f in fetched:
         stmt = insert(Financial).values(
-            stock_code=code, period=f.period, is_estimate=f.is_estimate,
-            revenue=f.revenue, operating_income=f.operating_income, net_income=f.net_income,
-            eps=f.eps, bps=f.bps, roe=f.roe, dps=f.dps, div_yield=f.div_yield,
+            stock_code=code,
+            period=f.period,
+            is_estimate=f.is_estimate,
+            revenue=f.revenue,
+            operating_income=f.operating_income,
+            net_income=f.net_income,
+            eps=f.eps,
+            bps=f.bps,
+            roe=f.roe,
+            dps=f.dps,
+            div_yield=f.div_yield,
         )
         stmt = stmt.on_conflict_do_update(
             constraint="uq_financial",
             set_={
                 c: getattr(stmt.excluded, c)
-                for c in ("is_estimate", "revenue", "operating_income", "net_income",
-                          "eps", "bps", "roe", "dps", "div_yield")
+                for c in (
+                    "is_estimate",
+                    "revenue",
+                    "operating_income",
+                    "net_income",
+                    "eps",
+                    "bps",
+                    "roe",
+                    "dps",
+                    "div_yield",
+                )
             },
         )
         db.execute(stmt)
@@ -268,7 +286,9 @@ def backfill_financials_10y_bg(code: str) -> None:
 
 # ── 동일업종(peers) ────────────────────────────────────────────────────
 def peers_rows(db: Session, code: str) -> list[Peer]:
-    return list(db.scalars(select(Peer).where(Peer.base_stock_code == code).order_by(Peer.id)).all())
+    return list(
+        db.scalars(select(Peer).where(Peer.base_stock_code == code).order_by(Peer.id)).all()
+    )
 
 
 def peers_fresh(db: Session, code: str) -> bool:
@@ -312,7 +332,10 @@ def sync_peers(db: Session, code: str) -> None:
         )
         stmt = stmt.on_conflict_do_update(
             constraint="uq_peer",
-            set_={"peer_name": stmt.excluded.peer_name, **{f: getattr(stmt.excluded, f) for f in _PEER_FIELDS}},
+            set_={
+                "peer_name": stmt.excluded.peer_name,
+                **{f: getattr(stmt.excluded, f) for f in _PEER_FIELDS},
+            },
         )
         db.execute(stmt)
     sync_state.mark(db, "peers", code)
@@ -332,12 +355,18 @@ def sync_peers_bg(code: str) -> None:
 
 # ── 타임라인 ────────────────────────────────────────────────────────────
 def sync_disclosures_safe(db: Session, code: str, begin: date, end: date) -> None:
-    """DART 공시 동기화(cache-aside). 키 없으면 스킵. 실패 시 롤백(타임라인 500 방지)."""
+    """DART 공시 동기화(cache-aside). 키 없으면 스킵. 실패 시 롤백(타임라인 500 방지).
+
+    동기화 창은 최근 7일로 제한한다 — 타임라인이 730일 기본 윈도우로 호출돼도 DART
+    조회가 오래 걸리지 않도록. 오래된 공시는 이전 동기화가 DB에 남아 있어 타임라인에
+    계속 표시된다.
+    """
     settings = get_settings()
     if not settings.dart_api_key:
         return
+    sync_begin = max(begin, end - timedelta(days=7))
     try:
-        dart_ingest.sync_disclosures(db, settings, code, begin, end)
+        dart_ingest.sync_disclosures(db, settings, code, sync_begin, end)
     except Exception as e:
         db.rollback()
         logger.warning("disclosure sync failed %s: %s", code, e)
@@ -379,6 +408,133 @@ def timeline_broadcasts(db: Session, code: str, begin: date, end: date) -> list[
             )
         ).all()
     )
+
+
+# ── 타임라인 캐시 ────────────────────────────────────────────────────────
+
+_TIMELINE_WINDOW_DAYS = 730  # 기본 조회 창 — 과거 2년(프론트가 10개씩 페이지네이션).
+_TIMELINE_SNIPPET = 160  # 브로드캐스트 본문 미리보기 최대 길이
+
+
+def _snippet(body: str) -> str:
+    """브로드캐스트 본문에서 헤더·구분선을 제외한 앞부분 미리보기."""
+    lines = [ln for ln in body.splitlines() if ln.strip() and set(ln.strip()) != {"─"}]
+    text = " ".join(lines[1:]) if len(lines) > 1 else " ".join(lines)
+    return text[:_TIMELINE_SNIPPET] + ("…" if len(text) > _TIMELINE_SNIPPET else "")
+
+
+def get_timeline_cache(db: Session, code: str) -> TimelineCache | None:
+    """TimelineCache 에서 stock_code 조회. 없으면 None."""
+    return db.scalar(select(TimelineCache).where(TimelineCache.stock_code == code))
+
+
+def build_timeline_items(
+    db: Session, code: str, begin: date, end: date
+) -> tuple[list[dict], date | None]:
+    """3개 소스에서 타임라인 아이템을 조립, 최신순 정렬, 최근 공시일 반환.
+
+    company_timeline() 라우터의 아이템 조립 로직과 동일하다.
+    반환: (items_dicts, last_disclosure_date)
+    """
+    from app.schemas import TimelineItem
+
+    items: list[dict] = []
+    last_disc_date: date | None = None
+
+    for r, a in timeline_reports(db, code, begin, end):
+        items.append(
+            TimelineItem(
+                type="report",
+                date=r.published_date,
+                title=r.title,
+                source=r.broker,
+                sentiment=a.sentiment.value,
+                rationale=a.rationale,
+                link=r.read_url,
+                report_id=r.id,
+            ).model_dump(mode="json")
+        )
+
+    for d in timeline_disclosures(db, code, begin, end):
+        items.append(
+            TimelineItem(
+                type="disclosure",
+                date=d.rcept_dt,
+                title=d.report_nm,
+                source=d.flr_nm,
+                sentiment=d.sentiment.value,
+                rationale=d.rationale,
+                link=d.dart_url,
+                report_id=None,
+            ).model_dump(mode="json")
+        )
+        if last_disc_date is None or d.rcept_dt > last_disc_date:
+            last_disc_date = d.rcept_dt
+
+    for b in timeline_broadcasts(db, code, begin, end):
+        items.append(
+            TimelineItem(
+                type="broadcast",
+                date=b.ref_date,
+                title=b.title,
+                source="텔레그램 브리핑",
+                sentiment="HOLD",
+                rationale=_snippet(b.body),
+                link=None,
+                report_id=None,
+                broadcast_id=b.id,
+                kind=b.kind.value,
+            ).model_dump(mode="json")
+        )
+
+    items.sort(key=lambda x: x["date"], reverse=True)
+    return items, last_disc_date
+
+
+def store_timeline_cache(
+    db: Session, code: str, items: list[dict], last_disclosure_date: date | None
+) -> None:
+    """TimelineCache upsert. on_conflict_do_update 로 stock_code 당 1행 유지."""
+    stmt = insert(TimelineCache).values(
+        stock_code=code,
+        payload={"items": items},
+        last_disclosure_date=last_disclosure_date,
+    )
+    stmt = stmt.on_conflict_do_update(
+        constraint="uq_timeline_cache_code",
+        set_={
+            "payload": {"items": items},
+            "last_disclosure_date": last_disclosure_date,
+            "cached_at": func.now(),
+        },
+    )
+    db.execute(stmt)
+    db.commit()
+
+
+def refresh_timeline_cache(db: Session, code: str) -> tuple[list[dict], date | None]:
+    """DART 신규 공시 동기화 → 캐시 재구축 → 최신 아이템 반환.
+
+    1. 현재 캐시의 last_disclosure_date 부터 오늘까지 DART 동기화
+    2. 전체 타임라인 재조립
+    3. 캐시 저장
+    4. (items, last_disclosure_date) 반환
+    """
+    cache = get_timeline_cache(db, code)
+    today = datetime.now().date()
+    sync_from = (
+        cache.last_disclosure_date
+        if cache and cache.last_disclosure_date
+        else today - timedelta(days=7)
+    )
+
+    sync_disclosures_safe(db, code, sync_from, today)
+
+    end = today
+    begin = end - timedelta(days=_TIMELINE_WINDOW_DAYS)
+    items, last_disc_date = build_timeline_items(db, code, begin, end)
+    store_timeline_cache(db, code, items, last_disc_date)
+    return items, last_disc_date
 
 
 # ── 성장지표 ────────────────────────────────────────────────────────────
@@ -435,7 +591,8 @@ def _confusable_names(db: Session, name: str) -> list[str]:
     ).all()
     pref = re.compile(rf"^{re.escape(name)}우[A-C]?$")  # 대상명의 우선주(같은 회사)
     return [
-        r[0] for r in rows
+        r[0]
+        for r in rows
         if r[0] and r[0] != name and not pref.match(r[0]) and not _ETF_ETN_MARK.search(r[0])
     ]
 
@@ -451,7 +608,10 @@ def _mentions_target(text: str | None, name: str | None, confusables: list[str])
     stripped = text
     for c in confusables:
         stripped = stripped.replace(c, " ")
-    return re.search(rf"(?<![가-힣A-Za-z0-9]){re.escape(name)}(?![가-힣A-Za-z0-9])", stripped) is not None
+    return (
+        re.search(rf"(?<![가-힣A-Za-z0-9]){re.escape(name)}(?![가-힣A-Za-z0-9])", stripped)
+        is not None
+    )
 
 
 def _coverage_rows(db: Session, code: str, since: date) -> list[tuple[Report, ReportAnalysis]]:
