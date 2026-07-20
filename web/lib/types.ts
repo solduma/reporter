@@ -127,6 +127,8 @@ export interface SectorRow {
 
 export type FlowMarket = "KR" | "US";
 
+export type LookbackPeriod = "1d" | "1w" | "1m" | "3m" | "1y";
+
 export interface SectorFlowRow {
   sector: string;
   market: FlowMarket;

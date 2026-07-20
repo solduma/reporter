@@ -22,7 +22,7 @@ function tourForPath(pathname: string): TourId | null {
 
 const LINKS = [
   { href: "/", label: "Today's Brew", featured: false },
-  { href: "/screener", label: "스몰캡 스크리너", featured: true },
+  { href: "/screener", label: "국내 스크리너", featured: true },
   { href: "/us-screener", label: "US 스크리너", featured: false },
   { href: "/industries", label: "산업 흐름", featured: false },
   { href: "/calendar", label: "경제 캘린더", featured: false },

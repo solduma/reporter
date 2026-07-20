@@ -40,9 +40,10 @@ def _sma(values: list[float], window: int) -> float | None:
     return sum(values[-window:]) / window
 
 
-def compute(bars: list[_Bar], stage: int | None = None) -> Technicals:
+def compute(bars: list[_Bar], stage: int | None = None, return_days: int = 63) -> Technicals:
     """일봉 리스트(날짜 오름차순)에서 기술 지표를 계산한다.
 
+    return_days: 수익률 계산 기간(거래일 수). 기본 63영업일≈3개월.
     stage(와인스타인 중기 국면 1~4, 선택)를 주면 추세 종합 점수에 보조 가중으로 반영한다.
     """
     empty = Technicals(None, None, None, None, None, None, None, None, None, None, None)
@@ -75,10 +76,10 @@ def compute(bars: list[_Bar], stage: int | None = None) -> Technicals:
         avg = sum(base) / len(base)
         vol_ratio = (vols[-1] / avg) if avg > 0 else None
 
-    # 3개월(≈63거래일) 수익률 %.
+    # return_days 거래일 수익률 %.
     return_3m = None
-    if len(closes) >= 64:
-        past = closes[-64]
+    if len(closes) >= return_days + 1:
+        past = closes[-(return_days + 1)]
         if past > 0:
             return_3m = round((last / past - 1) * 100, 1)
 

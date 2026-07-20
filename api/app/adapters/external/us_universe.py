@@ -37,7 +37,7 @@ _BROWSER_HEADERS = {
     ),
     "Accept": "application/json, text/plain, */*",
 }
-_NASDAQ_TOP_N = 300
+_NASDAQ_TOP_N = 500
 # 중복 클래스·비상장 프록시 등 유니버스 부적합 심볼(screener 상위에 섞여 들어옴). GOOG/GOOGL 는
 # 둘 다 S&P500 시드에 이미 있어 무방하나, SPCX(SpaceX pre-IPO 트래킹)류는 실거래가 아니라 제외.
 _NASDAQ_EXCLUDE = {"SPCX"}
@@ -48,6 +48,14 @@ _SUPPLEMENT: list[tuple[str, str]] = [
     ("MELI", "Consumer Discretionary"), ("MSTR", "Technology"), ("COIN", "Financials"),
     ("ARM", "Technology"), ("SMCI", "Technology"), ("PLTR", "Technology"),
     ("SNOW", "Technology"), ("DDOG", "Technology"), ("CRWD", "Technology"),
+    ("HOOD", "Financials"), ("RDDT", "Technology"), ("SNAP", "Technology"),
+    ("UBER", "Technology"), ("DASH", "Technology"), ("SQ", "Financials"),
+    ("SOFI", "Financials"), ("RKLB", "Technology"), ("IONQ", "Technology"),
+    ("CELH", "Consumer Staples"), ("DKNG", "Consumer Discretionary"),
+    ("TTD", "Technology"), ("NET", "Technology"), ("ZS", "Technology"),
+    ("WDAY", "Technology"), ("MDB", "Technology"), ("CFLT", "Technology"),
+    ("TOST", "Technology"), ("GTLB", "Technology"), ("AFRM", "Financials"),
+    ("NU", "Financials"), ("CVNA", "Consumer Discretionary"),
 ]
 
 

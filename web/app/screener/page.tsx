@@ -41,6 +41,9 @@ const MKTCAP_MAX_PRESETS: Preset<number | undefined>[] = [
   { label: "3천억", value: 300_000_000_000 },
   { label: "5천억", value: 500_000_000_000 },
   { label: "1조", value: 1_000_000_000_000 },
+  { label: "2조", value: 2_000_000_000_000 },
+  { label: "5조", value: 5_000_000_000_000 },
+  { label: "10조", value: 10_000_000_000_000 },
 ];
 
 // 가치 전략 PER 상한
@@ -334,8 +337,8 @@ function ScreenerContent() {
   const [strategy, setStrategy] = usePersistentState<ScreenerStrategy>("screener.strategy", "overall");
   const [filtersOpen, setFiltersOpen] = useState<boolean>(false);
   // 시장: 성장주 발굴이 목표이므로 KOSDAQ을 기본값으로 둔다("전체"는 ""로 표현).
-  const [market, setMarket] = usePersistentState<ScreenerMarket | "">("screener.market", "KOSDAQ");
-  const [mktcapMax, setMktcapMax] = usePersistentState<number | undefined>("screener.mktcapMax", 500_000_000_000);
+  const [market, setMarket] = usePersistentState<ScreenerMarket | "">("screener.market", "");
+  const [mktcapMax, setMktcapMax] = usePersistentState<number | undefined>("screener.mktcapMax", undefined);
   const [mktcapMin, setMktcapMin] = usePersistentState<number | undefined>("screener.mktcapMin", undefined);
   const [liqMin, setLiqMin] = usePersistentState<number>("screener.liqMin", 0);
   const [revYoyMin, setRevYoyMin] = usePersistentState<number | undefined>("screener.revYoyMin", undefined);

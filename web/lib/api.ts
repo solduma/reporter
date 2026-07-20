@@ -19,6 +19,7 @@ import type {
   IrInterviewListItem,
   IrInterviewReport,
   IrInterviewStatus,
+  LookbackPeriod,
   Industry,
   MarketBrief,
   MarketOverview,
@@ -112,13 +113,18 @@ export function fetchIndustries(): Promise<Industry[]> {
 }
 
 // rotation_score 내림차순으로 정렬되어 반환된다.
-export function fetchSectors(): Promise<SectorRow[]> {
-  return getJson<SectorRow[]>("/api/sectors");
+export function fetchSectors(lookback: LookbackPeriod = "3m"): Promise<SectorRow[]> {
+  return getJson<SectorRow[]>(`/api/sectors?lookback=${lookback}`);
 }
 
 // 수급 기반 섹터 로테이션(섹터 ETF). flow_score 내림차순.
-export function fetchSectorFlow(market: FlowMarket): Promise<SectorFlowRow[]> {
-  return getJson<SectorFlowRow[]>(`/api/sectors/flow?market=${market}`);
+export function fetchSectorFlow(
+  market: FlowMarket,
+  lookback: LookbackPeriod = "3m",
+): Promise<SectorFlowRow[]> {
+  return getJson<SectorFlowRow[]>(
+    `/api/sectors/flow?market=${market}&lookback=${lookback}`,
+  );
 }
 
 // 한 산업의 국내 섹터 ETF flow + 대응 미국 섹터 flow(선행). 섹터 상세 페이지용.

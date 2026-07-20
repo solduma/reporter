@@ -86,7 +86,7 @@
   text-align: right !important;
 }
 
-.smallcapLink {
+.sectorLink {
   display: inline-block;
   padding: 5px 11px;
   border: 1px solid var(--border);
@@ -99,7 +99,7 @@
   transition: border-color 0.15s ease, background 0.15s ease;
 }
 
-.smallcapLink:hover {
+.sectorLink:hover {
   border-color: var(--accent);
   background: var(--accent-soft);
 }
@@ -156,4 +156,34 @@
 .down {
   color: var(--buy);
   font-variant-numeric: tabular-nums;
+}
+
+/* 기간 축 선택기 */
+.lookbackGroup {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.lbTab {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.lbTab:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.lbActive {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
 }

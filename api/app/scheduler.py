@@ -351,12 +351,14 @@ def run_us_financials_backfill(settings: Settings | None = None) -> dict:
 
 
 def run_calendar_batch(settings: Settings | None = None) -> dict:
-    """경제/실적 캘린더 수집(FRED 미국 매크로 + 고정일정) + LLM 영향/기대치 텍스트."""
+    """경제/실적 캘린더 수집(FRED 미국 매크로 + 고정일정) + LLM 영향/기대치 텍스트 + 사후 업데이트."""
     from app.services import calendar_ingest, calendar_llm
 
     session = SessionLocal()
     try:
         counts = calendar_ingest.ingest_calendar(session, settings)
+        # 금통위 등 고정 이벤트 사후 actual 채움(ECOS 기준금리)
+        counts["post_updated"] = calendar_ingest.update_past_fixed_events(session, settings)
         counts["texts"] = calendar_llm.generate_pending(session, settings)
         return counts
     finally:

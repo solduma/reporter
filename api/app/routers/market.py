@@ -33,9 +33,14 @@ _flow_cache: dict[str, tuple[float, list[SectorFlowRow]]] = {}
 
 
 @router.get("/sectors", response_model=list[SectorRow])
-def sectors(db: Session = Depends(get_session)) -> list[SectorRow]:
-    """섹터 로테이션 랭킹 — 센티먼트·리포트 수 기반. 최근 30일."""
-    rows = sector_service.sector_rows(db, date.today() - timedelta(days=30))
+def sectors(
+    db: Session = Depends(get_session),
+    lookback: str = Query(default="3m", pattern="^(1d|1w|1m|3m|1y)$"),
+) -> list[SectorRow]:
+    """섹터 로테이션 랭킹 — 센티먼트·리포트 수 기반. lookback: 기간 축."""
+    days_map = {"1d": 1, "1w": 7, "1m": 30, "3m": 90, "1y": 365}
+    days = days_map.get(lookback, 90)
+    rows = sector_service.sector_rows(db, date.today() - timedelta(days=days))
     if not rows:
         return []
     max_count = max(c for _, c, _ in rows) or 1
@@ -57,17 +62,20 @@ def sectors(db: Session = Depends(get_session)) -> list[SectorRow]:
 @router.get("/sectors/flow", response_model=list[SectorFlowRow])
 def sector_flow_rotation(
     market: str = Query(default="KR", pattern="^(KR|US)$"),
+    lookback: str = Query(default="3m", pattern="^(1d|1w|1m|3m|1y)$"),
 ) -> list[SectorFlowRow]:
     """수급 기반 섹터 로테이션 — 섹터 ETF 일봉의 모멘텀·거래량·신고가·외국인 순증.
 
+    lookback: 기간 축(1d=당일, 1w=이번주, 1m=이번달, 3m=3개월, 1y=1년).
     flow_score 높은 순. 리포트 기반 /api/sectors 와 별개(실제 자금 흐름 관점).
     """
-    return _flow_rows(market)
+    return _flow_rows(market, lookback)
 
 
-def _flow_rows(market: str) -> list[SectorFlowRow]:
+def _flow_rows(market: str, lookback: str = "3m") -> list[SectorFlowRow]:
     """시장의 섹터 flow 목록을 SectorFlowRow 로 변환(프로세스 캐시)."""
-    cached = _flow_cache.get(market)
+    cache_key = f"{market}:{lookback}"
+    cached = _flow_cache.get(cache_key)
     if cached and time.monotonic() - cached[0] < _FLOW_TTL:
         return cached[1]
     rows = [
@@ -81,10 +89,10 @@ def _flow_rows(market: str) -> list[SectorFlowRow]:
             vol_ratio=f.vol_ratio,
             foreign_delta=f.foreign_delta,
         )
-        for f in sector_flow.compute_flows(market)
+        for f in sector_flow.compute_flows(market, lookback)
     ]
     if rows:
-        _flow_cache[market] = (time.monotonic(), rows)
+        _flow_cache[cache_key] = (time.monotonic(), rows)
     return rows
 
 

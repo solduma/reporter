@@ -4,9 +4,19 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { fetchSectorFlow } from "@/lib/api";
-import type { FlowMarket, SectorFlowRow } from "@/lib/types";
+import type { FlowMarket, LookbackPeriod, SectorFlowRow } from "@/lib/types";
 
 import styles from "./SectorFlowTable.module.css";
+
+const LOOKBACK_LABELS: Record<LookbackPeriod, string> = {
+  "1d": "당일",
+  "1w": "이번 주",
+  "1m": "이번 달",
+  "3m": "3개월",
+  "1y": "1년",
+};
+
+const LOOKBACK_OPTIONS: LookbackPeriod[] = ["1d", "1w", "1m", "3m", "1y"];
 
 type State = {
   status: "loading" | "ready" | "error";
@@ -45,6 +55,7 @@ function delta(v: number | null): string {
 
 export default function SectorFlowTable() {
   const [market, setMarket] = useState<FlowMarket>("KR");
+  const [lookback, setLookback] = useState<LookbackPeriod>("3m");
   const [state, setState] = useState<State>({ status: "loading", rows: [] });
 
   useEffect(() => {
@@ -52,7 +63,7 @@ export default function SectorFlowTable() {
     async function load() {
       setState({ status: "loading", rows: [] });
       try {
-        const rows = await fetchSectorFlow(market);
+        const rows = await fetchSectorFlow(market, lookback);
         if (active) {
           setState({ status: "ready", rows });
         }
@@ -70,7 +81,7 @@ export default function SectorFlowTable() {
     return () => {
       active = false;
     };
-  }, [market]);
+  }, [market, lookback]);
 
   return (
     <div className={styles.wrap}>
@@ -87,6 +98,18 @@ export default function SectorFlowTable() {
             {m === "KR" ? "국내" : "미국"}
           </button>
         ))}
+        <span className={styles.lookbackGroup}>
+          {LOOKBACK_OPTIONS.map((lb) => (
+            <button
+              key={lb}
+              type="button"
+              className={lb === lookback ? `${styles.lbTab} ${styles.lbActive}` : styles.lbTab}
+              onClick={() => setLookback(lb)}
+            >
+              {LOOKBACK_LABELS[lb]}
+            </button>
+          ))}
+        </span>
       </div>
 
       {state.status === "loading" ? (
@@ -103,11 +126,11 @@ export default function SectorFlowTable() {
                 <th className={styles.rankCol}>순위</th>
                 <th className={styles.sectorCol}>섹터</th>
                 <th>자금유입</th>
-                <th>3개월</th>
+                <th>{LOOKBACK_LABELS[lookback]}</th>
                 <th>고점근접</th>
                 <th>거래량</th>
                 {market === "KR" ? <th>외국인Δ</th> : null}
-                <th className={styles.linkCol} aria-label="스몰캡 스크리너" />
+                <th className={styles.linkCol} aria-label="국내 스크리너" />
               </tr>
             </thead>
             <tbody>
@@ -142,9 +165,9 @@ export default function SectorFlowTable() {
                   <td className={styles.linkCol}>
                     <Link
                       href={`/screener?sector=${encodeURIComponent(r.sector)}`}
-                      className={styles.smallcapLink}
+                      className={styles.sectorLink}
                     >
-                      이 섹터 스몰캡 →
+                      이 섹터 종목 →
                     </Link>
                   </td>
                 </tr>

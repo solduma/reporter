@@ -17,6 +17,7 @@ import {
 } from "@/lib/api";
 import type {
   Industry,
+  LookbackPeriod,
   SectorRow,
   SentimentPoint,
   TradePoint,
@@ -102,6 +103,7 @@ export default function IndustriesPage() {
   const [sectorsLoading, setSectorsLoading] = useState(true);
   const [sectorsError, setSectorsError] = useState<string | null>(null);
   const [rotationTab, setRotationTab] = useState<"supply" | "research">("supply");
+  const [researchLookback, setResearchLookback] = useState<LookbackPeriod>("3m");
 
   // 현재 날짜 기준 최근 12개월. 마운트 시 한 번만 고정한다.
   const range = useMemo(() => tradeRange(new Date()), []);
@@ -141,7 +143,7 @@ export default function IndustriesPage() {
       setSectorsLoading(true);
       setSectorsError(null);
       try {
-        const res = await fetchSectors();
+        const res = await fetchSectors(researchLookback);
         if (!active) {
           return;
         }
@@ -161,7 +163,7 @@ export default function IndustriesPage() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [researchLookback]);
 
   useEffect(() => {
     if (!selected) {
@@ -308,7 +310,7 @@ export default function IndustriesPage() {
               <th>리포트 수</th>
               <th>평균 센티먼트</th>
               <th className={styles.rotationCol}>로테이션 스코어</th>
-              <th className={styles.linkCol} aria-label="스몰캡 스크리너" />
+              <th className={styles.linkCol} aria-label="국내 스크리너" />
             </tr>
           </thead>
           <tbody>
@@ -347,9 +349,9 @@ export default function IndustriesPage() {
                 <td className={styles.linkCol}>
                   <Link
                     href={`/screener?sector=${encodeURIComponent(row.sector)}`}
-                    className={styles.smallcapLink}
+                    className={styles.sectorLink}
                   >
-                    이 섹터 스몰캡 →
+                    이 섹터 종목 →
                   </Link>
                 </td>
               </tr>
@@ -417,6 +419,22 @@ export default function IndustriesPage() {
               <p className={styles.subtitle}>
                 로테이션 스코어(0-100) 높은 순 — 증권사 리포트 흐름과 투자의견으로 본 섹터 온도
               </p>
+            </div>
+            <div className={styles.lookbackRow}>
+              {(["1d", "1w", "1m", "3m", "1y"] as LookbackPeriod[]).map((lb) => (
+                <button
+                  key={lb}
+                  type="button"
+                  className={
+                    lb === researchLookback
+                      ? `${styles.lbTab} ${styles.lbActive}`
+                      : styles.lbTab
+                  }
+                  onClick={() => setResearchLookback(lb)}
+                >
+                  {lb === "1d" ? "당일" : lb === "1w" ? "이번 주" : lb === "1m" ? "이번 달" : lb === "3m" ? "3개월" : "1년"}
+                </button>
+              ))}
             </div>
             {sectorArea}
           </>
