@@ -172,9 +172,9 @@ def _shares_from_snapshot(db: Session, code: str) -> int | None:
     return round(market_cap / close_price)
 
 
-def _upsert_report(db: Session, code: str, period: str, kind: str, rcept_no: str, **vals) -> None:
+def _upsert_report(db: Session, code: str, period: str, kind: str, rcept_no: str, fs_div: str, **vals) -> None:
     stmt = insert(ReportFinancial).values(
-        stock_code=code, period=period, fs_div="CFS", report_kind=kind, rcept_no=rcept_no, **vals
+        stock_code=code, period=period, fs_div=fs_div, report_kind=kind, rcept_no=rcept_no, **vals
     )
     stmt = stmt.on_conflict_do_update(
         constraint="uq_report_financial",
@@ -207,7 +207,8 @@ def backfill_stock(
                 continue
             # 손익·자본(구조화 API) — annual 은 연간, half/quarter 는 보고 기간 누적.
             q = 4 if kind == "annual" else (2 if kind == "half" else 1)
-            fin = dart.fetch_income_and_equity(settings.dart_api_key, corp_code, year, q, session)
+            cfs, ofs = dart.fetch_income_and_equity(settings.dart_api_key, corp_code, year, q, session)
+            fin = cfs if cfs is not None else ofs
             if fin is None:
                 continue
             any_data = True
@@ -216,28 +217,49 @@ def backfill_stock(
             dep = dart_report_parser.parse_cf_depreciation(raw) if raw else None
             dep = dart_report_parser.plausible_depreciation(dep, fin.revenue)
             period = _period_str(year, kind)
-            _upsert_report(
-                db, code, period, kind, rcept_no,
-                revenue=fin.revenue,
-                operating_income=fin.operating_income,
-                net_income=fin.net_income,
-                equity=fin.equity,
-                eps=fin.eps,
-                depreciation=dep,  # parse_cf_depreciation 은 감가+무형 합산값(모델 주석 참조)
-                amortization=None,
-                capex=fin.capex,  # 구조화 API CF 투자활동(유형+무형 취득 합, 원)
-                income_tax=fin.income_tax,
-                pretax_income=fin.pretax_income,
-                interest_expense=fin.interest_expense,
-            )
-            # 연간 financials 반영값: EBITDA·순차입·D&A·CAPEX(FCFF) + 실효세율·부채비용(WACC).
-            if kind == "annual" and fin.operating_income is not None and dep is not None:
-                annual_ev[period] = {
-                    "ebitda": fin.operating_income + dep, "net_debt": fin.net_debt,
-                    "dep": dep, "capex": fin.capex,
-                    "effective_tax_rate": _effective_tax_rate(fin),
-                    "cost_of_debt": _cost_of_debt(fin),
-                }
+            if kind == "annual":
+                # 연간: 연결(CFS)·별도(OFS) 각각 upsert.
+                for f, div in ((cfs, "CFS"), (ofs, "OFS")):
+                    if f is None:
+                        continue
+                    _upsert_report(
+                        db, code, period, kind, rcept_no, div,
+                        revenue=f.revenue,
+                        operating_income=f.operating_income,
+                        net_income=f.net_income,
+                        equity=f.equity,
+                        eps=f.eps,
+                        depreciation=dep,
+                        amortization=None,
+                        capex=f.capex,
+                        income_tax=f.income_tax,
+                        pretax_income=f.pretax_income,
+                        interest_expense=f.interest_expense,
+                    )
+                # 연간 financials 반영값: 연결기준 EBITDA·순차입·D&A·CAPEX(FCFF) + 실효세율·부채비용(WACC).
+                if cfs is not None and cfs.operating_income is not None and dep is not None:
+                    annual_ev[period] = {
+                        "ebitda": cfs.operating_income + dep, "net_debt": cfs.net_debt,
+                        "dep": dep, "capex": cfs.capex,
+                        "effective_tax_rate": _effective_tax_rate(cfs),
+                        "cost_of_debt": _cost_of_debt(cfs),
+                    }
+            else:
+                # half/quarter: 연결(CFS)만 upsert. DART는 별도 재무 제공 안 함.
+                _upsert_report(
+                    db, code, period, kind, rcept_no, "CFS",
+                    revenue=fin.revenue,
+                    operating_income=fin.operating_income,
+                    net_income=fin.net_income,
+                    equity=fin.equity,
+                    eps=fin.eps,
+                    depreciation=dep,
+                    amortization=None,
+                    capex=fin.capex,
+                    income_tax=fin.income_tax,
+                    pretax_income=fin.pretax_income,
+                    interest_expense=fin.interest_expense,
+                )
             # 배당(DS002 alotMatter)은 연간 항목 — annual 보고서에서만 조회해 financials 에 반영.
             if kind == "annual":
                 _upsert_dividend(db, code, period, settings, corp_code, year, session)
@@ -469,7 +491,8 @@ def backfill_capex(db: Session, settings: Settings | None = None, limit: int = 2
             try:
                 for period, dep in items:
                     year = int(period.split(".")[0])
-                    fin = dart.fetch_income_and_equity(settings.dart_api_key, corp_code, year, 4, session)
+                    cfs, ofs = dart.fetch_income_and_equity(settings.dart_api_key, corp_code, year, 4, session)
+                    fin = ofs if ofs is not None else cfs
                     if fin is None:
                         continue
                     # report_financials 원자료(capex·세율·이자) 저장.
@@ -479,7 +502,7 @@ def backfill_capex(db: Session, settings: Settings | None = None, limit: int = 2
                     if rf_vals:
                         db.execute(
                             insert(ReportFinancial)
-                            .values(stock_code=code, period=period, fs_div="CFS",
+                            .values(stock_code=code, period=period, fs_div="OFS",
                                     report_kind="annual", rcept_no="", **rf_vals)
                             .on_conflict_do_update(constraint="uq_report_financial", set_=rf_vals)
                         )
