@@ -205,9 +205,9 @@ def _forward_growth_drivers(rows: list[dict], eps_windows: list[float]) -> dict:
     forward 멀티플은 배당할인 정의식이라 과거 배수(밴드)가 아니라 미래 성장만 필요하다. PBR 은 fair PER×ROE
     로 유도되므로 EPS forward 를 공유한다. 산출 불가(표본부족·적자기저)면 None → 방식 스킵(사유 노출).
     """
-    eps_fwd, _ = fwd.long_term_growth(eps_windows) if len(eps_windows) >= 5 else (None, None)
+    eps_fwd, _ = fwd.sustainable_growth(eps_windows) if len(eps_windows) >= 5 else (None, None)
     ebitda_annual = _annual_series(rows, "ebitda")
-    ebitda_fwd, _ = fwd.long_term_growth(ebitda_annual) if len(ebitda_annual) >= 5 else (None, None)
+    ebitda_fwd, _ = fwd.sustainable_growth(ebitda_annual) if len(ebitda_annual) >= 5 else (None, None)
     return {"eps_fwd_growth": eps_fwd, "ebitda_fwd_growth": ebitda_fwd}
 
 
@@ -262,8 +262,9 @@ def apply_forward_earnings(anchors: dict, series: list[dict]) -> dict:
         (2) 컨센서스 — 추정 EPS 가 있으면 그 TTM 을 forward EPS 로, 성장률은 컨센서스/현재 TTM 으로 역산.
         (3) 성장률 외삽 — domain.forward 앙상블 성장률(과거3년평균·최근·convex)로 이익을 1년 전방 투영.
 
-    forward_meta[metric] = {source, growth_pct, base, forward, components?} 로 고지한다. 시클리컬
+    forward_meta[metric] = {source, growth_pct, base, forward, components?} 로 고지한다.
     정규화 EPS 는 run_valuation 이 이 함수 뒤에 별도 대체하므로 여기서 eps 를 외삽해도 덮어써진다.
+    EBITDA 성장률은 NI 성장률 프록시가 아니라 EBITDA 자체 TTM 시계열에서 독립 추정한다.
     HITL uplift 가 이미 적용됐으면(hitl_earnings_uplift 존재) 이익은 그대로 두고 성장률 외삽을 생략한다.
     """
     rows = _sorted_actuals(series)
@@ -283,9 +284,7 @@ def apply_forward_earnings(anchors: dict, series: list[dict]) -> dict:
         g = round(consensus / base_eps - 1.0, 4) if base_eps and base_eps > 0 else None
         meta["eps"] = {"source": "consensus", "base_ttm": base_eps,
                        "forward": round(consensus, 2), "growth_pct": g * 100 if g is not None else None}
-        # 컨센서스 성장률을 EBITDA 에도 동일 적용(추정 EBITDA 는 없으므로 이익 성장 프록시).
-        if g is not None:
-            _apply_growth_to_ebitda(adjusted, meta, g, source="consensus")
+        # 컨센서스 EPS 성장률은 EBITDA에 별도 적용하지 않음 — 마진 구조가 다르므로.
         adjusted["forward_meta"] = meta
         return adjusted
 
@@ -296,16 +295,16 @@ def apply_forward_earnings(anchors: dict, series: list[dict]) -> dict:
         adjusted["eps_ttm"] = round(base_eps * (1.0 + eps_growth), 2)
         meta["eps"] = {"source": "extrapolation", "base_ttm": base_eps,
                        "forward": round(base_eps * (1.0 + eps_growth), 2), **eps_gmeta}
-    ni_growth, ni_gmeta = fwd.extrapolate_growth(_ttm_windows(rows, "net_income"))
-    if ni_growth is not None:
-        _apply_growth_to_ebitda(adjusted, meta, ni_growth, source="extrapolation", gmeta=ni_gmeta)
+    ebitda_growth, ebitda_gmeta = fwd.extrapolate_growth(_ttm_windows(rows, "ebitda"))
+    if ebitda_growth is not None:
+        _apply_ebitda_forward(adjusted, meta, ebitda_growth, source="extrapolation", gmeta=ebitda_gmeta)
     if meta:
         adjusted["forward_meta"] = meta
     return adjusted
 
 
-def _apply_growth_to_ebitda(anchors: dict, meta: dict, growth: float, *, source: str, gmeta: dict | None = None) -> None:
-    """이익 성장률을 EBITDA 앵커에 동일 적용(추정 EBITDA 소스가 없어 이익 성장을 프록시로 씀)."""
+def _apply_ebitda_forward(anchors: dict, meta: dict, growth: float, *, source: str, gmeta: dict | None = None) -> None:
+    """EBITDA 앵커를 성장률로 전방 투영. NI 성장률 프록시가 아닌 EBITDA 자체 TTM 시계열에서 독립 추정."""
     base = anchors.get("ebitda_eok_annual")
     if base is None:
         return
@@ -340,11 +339,13 @@ def collect_anchors(series: list[dict], price: dict) -> dict:
 
     # 결정론 성장률(요인모형 earnings_growth·DCF·DDM 공통): 장기=결합 CAGR, 단기=앙상블 외삽.
     eps_windows = _ttm_windows(rows, "eps")
-    g_long, _ = fwd.long_term_growth(eps_windows)
+    g_long, _ = fwd.sustainable_growth(eps_windows)
     g_short, _ = fwd.extrapolate_growth(eps_windows)
     fcf_base = _fcff_base(rows)  # 진짜 FCFF(억원) = NOPAT + D&A − CAPEX, 최신 연간. 결측 시 None.
     roe_avg = _avg_recent(rows, "roe", 8)  # 정규화 ROE(최근 8분기 평균) — forward 멀티플 자본수익률
-    fwd_growth = _forward_growth_drivers(rows, eps_windows)  # 성장반영 forward 멀티플용 forward 장기성장
+    fwd_growth = _forward_growth_drivers(rows, eps_windows)  # 성장반영 forward 멀티플용 — sustainable_growth 기반
+    bps_windows = _ttm_windows(rows, "bps")
+    bps_cagr, _ = fwd.sustainable_growth(bps_windows) if bps_windows and len(bps_windows) >= 5 else (None, None)
 
     return {
         "current_price": current_price,
@@ -355,6 +356,8 @@ def collect_anchors(series: list[dict], price: dict) -> dict:
         "current_pbr": _latest_pointintime(rows, "pbr"),
         "pbr_band": _multiple_band(rows, "pbr"),  # 과거 10년 PBR 밴드 — 참고 표시
         "roe_avg_pct": roe_avg,  # 정규화 ROE(최근 8분기 평균) — forward 멀티플 자본수익률
+        "bps_cagr": bps_cagr,  # BPS CAGR — GGM Book PBR의 g_book 으로 독립 추정
+        "ggm_growth": g_long,  # GGM DCF 성장률 — sustainable_growth 와 동일 (순수 CAGR)
         "fwd_growth": fwd_growth,  # 성장반영 forward 멀티플용 forward 장기성장(eps·ebitda)
         "current_ev_ebitda": ev_ebitda,
         "ev_ebitda_band": _multiple_band(rows, "ev_ebitda"),  # 과거 10년 EV/EBITDA 밴드 — 참고 표시
@@ -519,9 +522,21 @@ def _t_per(a: dict, anc: dict) -> val.ValuationResult:
 
 
 def _det_target_pbr(anc: dict) -> tuple[float | None, str]:
-    """목표 PBR = 정당 PER × ROE (fair PBR = fair PER × ROE 항등식). 결측 시 (None, 사유)."""
-    per, src = _det_target_per(anc)
+    """목표 PBR = GGM on Book: (ROE - g_book) / (COE - g_book). g_book = BPS CAGR (순수 장기 성장).
+
+    GGM 공식을 직접 적용: P/B = (ROE - g) / (COE - g). BPS 시계열 CAGR로 g_book을 산출하므로
+    EPS 성장률 파생이 아니다. BPS CAGR 결측이면 fair_PER × ROE 폴백.
+    """
+    g_book = _num(anc.get("bps_cagr"))  # BPS CAGR (sustainable_growth)
+    coe = _capm_coe(anc)
     roe = _num(anc.get("roe_avg_pct"))
+    if g_book is not None and coe is not None and roe is not None and roe > 0 and coe > g_book:
+        target_pbr = (roe / 100.0 - g_book) / (coe - g_book)
+        if target_pbr > 0:
+            src = f"GGM Book — ROE {roe:.1%}, g_book {g_book*100:.1%}, COE {coe:.1%}"
+            return round(target_pbr, 2), src
+    # 폴백: fair_PER × ROE
+    per, src = _det_target_per(anc)
     if per is None or roe is None or roe <= 0:
         return None, src if per is None else "결측 — ROE 비양수"
     return round(per * roe / 100.0, 2), src.replace("forward(EPS)", "forward(PBR=PER×ROE)")
@@ -617,6 +632,45 @@ def _t_ddm(a: dict, anc: dict) -> val.ValuationResult:
     )
 
 
+def _det_ggm_inputs(anc: dict) -> dict:
+    """GGM DCF 입력을 결정론 산출. fcf_base·WACC는 기존 DCF와 동일."""
+    fb = anc.get("factor_betas") or {}
+    coe = _capm_coe(anc)
+    shares = _num(anc.get("shares"))
+    fcf_base = _num(anc.get("fcf_base_eok"))
+    wacc = None
+    if coe is not None and shares is not None:
+        equity_eok = _num(anc.get("market_cap_eok"))
+        w, _ = betamod.wacc(coe, equity_eok or 0.0, anc.get("net_debt_eok"),
+                             _num(fb.get("risk_free")) or 0.0,
+                             tax_rate=_num(anc.get("effective_tax_rate")),
+                             cost_of_debt=_num(anc.get("cost_of_debt")))
+        wacc = w
+    return {"fcf_base": fcf_base, "wacc": wacc}
+
+
+def _t_ggm_dcf(a: dict, anc: dict) -> val.ValuationResult:
+    """GGM DCF — 영구성장 기반 단일 스테이지. fcf_base·WACC는 기존 DCF와 동일, g는 ggm_growth(sustainable_growth)."""
+    d = _det_ggm_inputs(anc)
+    if d.get("fcf_base") is None or d.get("wacc") is None:
+        r = val.ValuationResult("ggm_dcf", val.METHOD_LABELS["ggm_dcf"], applicable=False)
+        r.note = "FCFF 또는 WACC 결측 — GGM 부적합"
+        return r
+    g_sus = anc.get("ggm_growth")  # collect_anchors에서 sustainable_growth로 미리 계산됨
+    if g_sus is None:
+        r = val.ValuationResult("ggm_dcf", val.METHOD_LABELS["ggm_dcf"], applicable=False)
+        r.note = "영구성장률 결측 — GGM 부적합"
+        return r
+    return val.ggm_dcf_valuation(
+        fcf_base=d["fcf_base"],
+        growth_rate=g_sus,
+        wacc=d["wacc"],
+        net_debt=anc.get("net_debt_eok"),
+        shares=anc.get("shares"),
+        current_price=anc.get("current_price"),
+    )
+
+
 def _grade_moat(business: dict) -> str | None:
     """business 단계의 해자 서술(prose)을 강|중|약 등급으로. 키워드 기반(LLM 자유서술 → 정성 배수용).
 
@@ -679,12 +733,13 @@ _METHOD_TOOLS = {
     "compute_ev_ebitda": (_t_ev_ebitda, {"rationale": "string"}),  # 완전 결정론 — EBITDA·배수·순차입 코드 확정
     "compute_dcf": (_t_dcf, {"rationale": "string"}),  # 완전 결정론 — FCF·성장·WACC·영구성장 코드 확정
     "compute_ddm": (_t_ddm, {"rationale": "string"}),  # 완전 결정론 — DPS·자본비용·배당성장 코드 확정
+    "compute_ggm_dcf": (_t_ggm_dcf, {"rationale": "string"}),  # 완전 결정론 — GGM DCF, 코드 확정
 }
 
 # 도구명 → 방식 식별자(결과 dict 의 method 필드와 일치).
 _TOOL_METHOD = {
     "compute_per": "per", "compute_pbr": "pbr", "compute_ev_ebitda": "ev_ebitda",
-    "compute_dcf": "dcf", "compute_ddm": "ddm",
+    "compute_dcf": "dcf", "compute_ddm": "ddm", "compute_ggm_dcf": "ggm_dcf",
 }
 
 
@@ -711,11 +766,13 @@ _TOOL_DESCS = {
                    "모두 코드 확정. 숫자는 결정론 계산되니 rationale(해석)만 제시하라.",
     "compute_ddm": "고든 배당할인 = DPS(앵커)×(1+배당성장)÷(자본비용−배당성장). 자본비용=CAPM, "
                    "배당성장=min(장기이익성장,rf) 코드 확정. rationale(해석)만. 무배당이면 부적합.",
+    "compute_ggm_dcf": "GGM DCF(고든성장) = FCF1÷(WACC−g). WACC·FCF는 기존 DCF와 동일, "
+                       "성장률은 sustainable_growth(순수 장기 CAGR). 숫자는 코드 확정 — rationale만.",
 }
 
 
 def _build_tools() -> list[dict]:
-    """5개 compute 도구 + get_anchors + blend + finalize 의 function 스키마."""
+    """6개 compute 도구 + get_anchors + blend + finalize 의 function 스키마."""
     tools = [_tool_schema(n, _TOOL_DESCS[n], props) for n, (_fn, props) in _METHOD_TOOLS.items()]
     tools.append(_tool_schema("get_anchors", "현재 실데이터 앵커(EPS TTM·BPS·EBITDA·배당·주식수·순차입)를 조회.", {}))
     tools.append(_tool_schema("blend", "지금까지 계산한 방식들의 신뢰도 가중 최종 목표가·스프레드를 확인.", {}))
