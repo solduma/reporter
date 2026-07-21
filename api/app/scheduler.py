@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import logging
 import time
 from datetime import datetime
@@ -17,6 +18,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 from app.adapters import dart
 from app.config import Settings, get_settings
+from app.db.models import DeepDiveJob
 from app.db.session import SessionLocal, init_db
 from app.services import broadcast_ingest, ingest, ingest_log, intraday, universe_ingest
 
@@ -290,21 +292,50 @@ def run_us_candle_backfill(settings: Settings | None = None) -> dict:
         session.close()
 
 
-def run_deepdive_queue(settings: Settings | None = None) -> dict:
-    """딥다이브 DB 폴링 큐 — pending job 1건을 잡아 5단계 파이프라인 실행(직렬).
+_deepdive_executor: concurrent.futures.ThreadPoolExecutor | None = None
 
-    짧은 interval 로 폴링. 실행 중(오래 걸리는 job)엔 다음 tick 이 겹치지 않게 max_instances=1 로
-    등록한다. pending 없으면 즉시 반환(부하 0).
+
+def _run_deepdive_in_thread(session_factory, job_id: int, code: str, settings: Settings) -> None:
+    """백그라운드 스레드에서 실행 — 스레드 전용 세션으로 job을 수행한다.
+
+    실행 완료 후 세션을 정리하고, 별도经纪人 종료를 기다리지 않는다(scheduler 스레드 방해 안 함).
     """
+    session = session_factory()
+    try:
+        from app.services.deepdive import orchestrator
+
+        job = session.get(DeepDiveJob, job_id)
+        if job is None:
+            logger.warning("deepdive job %d not found in background thread", job_id)
+            return
+        orchestrator.run_job(session, job, settings)
+    except Exception:
+        logger.exception("deepdive background job failed %s", code)
+    finally:
+        session.close()
+
+
+def run_deepdive_queue(settings: Settings | None = None) -> dict:
+    """딥다이브 DB 폴링 큐 — pending job 1건을 잡아 백그라운드 스레드로 실행(다른 job 블로킹 방지).
+
+    짧은 interval 폴링. 실행 중(오래 걸리는 job)엔 다음 tick 이 겹치지 않게 max_instances=1.
+    job 자체는 별도 스레드에서 5~15분간 실행되므로 scheduler 스레드가 다른 배치를 블로킹하지 않는다.
+    pending 없으면 즉시 반환(부하 0).
+    """
+    global _deepdive_executor
     from app.services.deepdive import orchestrator
 
+    settings = settings or get_settings()
     session = SessionLocal()
     try:
         job = orchestrator.claim_next(session)
         if job is None:
             return {"claimed": 0}
-        orchestrator.run_job(session, job, settings or get_settings())
-        return {"claimed": 1, "job_id": job.id, "code": job.stock_code, "status": job.status}
+        # 백그라운드 스레드에서 실행 — scheduler 스레드 즉시 반환
+        if _deepdive_executor is None:
+            _deepdive_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="deepdive-")
+        _deepdive_executor.submit(_run_deepdive_in_thread, SessionLocal, job.id, job.stock_code, settings)
+        return {"claimed": 1, "job_id": job.id, "code": job.stock_code, "status": "running"}
     finally:
         session.close()
 
