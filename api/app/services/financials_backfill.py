@@ -105,92 +105,112 @@ def backfill_stock(db: Session, settings: Settings, code: str) -> bool:
     today = datetime.now(UTC).date()
     yqs = _target_year_quarters(today)
 
-    # DART 원자료 수집(account_id 매칭). 값 없는 분기는 건너뛴다.
-    rev_raw: dict[tuple[int, int], float | None] = {}
-    op_raw: dict[tuple[int, int], float | None] = {}
-    ni_raw: dict[tuple[int, int], float | None] = {}
-    eps_raw: dict[tuple[int, int], float | None] = {}
-    equity: dict[tuple[int, int], float | None] = {}
+    # DART 원자료 수집(account_id 매칭). CFS(연결)와 OFS(별도)를 각각 수집한다.
+    cfs_rev: dict[tuple[int, int], float | None] = {}
+    cfs_op: dict[tuple[int, int], float | None] = {}
+    cfs_ni: dict[tuple[int, int], float | None] = {}
+    cfs_eps: dict[tuple[int, int], float | None] = {}
+    cfs_equity: dict[tuple[int, int], float | None] = {}
+    ofs_rev: dict[tuple[int, int], float | None] = {}
+    ofs_op: dict[tuple[int, int], float | None] = {}
+    ofs_ni: dict[tuple[int, int], float | None] = {}
+    ofs_eps: dict[tuple[int, int], float | None] = {}
+    ofs_equity: dict[tuple[int, int], float | None] = {}
     any_data = False
     with requests.Session() as session:
         for year, q in yqs:
             cfs, ofs = dart.fetch_income_and_equity(settings.dart_api_key, corp_code, year, q, session)
-            fin = cfs if cfs is not None else ofs
-            if fin is None:
+            if cfs is None and ofs is None:
                 continue
             any_data = True
-            rev_raw[(year, q)] = fin.revenue
-            op_raw[(year, q)] = fin.operating_income
-            ni_raw[(year, q)] = fin.net_income
-            eps_raw[(year, q)] = fin.eps
-            equity[(year, q)] = fin.equity
+            if cfs is not None:
+                cfs_rev[(year, q)] = cfs.revenue
+                cfs_op[(year, q)] = cfs.operating_income
+                cfs_ni[(year, q)] = cfs.net_income
+                cfs_eps[(year, q)] = cfs.eps
+                cfs_equity[(year, q)] = cfs.equity
+            if ofs is not None:
+                ofs_rev[(year, q)] = ofs.revenue
+                ofs_op[(year, q)] = ofs.operating_income
+                ofs_ni[(year, q)] = ofs.net_income
+                ofs_eps[(year, q)] = ofs.eps
+                ofs_equity[(year, q)] = ofs.equity
         shares = quote.fetch_shares_outstanding(code, session)
 
     if not any_data:
         return True  # 재무 공시 없음 → 완료 처리
 
-    # 분기 개별값 환산(4Q=연간-누적). 매출·영업이익·순이익은 총액(원), EPS 는 표시용.
-    rev_q = {yq: financials.discrete_quarter(rev_raw, yq) for yq in rev_raw}
-    op_q = {yq: financials.discrete_quarter(op_raw, yq) for yq in op_raw}
-    ni_q = {yq: financials.discrete_quarter(ni_raw, yq) for yq in ni_raw}
-    eps_q = {yq: financials.discrete_quarter(eps_raw, yq) for yq in eps_raw}
-    # 매출 개별값이 음수면 1~3Q 가 누적 보고였다는 신호 → 그 분기 매출·TTM 을 신뢰 불가로 폐기.
-    rev_q = {yq: (v if (v is None or v >= 0) else None) for yq, v in rev_q.items()}
+    def _store_fs(fs_div: str, rev_raw: dict, op_raw: dict, ni_raw: dict,
+                  eps_raw: dict, equity: dict) -> int:
+        """한 fs_div(CFS/OFS)의 분기 개별값 환산 → PER/PBR/PSR 계산 → 저장. 저장한 분기 수 반환."""
+        # 분기 개별값 환산(4Q=연간-누적).
+        rev_q = {yq: financials.discrete_quarter(rev_raw, yq) for yq in rev_raw}
+        op_q = {yq: financials.discrete_quarter(op_raw, yq) for yq in op_raw}
+        ni_q = {yq: financials.discrete_quarter(ni_raw, yq) for yq in ni_raw}
+        eps_q = {yq: financials.discrete_quarter(eps_raw, yq) for yq in eps_raw}
+        # 매출 개별값이 음수면 1~3Q 가 누적 보고였다는 신호 → 그 분기 매출·TTM 을 신뢰 불가로 폐기.
+        rev_q = {yq: (v if (v is None or v >= 0) else None) for yq, v in rev_q.items()}
+
+        updated = 0
+        for year, q in yqs:
+            yq = (year, q)
+            if yq not in rev_raw:
+                continue
+            close = _quarter_end_close(db, code, year, q)
+            # 과거 시총 근사 = 분기말 수정종가 x 현재 주식수(수정주가라 분할 소급 상쇄).
+            cap = (close * shares) if (close and shares) else None
+            ttm_ni = _ttm_from_discrete(ni_q, yq)  # 원(총액)
+            ttm_rev = _ttm_from_discrete(rev_q, yq)  # 원(총액)
+            eq = equity.get(yq)  # 지배자본(원, 시점값)
+
+            # 총액 기준(분할 무관): PER=시총/순이익, PBR=시총/자본, PSR=시총/매출.
+            per = round(cap / ttm_ni, 2) if (cap and ttm_ni and ttm_ni > 0) else None
+            pbr = round(cap / eq, 2) if (cap and eq and eq > 0) else None
+            psr = round(cap / ttm_rev, 2) if (cap and ttm_rev and ttm_rev > 0) else None
+            # BPS 표시용(현재 주식수 기준 근사, 원).
+            bps = (eq / shares) if (eq and shares) else None
+
+            rev_q_val = rev_q.get(yq)
+            op_q_val = op_q.get(yq)
+            ni_q_val = ni_q.get(yq)
+            # 표시 단위: 매출·영업이익·순이익은 억원(기존 quote 저장 단위와 일치), EPS/BPS 는 원.
+            # 영업이익은 적자(음수)도 유효값이라 클램프하지 않는다.
+            _upsert_financial(
+                db, code, _period_str(year, q), fs_div=fs_div,
+                revenue=(rev_q_val / 1e8) if rev_q_val is not None else None,
+                operating_income=(op_q_val / 1e8) if op_q_val is not None else None,
+                net_income=(ni_q_val / 1e8) if ni_q_val is not None else None,
+                eps=eps_q.get(yq),
+                bps=bps,
+                per=per,
+                pbr=pbr,
+                psr=psr,
+            )
+            updated += 1
+        return updated
 
     updated = 0
-    for year, q in yqs:
-        yq = (year, q)
-        if yq not in rev_raw:
-            continue
-        close = _quarter_end_close(db, code, year, q)
-        # 과거 시총 근사 = 분기말 수정종가 x 현재 주식수(수정주가라 분할 소급 상쇄).
-        cap = (close * shares) if (close and shares) else None
-        ttm_ni = _ttm_from_discrete(ni_q, yq)  # 원(총액)
-        ttm_rev = _ttm_from_discrete(rev_q, yq)  # 원(총액)
-        eq = equity.get(yq)  # 지배자본(원, 시점값)
-
-        # 총액 기준(분할 무관): PER=시총/순이익, PBR=시총/자본, PSR=시총/매출.
-        per = round(cap / ttm_ni, 2) if (cap and ttm_ni and ttm_ni > 0) else None
-        pbr = round(cap / eq, 2) if (cap and eq and eq > 0) else None
-        psr = round(cap / ttm_rev, 2) if (cap and ttm_rev and ttm_rev > 0) else None
-        # BPS 표시용(현재 주식수 기준 근사, 원).
-        bps = (eq / shares) if (eq and shares) else None
-
-        rev_q_val = rev_q.get(yq)
-        op_q_val = op_q.get(yq)
-        ni_q_val = ni_q.get(yq)
-        # 표시 단위: 매출·영업이익·순이익은 억원(기존 quote 저장 단위와 일치), EPS/BPS 는 원.
-        # 영업이익은 적자(음수)도 유효값이라 클램프하지 않는다.
-        _upsert_financial(
-            db,
-            code,
-            _period_str(year, q),
-            revenue=(rev_q_val / 1e8) if rev_q_val is not None else None,
-            operating_income=(op_q_val / 1e8) if op_q_val is not None else None,
-            net_income=(ni_q_val / 1e8) if ni_q_val is not None else None,
-            eps=eps_q.get(yq),
-            bps=bps,
-            per=per,
-            pbr=pbr,
-            psr=psr,
-        )
-        updated += 1
+    if cfs_rev:
+        updated += _store_fs("CFS", cfs_rev, cfs_op, cfs_ni, cfs_eps, cfs_equity)
+    if ofs_rev:
+        updated += _store_fs("OFS", ofs_rev, ofs_op, ofs_ni, ofs_eps, ofs_equity)
 
     db.commit()
     logger.info("financials 10y backfill %s: %d periods (shares=%s)", code, updated, shares)
     return True
 
 
-def _upsert_financial(db: Session, code: str, period: str, **vals) -> None:
+def _upsert_financial(db: Session, code: str, period: str, fs_div: str = "CFS", **vals) -> None:
     """Financial 행 upsert(백필 소유 필드만 갱신: 재무·PER/PBR/PSR). 추정치 아님.
 
     None 값은 갱신에서 제외한다 — 주식수 조회 실패(밸류 None) 등으로 기존 유효값(예: 네이버
     per/pbr, 이전 백필분)을 NULL 로 덮어쓰지 않기 위함.
+    fs_div: 'CFS'(연결) | 'OFS'(별도) — CFS/OFS 각각 저장.
     """
     present = {k: v for k, v in vals.items() if v is not None}
     if not present:
         return
-    stmt = insert(Financial).values(stock_code=code, period=period, fs_div="CFS", is_estimate=False, **present)
+    stmt = insert(Financial).values(stock_code=code, period=period, fs_div=fs_div, is_estimate=False, **present)
     stmt = stmt.on_conflict_do_update(
         constraint="uq_financial",
         set_={k: getattr(stmt.excluded, k) for k in present},
@@ -229,26 +249,49 @@ def _reconcile_markers(db: Session, codes: list[str], done: set[str]) -> int:
     """마커는 없지만 백필 산출물(psr)이 이미 있는 종목의 완료 마커를 복원한다(DART 재조회 없이).
 
     psr 은 이 백필만 쓰는 전용 출력값(backfill_stock → _upsert_financial)이라, psr 이 있으면
-    과거에 백필이 실제로 완료된 종목이다. sync_state 마커가 외부에서 삭제돼도(일회성 psql
-    정리 등) 이미 채운 종목을 매일 재조회하지 않도록 마커를 되살린다. 반환: 복원 개수.
+    과거에 백필이 실제로 완료된 종목이다. 단 CFS/OFS 모두 있어야 복원 — OFS 가 없으면
+    재처리 대상으로 남긴다(CFS/OFS 분리 후 OFS 누락분 채우기 위함).
+    sync_state 마커가 외부에서 삭제돼도(일회성 psql 정리 등) 이미 채운 종목을 매일 재조회하지
+    않도록 마커를 되살린다. 반환: 복원 개수.
     """
     missing = [c for c in codes if c not in done]
     if not missing:
         return 0
-    has_psr = set(
+    # CFS psr 이 있으면서 OFS 데이터도 있는 종목만 복원.
+    has_both = set(
         db.scalars(
             select(Financial.stock_code)
-            .where(Financial.stock_code.in_(missing), Financial.psr.isnot(None))
+            .where(
+                Financial.stock_code.in_(missing),
+                Financial.psr.isnot(None),
+                Financial.fs_div == "CFS",
+            )
             .distinct()
         ).all()
     )
-    for code in has_psr:
+    # OFS 데이터가 없는 종목은 복원에서 제외(재처리 필요).
+    has_ofs = set(
+        db.scalars(
+            select(Financial.stock_code)
+            .where(
+                Financial.stock_code.in_(missing),
+                Financial.fs_div == "OFS",
+            )
+            .distinct()
+        ).all()
+    )
+    restore = has_both & has_ofs
+    for code in restore:
         sync_state.mark(db, _BACKFILL_DOMAIN, code)
-    if has_psr:
+    if restore:
         db.commit()
-        done.update(has_psr)
-        logger.info("financials 10y backfill: 마커 %d개 복원(psr 보유·마커 결손)", len(has_psr))
-    return len(has_psr)
+        done.update(restore)
+        logger.info(
+            "financials 10y backfill: 마커 %d개 복원(psr+OFS 보유·마커 결손), "
+            "OFS 누락 %d개는 재처리 대기",
+            len(restore), len(has_both - has_ofs),
+        )
+    return len(restore)
 
 
 def run_backfill_progressive(
