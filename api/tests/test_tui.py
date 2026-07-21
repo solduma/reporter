@@ -75,7 +75,15 @@ def _stub_services(monkeypatch):
         tui.admin_status, "db_status",
         lambda db: [admin_status.TableStatus(name="리포트", rows=49, latest="2026-07-08")],
     )
-    monkeypatch.setattr(tui.admin_status, "backfill_progress", lambda db: (2, 2767))
+    monkeypatch.setattr(tui.admin_status, "all_backfill_progress", lambda db: [
+        admin_status.BackfillStatus(domain="backfill_10y", label="일봉 10년", done=2766, total=2766, pct=100.0, remaining=0, per_run=3000),
+        admin_status.BackfillStatus(domain="financials_10y", label="재무 10년", done=150, total=2766, pct=5.4, remaining=2616, per_run=150),
+        admin_status.BackfillStatus(domain="report_10y", label="보고서 원문", done=2650, total=2766, pct=95.8, remaining=116, per_run=100),
+        admin_status.BackfillStatus(domain="us_candle_10y", label="US 일봉 10년", done=926, total=2766, pct=33.5, remaining=1840, per_run=200),
+        admin_status.BackfillStatus(domain="us_financials_10y", label="US 재무 10년", done=433, total=2766, pct=15.7, remaining=2333, per_run=60),
+        admin_status.BackfillStatus(domain="related_company", label="관계사", done=2653, total=2766, pct=95.9, remaining=113, per_run=3000),
+        admin_status.BackfillStatus(domain="ofs", label="OFS(별도재무)", done=7, total=2570, pct=0.3, remaining=2563, per_run=150, detail="CFS 2570개 중"),
+    ])
     monkeypatch.setattr(
         tui.ingest_log, "recent",
         lambda db, limit=30: [

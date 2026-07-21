@@ -370,13 +370,27 @@ class AdminTUI(App):
         db = SessionLocal()
         try:
             statuses = admin_status.db_status(db)
-            done, total = admin_status.backfill_progress(db)
+            backfills = admin_status.all_backfill_progress(db)
         finally:
             db.close()
-        pct = f"{done / total * 100:.0f}%" if total else "—"
-        self.query_one("#db_title", Static).update(
-            f"[b]DB 적재 현황[/b]  (최신순)  10년 일봉 백필: {done:,}/{total:,} ({pct})"
-        )
+        lines = ["[b]DB 적재 현황[/b]  (최신순)"]
+        for b in backfills:
+            pct_str = f"{b.pct:.1f}%" if b.pct < 100 else "[green]100% ✔[/green]"
+            bar_len = 20
+            filled = int(b.pct / 100 * bar_len) if b.pct < 100 else bar_len
+            bar = "█" * filled + "░" * (bar_len - filled)
+            if b.remaining > 0:
+                # 예상 완료일 = 오늘 + (remaining / per_run) 일
+                est_days = b.remaining / b.per_run
+                est = f"  ~{est_days:.0f}일 후" if est_days >= 1 else f"  ~{est_days*24:.0f}시간 후"
+            else:
+                est = ""
+            detail = f"  [dim]{b.detail}[/dim]" if b.detail else ""
+            lines.append(
+                f"  {b.label:12s} {bar} {pct_str:>8s}  "
+                f"{b.done:,}/{b.total:,}{est}{detail}"
+            )
+        self.query_one("#db_title", Static).update("\n".join(lines))
         table = self.query_one("#db_status", DataTable)
         table.clear()
         for s in statuses:

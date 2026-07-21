@@ -97,11 +97,32 @@ def db_status(db: Session) -> list[TableStatus]:
     return [ts for _, ts in rows_out]
 
 
-def backfill_progress(db: Session) -> tuple[int, int]:
-    """10년 백필 (완료 종목 수, 유니버스 총 종목 수)."""
-    done = db.scalar(
-        select(func.count()).select_from(SyncState).where(SyncState.domain == "backfill_10y")
-    ) or 0
+@dataclass
+class BackfillStatus:
+    """백필 도메인별 진행 현황."""
+    domain: str
+    label: str
+    done: int
+    total: int
+    pct: float
+    remaining: int
+    per_run: int  # 1회 실행당 처리 종목 수(예상 완료일 계산용)
+    detail: str = ""  # 추가 정보(예: "OFS 7/2570")
+
+
+# 백필 도메인별 설정: (SyncState 도메인, 표시명, 1회당 처리량)
+_BACKFILL_DOMAINS: list[tuple[str, str, int]] = [
+    ("backfill_10y", "일봉 10년", 3000),
+    ("financials_10y", "재무 10년", 150),
+    ("report_10y", "보고서 원문", 100),
+    ("us_candle_10y", "US 일봉 10년", 200),
+    ("us_financials_10y", "US 재무 10년", 60),
+    ("related_company", "관계사", 3000),
+]
+
+
+def all_backfill_progress(db: Session) -> list[BackfillStatus]:
+    """모든 백필 도메인의 진행률 + 예상 완료일. 완료(pct>=100)는 제외."""
     latest_uni = universe_ingest.latest_snapshot_date(db)
     total = 0
     if latest_uni:
@@ -111,7 +132,39 @@ def backfill_progress(db: Session) -> tuple[int, int]:
                 UniverseSnapshot.stock_type == "stock",
             )
         ) or 0
-    return done, total
+    if not total:
+        return []
+
+    out: list[BackfillStatus] = []
+    for domain, label, per_run in _BACKFILL_DOMAINS:
+        done = db.scalar(
+            select(func.count()).select_from(SyncState).where(SyncState.domain == domain)
+        ) or 0
+        pct = done / total * 100
+        remaining = total - done
+        out.append(BackfillStatus(
+            domain=domain, label=label,
+            done=done, total=total, pct=pct,
+            remaining=remaining, per_run=per_run,
+        ))
+
+    # OFS 현황: CFS 보유 종목 대비 OFS 보유 종목
+    cfs_cnt = len(db.execute(
+        select(Financial.stock_code).where(Financial.fs_div == "CFS").distinct()
+    ).all())
+    ofs_cnt = len(db.execute(
+        select(Financial.stock_code).where(Financial.fs_div == "OFS").distinct()
+    ).all())
+    ofs_pct = ofs_cnt / cfs_cnt * 100 if cfs_cnt else 0
+    ofs_remaining = cfs_cnt - ofs_cnt
+    out.append(BackfillStatus(
+        domain="ofs", label="OFS(별도재무)",
+        done=ofs_cnt, total=cfs_cnt, pct=ofs_pct,
+        remaining=ofs_remaining, per_run=150,
+        detail=f"CFS {cfs_cnt}개 중",
+    ))
+
+    return out
 
 
 @dataclass
