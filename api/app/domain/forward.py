@@ -98,6 +98,37 @@ def long_term_growth(ttm_series: list[float]) -> tuple[float | None, dict | None
     return g_long, meta
 
 
+def sustainable_growth(ttm_series: list[float]) -> tuple[float | None, dict | None]:
+    """순수 장기 성장률 — CAGR 기반, 단기 모멘텀 미혼합. 분모(forward multiple) 전용.
+
+    growth_forward_multiple()의 분모 g로 전달할 성장률. 분자의 g(단기 추정은 이미
+    apply_forward_earnings에서 forward_EPS/EV를 산출했으므로, multiple에는 '장기 지속
+    성장률'만 써야 분자·분모 g가 이중 적용되지 않는다.
+
+    산출: CAGR(ttm_series). CAGR 결측 시(적자 기반 등) 보수적 폴백으로 g_fwd × 0.5.
+    ROE 캡은 growth_forward_multiple() 내부에서 처리하므로 여기선 클립 없음.
+    """
+    g_cagr = _cagr(ttm_series)
+    if g_cagr is not None:
+        meta = {
+            "source": "cagr", "g_sustainable_pct": round(g_cagr * 100, 2),
+            "g_cagr_pct": round(g_cagr * 100, 2),
+        }
+        return g_cagr, meta
+    # CAGR 결측 시: 보수적 폴백으로 단기 앙상블의 절반만 사용
+    g_fwd, _ = extrapolate_growth(ttm_series)
+    if g_fwd is not None:
+        g_fallback = g_fwd * _LT_FWD_WEIGHT
+        meta = {
+            "source": "extrapolation_fallback",
+            "g_sustainable_pct": round(g_fallback * 100, 2),
+            "g_forward_pct": round(g_fwd * 100, 2),
+            "note": "CAGR 산출 불가 — 단기 성장률의 절반으로 대체(보수)",
+        }
+        return g_fallback, meta
+    return None, None
+
+
 def growth_forward_multiple(
     fwd_growth: float | None, roe: float | None, coe: float | None,
     terminal_growth: float | None, cap_years: float | None,
