@@ -65,6 +65,8 @@ _COLUMN_MIGRATIONS = (
     "ALTER TABLE report_financials ADD COLUMN IF NOT EXISTS interest_expense DOUBLE PRECISION",
     "ALTER TABLE financials ADD COLUMN IF NOT EXISTS effective_tax_rate DOUBLE PRECISION",
     "ALTER TABLE financials ADD COLUMN IF NOT EXISTS cost_of_debt DOUBLE PRECISION",
+    # 연결(CFS)·별도(OFS) 구분 저장 — valuation 에서 본업(별도)·지분가치(연결-본업) 밸류에이션.
+    "ALTER TABLE financials ADD COLUMN IF NOT EXISTS fs_div VARCHAR(3) DEFAULT 'CFS'",
 )
 
 # 데이터 정합성 정규화(멱등) — 스키마가 아닌 값 보정. init_db 마다 실행되나 조건절이 이미 보정된

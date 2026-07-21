@@ -70,7 +70,7 @@ def test_backfill_writes_operating_income(monkeypatch):
     }
     monkeypatch.setattr(
         fb.dart, "fetch_income_and_equity",
-        lambda key, corp, year, q, sess: cum.get((year, q)),
+        lambda key, corp, year, q, sess: (cum.get((year, q)), None),
     )
     db = MagicMock()
     db.scalar.return_value = "00000000"  # corp_code

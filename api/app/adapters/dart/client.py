@@ -415,15 +415,17 @@ _AID_INTEREST_PAID_CF = {"ifrs-full_InterestPaidClassifiedAsOperatingActivities"
 
 def fetch_income_and_equity(
     api_key: str, corp_code: str, year: int, quarter: int, session: requests.Session
-) -> IncomeEquity | None:
+) -> tuple[IncomeEquity | None, IncomeEquity | None]:
     """DART 전체재무제표에서 매출·지배순이익·EPS·지배자본을 account_id 로 추출한다.
 
-    연결(CFS) 우선, 없으면 별도(OFS). 손익은 IS/CIS 어디에나 올 수 있어 sj_div 무관하게
-    account_id 로 잡는다. 실패·데이터없음이면 None.
+    연결(CFS)과 별도(OFS)를 각각 시도해 (cfs, ofs) 튜플로 반환한다.
+    손익은 IS/CIS 어디에나 올 수 있어 account_id 로 잡는다. 실패·데이터없음이면 None.
     """
     reprt_code = DART_REPORT_CODES.get(quarter)
     if not reprt_code:
-        return None
+        return None, None
+    cfs_result: IncomeEquity | None = None
+    ofs_result: IncomeEquity | None = None
     for fs_div in ("CFS", "OFS"):
         params = {
             "crtfc_key": api_key,
@@ -437,13 +439,17 @@ def fetch_income_and_equity(
             resp.raise_for_status()
             data = resp.json()
         except (requests.RequestException, ValueError) as e:
-            logger.warning("dart income failed %s %sQ%s: %s", corp_code, year, quarter, e)
-            return None
+            logger.warning("dart income failed %s %sQ%s %s: %s", corp_code, year, quarter, fs_div, e)
+            continue
         _raise_if_quota(data)
         if data.get("status") != "000":
-            continue  # 013(데이터없음) → 다음 fs_div
-        return _parse_income_equity(data.get("list", []))
-    return None
+            continue  # 013(데이터없음) → 다음 fs_div 시도
+        parsed = _parse_income_equity(data.get("list", []))
+        if fs_div == "CFS":
+            cfs_result = parsed
+        else:
+            ofs_result = parsed
+    return cfs_result, ofs_result
 
 
 def _parse_income_equity(rows: list[dict]) -> IncomeEquity:
