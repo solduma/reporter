@@ -130,49 +130,43 @@ def ensure_day_candles(db: Session, code: str):
 
 
 # ── 재무 ──────────────────────────────────────────────────────────────
-def financials_rows(db: Session, code: str) -> list[Financial]:
-    """저장된 재무 기간 정렬 반환(외부 호출 없음)."""
-    return list(
-        db.scalars(
-            select(Financial).where(Financial.stock_code == code).order_by(Financial.period)
-        ).all()
-    )
+def financials_rows(db: Session, code: str, fs_div: str | None = None) -> list[Financial]:
+    """저장된 재무 기간 정렬 반환(외부 호출 없음). fs_div=None이면 전체(연결+별도)."""
+    q = select(Financial).where(Financial.stock_code == code)
+    if fs_div:
+        q = q.where(Financial.fs_div == fs_div)
+    return list(q.order_by(Financial.period).all())
 
 
-def latest_valuation(db: Session, code: str) -> Financial | None:
-    """가치 축용 최신 밸류에이션 Financial(비추정). per/pbr 있는 행을 최신순 우선(반쪽 연간행
-    이 최신으로 잡혀 누락되는 것 방지). 결산분기 배당(div_yield)을 in-memory 로 보정해 붙인다."""
+def latest_valuation(db: Session, code: str, fs_div: str | None = None) -> Financial | None:
+    """가치 축용 최신 밸류에이션 Financial(비추정). fs_div=None이면 전체."""
     has_value = case((or_(Financial.per.is_not(None), Financial.pbr.is_not(None)), 0), else_=1)
-    fin = db.scalars(
-        select(Financial)
-        .where(Financial.stock_code == code, Financial.is_estimate.is_(False))
-        .order_by(has_value.asc(), Financial.period.desc())
-        .limit(1)
-    ).first()
+    q = select(Financial).where(Financial.stock_code == code, Financial.is_estimate.is_(False))
+    if fs_div:
+        q = q.where(Financial.fs_div == fs_div)
+    fin = q.order_by(has_value.asc(), Financial.period.desc()).limit(1).scalar_one_or_none()
     if fin is None:
         return None
     # 배당·EV/EBITDA 는 연간(.12)에만 있어(분기 최신 행엔 결측), 최신 연간값을 끌어와 보정한다.
     # 안 하면 가치 축에서 EV/EBITDA 가 항상 누락된다(분기 행이 최신으로 잡히므로).
     if fin.div_yield is None:
-        fin.div_yield = _latest_annual_value(db, code, Financial.div_yield)  # 읽기 전용(커밋 안 함)
+        fin.div_yield = _latest_annual_value(db, code, Financial.div_yield, fs_div)
     if fin.ev_ebitda is None:
-        fin.ev_ebitda = _latest_annual_value(db, code, Financial.ev_ebitda)
+        fin.ev_ebitda = _latest_annual_value(db, code, Financial.ev_ebitda, fs_div)
     return fin
 
 
-def _latest_annual_value(db: Session, code: str, column):
+def _latest_annual_value(db: Session, code: str, column, fs_div: str | None = None):
     """연간(.12) 비추정 행 중 해당 컬럼의 최신 유효값. 분기 최신 행에 없는 연간 지표 보정용."""
-    return db.scalar(
-        select(column)
-        .where(
-            Financial.stock_code == code,
-            Financial.is_estimate.is_(False),
-            column.is_not(None),
-            Financial.period.like("%.12"),
-        )
-        .order_by(Financial.period.desc())
-        .limit(1)
+    q = select(column).where(
+        Financial.stock_code == code,
+        Financial.is_estimate.is_(False),
+        column.is_not(None),
+        Financial.period.like("%.12"),
     )
+    if fs_div:
+        q = q.where(Financial.fs_div == fs_div)
+    return q.order_by(Financial.period.desc()).limit(1).scalar_one_or_none()
 
 
 def financials_fresh(db: Session, code: str) -> bool:
@@ -213,6 +207,7 @@ def sync_financials(db: Session, code: str) -> None:
         stmt = insert(Financial).values(
             stock_code=code,
             period=f.period,
+            fs_div="CFS",
             is_estimate=f.is_estimate,
             revenue=f.revenue,
             operating_income=f.operating_income,

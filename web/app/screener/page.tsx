@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 
 import InfoDot from "@/components/InfoDot";
+import StockSearch from "@/components/StockSearch";
 import { fetchScreener, fetchScreenerSectors } from "@/lib/api";
 import { GLOSSARY } from "@/lib/glossary";
 import { useAutoTour } from "@/lib/useAutoTour";
@@ -548,8 +549,9 @@ function ScreenerContent() {
   return (
     <div className={styles.page}>
       <header className={styles.head}>
-        <h1 className={styles.title}>종목 스크리너</h1>
+        <h1 className={styles.title}>국내 스크리너</h1>
         <p className={styles.subtitle}>{strategyDesc}</p>
+        <StockSearch />
         <div className={styles.strategyTabs} role="tablist" aria-label="스크리너 전략" data-tour="strategy">
           {STRATEGY_TABS.map((tab) => {
             const on = tab.value === strategy;

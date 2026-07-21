@@ -28,13 +28,11 @@ logger = logging.getLogger(__name__)
 _NARRATIVE_SYSTEM = (
     "너는 5단계 딥다이브 분석 결과를 종합해 사람이 읽는 투자 보고서를 쓰는 애널리스트다. 각 단계 "
     "구조화 결과를 근거로, 개요→재무 특이점→사업모델→투자 아이디어·리스크→밸류에이션·결론 순의 "
-    "마크다운 보고서를 쓴다. 투자 아이디어 절에서는 thesis 의 **catalysts(아직 실현 안 된 미래 촉매: 신규 "
+    "마크다운 보고서를 쓴다. **밸류에이션·결론(5번)은 별도로 생성되므로 여기서 쓰지 마라.** "
+    "투자 아이디어 절에서는 thesis 의 **catalysts(아직 실현 안 된 미래 촉매: 신규 "
     "수주·대형 계약·증설·인수 등 예정 이벤트)**와 **event_risks(현재 유효한 소송·유상증자·우발부채·리콜 등)**를 "
     "출처·예상 영향과 함께 짚는다(구체 이벤트가 있으면 누락 금지). 이미 종료·반영된 과거 이벤트는 서술하지 "
-    "않는다. 밸류에이션은 5개 방식(PER·PBR·EV/EBITDA·DCF·DDM)"
-    "의 목표가와 신뢰도 가중 최종 목표가(final_target_price)를 종합하되, 방식 간 "
-    "편차가 크면 어느 방식을 왜 더 신뢰하는지 밝힌다. 과장 없이 데이터에 근거하고, 마지막에 한 줄 결론"
-    "(투자 성격·최종 목표가·업사이드)을 남긴다."
+    "않는다. 과장 없이 데이터에 근거한다."
 )
 
 
@@ -186,6 +184,55 @@ def run_job(db: Session, job: DeepDiveJob, settings: Settings | None = None) -> 
         _fail(db, job, f"실행 오류: {e}")
 
 
+def _build_valuation_section(val: dict) -> str:
+    """밸류에이션 결과(valuation_json)로 섹션 5(밸류에이션·결론)를 프로그래매틱하게 생성.
+
+    LLM 에 의존하지 않고 valuation_json 의 정확한 숫자를 그대로 사용해,
+    narrative_md 내 목표주가가 valuation 결과와 항상 일치하게 한다.
+    """
+    lines: list[str] = ["## 5. 밸류에이션·결론\n"]
+    current = val.get("current_price")
+    final_target = val.get("final_target_price")
+    final_upside = val.get("final_upside_pct")
+    entry_case = val.get("entry_case")
+    conclusion = val.get("conclusion")
+    methods = val.get("methods") or []
+
+    if current is not None:
+        lines.append(f"- 현재가: {current:,.0f}원")
+    if final_target is not None:
+        lines.append(f"- **최종 목표가: {final_target:,.0f}원**")
+    if final_upside is not None:
+        lines.append(f"- 업사이드: {final_upside:+.1f}%")
+    if entry_case:
+        lines.append(f"- 진입 성격: {entry_case}")
+    lines.append("")
+
+    applicable = [m for m in methods if m.get("applicable") and m.get("target_price")]
+    if applicable:
+        lines.append("### 방식별 목표가\n")
+        for m in applicable:
+            label = m.get("label") or m.get("method", "")
+            tp = m.get("target_price")
+            upside = m.get("upside_pct")
+            conf = m.get("confidence", "")
+            note = m.get("note") or ""
+            if tp is not None:
+                line = f"- **{label}**: {tp:,.0f}원"
+                if upside is not None:
+                    line += f" (업사이드 {upside:+.1f}%)"
+                line += f"  신뢰도: {conf}"
+                if note:
+                    line += f"  — {note}"
+                lines.append(line)
+        lines.append("")
+
+    if conclusion:
+        lines.append(f"### 결론\n\n{conclusion}\n")
+
+    return "\n".join(lines)
+
+
 def _build_verdict(entry, target, upside: float | None) -> str | None:
     """최상단 배지 문자열 '분류 · 목표가 · 업사이드'. 있는 항목만 잇고, 전부 없으면 None.
 
@@ -214,14 +261,18 @@ def _finalize(
     )
 
     user = (
-        f"[종목] {code}\n\n5단계 딥다이브 구조화 결과를 종합해 마크다운 보고서를 써라.\n\n"
+        f"[종목] {code}\n\n5단계 딥다이브 구조화 결과를 종합해 마크다운 보고서를 써라. "
+        "**밸류에이션·결론(5번)은 별도로 생성되므로 쓰지 마라.**\n\n"
         f"{json.dumps(prior, ensure_ascii=False)[:12000]}"
     )
     try:
-        rep.narrative_md = llm.chat(model, _NARRATIVE_SYSTEM, user, temperature=0.3).strip()
+        sections_1_4 = llm.chat(model, _NARRATIVE_SYSTEM, user, temperature=0.3).strip()
+        section_5 = _build_valuation_section(val)
+        rep.narrative_md = sections_1_4 + "\n\n" + section_5
     except LLMError as e:
         logger.warning("deepdive narrative failed %s: %s", code, e)
-        rep.narrative_md = None
+        # LLM 실패 시에도 valuation 섹션은 보존(구조화 데이터로만).
+        rep.narrative_md = _build_valuation_section(val) or None
     rep.inputs_hash = _inputs_hash(code, model, fin_fingerprint)
     rep.as_of = datetime.now(UTC)
 

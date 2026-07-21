@@ -113,29 +113,36 @@ function HitlResultCard({ hitl }: { hitl: DeepDiveReport["hitl"] }) {
   );
 }
 
+interface DeepDiveReportViewProps {
+  report: DeepDiveReport;
+  // 공유 페이지에서 첫 진입 시 본문을 바로 노출하려면 true.
+  openByDefault?: boolean;
+}
+
 // 딥다이브 보고서 본문(서술·HITL 검증·밸류에이션·단계별 상세). DeepDivePanel 과 공유 페이지가 공유.
-export default function DeepDiveReportView({ report }: { report: DeepDiveReport }) {
+export default function DeepDiveReportView({ report, openByDefault = false }: DeepDiveReportViewProps) {
+  const openProp = openByDefault ? { open: true } : {};
   return (
     <div className={styles.report}>
       {report.narrative_md ? (
-        <details className={styles.rawDetails}>
+        <details className={styles.rawDetails} {...openProp}>
           <summary className={styles.rawSummary}>보고서</summary>
           <div className={styles.narrative}>
             <Markdown content={report.narrative_md} />
           </div>
         </details>
       ) : null}
-      <details className={styles.rawDetails}>
+      <details className={styles.rawDetails} {...openProp}>
         <summary className={styles.rawSummary}>사용자 인풋 검증</summary>
         <HitlResultCard hitl={report.hitl} />
       </details>
       {isMultiMethodValuation(report.valuation) ? (
-        <details className={styles.rawDetails}>
+        <details className={styles.rawDetails} {...openProp}>
           <summary className={styles.rawSummary}>밸류에이션·결론</summary>
           <ValuationCard valuation={report.valuation} />
         </details>
       ) : null}
-      <details className={styles.rawDetails}>
+      <details className={styles.rawDetails} {...openProp}>
         <summary className={styles.rawSummary}>단계별 상세 데이터</summary>
         <Section title="① 기본사항" data={report.overview} />
         <Section title="② 재무 특이점" data={report.redflags} />

@@ -114,7 +114,8 @@ def backfill_stock(db: Session, settings: Settings, code: str) -> bool:
     any_data = False
     with requests.Session() as session:
         for year, q in yqs:
-            fin = dart.fetch_income_and_equity(settings.dart_api_key, corp_code, year, q, session)
+            cfs, ofs = dart.fetch_income_and_equity(settings.dart_api_key, corp_code, year, q, session)
+            fin = cfs if cfs is not None else ofs
             if fin is None:
                 continue
             any_data = True
@@ -189,7 +190,7 @@ def _upsert_financial(db: Session, code: str, period: str, **vals) -> None:
     present = {k: v for k, v in vals.items() if v is not None}
     if not present:
         return
-    stmt = insert(Financial).values(stock_code=code, period=period, is_estimate=False, **present)
+    stmt = insert(Financial).values(stock_code=code, period=period, fs_div="CFS", is_estimate=False, **present)
     stmt = stmt.on_conflict_do_update(
         constraint="uq_financial",
         set_={k: getattr(stmt.excluded, k) for k in present},

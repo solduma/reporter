@@ -25,6 +25,7 @@ METHOD_LABELS: dict[str, str] = {
     "ev_ebitda": "EV/EBITDA",
     "dcf": "DCF (현금흐름할인)",
     "ddm": "DDM (배당할인)",
+    "ggm_dcf": "GGM DCF (고든성장)",
 }
 
 
@@ -339,21 +340,71 @@ def ddm_valuation(
     return r
 
 
+def ggm_dcf_valuation(
+    *,
+    fcf_base: float | None,  # 기준연도 FCF (억원, NOPAT+D&A-CAPEX)
+    growth_rate: float | None,  # 영구 성장률 (예 0.03 = 3%). WACC 초과 시 부적합.
+    wacc: float | None,  # 가중평균자본비용 (예 0.09 = 9%)
+    net_debt: float | None,  # 억원 (순차입 > 0, 순현금 < 0)
+    shares: float | None,  # 주식수
+    current_price: float | None,
+) -> ValuationResult:
+    """Gordon Growth Model DCF. EV = FCF1 / (WACC - g). 완전 결정론.
+
+    단일 스테이지(영구 성장)이라 2/3단계 FCFF DCF보다 가정 민감도가 높아
+    confidence='하'로 고정. WACC > g 가드로 발산 방지.
+    """
+    r = ValuationResult("ggm_dcf", METHOD_LABELS["ggm_dcf"], applicable=False)
+    if None in (fcf_base, growth_rate, wacc, shares) or shares <= 0:
+        r.note = "FCF·성장률·WACC·주식수 중 결측"
+        return r
+    if fcf_base <= 0:
+        r.note = f"基准 FCF({_fmt(fcf_base)}억)가 0 이하 — GGM 부적합"
+        return r
+    if wacc <= growth_rate:
+        r.note = f"WACC({wacc:.1%}) ≤ 성장률({growth_rate:.1%}) — 분모 0 이하로 발산"
+        return r
+    fcf1 = fcf_base * (1.0 + growth_rate)
+    enterprise_value = fcf1 / (wacc - growth_rate)
+    nd = net_debt or 0.0
+    equity_value = enterprise_value - nd
+    if equity_value <= 0:
+        r.note = f"기업가치({_fmt(enterprise_value)}억) − 순차입({_fmt(nd)}억) ≤ 0"
+        return r
+    target = _round_won(equity_value * 1e8 / shares)
+    r.applicable = True
+    r.target_price = target
+    r.upside_pct = _upside(target, current_price)
+    r.confidence = "하"  # 단일 스테이지 — 가정 민감도 높아 고정 하
+    r.assumptions = {
+        "fcf_base_eok": fcf_base, "growth_rate": round(growth_rate, 4),
+        "wacc": round(wacc, 4), "net_debt_eok": nd, "shares": shares,
+    }
+    r.process = [
+        f"基准 FCF {_fmt(fcf_base)}억원, 성장률 {growth_rate:.1%}",
+        f"FCF1 = {_fmt(fcf_base)} × (1+{growth_rate:.1%}) = {_fmt(fcf1)}억원",
+        f"EV = {_fmt(fcf1)} ÷ ({wacc:.1%} − {growth_rate:.1%}) = {_fmt(enterprise_value)}억원",
+        f"지분가치 = EV {_fmt(enterprise_value)}억 − 순차입 {_fmt(nd)}억 = {_fmt(equity_value)}억원",
+        f"목표가 = {_fmt(equity_value)}억 ÷ {_fmt(shares)}주 = {_fmt(target)}원",
+    ]
+    return r
+
+
 # ── 종목 유형별 방식 적합도(가중/제외) ────────────────────────────────────
 # 밸류에이션 방식은 종목 유형에 맞춰 선택해야 한다(Damodaran story→value, CFA·McKinsey).
 # fit 배수: 0=제외(부적합, blend 가중 0), 0.5=저가중, 1.0=표준, 1.5=고가중. 최종 blend 가중 =
 # 신뢰도(_CONF_WEIGHT) × 이 fit. 유형 규칙에 배당·이익 게이트를 곱(min)해 무배당 DDM·적자 PER 을 제외.
 _FIT_BY_TYPE: dict[str, dict[str, float]] = {
     # 성장주: 초과수익 기업 — 장부가 방식(PBR) 과소평가. PER·DCF·EV/EBITDA 우대.
-    "growth": {"per": 1.5, "pbr": 0.5, "ev_ebitda": 1.0, "dcf": 1.5, "ddm": 1.0},
+    "growth": {"per": 1.5, "pbr": 0.5, "ev_ebitda": 1.0, "dcf": 1.5, "ddm": 1.0, "ggm_dcf": 1.0},
     # 자산주/가치주: 성숙·고정자산 — 장부가가 실제가치 근사. PBR 우대.
-    "asset": {"per": 1.0, "pbr": 1.5, "ev_ebitda": 1.0, "dcf": 1.0, "ddm": 1.0},
+    "asset": {"per": 1.0, "pbr": 1.5, "ev_ebitda": 1.0, "dcf": 1.0, "ddm": 1.0, "ggm_dcf": 0.5},
     # 금융주(은행·보험): 부채=원재료 — EV·WACC 무의미 → EV/EBITDA·FCFF DCF 제외. DDM·P/B-ROE 우대.
-    "financial": {"per": 1.0, "pbr": 1.5, "ev_ebitda": 0.0, "dcf": 0.0, "ddm": 1.5},
+    "financial": {"per": 1.0, "pbr": 1.5, "ev_ebitda": 0.0, "dcf": 0.0, "ddm": 1.5, "ggm_dcf": 0.0},
     # 시클리컬: 현재 PER 오도(사이클 역행) — 저가중. 하방서도 산출되는 EV/EBITDA 우대. DCF 정규화 전 저가중.
-    "cyclical": {"per": 0.5, "pbr": 1.0, "ev_ebitda": 1.5, "dcf": 0.5, "ddm": 1.0},
+    "cyclical": {"per": 0.5, "pbr": 1.0, "ev_ebitda": 1.5, "dcf": 0.5, "ddm": 1.0, "ggm_dcf": 0.5},
     # 기타/일반: 중립(전부 표준 가중).
-    "other": {"per": 1.0, "pbr": 1.0, "ev_ebitda": 1.0, "dcf": 1.0, "ddm": 1.0},
+    "other": {"per": 1.0, "pbr": 1.0, "ev_ebitda": 1.0, "dcf": 1.0, "ddm": 1.0, "ggm_dcf": 0.8},
 }
 _ALL_METHODS = tuple(METHOD_LABELS)
 

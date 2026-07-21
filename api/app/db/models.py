@@ -121,11 +121,12 @@ class Financial(Base):
     """기간별(연간/분기) 재무·밸류에이션. main.naver 스크래핑 결과 upsert."""
 
     __tablename__ = "financials"
-    __table_args__ = (UniqueConstraint("stock_code", "period", name="uq_financial"),)
+    __table_args__ = (UniqueConstraint("stock_code", "period", "fs_div", name="uq_financial"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     stock_code: Mapped[str] = mapped_column(String(6), index=True)
     period: Mapped[str] = mapped_column(String(16))  # '2026.03' / '2026.12(E)'
+    fs_div: Mapped[str] = mapped_column(String(3), default="CFS")  # CFS(연결) | OFS(별도)
     is_estimate: Mapped[bool] = mapped_column(default=False)
     revenue: Mapped[float | None] = mapped_column(Float)
     operating_income: Mapped[float | None] = mapped_column(Float)
