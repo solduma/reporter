@@ -117,7 +117,7 @@ def _upsert_dividend(
     if div is None or (div.dps is None and div.div_yield is None):
         return
     values = {k: v for k, v in (("dps", div.dps), ("div_yield", div.div_yield)) if v is not None}
-    stmt = insert(Financial).values(stock_code=code, period=period, is_estimate=False, **values)
+    stmt = insert(Financial).values(stock_code=code, period=period, fs_div="CFS", is_estimate=False, **values)
     stmt = stmt.on_conflict_do_update(constraint="uq_financial", set_=values)
     db.execute(stmt)
 
@@ -146,7 +146,7 @@ def _upsert_roe(
     roe = dart.fetch_roe(settings.dart_api_key, corp_code, year, 4, session)
     if roe is None:
         return
-    stmt = insert(Financial).values(stock_code=code, period=period, is_estimate=False, roe=roe)
+    stmt = insert(Financial).values(stock_code=code, period=period, fs_div="CFS", is_estimate=False, roe=roe)
     stmt = stmt.on_conflict_do_update(constraint="uq_financial", set_={"roe": roe})
     db.execute(stmt)
 
@@ -334,7 +334,7 @@ def _recompute_ev_ebitda(
                 ev = close * shares + (net_debt or 0.0)
                 values["ev_ebitda"] = round(ev / ebitda, 2)
         stmt = insert(Financial).values(
-            stock_code=code, period=period, is_estimate=False, **values
+            stock_code=code, period=period, fs_div="CFS", is_estimate=False, **values
         )
         stmt = stmt.on_conflict_do_update(constraint="uq_financial", set_=values)
         db.execute(stmt)
@@ -522,7 +522,7 @@ def backfill_capex(db: Session, settings: Settings | None = None, limit: int = 2
                         continue
                     db.execute(
                         insert(Financial)
-                        .values(stock_code=code, period=period, is_estimate=False, **vals)
+                        .values(stock_code=code, period=period, fs_div="OFS", is_estimate=False, **vals)
                         .on_conflict_do_update(constraint="uq_financial", set_=vals)
                     )
                     filled += 1

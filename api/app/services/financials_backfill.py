@@ -190,7 +190,7 @@ def _upsert_financial(db: Session, code: str, period: str, **vals) -> None:
     present = {k: v for k, v in vals.items() if v is not None}
     if not present:
         return
-    stmt = insert(Financial).values(stock_code=code, period=period, is_estimate=False, **present)
+    stmt = insert(Financial).values(stock_code=code, period=period, fs_div="CFS", is_estimate=False, **present)
     stmt = stmt.on_conflict_do_update(
         constraint="uq_financial",
         set_={k: getattr(stmt.excluded, k) for k in present},

@@ -217,9 +217,55 @@ def stage_thesis(llm: LLMPort, model: str, ctx: ToolContext, prior: dict) -> dic
 def stage_valuation(llm: LLMPort, model: str, ctx: ToolContext, prior: dict) -> dict:
     """8개 밸류에이션 방식(PER·PBR·EV/EBITDA·DCF·DDM·자산가치·Fama-French·APT) 종합 → 최종 목표가.
 
+    연결(CFS)과 별도(OFS) 재무 각각으로 두 번 실행한다:
+    - CFS 결과 → 지분가치(연결 순현금+순차입 반영)
+    - OFS 결과 → 본업 가치(별도 순이익 기반)
+    - valuation_json.equity_value = CFS 최종목표가
+    - valuation_json.business_value = OFS 최종목표가
+    - valuation_json.source = 'cfs+ofs' (두 Division 머지 결과)
+    - valuation_json.cfs / valuation_json.ofs = 각 원본 결과
+
     LLM 은 방식별 *가정*만 근거와 함께 내고, 산식·목표가·과정 서술·blend 는 domain.valuation 이
     결정론적으로 계산한다(valuation_stage 모듈). 환각 없는 재현 가능한 목표가."""
-    return valuation_stage.run_valuation(llm, model, ctx, prior, _fin_series(ctx))
+    import dataclasses
+
+    # CFS(연결) 재무로 첫 번째 밸류에이션.
+    ctx_cfs = dataclasses.replace(ctx, fs_div="CFS")
+    series_cfs = [p for p in _fin_series(ctx_cfs) if not p.get("is_estimate")]
+    val_cfs = valuation_stage.run_valuation(llm, model, ctx_cfs, prior, series_cfs)
+
+    # OFS(별도) 재무로 두 번째 밸류에이션 — 본업 가치 평가용.
+    ctx_ofs = dataclasses.replace(ctx, fs_div="OFS")
+    series_ofs = [p for p in _fin_series(ctx_ofs) if not p.get("is_estimate")]
+    val_ofs = valuation_stage.run_valuation(llm, model, ctx_ofs, prior, series_ofs)
+
+    # 머지: equity(CFS)를 primary 로 하고, business_value(OFS)를 별도 필드로 저장.
+    current_price = val_cfs.get("current_price")
+    equity_value = val_cfs.get("final_target_price")
+    business_value = val_ofs.get("final_target_price")
+
+    # combined methods: OFS 결과를 'ofsf' 접미사로 구분.
+    cfs_methods = [dict(m, source="cfs") for m in val_cfs.get("methods", [])]
+    ofs_methods = [dict(m, source="ofsf") for m in val_ofs.get("methods", [])]
+    combined_methods = cfs_methods + ofs_methods
+
+    return {
+        "source": "cfs+ofs",
+        "final_target_price": equity_value,  # 지분가치(CFS 연결)
+        "final_upside_pct": val_cfs.get("final_upside_pct"),
+        "current_price": current_price,
+        "method_count": (val_cfs.get("method_count") or 0) + (val_ofs.get("method_count") or 0),
+        "stock_type": val_cfs.get("stock_type"),
+        "method_fit": val_cfs.get("method_fit"),
+        "forward_meta": val_cfs.get("forward_meta"),
+        "entry_case": val_cfs.get("entry_case"),
+        "conclusion": val_cfs.get("conclusion"),
+        "equity_value": equity_value,  # 연결 기준 지분가치
+        "business_value": business_value,  # 별도 기준 본업 가치
+        "cfs": val_cfs,
+        "ofsf": val_ofs,
+        "methods": combined_methods,
+    }
 
 
 # 단계 순서(orchestrator 가 순회). (key, 함수) — key 는 DeepDiveReport 의 *_json 및 prior 누적 키.

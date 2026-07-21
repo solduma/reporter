@@ -35,6 +35,8 @@ class ToolContext:
 
     job 1회당 하나 생성돼 여러 단계가 공유하므로, 무거운 라이브 조회(정기보고서 본문)를
     단계 간 재사용하도록 실행 스코프 캐시를 둔다.
+    fs_div: 재무 데이터 필터('CFS'=연결, 'OFS'=별도). None이면 전체. valuation 이 두 번
+    실행될 때 각각 다른 fs_div를 지정한다.
     """
 
     db: Session
@@ -42,6 +44,7 @@ class ToolContext:
     session: requests.Session
     code: str
     corp_code: str | None = None
+    fs_div: str | None = None
     _cache: dict = field(default_factory=dict)
 
 
@@ -93,8 +96,16 @@ def tool_recent_periodic_report(ctx: ToolContext, args: dict) -> dict:
 
 
 def tool_financials(ctx: ToolContext, args: dict) -> dict:
-    """분기·연간 재무 시계열(매출·영업이익·순이익·EPS·PER/PBR·배당·EV/EBITDA 등)."""
-    rows = company_service.financials_rows(ctx.db, ctx.code)
+    """분기·연간 재무 시계열(매출·영업이익·순이익·EPS·PER/PBR·배당·EV/EBITDA 등).
+
+    args:
+        fs_div: 'CFS'(연결) | 'OFS'(별도) | 생략시 전체.
+    ctx.fs_div 이 설정되면(args보다 우선) 그 값으로 필터링 — valuation 이 두 번 실행될 때
+    각각 다른Division 데이터를 얻는다.
+    """
+    # ctx.fs_div 가 있으면 우선 사용(valuation 이 명시적으로 fs_div 를 지정).
+    fs_div = ctx.fs_div or args.get("fs_div")  # None = 전체
+    rows = company_service.financials_rows(ctx.db, ctx.code, fs_div=fs_div)
     out = [
         {
             "period": r.period, "is_estimate": r.is_estimate,
