@@ -701,6 +701,7 @@ export interface ValuationMethod {
   assumptions: Record<string, unknown>;
   process: string[]; // 계산 과정 스텝
   note: string; // 근거·제외 사유
+  source?: string; // "cfs" | "ofsf" — 연결/별도 구분
 }
 
 // 5단계 밸류에이션 결과(다중 방식 blend). 구 스키마와 구분되도록 methods 로 판별.
@@ -715,6 +716,12 @@ export interface ValuationResult {
   entry_case: string | null;
   conclusion: string | null;
   methods: ValuationMethod[];
+  // CFS/OFS 분리 밸류에이션 (PR #539)
+  source?: string; // "cfs+ofs" — CFS/OFS 머지 결과
+  equity_value?: number | null; // 연결(CFS) 기준 지분가치
+  business_value?: number | null; // 별도(OFS) 기준 본업 가치
+  cfs?: ValuationResult | null; // CFS 원본 결과
+  ofsf?: ValuationResult | null; // OFS 원본 결과
 }
 
 export interface DeepDiveReport {
