@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import logging
+from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 
@@ -505,6 +506,11 @@ def dispatch(name: str, ctx: ToolContext, args: dict) -> dict:
         raise  # 상위(run_stage→run_job)가 딥다이브를 중단·실패 처리
     except Exception as e:  # 그 외 도구 실패는 루프를 죽이지 않게 오류 dict
         logger.warning("deepdive tool %s failed %s: %s", name, ctx.code, e)
+        # DB 오류(데드락 등)로 트랜잭션이 중단(aborted) 상태가 되면 이후 모든 DB 호출이
+        # InFailedSqlTransaction 으로 실패한다. 롤백으로 트랜잭션을 초기화해 다음 툴 호출이
+        # 정상 동작하도록 한다(딥다이브 툴은 읽기 전용이므로 롤백 안전).
+        with suppress(Exception):
+            ctx.db.rollback()
         return {"error": f"tool {name} failed: {e}"}
 
 
