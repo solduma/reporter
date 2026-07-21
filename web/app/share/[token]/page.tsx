@@ -103,7 +103,7 @@ export default function SharePage({ params }: { params: { token: string } }) {
 
       <TargetBanner report={data.report} />
 
-      <DeepDiveReportView report={data.report} />
+      <DeepDiveReportView report={data.report} openByDefault />
 
       <footer className={styles.footer}>
         Report Pulse · 이 페이지는 공유 시점의 스냅샷이며 30분 후 만료됩니다.
