@@ -61,6 +61,33 @@
   font-weight: 700;
 }
 
+/* CFS/OFS 분리 밸류에이션 — 지분가치·본업가치 나란히 */
+.cfsOfsRow {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.cfsOfsItem {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cfsOfsLabel {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.cfsOfsPrice {
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: var(--text);
+}
+
 /* 예상 이익 근거 배너 */
 .forward {
   display: flex;
@@ -146,6 +173,17 @@
   border-radius: 5px;
   background: var(--border);
   color: var(--muted);
+  white-space: nowrap;
+}
+
+/* 연결/별도 출처 배지 */
+.sourceTag {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 0.08rem 0.35rem;
+  border-radius: 4px;
+  background: var(--accent-soft);
+  color: var(--accent);
   white-space: nowrap;
 }
 

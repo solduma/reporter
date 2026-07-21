@@ -174,8 +174,8 @@ def company_analysis(
         ),
     )
 
-    # 가치 축 — 최신 밸류에이션 (DB only, 항상 빠름).
-    fin = company_service.latest_valuation(db, code)
+    # 가치 축 — 최신 밸류에이션 (DB only, 항상 빠름). 연결(CFS) 우선, 없으면 별도(OFS).
+    fin = company_service.latest_valuation(db, code, fs_div="CFS") or company_service.latest_valuation(db, code, fs_div="OFS")
     per = fin.per if fin else None
     pbr = fin.pbr if fin else None
     ev = fin.ev_ebitda if fin else None

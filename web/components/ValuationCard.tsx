@@ -90,6 +90,11 @@ function forwardTitle(v: ForwardMetric): string {
   return `과거3년평균 ${c.avg3y_pct}% · 최근 ${c.recent_pct}% · 가속외삽 ${c.convex_pct}% (YoY ${v.yoy_samples}개)`;
 }
 
+const SOURCE_LABEL: Record<string, string> = {
+  cfs: "연결",
+  ofsf: "별도",
+};
+
 function MethodRow({ m }: { m: ValuationMethod }) {
   // 종목 유형 부적합·이상치로 최종 평균에서 빠진 방식은 note 에 '제외'가 담긴다 → 배지로 표시.
   const excluded = typeof m.note === "string" && m.note.includes("제외");
@@ -100,6 +105,7 @@ function MethodRow({ m }: { m: ValuationMethod }) {
       <summary className={styles.methodSummary}>
         <span className={styles.methodName}>
           {m.label}
+          {m.source ? <span className={styles.sourceTag}>{SOURCE_LABEL[m.source] ?? m.source}</span> : null}
           {!m.applicable ? <span className={styles.excludedTag}>적용 불가</span> : null}
           {excluded ? <span className={styles.excludedTag}>제외</span> : null}
         </span>
@@ -129,6 +135,30 @@ function MethodRow({ m }: { m: ValuationMethod }) {
         <AssumptionChips a={m.assumptions} />
       </div>
     </details>
+  );
+}
+
+// CFS/OFS 분리 밸류에이션일 때 equity_value(지분가치)와 business_value(본업가치)를 나란히 표시.
+function CfsOfsRow({ v }: { v: ValuationResult }) {
+  if (v.source !== "cfs+ofs") return null;
+  const eq = v.equity_value;
+  const bv = v.business_value;
+  if (eq === null && bv === null) return null;
+  return (
+    <div className={styles.cfsOfsRow}>
+      {eq !== null && eq !== undefined ? (
+        <div className={styles.cfsOfsItem}>
+          <span className={styles.cfsOfsLabel}>지분가치 (연결)</span>
+          <span className={styles.cfsOfsPrice}>{fmtWon(eq)}</span>
+        </div>
+      ) : null}
+      {bv !== null && bv !== undefined ? (
+        <div className={styles.cfsOfsItem}>
+          <span className={styles.cfsOfsLabel}>본업가치 (별도)</span>
+          <span className={styles.cfsOfsPrice}>{fmtWon(bv)}</span>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -162,6 +192,8 @@ export default function ValuationCard({ valuation }: { valuation: unknown }) {
         </div>
       </div>
 
+      <CfsOfsRow v={v} />
+
       {v.forward_meta ? <ForwardBanner meta={v.forward_meta} /> : null}
 
       {v.conclusion ? (
@@ -172,7 +204,7 @@ export default function ValuationCard({ valuation }: { valuation: unknown }) {
 
       <div className={styles.methods}>
         {methods.map((m) => (
-          <MethodRow key={m.method} m={m} />
+          <MethodRow key={`${m.source ?? "cfs"}-${m.method}`} m={m} />
         ))}
       </div>
     </div>
