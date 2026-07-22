@@ -164,6 +164,20 @@ def all_backfill_progress(db: Session) -> list[BackfillStatus]:
         detail=f"CFS {cfs_cnt}개 중",
     ))
 
+    # 재무제표(FinancialStatement) 현황: CFS 보유 종목 대비 적재된 종목 수
+    from app.db.models import FinancialStatement
+    fs_cnt = len(db.execute(
+        select(FinancialStatement.stock_code).where(FinancialStatement.fs_div == "CFS").distinct()
+    ).all())
+    fs_pct = fs_cnt / cfs_cnt * 100 if cfs_cnt else 0
+    fs_remaining = cfs_cnt - fs_cnt
+    out.append(BackfillStatus(
+        domain="financial_statement", label="재무제표 원문",
+        done=fs_cnt, total=cfs_cnt, pct=fs_pct,
+        remaining=fs_remaining, per_run=150,
+        detail=f"CFS {cfs_cnt}개 중",
+    ))
+
     return out
 
 
