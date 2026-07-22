@@ -537,9 +537,27 @@ def parse_full_statements(rows: list[dict]) -> dict[str, list[dict]]:
         # 소계·합계 행 제외(account_nm 끝에 '합계'/'총계'/'소계'/'계').
         if any(nm.endswith(kw) for kw in _TOTAL_KEYWORDS):
             continue
-        # level 판정: 합계/총계 포함 or 숫자 접두사 -> 대분류(0)
-        # 그 외는 중분류(1)로 통일(세부 계층은 회사마다 달라 2단계로 단순화).
-        level = 0 if any(kw in nm for kw in ("합계", "총계")) or nm[:2].rstrip(".").isdigit() else 1
+        # level 판정: 주요 계정명(대분류)은 level=0, 나머지는 level=1.
+        # IFRS 재무제표 표준 계정과목 기준. 정확한 시작일치로 오탐(기타유동자산→유동자산) 방지.
+        _MAJOR_PREFIXES = (
+            # BS(재무상태표)
+            "유동자산", "비유동자산", "자산총계",
+            "유동부채", "비유동부채", "부채총계",
+            "자본금", "자본잉여금", "이익잉여금", "자본총계",
+            "현금및현금성자산", "매출채권", "재고자산",
+            "유형자산", "무형자산", "투자자산",
+            "단기차입금", "장기차입금", "매입채무",
+            # IS/CIS(손익계산서)
+            "수익(매출액)", "매출원가", "매출총이익",
+            "판매비와관리비", "영업이익(",
+            "영업외수익", "영업외비용",
+            "법인세비용차감전순이익", "법인세비용", "당기순이익",
+            "총포괄손익", "지배기업의 소유주",
+            # CF(현금흐름표)
+            "영업활동현금흐름", "투자활동현금흐름", "재무활동현금흐름",
+            "기초현금및현금성자산", "기말현금및현금성자산",
+        )
+        level = 0 if any(nm.startswith(p) for p in _MAJOR_PREFIXES) or any(kw in nm for kw in ("합계", "총계")) else 1
         groups[sj].append({
             "account_id": row.get("account_id") or "",
             "name": nm,
