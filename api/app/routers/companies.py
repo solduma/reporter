@@ -536,29 +536,63 @@ def company_financial_statements(
         company_service.fetch_and_store_financial_statements(db, code, fs_div)
         rows = company_service.financial_statement_rows(db, code, fs_div)
 
-    periods = []
+    # level 재계산용 IFRS 표준 계정 prefix — 저장된 데이터의 level이 오래된
+    # 버전일 수 있어 응답 시점에 다시 판정한다.
+    _LEVEL0_PREFIXES = (
+        "유동자산", "비유동자산", "자산총계",
+        "유동부채", "비유동부채", "부채총계",
+        "자본금", "자본잉여금", "이익잉여금", "자본총계",
+        "현금및현금성자산", "매출채권", "재고자산",
+        "유형자산", "무형자산", "투자자산",
+        "단기차입금", "장기차입금", "매입채무",
+        "수익(매출액)", "매출원가", "매출총이익",
+        "판매비와관리비", "영업이익(",
+        "영업외수익", "영업외비용",
+        "법인세비용차감전순이익", "법인세비용", "당기순이익",
+        "총포괄손익", "지배기업의 소유주",
+        "영업활동현금흐름", "투자활동현금흐름", "재무활동현금흐름",
+        "기초현금및현금성자산", "기말현금및현금성자산",
+    )
     _EQUITY_KEYWORDS = ("자본", "자본금", "이익잉여금", "자본잉여금", "기타자본", "자본조정", "자본총계")
+
+    def _relevel(items: list[dict]) -> list[FinancialStatementItem]:
+        return [
+            FinancialStatementItem(
+                account_id=i.get("account_id", ""),
+                name=i.get("name", ""),
+                amount=i.get("amount"),
+                level=0 if any(i.get("name", "").startswith(p) for p in _LEVEL0_PREFIXES)
+                       or any(kw in i.get("name", "") for kw in ("합계", "총계"))
+                       else 1,
+            )
+            for i in items
+        ]
+
+    periods = []
     for r in rows:
         data = r.data or {}
-        # IS(손익계산서) + CIS(포괄손익계산서) 병합 — DART에서 손익 항목이
-        # IS와 CIS에 나뉘어 있어 둘을 합쳐야 완전한 손익계산서가 된다.
+        # IS(손익계산서) + CIS(포괄손익계산서) 병합
         seen_names: set[str] = set()
         is_items: list[FinancialStatementItem] = []
         for src in ("IS", "CIS"):
             for item in data.get(src, []):
                 if item.get("name") not in seen_names:
                     seen_names.add(item.get("name"))
-                    is_items.append(FinancialStatementItem(**item))
+                    is_items.append(item)
+        # level 재계산
+        bs_items = _relevel(data.get("BS", []))
+        is_items = _relevel(is_items)
+        cf_items = _relevel(data.get("CF", []))
+        cis_items = _relevel(data.get("CIS", []))
         # 자본변동표: BS에서 자본 관련 항목만 추출
-        bs_items = [FinancialStatementItem(**i) for i in data.get("BS", [])]
         equity_items = [i for i in bs_items if any(kw in i.name for kw in _EQUITY_KEYWORDS)]
         periods.append(FinancialStatementPeriod(
             period=r.period,
             fs_div=r.fs_div,
             bs=bs_items,
             **{"is": is_items},
-            cis=[FinancialStatementItem(**i) for i in data.get("CIS", [])],
-            cf=[FinancialStatementItem(**i) for i in data.get("CF", [])],
+            cis=cis_items,
+            cf=cf_items,
             equity=equity_items,
         ))
     return FinancialStatementsOut(stock_code=code, periods=periods)
