@@ -813,6 +813,7 @@ export interface FinancialStatementPeriod {
   is: FinancialStatementItem[];
   cis: FinancialStatementItem[];
   cf: FinancialStatementItem[];
+  equity: FinancialStatementItem[];
 }
 
 export interface FinancialStatementsResponse {

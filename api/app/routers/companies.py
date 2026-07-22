@@ -537,6 +537,7 @@ def company_financial_statements(
         rows = company_service.financial_statement_rows(db, code, fs_div)
 
     periods = []
+    _EQUITY_KEYWORDS = ("자본", "자본금", "이익잉여금", "자본잉여금", "기타자본", "자본조정", "자본총계")
     for r in rows:
         data = r.data or {}
         # IS(손익계산서)는 DART에서 CIS(포괄손익계산서)로 분류되는 경우가 많아
@@ -544,13 +545,17 @@ def company_financial_statements(
         is_items = [FinancialStatementItem(**i) for i in data.get("IS", [])]
         if not is_items:
             is_items = [FinancialStatementItem(**i) for i in data.get("CIS", [])]
+        # 자본변동표: BS에서 자본 관련 항목만 추출
+        bs_items = [FinancialStatementItem(**i) for i in data.get("BS", [])]
+        equity_items = [i for i in bs_items if any(kw in i.name for kw in _EQUITY_KEYWORDS)]
         periods.append(FinancialStatementPeriod(
             period=r.period,
             fs_div=r.fs_div,
-            bs=[FinancialStatementItem(**i) for i in data.get("BS", [])],
+            bs=bs_items,
             **{"is": is_items},
             cis=[FinancialStatementItem(**i) for i in data.get("CIS", [])],
             cf=[FinancialStatementItem(**i) for i in data.get("CF", [])],
+            equity=equity_items,
         ))
     return FinancialStatementsOut(stock_code=code, periods=periods)
 

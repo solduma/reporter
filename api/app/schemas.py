@@ -286,6 +286,7 @@ class FinancialStatementPeriod(BaseModel):
     is_: list[FinancialStatementItem] = Field(default=[], alias="is")
     cis: list[FinancialStatementItem] = []
     cf: list[FinancialStatementItem] = []
+    equity: list[FinancialStatementItem] = []  # 자본변동표(BS 자본항목에서 추출)
 
 
 class FinancialStatementsOut(BaseModel):
