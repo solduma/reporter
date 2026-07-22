@@ -59,12 +59,14 @@ function ItemRow({
   item,
   periodLabel,
   prevPeriodLabel,
+  defaultOpen = false,
 }: {
   item: FSItem;
   periodLabel: string;
   prevPeriodLabel: string | null;
+  defaultOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const hasChildren = item.children && item.children.length > 0;
   const op = changeOpacity(item.amount, item.prev_amount);
   const dir = changeDirection(item.amount, item.prev_amount);
@@ -254,6 +256,7 @@ export default function FinancialStatements({ code }: Props) {
                 item={item}
                 periodLabel={periodLabel}
                 prevPeriodLabel={prevPeriodLabel}
+                defaultOpen={activeTab === "bs"}
               />
             ))}
           </tbody>

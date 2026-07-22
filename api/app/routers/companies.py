@@ -628,15 +628,16 @@ def company_financial_statements(
         items: list[FinancialStatementItem], label: str, children_prefixes: tuple[str, ...]
     ) -> None:
         """계산된 합계 항목(총자산·총부채·총자본)을 items 맨 앞에 추가.
-        children_prefixes 로 시작하는 level 0 항목만 합산(기타유동자산 등 오탐 방지).
+        children_prefixes 로 시작하는 항목을 children 으로 묶고 원본 목록에서 제거.
         prev_amount 도 children 의 prev_amount 합으로 계산한다."""
         total = 0.0
         prev_total = 0.0
         has_any = False
         has_prev = False
         matched: list[FinancialStatementItem] = []
+        remaining: list[FinancialStatementItem] = []
         for item in items:
-            if item.level == 0 and any(item.name.startswith(p) for p in children_prefixes):
+            if any(item.name.startswith(p) for p in children_prefixes):
                 if item.amount is not None:
                     total += item.amount
                     has_any = True
@@ -644,13 +645,16 @@ def company_financial_statements(
                     prev_total += item.prev_amount
                     has_prev = True
                 matched.append(item)
+            else:
+                remaining.append(item)
         if has_any:
             total_item = FinancialStatementItem(
                 name=label, amount=total, level=0, children=matched,
             )
             if has_prev:
                 total_item.prev_amount = prev_total
-            items.insert(0, total_item)
+            remaining.insert(0, total_item)
+        items[:] = remaining
 
     def _find_yoy_period(current_period: str, all_rows: list) -> tuple[str | None, dict | None]:
         """전년 동기 period 찾기: '2026.03' → '2025.03'."""
@@ -710,16 +714,17 @@ def company_financial_statements(
             _apply_prev(cf_items, pm)
             _apply_prev(cis_items, pm)
             _apply_prev(equity_items, pm)
-        # 계산된 합계 항목 추가(총자산·총부채·총자본) — prev_amount 도 children 합산
-        _add_calculated_totals(bs_items, "총자산", ("유동자산", "비유동자산"))
-        _add_calculated_totals(bs_items, "총부채", ("유동부채", "비유동부채"))
-        _add_calculated_totals(bs_items, "총자본", ("자본금", "자본잉여금", "이익잉여금"))
-        # 그룹화(원본 DART 순서로 level 0/1 관계 유지) → 공시 순서로 정렬
+        # BS: 먼저 그룹핑(유동자산→하위항목) → 계산 합계가 기존 lv0을 children 으로 흡수
+        bs_grouped = _group_items(bs_items)
+        _add_calculated_totals(bs_grouped, "총자산", ("유동자산", "비유동자산"))
+        _add_calculated_totals(bs_grouped, "총부채", ("유동부채", "비유동부채"))
+        _add_calculated_totals(bs_grouped, "총자본", ("자본금", "자본잉여금", "이익잉여금"))
+        # IS/CF: 일반 그룹핑
         periods.append(FinancialStatementPeriod(
             period=r.period,
             prev_period=yoy_period,
             fs_div=r.fs_div,
-            bs=_sort_items(_group_items(bs_items), _BS_ORDER),
+            bs=_sort_items(bs_grouped, _BS_ORDER),
             **{"is": _sort_items(_group_items(is_items), _IS_ORDER)},
             cis=_sort_items(_group_items(cis_items), _IS_ORDER),
             cf=_sort_items(_group_items(cf_items), _CF_ORDER),
