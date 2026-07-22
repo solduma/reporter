@@ -22,7 +22,9 @@ def db():
 
 def test_reconcile_restores_marker_for_psr_without_marker(db):
     # psr 이 있는데 마커가 없는 종목 → 마커 복원(백필이 과거에 완료했으나 마커만 삭제된 경우).
-    db.add(Financial(stock_code="000001", period="2025.12", is_estimate=False, psr=1.5))
+    # CFS+OFS 모두 있어야 복원(CFS/OFS 분리 후 OFS 누락분 재처리 방지).
+    db.add(Financial(stock_code="000001", period="2025.12", is_estimate=False, psr=1.5, fs_div="CFS"))
+    db.add(Financial(stock_code="000001", period="2025.12", is_estimate=False, psr=1.5, fs_div="OFS"))
     db.commit()
 
     restored = financials_backfill._reconcile_markers(db, ["000001"], set())

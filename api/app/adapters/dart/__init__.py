@@ -20,6 +20,7 @@ from app.adapters.dart.client import (
     fetch_disclosures,
     fetch_dividend,
     fetch_document_text,
+    fetch_full_statements,
     fetch_income_and_equity,
     fetch_largest_shareholders,
     fetch_ownership_changes,
@@ -27,6 +28,7 @@ from app.adapters.dart.client import (
     fetch_roe,
     fetch_stock_total,
     find_periodic_report,
+    parse_full_statements,
 )
 from app.adapters.dart.report_parser import fetch_report_zip, parse_cf_depreciation
 
@@ -45,6 +47,7 @@ __all__ = [
     "fetch_disclosures",
     "fetch_dividend",
     "fetch_document_text",
+    "fetch_full_statements",
     "fetch_income_and_equity",
     "fetch_largest_shareholders",
     "fetch_ownership_changes",
@@ -54,6 +57,7 @@ __all__ = [
     "fetch_stock_total",
     "find_periodic_report",
     "parse_cf_depreciation",
+    "parse_full_statements",
     "report_parser",
     "throttle",
 ]

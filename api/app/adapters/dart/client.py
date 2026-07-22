@@ -515,6 +515,74 @@ def _parse_income_equity(rows: list[dict]) -> IncomeEquity:
     return fin
 
 
+def parse_full_statements(rows: list[dict]) -> dict[str, list[dict]]:
+    """DART fnlttSinglAcntAll 응답 list 를 sj_div(BS/IS/CIS/CF)로 그룹화.
+
+    각 항목: {account_id, name(account_nm), amount, sj_div, level}
+    level: 0=대분류(합계·총계·소계), 1=중분류, 2=세부항목.
+    소계·합계 행은 제외(중복 합계 방지). amount 가 없는 항목도 제외.
+    """
+    groups: dict[str, list[dict]] = {"BS": [], "IS": [], "CIS": [], "CF": []}
+    _TOTAL_KEYWORDS = ("합계", "총계", "소계", "계")
+    for row in rows:
+        sj = row.get("sj_div") or ""
+        if sj not in groups:
+            continue
+        nm = (row.get("account_nm") or "").strip()
+        if not nm:
+            continue
+        amt = _amount(row)
+        if amt is None:
+            continue
+        # 소계·합계 행 제외(account_nm 끝에 '합계'/'총계'/'소계'/'계').
+        if any(nm.endswith(kw) for kw in _TOTAL_KEYWORDS):
+            continue
+        # level 판정: 합계/총계 포함 or 숫자 접두사 -> 대분류(0)
+        # 그 외는 중분류(1)로 통일(세부 계층은 회사마다 달라 2단계로 단순화).
+        level = 0 if any(kw in nm for kw in ("합계", "총계")) or nm[:2].rstrip(".").isdigit() else 1
+        groups[sj].append({
+            "account_id": row.get("account_id") or "",
+            "name": nm,
+            "amount": amt,
+            "sj_div": sj,
+            "level": level,
+        })
+    return {k: v for k, v in groups.items() if v}
+
+
+def fetch_full_statements(
+    api_key: str, corp_code: str, year: int, quarter: int, session: requests.Session
+) -> dict[str, list[dict]] | None:
+    """DART 전체재무제표(fnlttSinglAcntAll)를 조회해 sj_div별로 그룹화.
+
+    연결(CFS) 우선, 없으면 별도(OFS). 실패·데이터없음이면 None.
+    """
+    reprt_code = DART_REPORT_CODES.get(quarter)
+    if not reprt_code:
+        return None
+    for fs_div in ("CFS", "OFS"):
+        params = {
+            "crtfc_key": api_key,
+            "corp_code": corp_code,
+            "bsns_year": str(year),
+            "reprt_code": reprt_code,
+            "fs_div": fs_div,
+        }
+        try:
+            resp = dart_throttle.get(session, _FNLTT_URL, params=params, timeout=20)
+            resp.raise_for_status()
+            data = resp.json()
+        except (requests.RequestException, ValueError):
+            continue
+        _raise_if_quota(data)
+        if data.get("status") != "000":
+            continue
+        parsed = parse_full_statements(data.get("list", []))
+        if parsed:
+            return parsed
+    return None
+
+
 @dataclass
 class CorpMapping:
     stock_code: str

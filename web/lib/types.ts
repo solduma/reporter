@@ -797,3 +797,25 @@ export interface SharedDeepDive {
   created_at: string;
   expires_at: string;
 }
+
+// ── 재무제표(Financial Statements) ──────────────────────────────────────
+export interface FinancialStatementItem {
+  account_id: string;
+  name: string;
+  amount: number | null;
+  level: number;
+}
+
+export interface FinancialStatementPeriod {
+  period: string;
+  fs_div: string;
+  bs: FinancialStatementItem[];
+  is: FinancialStatementItem[];
+  cis: FinancialStatementItem[];
+  cf: FinancialStatementItem[];
+}
+
+export interface FinancialStatementsResponse {
+  stock_code: string;
+  periods: FinancialStatementPeriod[];
+}

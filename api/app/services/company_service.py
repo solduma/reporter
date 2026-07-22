@@ -21,6 +21,7 @@ from app.db.models import (
     Broadcast,
     Disclosure,
     Financial,
+    FinancialStatement,
     GrowthMetric,
     Peer,
     Report,
@@ -136,6 +137,63 @@ def financials_rows(db: Session, code: str, fs_div: str | None = None) -> list[F
     if fs_div:
         q = q.where(Financial.fs_div == fs_div)
     return list(q.order_by(Financial.period).all())
+
+
+def financial_statement_rows(
+    db: Session, code: str, fs_div: str = "CFS"
+) -> list[FinancialStatement]:
+    """FinancialStatement 기간 정렬 반환."""
+    return list(
+        db.scalars(
+            select(FinancialStatement)
+            .where(
+                FinancialStatement.stock_code == code,
+                FinancialStatement.fs_div == fs_div,
+            )
+            .order_by(FinancialStatement.period)
+        ).all()
+    )
+
+
+def fetch_and_store_financial_statements(
+    db: Session, code: str, fs_div: str = "CFS"
+) -> None:
+    """DART 에서 재무제표를 조회해 FinancialStatement 테이블에 저장한다."""
+    from datetime import date
+
+    import requests
+
+    from app.adapters import dart as dart_adapter
+    from app.config import get_settings
+    from app.db.models import CorpCodeMap
+    from app.services.financials_backfill import _period_str, _target_year_quarters
+
+    settings = get_settings()
+    if not settings.dart_api_key:
+        return
+    corp_code = db.scalar(select(CorpCodeMap.corp_code).where(CorpCodeMap.stock_code == code))
+    if not corp_code:
+        return
+
+    today = date.today()
+    yqs = _target_year_quarters(today)
+    with requests.Session() as session:
+        for year, q in yqs:
+            full = dart_adapter.fetch_full_statements(
+                settings.dart_api_key, corp_code, year, q, session
+            )
+            if not full:
+                continue
+            period = _period_str(year, q)
+            stmt = insert(FinancialStatement).values(
+                stock_code=code, period=period, fs_div=fs_div, data=full,
+            )
+            stmt = stmt.on_conflict_do_update(
+                constraint="uq_financial_statement",
+                set_={"data": stmt.excluded.data, "updated_at": func.now()},
+            )
+            db.execute(stmt)
+    db.commit()
 
 
 def latest_valuation(db: Session, code: str, fs_div: str | None = None) -> Financial | None:

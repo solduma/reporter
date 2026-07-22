@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class MarketBrief(BaseModel):
@@ -268,6 +268,30 @@ class FinancialsStatusOut(BaseModel):
     fresh: bool
     financials_10y_done: bool
     report_10y_done: bool
+
+
+class FinancialStatementItem(BaseModel):
+    """재무제표 한 라인아이템."""
+    account_id: str = ""
+    name: str
+    amount: float | None = None
+    level: int = 0
+
+
+class FinancialStatementPeriod(BaseModel):
+    """한 기간의 재무제표 전체."""
+    period: str
+    fs_div: str
+    bs: list[FinancialStatementItem] = []
+    is_: list[FinancialStatementItem] = Field(default=[], alias="is")
+    cis: list[FinancialStatementItem] = []
+    cf: list[FinancialStatementItem] = []
+
+
+class FinancialStatementsOut(BaseModel):
+    """종목의 전체 재무제표 시계열."""
+    stock_code: str
+    periods: list[FinancialStatementPeriod]
 
 
 class PeerOut(BaseModel):

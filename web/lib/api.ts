@@ -14,6 +14,7 @@ import type {
   SharedDeepDive,
   CompanyTrend,
   FinancialPeriod,
+  FinancialStatementsResponse,
   FinancialsStatus,
   FlowMarket,
   IrInterviewListItem,
@@ -314,6 +315,15 @@ export function fetchFinancials(code: string): Promise<FinancialPeriod[]> {
 export function fetchFinancialsStatus(code: string): Promise<FinancialsStatus> {
   return getJson<FinancialsStatus>(
     `/api/companies/${encodeURIComponent(code)}/financials/status`,
+  );
+}
+
+export function fetchFinancialStatements(
+  code: string,
+  fsDiv: string = "CFS",
+): Promise<FinancialStatementsResponse> {
+  return getJson<FinancialStatementsResponse>(
+    `/api/companies/${encodeURIComponent(code)}/financial-statements?fs_div=${fsDiv}`,
   );
 }
 

@@ -1,0 +1,168 @@
+.container {
+  margin-top: 0.5rem;
+}
+
+/* CFS/OFS pill-style 탭 */
+.fsDivTabs {
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: 0.5rem;
+}
+
+.fsDivTab {
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.fsDivTab:hover {
+  background: var(--accent-soft);
+}
+
+.fsDivTabActive {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+/* 재무제표 underline-style 탭 */
+.statementTabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 0.5rem;
+}
+
+.statementTab {
+  padding: 0.4rem 0.75rem;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 0.85rem;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.statementTab:hover {
+  color: var(--text);
+}
+
+.statementTabActive {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+
+/* 테이블 */
+.tableWrap {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+.thLeft,
+.thRight {
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  color: var(--muted);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.thLeft {
+  text-align: left;
+}
+
+.thRight {
+  text-align: right;
+}
+
+.tdLeft,
+.tdRight {
+  padding: 0.3rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.tdLeft {
+  text-align: left;
+}
+
+.tdRight {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.rowLevel0 {
+  background: var(--bg);
+}
+
+.rowLevel1 {
+  background: var(--surface);
+}
+
+.nameLevel0 {
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.nameLevel1 {
+  font-size: 0.8rem;
+  padding-left: 0.75rem;
+}
+
+/* 변동률 하이라이트 */
+.changeUp {
+  color: var(--buy);
+  font-weight: 600;
+}
+
+.changeDown {
+  color: var(--sell);
+  font-weight: 600;
+}
+
+.changeCol {
+  font-size: 0.75rem;
+}
+
+/* 요약/상세 토글 */
+.toggleBtn {
+  display: block;
+  width: 100%;
+  padding: 0.4rem;
+  margin-top: 0.25rem;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: center;
+}
+
+.toggleBtn:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* 로딩/에러/빈 상태 */
+.sectionStatus {
+  padding: 1rem;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.85rem;
+}

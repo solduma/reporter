@@ -18,7 +18,7 @@ import logging
 from datetime import UTC, date, datetime, timedelta
 
 import requests
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -29,6 +29,7 @@ from app.config import Settings, get_settings
 from app.db.models import (
     CorpCodeMap,
     Financial,
+    FinancialStatement,
     PriceCandle,
     SyncState,
     Timeframe,
@@ -117,6 +118,8 @@ def backfill_stock(db: Session, settings: Settings, code: str) -> bool:
     ofs_eps: dict[tuple[int, int], float | None] = {}
     ofs_equity: dict[tuple[int, int], float | None] = {}
     any_data = False
+    # 전체 재무제표 라인아이템 수집(FinancialStatement 저장용)
+    stmt_data: dict[tuple[int, int], dict[str, list[dict]]] = {}
     with requests.Session() as session:
         for year, q in yqs:
             cfs, ofs = dart.fetch_income_and_equity(settings.dart_api_key, corp_code, year, q, session)
@@ -135,6 +138,11 @@ def backfill_stock(db: Session, settings: Settings, code: str) -> bool:
                 ofs_ni[(year, q)] = ofs.net_income
                 ofs_eps[(year, q)] = ofs.eps
                 ofs_equity[(year, q)] = ofs.equity
+            # 전체 재무제표 라인아이템 수집(FinancialStatement 저장용).
+            # fetch_income_and_equity 와 동일한 API 를 호출하지만 파싱이 달라 별도 호출.
+            full = dart.fetch_full_statements(settings.dart_api_key, corp_code, year, q, session)
+            if full:
+                stmt_data[(year, q)] = full
         shares = quote.fetch_shares_outstanding(code, session)
 
     if not any_data:
@@ -194,6 +202,18 @@ def backfill_stock(db: Session, settings: Settings, code: str) -> bool:
         updated += _store_fs("CFS", cfs_rev, cfs_op, cfs_ni, cfs_eps, cfs_equity)
     if ofs_rev:
         updated += _store_fs("OFS", ofs_rev, ofs_op, ofs_ni, ofs_eps, ofs_equity)
+
+    # 전체 재무제표 라인아이템 저장(FinancialStatement).
+    for (year, q), stmt in stmt_data.items():
+        period = _period_str(year, q)
+        stmt_insert = insert(FinancialStatement).values(
+            stock_code=code, period=period, fs_div="CFS", data=stmt,
+        )
+        stmt_insert = stmt_insert.on_conflict_do_update(
+            constraint="uq_financial_statement",
+            set_={"data": stmt_insert.excluded.data, "updated_at": func.now()},
+        )
+        db.execute(stmt_insert)
 
     db.commit()
     logger.info("financials 10y backfill %s: %d periods (shares=%s)", code, updated, shares)

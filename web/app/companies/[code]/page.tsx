@@ -11,6 +11,7 @@ import CompanySnapshot from "@/components/CompanySnapshot";
 import CompanyTimeline from "@/components/CompanyTimeline";
 import DateRangeSlider from "@/components/DateRangeSlider";
 import DeepDivePanel from "@/components/DeepDivePanel";
+import FinancialStatements from "@/components/FinancialStatements";
 import GrowthMetrics from "@/components/GrowthMetrics";
 import InfoDot from "@/components/InfoDot";
 import PeersTable from "@/components/PeersTable";
@@ -700,6 +701,15 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
           <span className={styles.growthTag}>시세 · 커버리지</span>
         </div>
         <CompanySnapshot code={code} />
+      </section>
+
+      {/* 재무제표 — 종목 정보 아래, 딥다이브 위. 연결/별도 탭 + 4개 재무제표. */}
+      <section className={styles.chartCard}>
+        <div className={styles.growthHead}>
+          <h2 className={styles.sectionTitle}>재무제표</h2>
+          <span className={styles.growthTag}>연결 · 별도</span>
+        </div>
+        <FinancialStatements code={code} />
       </section>
 
       {/* 종목 딥다이브 — 온디맨드 5단계 심층 분석(worker 큐 실행·상태폴링). 종목 정보 다음, 가장 깊은 분석. */}

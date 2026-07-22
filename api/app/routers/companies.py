@@ -23,6 +23,9 @@ from app.schemas import (
     CompanyTrend,
     FinancialPeriodOut,
     FinancialsStatusOut,
+    FinancialStatementItem,
+    FinancialStatementPeriod,
+    FinancialStatementsOut,
     JudgmentOut,
     PeerOut,
     ReportCard,
@@ -518,6 +521,33 @@ def company_financials_status(code: str, db: Session = Depends(get_session)) -> 
         financials_10y_done=company_service.financials_10y_done(db, code),
         report_10y_done=company_service.report_10y_done(db, code),
     )
+
+
+@router.get("/{code}/financial-statements", response_model=FinancialStatementsOut)
+def company_financial_statements(
+    code: str, db: Session = Depends(get_session), fs_div: str = "CFS"
+) -> FinancialStatementsOut:
+    """종목의 전체 재무제표(재무상태표·손익계산서·현금흐름표·자본변동표) 시계열.
+
+    fs_div: CFS(연결) | OFS(별도). DB 에 없으면 DART 에서 온디맨드 조회해 저장한다.
+    """
+    rows = company_service.financial_statement_rows(db, code, fs_div)
+    if not rows:
+        company_service.fetch_and_store_financial_statements(db, code, fs_div)
+        rows = company_service.financial_statement_rows(db, code, fs_div)
+
+    periods = []
+    for r in rows:
+        data = r.data or {}
+        periods.append(FinancialStatementPeriod(
+            period=r.period,
+            fs_div=r.fs_div,
+            bs=[FinancialStatementItem(**i) for i in data.get("BS", [])],
+            is_=[FinancialStatementItem(**i) for i in data.get("IS", [])],
+            cis=[FinancialStatementItem(**i) for i in data.get("CIS", [])],
+            cf=[FinancialStatementItem(**i) for i in data.get("CF", [])],
+        ))
+    return FinancialStatementsOut(stock_code=code, periods=periods)
 
 
 @router.get("/{code}/peers", response_model=list[PeerOut])

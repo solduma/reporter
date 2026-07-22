@@ -195,6 +195,31 @@ class ReportFinancial(Base):
     )
 
 
+class FinancialStatement(Base):
+    """DART fnlttSinglAcntAll 전체 재무제표 라인아이템 — JSONB 원본 보존.
+
+    DART API 응답의 모든 account_id 항목을 sj_div(BS/IS/CIS/CF)로 그룹화해 JSONB로 저장한다.
+    financials(가공 밸류)와 분리해 원본 데이터를 그대로 보존한다.
+    백필 시 DART 응답과 함께 저장되며, 온디맨드 조회 시에도 채워진다.
+    """
+
+    __tablename__ = "financial_statements"
+    __table_args__ = (
+        UniqueConstraint("stock_code", "period", "fs_div", name="uq_financial_statement"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    stock_code: Mapped[str] = mapped_column(String(6), index=True)
+    period: Mapped[str] = mapped_column(String(16))  # '2026.03'
+    fs_div: Mapped[str] = mapped_column(String(3))  # CFS(연결) | OFS(별도)
+    # JSONB: {"BS": [...], "IS": [...], "CIS": [...], "CF": [...]}
+    # 각 항목: {account_id, account_nm, amount, sj_div, level}
+    data: Mapped[dict] = mapped_column(JSONB)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class Peer(Base):
     """동일업종비교 한 종목. 표시값을 JSON 유사 컬럼 대신 정규 컬럼으로 저장."""
 
