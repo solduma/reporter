@@ -11,21 +11,19 @@ interface Props {
   code: string;
 }
 
-type StatementTab = "bs" | "is" | "cf" | "cis" | "equity";
+type StatementTab = "bs" | "is" | "cf" | "equity";
 
 const STATEMENT_TABS: { key: StatementTab; label: string }[] = [
   { key: "bs", label: "재무상태표" },
   { key: "is", label: "손익계산서" },
   { key: "cf", label: "현금흐름표" },
   { key: "equity", label: "자본변동표" },
-  { key: "cis", label: "포괄손익계산서" },
 ];
 
 const STATEMENT_LABELS: Record<StatementTab, string> = {
   bs: "재무상태표",
   is: "손익계산서",
   cf: "현금흐름표",
-  cis: "포괄손익계산서",
   equity: "자본변동표",
 };
 
