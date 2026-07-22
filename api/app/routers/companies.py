@@ -548,7 +548,7 @@ def company_financial_statements(
             period=r.period,
             fs_div=r.fs_div,
             bs=[FinancialStatementItem(**i) for i in data.get("BS", [])],
-            is_=is_items,
+            **{"is": is_items},
             cis=[FinancialStatementItem(**i) for i in data.get("CIS", [])],
             cf=[FinancialStatementItem(**i) for i in data.get("CF", [])],
         ))
