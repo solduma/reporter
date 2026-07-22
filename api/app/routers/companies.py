@@ -539,8 +539,7 @@ def company_financial_statements(
 
     # level 재계산용 IFRS 표준 계정 prefix — 저장된 데이터의 level이 오래된
     # 버전일 수 있어 응답 시점에 다시 판정한다.
-    # level 0(대분류) — 재무제표의 최상위 계정과목만. 세부 항목(현금, 매출채권 등)은
-    # 대분류 아래 children 으로 들어가므로 여기서 제외.
+    # level 0(대분류) — 재무제표의 최상위 계정과목만.
     _LEVEL0_PREFIXES = (
         # BS
         "유동자산", "비유동자산", "자산총계",
@@ -555,6 +554,27 @@ def company_financial_statements(
         "영업활동현금흐름", "투자활동현금흐름", "재무활동현금흐름",
         "기초현금및현금성자산", "기말현금및현금성자산",
     )
+
+    # 공시 순서 정렬 키 — IFRS 표준 재무제표 계정 순서.
+    # 숫자가 작을수록 먼저 표시. 목록에 없는 항목은 9999(맨 뒤).
+    _BS_ORDER: dict[str, int] = {
+        "총자산": 0, "유동자산": 1, "비유동자산": 2, "자산총계": 3,
+        "총부채": 4, "유동부채": 5, "비유동부채": 6, "부채총계": 7,
+        "총자본": 8, "자본금": 9, "자본잉여금": 10, "이익잉여금": 11, "자본총계": 12,
+    }
+    _IS_ORDER: dict[str, int] = {
+        "수익(매출액)": 0, "매출원가": 1, "매출총이익": 2,
+        "판매비와관리비": 3, "영업이익": 4, "영업이익(손실)": 4,
+        "영업외수익": 5, "영업외비용": 6,
+        "법인세비용차감전순이익": 7, "법인세비용차감전순이익(손실)": 7,
+        "법인세비용": 8, "법인세비용(수익)": 8,
+        "당기순이익": 9, "당기순이익(손실)": 9,
+        "총포괄손익": 10,
+    }
+    _CF_ORDER: dict[str, int] = {
+        "영업활동현금흐름": 0, "투자활동현금흐름": 1, "재무활동현금흐름": 2,
+        "기초현금및현금성자산": 3, "기말현금및현금성자산": 4,
+    }
     _EQUITY_KEYWORDS = ("자본", "자본금", "이익잉여금", "자본잉여금", "기타자본", "자본조정", "자본총계")
 
     def _is_level0(name: str) -> bool:
@@ -574,8 +594,24 @@ def company_financial_statements(
             for i in raw
         ]
 
+    def _sort_key(name: str, order: dict[str, int]) -> int:
+        """공시 순서 정렬 키. 부분일치로 매칭(괄호 접미사 대응)."""
+        for key, idx in order.items():
+            if name.startswith(key):
+                return idx
+        return 9999
+
+    def _sort_items(
+        items: list[FinancialStatementItem], order: dict[str, int]
+    ) -> list[FinancialStatementItem]:
+        """공시 순서대로 정렬. children 도 재귀 정렬."""
+        for item in items:
+            if item.children:
+                item.children = _sort_items(item.children, order)
+        return sorted(items, key=lambda i: (_sort_key(i.name, order), i.name))
+
     def _group_items(flat: list[FinancialStatementItem]) -> list[FinancialStatementItem]:
-        """level 0 항목 아래 level 1 항목을 children 으로 묶는다. 원본 순서 유지."""
+        """level 0 항목 아래 level 1 항목을 children 으로 묶는다."""
         grouped: list[FinancialStatementItem] = []
         current: FinancialStatementItem | None = None
         for item in flat:
@@ -589,9 +625,10 @@ def company_financial_statements(
         return grouped
 
     def _add_calculated_totals(
-        items: list[FinancialStatementItem], label: str, children_keywords: tuple[str, ...]
+        items: list[FinancialStatementItem], label: str, children_prefixes: tuple[str, ...]
     ) -> None:
         """계산된 합계 항목(총자산·총부채·총자본)을 items 맨 앞에 추가.
+        children_prefixes 로 시작하는 level 0 항목만 합산(기타유동자산 등 오탐 방지).
         prev_amount 도 children 의 prev_amount 합으로 계산한다."""
         total = 0.0
         prev_total = 0.0
@@ -599,7 +636,7 @@ def company_financial_statements(
         has_prev = False
         matched: list[FinancialStatementItem] = []
         for item in items:
-            if any(kw in item.name for kw in children_keywords):
+            if item.level == 0 and any(item.name.startswith(p) for p in children_prefixes):
                 if item.amount is not None:
                     total += item.amount
                     has_any = True
@@ -677,16 +714,16 @@ def company_financial_statements(
         _add_calculated_totals(bs_items, "총자산", ("유동자산", "비유동자산"))
         _add_calculated_totals(bs_items, "총부채", ("유동부채", "비유동부채"))
         _add_calculated_totals(bs_items, "총자본", ("자본금", "자본잉여금", "이익잉여금"))
-        # 그룹화 (원본 순서 유지)
+        # 그룹화(원본 DART 순서로 level 0/1 관계 유지) → 공시 순서로 정렬
         periods.append(FinancialStatementPeriod(
             period=r.period,
             prev_period=yoy_period,
             fs_div=r.fs_div,
-            bs=_group_items(bs_items),
-            **{"is": _group_items(is_items)},
-            cis=_group_items(cis_items),
-            cf=_group_items(cf_items),
-            equity=_group_items(equity_items),
+            bs=_sort_items(_group_items(bs_items), _BS_ORDER),
+            **{"is": _sort_items(_group_items(is_items), _IS_ORDER)},
+            cis=_sort_items(_group_items(cis_items), _IS_ORDER),
+            cf=_sort_items(_group_items(cf_items), _CF_ORDER),
+            equity=_sort_items(_group_items(equity_items), _BS_ORDER),
         ))
     return FinancialStatementsOut(stock_code=code, periods=periods)
 
