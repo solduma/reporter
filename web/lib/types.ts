@@ -805,6 +805,8 @@ export interface FinancialStatementItem {
   amount: number | null;
   prev_amount: number | null;
   level: number;
+  /** 온톨로지 정준 ID(name 정규화). 미매칭 시 null. */
+  ontology_id?: string | null;
   children: FinancialStatementItem[];
 }
 
