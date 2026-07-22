@@ -1,0 +1,105 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://reporter.dev/financial-ontology/schema/ontology",
+  "title": "Financial Ontology Schema",
+  "description": "Schema for financial statement ontology documents covering IFRS, K-IFRS (DART), and US GAAP",
+  "type": "object",
+  "required": ["ontology", "version", "metadata"],
+  "properties": {
+    "ontology": {
+      "type": "object",
+      "description": "Root ontology container",
+      "required": ["statements", "accounts"],
+      "properties": {
+        "statements": {
+          "type": "object",
+          "description": "Financial statement definitions keyed by statement ID",
+          "patternProperties": {
+            "^[A-Z_]+$": {
+              "type": "object",
+              "required": ["id", "name", "type", "description"],
+              "properties": {
+                "id": { "type": "string", "pattern": "^[A-Z_]+$" },
+                "name": { "type": "string" },
+                "type": { "type": "string", "enum": ["balance_sheet", "income_statement", "comprehensive_income", "changes_in_equity", "cash_flow"] },
+                "description": { "type": "string" },
+                "order": { "type": "integer", "minimum": 1 }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "accounts": {
+          "type": "object",
+          "description": "Account definitions keyed by unique ID (pattern: STATEMENT_CATEGORY_ACCOUNT)",
+          "patternProperties": {
+            "^[A-Z]+_[A-Z]+_[A-Z0-9_]+$": { "$ref": "#/definitions/Account" }
+          },
+          "additionalProperties": false,
+          "minProperties": 1
+        }
+      }
+    },
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "metadata": {
+      "type": "object",
+      "required": ["name", "description", "standards", "industries"],
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "standards": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["IFRS", "K-IFRS", "US_GAAP", "DART_XBRL", "SEC_XBRL"] }
+        },
+        "industries": { "type": "array", "items": { "type": "string" } },
+        "created": { "type": "string", "format": "date" },
+        "updated": { "type": "string", "format": "date" }
+      }
+    }
+  },
+  "definitions": {
+    "Account": {
+      "type": "object",
+      "required": ["id", "name", "statement", "category"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[A-Z]+_[A-Z]+_[A-Z0-9_]+$" },
+        "korean_name": { "type": "string" },
+        "english_name": { "type": "string" },
+        "name": { "type": "string", "description": "Display name (defaults to korean_name)" },
+        "statement": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["balance_sheet", "income_statement", "comprehensive_income", "changes_in_equity", "cash_flow"] },
+          "minItems": 1
+        },
+        "category": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "type": { "type": "string", "enum": ["monetary", "percentage", "ratio", "count", "date", "text"] },
+        "sign": { "type": "string", "enum": ["positive", "negative", "natural"] },
+        "normalization": {
+          "type": "object",
+          "properties": {
+            "scale": { "type": "string", "enum": ["unit", "thousand", "million", "billion"] },
+            "default_scale": { "type": "string", "enum": ["unit", "thousand", "million", "billion"] }
+          }
+        },
+        "parent": { "type": "string", "pattern": "^[A-Z]+_[A-Z]+_[A-Z0-9_]+$", "description": "Parent account ID for hierarchical rollup" },
+        "children": { "type": "array", "items": { "type": "string", "pattern": "^[A-Z]+_[A-Z]+_[A-Z0-9_]+$" }, "description": "Child account IDs for hierarchical rollup" },
+        "depends_on": { "type": "array", "items": { "type": "string", "pattern": "^[A-Z]+_[A-Z]+_[A-Z0-9_]+$" } },
+        "affects": { "type": "array", "items": { "type": "string" } },
+        "ratios": { "type": "array", "items": { "type": "string" } },
+        "cashflow_mapping": { "type": "array", "items": { "type": "string", "enum": ["operating", "investing", "financing"] } },
+        "aliases": { "type": "array", "items": { "type": "string" } },
+        "mappings": {
+          "type": "object",
+          "properties": {
+            "dart": { "type": "array", "items": { "type": "string" } },
+            "ifrs": { "type": "array", "items": { "type": "string" } },
+            "usgaap": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "description": { "type": "string" },
+        "formula": { "type": "string" }
+      }
+    }
+  }
+}

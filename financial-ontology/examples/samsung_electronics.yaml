@@ -1,0 +1,218 @@
+# Example Company Mapping — 삼성전자 (Samsung Electronics)
+# DART 사업보고서(K-IFRS, 연결) 공시 항목 → 온톨로지 계정 ID 정규화 매핑.
+# 제조업(manufacturing) extension 적용 대상. 반도체·IT 특화 항목은 common + manufacturing 노드에 매핑.
+# reported_value는 2023회계연도 연결 기준 근사치(조 원)이며 정규화 매핑 예시용 — 실제 분석 시 최신 공시로 갱신.
+version: "1.0.0"
+
+metadata:
+  company_name: "삼성전자 주식회사"
+  company_name_en: "Samsung Electronics Co., Ltd."
+  ticker: "005930"
+  exchange: KOSPI
+  industry: manufacturing
+  ontology_profile: [common, manufacturing]
+  fiscal_period: "2023 FY (연결)"
+  source: "DART 사업보고서"
+  currency: "KRW"
+  value_unit: "조 원(근사치)"
+  approximate: true
+  created: "2026-07-22"
+
+mapping:
+  # ===== 손익계산서 =====
+  - reported_name: "매출액"
+    ontology_id: IS_REV_SALES
+    statement: income_statement
+    reported_value: 258.9
+    note: "제품·반도체 매출. 기타 매출은 IS_REV_OTHER로 분리."
+  - reported_name: "매출원가"
+    ontology_id: IS_COGS_TOTAL
+    statement: income_statement
+    reported_value: 152.5
+    child_mapping:
+      - {reported_name: "재료비", ontology_id: IS_COGS_RAW}
+      - {reported_name: "노무비", ontology_id: IS_COGS_LABOR}
+      - {reported_name: "제조경비", ontology_id: IS_COGS_OH}
+  - reported_name: "매출총이익"
+    ontology_id: IS_GP_TOTAL
+    statement: income_statement
+    reported_value: 106.4
+    note: "IS_REV_TOTAL - IS_COGS_TOTAL"
+  - reported_name: "판매비와 관리비"
+    ontology_id: IS_OPEX_TOTAL
+    statement: income_statement
+    reported_value: 39.5
+    child_mapping:
+      - {reported_name: "연구개발비", ontology_id: IS_OPEX_RD, note: "R&D 집약도 높음"}
+      - {reported_name: "감가상각비", ontology_id: IS_OPEX_DEPR}
+  - reported_name: "영업이익"
+    ontology_id: IS_OP_INCOME
+    statement: income_statement
+    reported_value: 6.6
+  - reported_name: "영업외수익"
+    ontology_id: IS_NONOP_REV_TOTAL
+    statement: income_statement
+    child_mapping:
+      - {reported_name: "이자수익", ontology_id: IS_NONOP_INT_INC}
+      - {reported_name: "지분법이익", ontology_id: IS_NONOP_EQ_METHOD}
+      - {reported_name: "외환관계이익", ontology_id: IS_NONOP_FX_GAIN}
+  - reported_name: "영업외비용"
+    ontology_id: IS_NONOP_EXP_TOTAL
+    statement: income_statement
+    child_mapping:
+      - {reported_name: "이자비용", ontology_id: IS_NONOP_INT_EXP}
+      - {reported_name: "외환관계손실", ontology_id: IS_NONOP_FX_LOSS}
+  - reported_name: "법인세차감전순이익"
+    ontology_id: IS_PBT_TOTAL
+    statement: income_statement
+  - reported_name: "법인세비용"
+    ontology_id: IS_TAX_TOTAL
+    statement: income_statement
+  - reported_name: "당기순이익"
+    ontology_id: IS_NI_TOTAL
+    statement: income_statement
+    child_mapping:
+      - {reported_name: "지배기업 소유주지분 순이익", ontology_id: IS_NI_PARENT}
+      - {reported_name: "비지배지분 순이익", ontology_id: IS_NI_NCI}
+
+  # ===== 재무상태표 — 자산 =====
+  - reported_name: "현금및현금성자산"
+    ontology_id: BS_CA_CASH
+    statement: balance_sheet
+  - reported_name: "단기금융자산"
+    ontology_id: BS_CA_ST_FIN
+    statement: balance_sheet
+  - reported_name: "매출채권 및 기타채권"
+    ontology_id: BS_CA_AR
+    statement: balance_sheet
+    note: "외상매출금 + 미수금. 대손충당금은 BS_CA_AR_ALLOWANCE 차감."
+  - reported_name: "단기투자자산"
+    ontology_id: BS_CA_ST_INV
+    statement: balance_sheet
+  - reported_name: "재고자산"
+    ontology_id: BS_CA_INV
+    statement: balance_sheet
+    child_mapping:
+      - {reported_name: "제품", ontology_id: BS_CA_INV_FIN, note: "반도체·휴대폰 완제품"}
+      - {reported_name: "재공품", ontology_id: BS_CA_INV_WIP}
+      - {reported_name: "원재료", ontology_id: BS_CA_INV_RAW}
+  - reported_name: "기타유동자산"
+    ontology_id: BS_CA_OTHER
+    statement: balance_sheet
+  - reported_name: "유동자산"
+    ontology_id: BS_CA_TOTAL
+    statement: balance_sheet
+  - reported_name: "장기투자자산"
+    ontology_id: BS_NCA_LT_INV
+    statement: balance_sheet
+  - reported_name: "유형자산"
+    ontology_id: BS_NCA_PPE
+    statement: balance_sheet
+    child_mapping:
+      - {reported_name: "토지", ontology_id: BS_NCA_PPE_LAND}
+      - {reported_name: "건물", ontology_id: BS_NCA_PPE_BUILDING}
+      - {reported_name: "기계장치", ontology_id: BS_NCA_PPE_MACHINERY, note: "반도체 설비(CAPEX 핵심)"}
+  - reported_name: "무형자산"
+    ontology_id: BS_NCA_INTANGIBLE
+    statement: balance_sheet
+    child_mapping:
+      - {reported_name: "영업권", ontology_id: BS_NCA_GW}
+      - {reported_name: "개발비(자본화)", ontology_id: BS_NCA_RD_ASSET}
+  - reported_name: "이연법인세자산"
+    ontology_id: BS_NCA_DTA
+    statement: balance_sheet
+  - reported_name: "비유동자산"
+    ontology_id: BS_NCA_TOTAL
+    statement: balance_sheet
+  - reported_name: "자산총계"
+    ontology_id: BS_A_TOTAL
+    statement: balance_sheet
+
+  # ===== 재무상태표 — 부채·자본 =====
+  - reported_name: "단기차입금"
+    ontology_id: BS_CL_ST_BORROW
+    statement: balance_sheet
+  - reported_name: "매입채무 및 기타유동부채"
+    ontology_id: BS_CL_AP
+    statement: balance_sheet
+    note: "외상매입금 중심. 기타는 BS_CL_OTHER."
+  - reported_name: "유동부채"
+    ontology_id: BS_CL_TOTAL
+    statement: balance_sheet
+  - reported_name: "장기차입금"
+    ontology_id: BS_NCL_LT_BORROW
+    statement: balance_sheet
+  - reported_name: "사채"
+    ontology_id: BS_NCL_BOND
+    statement: balance_sheet
+  - reported_name: "퇴직급여충당부채"
+    ontology_id: BS_NCL_LT_PROV
+    statement: balance_sheet
+  - reported_name: "이연법인세부채"
+    ontology_id: BS_NCL_DTL
+    statement: balance_sheet
+  - reported_name: "비유동부채"
+    ontology_id: BS_NCL_TOTAL
+    statement: balance_sheet
+  - reported_name: "부채총계"
+    ontology_id: BS_L_TOTAL
+    statement: balance_sheet
+  - reported_name: "자본금"
+    ontology_id: BS_EQ_CS
+    statement: balance_sheet
+  - reported_name: "자본잉여금"
+    ontology_id: BS_EQ_APIC
+    statement: balance_sheet
+  - reported_name: "이익잉여금"
+    ontology_id: BS_EQ_RE
+    statement: balance_sheet
+  - reported_name: "기타포괄손익누적액"
+    ontology_id: BS_EQ_OCI
+    statement: balance_sheet
+  - reported_name: "자기주식"
+    ontology_id: BS_EQ_TREASURY
+    statement: balance_sheet
+    note: "차감(음수). 자사주 매입·소각 이력."
+  - reported_name: "지배기업 주주지분"
+    ontology_id: BS_EQ_PARENT
+    statement: balance_sheet
+  - reported_name: "비지배지분"
+    ontology_id: BS_EQ_NCI
+    statement: balance_sheet
+  - reported_name: "자본총계"
+    ontology_id: BS_EQ_TOTAL
+    statement: balance_sheet
+
+  # ===== 현금흐름표 =====
+  - reported_name: "영업활동 현금흐름"
+    ontology_id: CF_OP_TOTAL
+    statement: cash_flow
+  - reported_name: "투자활동 현금흐름"
+    ontology_id: CF_INV_TOTAL
+    statement: cash_flow
+    child_mapping:
+      - {reported_name: "유형자산의 취득", ontology_id: CF_INV_PPE_ACQ, note: "반도체 CAPEX 지출"}
+      - {reported_name: "유형자산의 처분", ontology_id: CF_INV_PPE_DISP}
+  - reported_name: "재무활동 현금흐름"
+    ontology_id: CF_FIN_TOTAL
+    statement: cash_flow
+    child_mapping:
+      - {reported_name: "배당금의 지급", ontology_id: CF_FIN_DIV}
+      - {reported_name: "자기주식의 취득", ontology_id: CF_FIN_TREASURY}
+  - reported_name: "현금의 증감"
+    ontology_id: CF_NET_CHANGE
+    statement: cash_flow
+
+# 핵심 분석 지표(온톨로지 기반 자동 계산 입력)
+key_metrics:
+  - ratio: operating_margin
+    inputs: [IS_OP_INCOME, IS_REV_TOTAL]
+  - ratio: ebitda_margin
+    inputs: [IS_OP_INCOME, IS_OPEX_DEPR, IS_REV_TOTAL]
+  - ratio: roe
+    inputs: [IS_NI_PARENT, BS_EQ_PARENT]
+  - ratio: capex_to_sales
+    inputs: [CF_INV_PPE_ACQ, IS_REV_TOTAL]
+    note: "반도체 설비 투자 강도 추적 핵심"
+  - ratio: fcf
+    inputs: [CF_OP_TOTAL, CF_INV_PPE]

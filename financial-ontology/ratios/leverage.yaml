@@ -1,0 +1,226 @@
+# Financial Ratios — Leverage / Solvency (레버리지·건전성 지표)
+# 장기 재무 건전성과 부채 부담 지표. required_accounts는 온톨로지 계정 ID를 참조.
+version: "1.0.0"
+
+metadata:
+  name: "레버리지·건전성 비율 정의"
+  description: "부채 의존도, 이자 부담 능력, 장기 지급 능력 지표. 금융업 건전성 지표 포함."
+  category: leverage
+  created: "2026-07-22"
+  updated: "2026-07-22"
+
+ratios:
+  debt_ratio:
+    name: "부채비율"
+    korean_name: "부채비율"
+    formula: "BS_L_TOTAL / BS_EQ_TOTAL"
+    required_accounts: [BS_L_TOTAL, BS_EQ_TOTAL]
+    unit: percentage
+    higher_is_better: false
+    depends_on: [BS_L_TOTAL, BS_EQ_TOTAL]
+    affects: [Leverage, Solvency]
+    description: "부채 / 자본. 재무 레버리지의 대표 지표(200% 미만 양호 권고)."
+    tags: [core]
+
+  debt_to_equity:
+    name: "D/E 비율"
+    korean_name: "부채대비자본비율"
+    formula: "(BS_CL_ST_BORROW + BS_NCL_LT_BORROW + BS_NCL_BOND) / BS_EQ_TOTAL"
+    required_accounts: [BS_CL_ST_BORROW, BS_NCL_LT_BORROW, BS_NCL_BOND, BS_EQ_TOTAL]
+    unit: ratio
+    higher_is_better: false
+    depends_on: [BS_NCL_LT_BORROW, BS_NCL_BOND, BS_EQ_TOTAL]
+    affects: [Leverage, CapitalStructure]
+    description: "이자발생부채 / 자본. 순차입레버리지. 금융비용 부담 추정 입력."
+
+  equity_ratio:
+    name: "자기자본비율"
+    korean_name: "자기자본비율"
+    formula: "BS_EQ_TOTAL / BS_A_TOTAL"
+    required_accounts: [BS_EQ_TOTAL, BS_A_TOTAL]
+    unit: percentage
+    higher_is_better: true
+    depends_on: [BS_EQ_TOTAL, BS_A_TOTAL]
+    affects: [Solvency, CapitalAdequacy]
+    description: "자본 / 총자산. 자산 중 자기자본 비중. 은행 BIS 자기자본비율의 근간."
+    tags: [core]
+
+  debt_to_asset:
+    name: "부채비율(자산대비)"
+    korean_name: "총자산대비부채비율"
+    formula: "BS_L_TOTAL / BS_A_TOTAL"
+    required_accounts: [BS_L_TOTAL, BS_A_TOTAL]
+    unit: percentage
+    higher_is_better: false
+    depends_on: [BS_L_TOTAL, BS_A_TOTAL]
+    affects: [Leverage]
+    description: "부채 / 총자산. 자산 조달 중 부채 비중(= 1 - 자기자본비율)."
+
+  interest_coverage:
+    name: "이자보상배율"
+    korean_name: "이자보상배율"
+    formula: "IS_OP_INCOME / IS_NONOP_INT_EXP (또는 (IS_PBT_TOTAL + IS_NONOP_INT_EXP) / IS_NONOP_INT_EXP)"
+    required_accounts: [IS_OP_INCOME, IS_NONOP_INT_EXP, IS_PBT_TOTAL]
+    unit: ratio
+    higher_is_better: true
+    depends_on: [IS_OP_INCOME, IS_NONOP_INT_EXP]
+    affects: [InterestCoverage, Solvency]
+    description: "영업이익 / 이자비용. 영업이익으로 이자 부담 커버 배수. 3배 이상 안정."
+    tags: [core]
+
+  dscr:
+    name: "부채상환능력비율(DSCR)"
+    korean_name: "채무상환비율"
+    formula: "CF_OP_TOTAL / (단기차입금 상환 + 이자비용)"
+    required_accounts: [CF_OP_TOTAL, IS_NONOP_INT_EXP, BS_CL_ST_BORROW]
+    unit: ratio
+    higher_is_better: true
+    depends_on: [CF_OP_TOTAL, IS_NONOP_INT_EXP]
+    affects: [Solvency, CreditRisk]
+    description: "영업현금흐름 / 단기 부채상환+이자. 현금흐름 기반 채무 상환 능력. 1.25배 이상 양호."
+    tags: [cashflow]
+
+  asset_turnover:
+    name: "총자산회전율"
+    korean_name: "총자산회전율"
+    formula: "IS_REV_TOTAL / BS_A_TOTAL_평균"
+    required_accounts: [IS_REV_TOTAL, BS_A_TOTAL]
+    unit: ratio
+    higher_is_better: true
+    depends_on: [IS_REV_TOTAL, BS_A_TOTAL]
+    affects: [AssetEfficiency, DuPont]
+    description: "매출 / 평균 총자산. 자산 활용 효율(DuPont 분해 입력)."
+    tags: [efficiency, dupont]
+
+  fixed_asset_turnover:
+    name: "유형자산회전율"
+    korean_name: "유형자산회전율"
+    formula: "IS_REV_TOTAL / BS_NCA_PPE_평균"
+    required_accounts: [IS_REV_TOTAL, BS_NCA_PPE]
+    unit: ratio
+    higher_is_better: true
+    depends_on: [IS_REV_TOTAL, BS_NCA_PPE]
+    affects: [AssetEfficiency]
+    description: "매출 / 평균 유형자산. 설비 가동 효율. 제조업 핵심."
+    tags: [manufacturing, efficiency]
+
+  capex_to_sales:
+    name: "CAPEX/매출"
+    korean_name: "설비투자대비매출"
+    formula: "abs(CF_INV_PPE_ACQ) / IS_REV_TOTAL"
+    required_accounts: [CF_INV_PPE_ACQ, IS_REV_TOTAL]
+    unit: percentage
+    higher_is_better: natural
+    depends_on: [CF_INV_PPE_ACQ, IS_REV_TOTAL]
+    affects: [CAPEX, GrowthCapacity]
+    description: "설비투자 / 매출. 투자 강도. 성장 투자 vs 과잉투자 판단."
+    tags: [manufacturing]
+
+  # --- 금융업 건전성 지표 ---
+  ldr:
+    name: "예대율"
+    korean_name: "예대율"
+    formula: "(BS_BANK_LOAN_ST + BS_BANK_LOAN_LT) / BS_BANK_DEPOSIT"
+    required_accounts: [BS_BANK_LOAN_ST, BS_BANK_LOAN_LT, BS_BANK_DEPOSIT]
+    unit: percentage
+    higher_is_better: natural
+    depends_on: [BS_BANK_LOAN_ST, BS_BANK_DEPOSIT]
+    affects: [Liquidity, BankSolvency]
+    description: "대출금 / 예수금. 예금 대비 여신 공여 비율. 은행 유동성 지표. 산업: bank."
+    tags: [bank]
+
+  npl_ratio:
+    name: "부실여신비율(NPL)"
+    korean_name: "고정이하여신비율"
+    formula: "부실여신 / (BS_BANK_LOAN_ST + BS_BANK_LOAN_LT)"
+    required_accounts: [BS_BANK_LOAN_ST, BS_BANK_LOAN_LT, BS_BANK_LOAN_ALLOWANCE]
+    unit: percentage
+    higher_is_better: false
+    depends_on: [BS_BANK_LOAN_ST, BS_BANK_LOAN_ALLOWANCE]
+    affects: [AssetQuality, CreditRisk]
+    description: "부실여신 / 총여신. 은행 자산 건전성. 산업: bank."
+    tags: [bank]
+
+  allowance_ratio:
+    name: "대손충당금적립률"
+    korean_name: "대손충당금적립률"
+    formula: "abs(BS_BANK_LOAN_ALLOWANCE) / 부실여신"
+    required_accounts: [BS_BANK_LOAN_ALLOWANCE, IS_BANK_LOAN_LOSS]
+    unit: percentage
+    higher_is_better: true
+    depends_on: [BS_BANK_LOAN_ALLOWANCE]
+    affects: [AssetQuality]
+    description: "대손충당금 / 부실여신. 부실 대비 충당 수준. 산업: bank."
+    tags: [bank]
+
+  cost_of_risk:
+    name: "위험비용비율(CoR)"
+    korean_name: "대손비용비율"
+    formula: "IS_BANK_LOAN_LOSS / (BS_BANK_LOAN_ST + BS_BANK_LOAN_LT)_평균"
+    required_accounts: [IS_BANK_LOAN_LOSS, BS_BANK_LOAN_ST, BS_BANK_LOAN_LT]
+    unit: percentage
+    higher_is_better: false
+    depends_on: [IS_BANK_LOAN_LOSS]
+    affects: [AssetQuality, BankProfitability]
+    description: "대손상각비 / 평균 대출금. 은행 위험 비용 지표. 산업: bank."
+    tags: [bank]
+
+  solvency_ratio:
+    name: "지급여력비율(Solvency)"
+    korean_name: "지급여력비율"
+    formula: "자본 / BS_NCL_INS_RESERVE (보험)"
+    required_accounts: [BS_EQ_TOTAL, BS_NCL_INS_RESERVE]
+    unit: percentage
+    higher_is_better: true
+    depends_on: [BS_EQ_TOTAL, BS_NCL_INS_RESERVE]
+    affects: [Solvency, InsuranceHealth]
+    description: "자본 / 보험책임준비금. 보험사 지급 능력. 산업: insurance."
+    tags: [insurance]
+
+  loss_ratio:
+    name: "손해률"
+    korean_name: "손해률"
+    formula: "(IS_INS_CLAIM + IS_INS_RESERVE_CHG - IS_INS_REINS_CLAIM) / IS_INS_PREMIUM"
+    required_accounts: [IS_INS_CLAIM, IS_INS_RESERVE_CHG, IS_INS_REINS_CLAIM, IS_INS_PREMIUM]
+    unit: percentage
+    higher_is_better: false
+    depends_on: [IS_INS_CLAIM, IS_INS_RESERVE_CHG, IS_INS_PREMIUM]
+    affects: [UnderwritingResult, InsuranceProfitability]
+    description: "보험금(준비금변동 포함) / 경과보험료. 보험 손익의 핵심. 산업: insurance."
+    tags: [insurance]
+
+  expense_ratio:
+    name: "사업비율"
+    korean_name: "사업비율"
+    formula: "IS_INS_ACQUISITION / IS_INS_PREMIUM"
+    required_accounts: [IS_INS_ACQUISITION, IS_INS_PREMIUM]
+    unit: percentage
+    higher_is_better: false
+    depends_on: [IS_INS_ACQUISITION, IS_INS_PREMIUM]
+    affects: [UnderwritingResult, ExpenseRatio]
+    description: "신계약비 / 경과보험료. 보험 모집 비용 효율. 산업: insurance."
+    tags: [insurance]
+
+  combined_ratio:
+    name: "종합비율(Combined Ratio)"
+    korean_name: "종합비율"
+    formula: "손해률 + 사업비율"
+    required_accounts: [IS_INS_CLAIM, IS_INS_RESERVE_CHG, IS_INS_ACQUISITION, IS_INS_PREMIUM]
+    unit: percentage
+    higher_is_better: false
+    depends_on: [IS_INS_CLAIM, IS_INS_ACQUISITION, IS_INS_PREMIUM]
+    affects: [UnderwritingResult, InsuranceProfitability]
+    description: "손해률 + 사업비율. 100% 미만이면 기술적 흑자. 보험사 언더라이팅 건전성. 산업: insurance."
+    tags: [insurance, core]
+
+  leverage_ratio_sec:
+    name: "레버리지비율(증권)"
+    korean_name: "증권사총레버리지"
+    formula: "총자산 / BS_EQ_TOTAL (증권사)"
+    required_accounts: [BS_A_TOTAL, BS_EQ_TOTAL, BS_SEC_SOLD_RP, BS_SEC_TRADING_SEC]
+    unit: ratio
+    higher_is_better: false
+    depends_on: [BS_A_TOTAL, BS_EQ_TOTAL]
+    affects: [Leverage, SecuritiesRisk]
+    description: "총자산 / 자본. 증권사 레버리지·투자위험 지표. 산업: securities."
+    tags: [securities]

@@ -1,0 +1,320 @@
+# Financial Ontology — Bank Extension (은행업)
+# common.yaml을 상속·확장. 은행은 이자수익·이자비용이 영업수익·비용이며, 대출금(자산)·예수금(부채)이
+# 재무상태표의 대부분을 차지한다. 예금·대출·유가증권 운용 특화 계정을 추가.
+version: "1.0.0"
+
+metadata:
+  name: "재무 온톨로지 — 은행업 확장"
+  description: "common(K-IFRS)을 상속. 예수금·대출금·유가증권 운용과 이자수익·비용·대손상각비를 추가한 은행 특화 온톨로지."
+  standards: ["K-IFRS", "IFRS", "DART_XBRL"]
+  industries: ["bank"]
+  extends: "common.yaml"
+  created: "2026-07-22"
+  updated: "2026-07-22"
+
+ontology:
+  statements:
+    BALANCE_SHEET:
+      id: BALANCE_SHEET
+      name: "재무상태표"
+      type: balance_sheet
+      description: "은행 재무상태표 — 대출금(자산)·예수금(부채)이 대부분. 자산·부채가 금융상품 중심."
+      order: 1
+    INCOME_STATEMENT:
+      id: INCOME_STATEMENT
+      name: "손익계산서"
+      type: income_statement
+      description: "이자수익-이자비용=순이자수익이 영업이익의 핵심. 수수료·유가증권손익·대손상각비 포함."
+      order: 2
+
+  accounts:
+    # =========================================================================
+    # 자산 — 대출금·운용자산
+    # =========================================================================
+    BS_BANK_CASH:
+      id: BS_BANK_CASH
+      korean_name: "현금·외화"
+      english_name: "Cash and Foreign Currencies"
+      name: "현금·외화"
+      statement: [balance_sheet]
+      category: [asset, current_asset, cash, bank]
+      sign: positive
+      parent: BS_CA_CASH
+      aliases: ["현금·외화(은행)"]
+      mappings:
+        dart: ["ifrs-full_CashAndCashEquivalentsAtBank"]
+        ifrs: ["CashAndCashEquivalentsAtBank"]
+      description: "은행 창구 보유 현금과 외화."
+
+    BS_BANK_RESERVE:
+      id: BS_BANK_RESERVE
+      korean_name: "지급준비금"
+      english_name: "Reserve for Payment"
+      name: "지급준비금"
+      statement: [balance_sheet]
+      category: [asset, current_asset, bank, reserve]
+      sign: positive
+      parent: BS_CA_TOTAL
+      aliases: ["한국은행예치금", "법정지급준비금"]
+      description: "한국은행 등에 예치한 지급준비금."
+
+    BS_BANK_CALL:
+      id: BS_BANK_CALL
+      korean_name: "콜론"
+      english_name: "Call Loans"
+      name: "콜론(단기대부)"
+      statement: [balance_sheet]
+      category: [asset, current_asset, bank, call_market]
+      sign: positive
+      parent: BS_CA_TOTAL
+      aliases: ["콜머니대부"]
+      description: "콜시장에 단기 대부한 자금."
+
+    BS_BANK_BOUGHT_RP:
+      id: BS_BANK_BOUGHT_RP
+      korean_name: "매입환매조건부채권"
+      english_name: "Bonds Acquired under Repos"
+      name: "매입RP채권"
+      statement: [balance_sheet]
+      category: [asset, current_asset, bank, repo]
+      sign: positive
+      parent: BS_CA_TOTAL
+      aliases: ["매입RP"]
+      description: "환매조건부 채권 매입(RP매입)."
+
+    BS_BANK_LOAN_ST:
+      id: BS_BANK_LOAN_ST
+      korean_name: "단기대출금"
+      english_name: "Short-term Loans and Advances"
+      name: "단기대출금"
+      statement: [balance_sheet]
+      category: [asset, current_asset, bank, loan]
+      sign: positive
+      parent: BS_CA_TOTAL
+      children: [BS_BANK_LOAN_ALLOWANCE]
+      ratios: [loan_yield, ldr, npl_ratio]
+      affects: [LoanYield, AssetQuality, FCF]
+      cashflow_mapping: [operating]
+      aliases: ["여신(단기)"]
+      mappings:
+        dart: ["ifrs-full_LoansAndAdvancesToCustomers"]
+        ifrs: ["LoansAndAdvancesToBanks", "LoansAndAdvancesToCustomers"]
+        usgaap: ["LoansAndLeasesReceivable"]
+      description: "만기 1년 이내 대출금. 은행 자산의 주된 구성."
+
+    BS_BANK_LOAN_LT:
+      id: BS_BANK_LOAN_LT
+      korean_name: "장기대출금"
+      english_name: "Long-term Loans and Advances"
+      name: "장기대출금"
+      statement: [balance_sheet]
+      category: [asset, non_current_asset, bank, loan]
+      sign: positive
+      parent: BS_NCA_TOTAL
+      ratios: [loan_yield, ldr]
+      affects: [LoanYield, FCF]
+      cashflow_mapping: [operating]
+      aliases: ["여신(장기)"]
+
+    BS_BANK_LOAN_ALLOWANCE:
+      id: BS_BANK_LOAN_ALLOWANCE
+      korean_name: "대손충당금"
+      english_name: "Allowance for Loan Losses"
+      name: "대손충당금"
+      statement: [balance_sheet]
+      category: [asset, current_asset, bank, loan, contra_asset]
+      sign: negative
+      parent: BS_BANK_LOAN_ST
+      ratios: [npl_ratio, allowance_ratio]
+      affects: [AssetQuality]
+      aliases: ["여신충당금", "대손충당금(대출)"]
+      description: "대출 회수불능 추정액. 대출금에서 차감(음수). 은행 건전성 지표."
+
+    BS_BANK_SECURITIES:
+      id: BS_BANK_SECURITIES
+      korean_name: "운용유가증권"
+      english_name: "Investment Securities (Bank)"
+      name: "운용유가증권"
+      statement: [balance_sheet]
+      category: [asset, non_current_asset, bank, investment_securities]
+      sign: positive
+      parent: BS_NCA_LT_INV
+      affects: [FCF, SecuritiesGains]
+      cashflow_mapping: [investing]
+      aliases: ["유가증권(운용)", "채권운용"]
+      mappings:
+        dart: ["ifrs-full_FinancialAssetsAtFairValue"]
+        ifrs: ["FinancialAssetsAtFairValue"]
+        usgaap: ["InvestmentSecurities"]
+      description: "유동성·수익 목적 보유 유가증권(국공채·회사채·주식 등)."
+
+    # =========================================================================
+    # 부채 — 예수금·차입
+    # =========================================================================
+    BS_BANK_DEPOSIT:
+      id: BS_BANK_DEPOSIT
+      korean_name: "예수금"
+      english_name: "Deposits"
+      name: "예수금"
+      statement: [balance_sheet]
+      category: [liability, current_liability, bank, deposit]
+      sign: positive
+      parent: BS_CL_TOTAL
+      ratios: [ldr, deposit_ratio, cost_of_funds]
+      affects: [DepositBase, LoanableFunds]
+      cashflow_mapping: [operating]
+      aliases: ["수신금", "예금"]
+      mappings:
+        dart: ["ifrs-full_DepositsFromCustomers", "ifrs-full_DepositsFromBanks"]
+        ifrs: ["DepositsFromCustomers"]
+        usgaap: ["Deposits"]
+      description: "고객으로부터 수취한 예금. 은행 자금 조달의 핵심(부채의 대부분)."
+
+    BS_BANK_CALL_LIAB:
+      id: BS_BANK_CALL_LIAB
+      korean_name: "콜머니"
+      english_name: "Call Money"
+      name: "콜머니(단기차입)"
+      statement: [balance_sheet]
+      category: [liability, current_liability, bank, call_market]
+      sign: positive
+      parent: BS_CL_TOTAL
+      aliases: ["콜차입"]
+      description: "콜시장에서 단기 차입한 자금."
+
+    BS_BANK_SOLD_RP:
+      id: BS_BANK_SOLD_RP
+      korean_name: "매도환매조건부채권"
+      english_name: "Bonds Sold under Repos"
+      name: "매도RP채권"
+      statement: [balance_sheet]
+      category: [liability, current_liability, bank, repo]
+      sign: positive
+      parent: BS_CL_TOTAL
+      aliases: ["매도RP"]
+      description: "환매조건부 채권 매도(RP매도). 단기 자금 조달."
+
+    # =========================================================================
+    # 손익계산서 — 이자수익·비용·대손상각·수수료
+    # =========================================================================
+    IS_BANK_INT_INCOME:
+      id: IS_BANK_INT_INCOME
+      korean_name: "이자수익"
+      english_name: "Interest Income (Bank Operating)"
+      name: "이자수익"
+      statement: [income_statement]
+      category: [revenue, bank, interest]
+      sign: positive
+      parent: IS_REV_TOTAL
+      ratios: [nim, loan_yield, interest_income_ratio]
+      affects: [NIM, OperatingProfit]
+      aliases: ["대출이자수익", "운용이자수익"]
+      mappings:
+        dart: ["ifrs-full_InterestIncome"]
+        ifrs: ["InterestRevenue"]
+        usgaap: ["InterestIncome"]
+      description: "대출·운용자산에서 발생하는 이자수익. 은행 영업수익의 핵심."
+
+    IS_BANK_INT_EXPENSE:
+      id: IS_BANK_INT_EXPENSE
+      korean_name: "이자비용"
+      english_name: "Interest Expense (Bank Operating)"
+      name: "이자비용"
+      statement: [income_statement]
+      category: [expense, bank, interest]
+      sign: positive
+      ratios: [nim, cost_of_funds]
+      affects: [NIM, OperatingProfit]
+      aliases: ["예금이자비용", "차입이자비용"]
+      mappings:
+        dart: ["ifrs-full_InterestExpense"]
+        ifrs: ["InterestExpense"]
+        usgaap: ["InterestExpense"]
+      description: "예금·차입금에 대한 이자비용. 은행 영업비용의 핵심(자금조달원가)."
+
+    IS_BANK_NIM:
+      id: IS_BANK_NIM
+      korean_name: "순이자수익"
+      english_name: "Net Interest Income"
+      name: "순이자수익"
+      statement: [income_statement]
+      category: [profit, bank, net_interest]
+      sign: natural
+      depends_on: [IS_BANK_INT_INCOME, IS_BANK_INT_EXPENSE]
+      formula: "IS_BANK_INT_INCOME - IS_BANK_INT_EXPENSE"
+      ratios: [nim, nim_margin]
+      affects: [NIM, OperatingProfit]
+      aliases: ["이자마진", "NII"]
+      description: "이자수익에서 이자비용을 차감한 금액. 은행 영업이익의 근간."
+
+    IS_BANK_FEE_INCOME:
+      id: IS_BANK_FEE_INCOME
+      korean_name: "수수료수익"
+      english_name: "Fee and Commission Income"
+      name: "수수료수익"
+      statement: [income_statement]
+      category: [revenue, bank, fee]
+      sign: positive
+      parent: IS_REV_TOTAL
+      ratios: [fee_income_ratio]
+      aliases: ["수수료·위탁수수료"]
+      mappings:
+        dart: ["ifrs-full_FeeAndCommissionIncome"]
+        ifrs: ["FeeAndCommissionIncome"]
+        usgaap: ["FeeIncome"]
+      description: "수신·여신·외환·신탁 수수료 등 비이자 영업수익."
+
+    IS_BANK_FEE_EXPENSE:
+      id: IS_BANK_FEE_EXPENSE
+      korean_name: "수수료비용"
+      english_name: "Fee and Commission Expense"
+      name: "수수료비용"
+      statement: [income_statement]
+      category: [expense, bank, fee]
+      sign: positive
+      aliases: ["수수료·위탁수수료비용"]
+      mappings:
+        dart: ["ifrs-full_FeeAndCommissionExpense"]
+        ifrs: ["FeeAndCommissionExpense"]
+        usgaap: ["FeeExpense"]
+
+    IS_BANK_FX:
+      id: IS_BANK_FX
+      korean_name: "외환손익"
+      english_name: "Foreign Exchange Gains/Losses"
+      name: "외환손익"
+      statement: [income_statement]
+      category: [profit, bank, fx]
+      sign: natural
+      aliases: ["외환업무손익"]
+      description: "외환 업무에서 발생하는 환차익·환차손의 순액."
+
+    IS_BANK_SEC_GAIN:
+      id: IS_BANK_SEC_GAIN
+      korean_name: "유가증권손익"
+      english_name: "Gains/Losses on Securities"
+      name: "유가증권손익"
+      statement: [income_statement]
+      category: [profit, bank, securities]
+      sign: natural
+      depends_on: [BS_BANK_SECURITIES]
+      aliases: ["유가증권처분·평가손익"]
+      description: "운용유가증권의 처분·평가 손익."
+
+    IS_BANK_LOAN_LOSS:
+      id: IS_BANK_LOAN_LOSS
+      korean_name: "대손상각비"
+      english_name: "Provision for Loan Losses"
+      name: "대손상각비(여신충당금전입)"
+      statement: [income_statement]
+      category: [expense, bank, provision]
+      sign: positive
+      depends_on: [BS_BANK_LOAN_ALLOWANCE]
+      ratios: [npl_ratio, allowance_ratio, cost_of_risk]
+      affects: [AssetQuality, OperatingProfit]
+      aliases: ["여신충당금충당비", "대손비용"]
+      mappings:
+        dart: ["ifrs-full_LossOnImpairmentOfFinancialAssets"]
+        ifrs: ["LossOnImpairmentOfFinancialAssets"]
+        usgaap: ["ProvisionForCreditLosses"]
+      description: "대손충당금 전입비용. 은행 자산 건전성 비용의 핵심."

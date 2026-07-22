@@ -1,0 +1,1916 @@
+# Financial Ontology — Common (K-IFRS 골격)
+# 한국 상장사(KOSPI/KOSDAQ) 공시를 1차 대상으로 한다. 한국어 계정명을 정준(canonical)으로 사용.
+# 본 파일은 모든 산업 extension(manufacturing/bank/insurance/securities)의 부모가 되는 공통 온톨로지.
+# ID 규칙: {STATEMENT}_{CATEGORY}_{ACCOUNT}, 한번 부여되면 변경 금지.
+version: "1.0.0"
+
+metadata:
+  name: "재무 온톨로지 — 공통(K-IFRS)"
+  description: "K-IFRS 기반 공통 재무제표 온톨로지. BS/IS/CI/SCE/CF 5개 명세서를 포괄하며 산업 extension이 상속·확장한다."
+  standards: ["K-IFRS", "IFRS", "DART_XBRL"]
+  industries: ["common", "manufacturing", "bank", "insurance", "securities"]
+  created: "2026-07-22"
+  updated: "2026-07-22"
+
+ontology:
+  statements:
+    BALANCE_SHEET:
+      id: BALANCE_SHEET
+      name: "재무상태표"
+      type: balance_sheet
+      description: "특정 시점의 자산·부채·자본 상태. 자산 = 부채 + 자본."
+      order: 1
+    INCOME_STATEMENT:
+      id: INCOME_STATEMENT
+      name: "손익계산서"
+      type: income_statement
+      description: "기간 중 수익·비용을 대비하여 당기순이익을 산출."
+      order: 2
+    COMPREHENSIVE_INCOME:
+      id: COMPREHENSIVE_INCOME
+      name: "기타포괄손익"
+      type: comprehensive_income
+      description: "당기순이익에 반영되지 않는 기타포괄손익 항목과 포괄손익 합계."
+      order: 3
+    CHANGES_IN_EQUITY:
+      id: CHANGES_IN_EQUITY
+      name: "자본변동표"
+      type: changes_in_equity
+      description: "기초·기말 자본과 그 사이의 자본 변동 사유를 명시."
+      order: 4
+    CASH_FLOW:
+      id: CASH_FLOW
+      name: "현금흐름표"
+      type: cash_flow
+      description: "영업·투자·재무 활동에 의한 현금의 증감을 표시."
+      order: 5
+
+  accounts:
+    # =========================================================================
+    # 재무상태표 — 자산
+    # =========================================================================
+    BS_A_TOTAL:
+      id: BS_A_TOTAL
+      korean_name: "자산총계"
+      english_name: "Total Assets"
+      name: "자산총계"
+      statement: [balance_sheet]
+      category: [asset, total]
+      sign: positive
+      children: [BS_CA_TOTAL, BS_NCA_TOTAL]
+      formula: "BS_CA_TOTAL + BS_NCA_TOTAL"
+      ratios: [asset_turnover, roa, debt_ratio, equity_ratio]
+      affects: [AssetBase]
+      aliases: ["총자산", "자산의 총액"]
+      mappings:
+        dart: ["ifrs-full_Assets"]
+        ifrs: ["Assets"]
+        usgaap: ["Assets"]
+      description: "유동자산과 비유동자산의 합. 기업 규모의 기준."
+
+    BS_CA_TOTAL:
+      id: BS_CA_TOTAL
+      korean_name: "유동자산"
+      english_name: "Current Assets"
+      name: "유동자산"
+      statement: [balance_sheet]
+      category: [asset, current_asset, working_capital]
+      sign: positive
+      parent: BS_A_TOTAL
+      children: [BS_CA_CASH, BS_CA_ST_FIN, BS_CA_AR, BS_CA_ST_INV, BS_CA_INV, BS_CA_PREPAID, BS_CA_OTHER, BS_CA_HOLD_FOR_SALE]
+      formula: "BS_CA_CASH + BS_CA_ST_FIN + BS_CA_AR + BS_CA_ST_INV + BS_CA_INV + BS_CA_PREPAID + BS_CA_OTHER + BS_CA_HOLD_FOR_SALE"
+      ratios: [current_ratio, quick_ratio, cash_ratio, working_capital]
+      affects: [WorkingCapital]
+      aliases: ["유동자산의 총액"]
+      mappings:
+        dart: ["ifrs-full_CurrentAssets"]
+        ifrs: ["CurrentAssets"]
+        usgaap: ["AssetsCurrent"]
+
+    BS_CA_CASH:
+      id: BS_CA_CASH
+      korean_name: "현금및현금성자산"
+      english_name: "Cash and Cash Equivalents"
+      name: "현금및현금성자산"
+      statement: [balance_sheet, cash_flow]
+      category: [asset, current_asset, working_capital, cash]
+      sign: positive
+      parent: BS_CA_TOTAL
+      ratios: [current_ratio, quick_ratio, cash_ratio, cash_flow_adequacy]
+      affects: [WorkingCapital, Liquidity]
+      cashflow_mapping: [operating]
+      aliases: ["현금예금", "현금및예금"]
+      mappings:
+        dart: ["ifrs-full_CashAndCashEquivalents"]
+        ifrs: ["CashAndCashEquivalents"]
+        usgaap: ["CashAndCashEquivalentsAtCarryingValue"]
+      description: "즉시 지급수단이 되는 현금과 단기 예금."
+
+    BS_CA_ST_FIN:
+      id: BS_CA_ST_FIN
+      korean_name: "단기금융자산"
+      english_name: "Short-term Financial Assets"
+      name: "단기금융자산"
+      statement: [balance_sheet]
+      category: [asset, current_asset, financial_asset]
+      sign: positive
+      parent: BS_CA_TOTAL
+      ratios: [quick_ratio]
+      aliases: ["단기금융상품", "매매목적단기금융자산"]
+      description: "단기적 자금운용 목적의 금융자산(만기 1년 이내)."
+
+    BS_CA_AR:
+      id: BS_CA_AR
+      korean_name: "매출채권"
+      english_name: "Accounts Receivable, Net"
+      name: "매출채권"
+      statement: [balance_sheet]
+      category: [asset, current_asset, working_capital, receivable]
+      sign: positive
+      parent: BS_CA_TOTAL
+      children: [BS_CA_AR_GROSS, BS_CA_AR_ALLOWANCE]
+      ratios: [receivable_turnover, cash_conversion_cycle, current_ratio, quick_ratio]
+      affects: [WorkingCapital, OCF]
+      cashflow_mapping: [operating]
+      aliases: ["외상매출금", "미수금", "Trade Receivables"]
+      mappings:
+        dart: ["ifrs-full_TradeAndOtherCurrentReceivables"]
+        ifrs: ["TradeAndOtherCurrentReceivables"]
+        usgaap: ["AccountsReceivableNetCurrent"]
+      description: "상품·용역 판매로 발생한 채권(대손충당금 차감 후 순액)."
+
+    BS_CA_AR_GROSS:
+      id: BS_CA_AR_GROSS
+      korean_name: "매출채권(총액)"
+      english_name: "Accounts Receivable, Gross"
+      name: "매출채권(총액)"
+      statement: [balance_sheet]
+      category: [asset, current_asset, receivable]
+      sign: positive
+      parent: BS_CA_AR
+      aliases: ["매출채권 총액"]
+
+    BS_CA_AR_ALLOWANCE:
+      id: BS_CA_AR_ALLOWANCE
+      korean_name: "대손충당금"
+      english_name: "Allowance for Doubtful Accounts"
+      name: "대손충당금"
+      statement: [balance_sheet]
+      category: [asset, current_asset, receivable, contra_asset]
+      sign: negative
+      parent: BS_CA_AR
+      aliases: ["매출채권대손충당금"]
+      description: "매출채권 회수불능 추정액. 매출채권에서 차감(음수 표기)."
+
+    BS_CA_ST_INV:
+      id: BS_CA_ST_INV
+      korean_name: "단기투자자산"
+      english_name: "Short-term Investments"
+      name: "단기투자자산"
+      statement: [balance_sheet]
+      category: [asset, current_asset, investment]
+      sign: positive
+      parent: BS_CA_TOTAL
+      ratios: [quick_ratio]
+      aliases: ["단기투자", "매매목적투자증권"]
+      description: "1년 이내 처분 예정인 투자유가증권."
+
+    BS_CA_INV:
+      id: BS_CA_INV
+      korean_name: "재고자산"
+      english_name: "Inventories"
+      name: "재고자산"
+      statement: [balance_sheet]
+      category: [asset, current_asset, working_capital, inventory]
+      sign: positive
+      parent: BS_CA_TOTAL
+      ratios: [inventory_turnover, cash_conversion_cycle, current_ratio]
+      affects: [WorkingCapital, OCF]
+      cashflow_mapping: [operating]
+      aliases: ["재고", "Inventories"]
+      mappings:
+        dart: ["ifrs-full_Inventories"]
+        ifrs: ["Inventories"]
+        usgaap: ["InventoryNet"]
+      description: "상품·제품·재공품·원재료 등 판매 또는 생산 목적 보유 자산."
+
+    BS_CA_PREPAID:
+      id: BS_CA_PREPAID
+      korean_name: "선급금"
+      english_name: "Prepaid Expenses"
+      name: "선급금"
+      statement: [balance_sheet]
+      category: [asset, current_asset, working_capital, prepaid]
+      sign: positive
+      parent: BS_CA_TOTAL
+      aliases: ["선급비용", "선수금(자산)"]
+      description: "선급된 비용 중 차기 이후에 비용화될 금액."
+
+    BS_CA_OTHER:
+      id: BS_CA_OTHER
+      korean_name: "기타유동자산"
+      english_name: "Other Current Assets"
+      name: "기타유동자산"
+      statement: [balance_sheet]
+      category: [asset, current_asset, other]
+      sign: positive
+      parent: BS_CA_TOTAL
+      aliases: ["미수수익", "기타의 유동자산"]
+      mappings:
+        dart: ["ifrs-full_OtherCurrentAssets"]
+        ifrs: ["OtherCurrentAssets"]
+        usgaap: ["OtherAssetsCurrent"]
+
+    BS_CA_HOLD_FOR_SALE:
+      id: BS_CA_HOLD_FOR_SALE
+      korean_name: "유동재분류자산"
+      english_name: "Non-current Assets Held for Sale (Current)"
+      name: "처분목적보유유동자산"
+      statement: [balance_sheet]
+      category: [asset, current_asset, held_for_sale]
+      sign: positive
+      parent: BS_CA_TOTAL
+      aliases: ["처분목적보유자산", "유동으로 재분류된 비유동자산"]
+      description: "처분목적 보유로 유동으로 재분류된 비유동자산."
+
+    BS_NCA_TOTAL:
+      id: BS_NCA_TOTAL
+      korean_name: "비유동자산"
+      english_name: "Non-current Assets"
+      name: "비유동자산"
+      statement: [balance_sheet]
+      category: [asset, non_current_asset]
+      sign: positive
+      parent: BS_A_TOTAL
+      children: [BS_NCA_LT_FIN, BS_NCA_LT_INV, BS_NCA_INV_PROP, BS_NCA_PPE, BS_NCA_INTANGIBLE, BS_NCA_ROU, BS_NCA_DTA, BS_NCA_GW, BS_NCA_OTHER]
+      formula: "BS_CA_TOTAL 이외 비유동 계정의 합"
+      aliases: ["비유동자산의 총액"]
+      mappings:
+        dart: ["ifrs-full_NoncurrentAssets"]
+        ifrs: ["NonCurrentAssets"]
+        usgaap: ["AssetsNonCurrent"]
+
+    BS_NCA_LT_FIN:
+      id: BS_NCA_LT_FIN
+      korean_name: "장기금융자산"
+      english_name: "Long-term Financial Assets"
+      name: "장기금융자산"
+      statement: [balance_sheet]
+      category: [asset, non_current_asset, financial_asset]
+      sign: positive
+      parent: BS_NCA_TOTAL
+      aliases: ["장기금융상품"]
+
+    BS_NCA_LT_INV:
+      id: BS_NCA_LT_INV
+      korean_name: "장기투자자산"
+      english_name: "Long-term Investments"
+      name: "장기투자자산"
+      statement: [balance_sheet]
+      category: [asset, non_current_asset, investment]
+      sign: positive
+      parent: BS_NCA_TOTAL
+      cashflow_mapping: [investing]
+      aliases: ["장기성투자", "투자유가증권"]
+      affects: [FCF]
+
+    BS_NCA_INV_PROP:
+      id: BS_NCA_INV_PROP
+      korean_name: "투자부동산"
+      english_name: "Investment Property"
+      name: "투자부동산"
+      statement: [balance_sheet]
+      category: [asset, non_current_asset, investment_property]
+      sign: positive
+      parent: BS_NCA_TOTAL
+      aliases: ["투자용부동산"]
+      mappings:
+        dart: ["ifrs-full_InvestmentProperty"]
+        ifrs: ["InvestmentProperty"]
+        usgaap: ["InvestmentProperty"]
+
+    BS_NCA_PPE:
+      id: BS_NCA_PPE
+      korean_name: "유형자산"
+      english_name: "Property, Plant and Equipment"
+      name: "유형자산"
+      statement: [balance_sheet]
+      category: [asset, non_current_asset, ppe]
+      sign: positive
+      parent: BS_NCA_TOTAL
+      ratios: [fixed_asset_turnover]
+      affects: [FCF, CAPEX]
+      cashflow_mapping: [investing]
+      aliases: ["유형자산(순액)", "PropertyPlantAndEquipment"]
+      mappings:
+        dart: ["ifrs-full_PropertyPlantAndEquipment"]
+        ifrs: ["PropertyPlantAndEquipment"]
+        usgaap: ["PropertyPlantAndEquipmentNet"]
+      description: "영업 활동에 1년 이상 사용되는 유형 자산(감가상각 후 순액)."
+
+    BS_NCA_INTANGIBLE:
+      id: BS_NCA_INTANGIBLE
+      korean_name: "무형자산"
+      english_name: "Intangible Assets"
+      name: "무형자산"
+      statement: [balance_sheet]
+      category: [asset, non_current_asset, intangible]
+      sign: positive
+      parent: BS_NCA_TOTAL
+      children: [BS_NCA_GW]
+      affects: [FCF]
+      cashflow_mapping: [investing]
+      aliases: ["무형자산(순액)"]
+      mappings:
+        dart: ["ifrs-full_IntangibleAssets"]
+        ifrs: ["IntangibleAssets"]
+        usgaap: ["IntangibleAssetsNet"]
+
+    BS_NCA_GW:
+      id: BS_NCA_GW
+      korean_name: "영업권"
+      english_name: "Goodwill"
+      name: "영업권"
+      statement: [balance_sheet]
+      category: [asset, non_current_asset, intangible, goodwill]
+      sign: positive
+      parent: BS_NCA_INTANGIBLE
+      aliases: ["합병영업권"]
+      mappings:
+        dart: ["ifrs-full_Goodwill"]
+        ifrs: ["Goodwill"]
+        usgaap: ["Goodwill"]
+      description: "기업결합 시 인수가액이 피인수 순자산 공정가액을 초과한 금액."
+
+    BS_NCA_ROU:
+      id: BS_NCA_ROU
+      korean_name: "사용권자산"
+      english_name: "Right-of-Use Asset"
+      name: "사용권자산"
+      statement: [balance_sheet]
+      category: [asset, non_current_asset, lease]
+      sign: positive
+      parent: BS_NCA_TOTAL
+      aliases: ["리스사용권자산"]
+      mappings:
+        dart: ["ifrs-full_RightofuseAssets"]
+        ifrs: ["RightOfUseAssets"]
+        usgaap: ["RightOfUseAssets"]
+      description: "IFRS 16 임차에서 인식되는 사용권 자산."
+
+    BS_NCA_DTA:
+      id: BS_NCA_DTA
+      korean_name: "이연법인세자산"
+      english_name: "Deferred Tax Assets"
+      name: "이연법인세자산"
+      statement: [balance_sheet]
+      category: [asset, non_current_asset, deferred_tax]
+      sign: positive
+      parent: BS_NCA_TOTAL
+      aliases: ["이연법인세자산(순액)"]
+      mappings:
+        dart: ["ifrs-full_DeferredTaxAssets"]
+        ifrs: ["DeferredTaxAssets"]
+        usgaap: ["DeferredTaxAssetsNet"]
+
+    BS_NCA_OTHER:
+      id: BS_NCA_OTHER
+      korean_name: "기타비유동자산"
+      english_name: "Other Non-current Assets"
+      name: "기타비유동자산"
+      statement: [balance_sheet]
+      category: [asset, non_current_asset, other]
+      sign: positive
+      parent: BS_NCA_TOTAL
+      aliases: ["장성보증금", "기타의 비유동자산"]
+      mappings:
+        dart: ["ifrs-full_OtherNoncurrentAssets"]
+        ifrs: ["OtherNonCurrentAssets"]
+        usgaap: ["OtherAssetsNoncurrent"]
+
+    # =========================================================================
+    # 재무상태표 — 부채
+    # =========================================================================
+    BS_L_TOTAL:
+      id: BS_L_TOTAL
+      korean_name: "부채총계"
+      english_name: "Total Liabilities"
+      name: "부채총계"
+      statement: [balance_sheet]
+      category: [liability, total]
+      sign: positive
+      children: [BS_CL_TOTAL, BS_NCL_TOTAL]
+      formula: "BS_CL_TOTAL + BS_NCL_TOTAL"
+      ratios: [debt_ratio, debt_to_equity, equity_ratio]
+      affects: [Leverage]
+      aliases: ["총부채", "부채의 총액"]
+      mappings:
+        dart: ["ifrs-full_Liabilities"]
+        ifrs: ["Liabilities"]
+        usgaap: ["Liabilities"]
+
+    BS_CL_TOTAL:
+      id: BS_CL_TOTAL
+      korean_name: "유동부채"
+      english_name: "Current Liabilities"
+      name: "유동부채"
+      statement: [balance_sheet]
+      category: [liability, current_liability, working_capital]
+      sign: positive
+      parent: BS_L_TOTAL
+      children: [BS_CL_ST_BORROW, BS_CL_ST_BOND, BS_CL_AP, BS_CL_ADV, BS_CL_ST_PROV, BS_CL_PAYABLE, BS_CL_DIV_PAYABLE, BS_CL_ST_TAX, BS_CL_ST_DERIV, BS_CL_OTHER]
+      ratios: [current_ratio, quick_ratio, cash_ratio, working_capital]
+      affects: [WorkingCapital]
+      aliases: ["유동부채의 총액"]
+      mappings:
+        dart: ["ifrs-full_CurrentLiabilities"]
+        ifrs: ["CurrentLiabilities"]
+        usgaap: ["LiabilitiesCurrent"]
+
+    BS_CL_ST_BORROW:
+      id: BS_CL_ST_BORROW
+      korean_name: "단기차입금"
+      english_name: "Short-term Borrowings"
+      name: "단기차입금"
+      statement: [balance_sheet]
+      category: [liability, current_liability, debt, interest_bearing]
+      sign: positive
+      parent: BS_CL_TOTAL
+      ratios: [debt_ratio, debt_to_equity]
+      affects: [Leverage, InterestCoverage]
+      cashflow_mapping: [financing]
+      aliases: ["단기차입금 및 하자보수충당금"]
+      mappings:
+        dart: ["ifrs-full_ShorttermBorrowings"]
+        ifrs: ["ShortTermBorrowings"]
+        usgaap: ["ShortTermBorrowings"]
+      description: "만기 1년 이내 차입금. 이자비용 발생."
+
+    BS_CL_ST_BOND:
+      id: BS_CL_ST_BOND
+      korean_name: "단기사채"
+      english_name: "Current Portion of Bonds Payable"
+      name: "단기사채"
+      statement: [balance_sheet]
+      category: [liability, current_liability, debt, interest_bearing]
+      sign: positive
+      parent: BS_CL_TOTAL
+      affects: [Leverage]
+      cashflow_mapping: [financing]
+      aliases: ["사채(유동)"]
+
+    BS_CL_AP:
+      id: BS_CL_AP
+      korean_name: "매입채무"
+      english_name: "Accounts Payable"
+      name: "매입채무"
+      statement: [balance_sheet]
+      category: [liability, current_liability, working_capital, payable]
+      sign: positive
+      parent: BS_CL_TOTAL
+      ratios: [payable_turnover, cash_conversion_cycle, current_ratio]
+      affects: [WorkingCapital, OCF]
+      cashflow_mapping: [operating]
+      aliases: ["외상매입금", "미지급금(매입)"]
+      mappings:
+        dart: ["ifrs-full_TradeAndOtherCurrentPayables"]
+        ifrs: ["TradeAndOtherPayables"]
+        usgaap: ["AccountsPayableCurrent"]
+
+    BS_CL_ADV:
+      id: BS_CL_ADV
+      korean_name: "선수금"
+      english_name: "Advances from Customers"
+      name: "선수금"
+      statement: [balance_sheet]
+      category: [liability, current_liability, deferred_revenue]
+      sign: positive
+      parent: BS_CL_TOTAL
+      aliases: ["선수수익"]
+      description: "상품·용역 인도 전 수취한 대가."
+
+    BS_CL_ST_PROV:
+      id: BS_CL_ST_PROV
+      korean_name: "유동충당부채"
+      english_name: "Current Provisions"
+      name: "유동충당부채"
+      statement: [balance_sheet]
+      category: [liability, current_liability, provision]
+      sign: positive
+      parent: BS_CL_TOTAL
+      aliases: ["충당부채(유동)"]
+      mappings:
+        dart: ["ifrs-full_CurrentProvisions"]
+        ifrs: ["CurrentProvisions"]
+
+    BS_CL_PAYABLE:
+      id: BS_CL_PAYABLE
+      korean_name: "미지급금"
+      english_name: "Other Payables"
+      name: "미지급금"
+      statement: [balance_sheet]
+      category: [liability, current_liability, payable]
+      sign: positive
+      parent: BS_CL_TOTAL
+      aliases: ["기타미지급금"]
+
+    BS_CL_DIV_PAYABLE:
+      id: BS_CL_DIV_PAYABLE
+      korean_name: "미지급배당금"
+      english_name: "Dividends Payable"
+      name: "미지급배당금"
+      statement: [balance_sheet]
+      category: [liability, current_liability, dividend]
+      sign: positive
+      parent: BS_CL_TOTAL
+      aliases: ["배당금미지급금"]
+
+    BS_CL_ST_TAX:
+      id: BS_CL_ST_TAX
+      korean_name: "당기법인세부채"
+      english_name: "Current Tax Payable"
+      name: "당기법인세부채"
+      statement: [balance_sheet]
+      category: [liability, current_liability, tax]
+      sign: positive
+      parent: BS_CL_TOTAL
+      aliases: ["미지급법인세"]
+      mappings:
+        dart: ["ifrs-full_CurrentTaxLiabilities"]
+        ifrs: ["CurrentTaxLiabilities"]
+
+    BS_CL_ST_DERIV:
+      id: BS_CL_ST_DERIV
+      korean_name: "파생상품부채(유동)"
+      english_name: "Current Derivative Liabilities"
+      name: "파생상품부채(유동)"
+      statement: [balance_sheet]
+      category: [liability, current_liability, derivative]
+      sign: positive
+      parent: BS_CL_TOTAL
+      aliases: ["파생상품(유동부채)"]
+
+    BS_CL_OTHER:
+      id: BS_CL_OTHER
+      korean_name: "기타유동부채"
+      english_name: "Other Current Liabilities"
+      name: "기타유동부채"
+      statement: [balance_sheet]
+      category: [liability, current_liability, other]
+      sign: positive
+      parent: BS_CL_TOTAL
+      aliases: ["기타의 유동부채"]
+      mappings:
+        dart: ["ifrs-full_OtherCurrentLiabilities"]
+        ifrs: ["OtherCurrentLiabilities"]
+        usgaap: ["OtherLiabilitiesCurrent"]
+
+    BS_NCL_TOTAL:
+      id: BS_NCL_TOTAL
+      korean_name: "비유동부채"
+      english_name: "Non-current Liabilities"
+      name: "비유동부채"
+      statement: [balance_sheet]
+      category: [liability, non_current_liability]
+      sign: positive
+      parent: BS_L_TOTAL
+      children: [BS_NCL_LT_BORROW, BS_NCL_BOND, BS_NCL_LT_PROV, BS_NCL_DTL, BS_NCL_LT_DERIV, BS_NCL_OTHER]
+      aliases: ["비유동부채의 총액"]
+      mappings:
+        dart: ["ifrs-full_NoncurrentLiabilities"]
+        ifrs: ["NonCurrentLiabilities"]
+        usgaap: ["LiabilitiesNonCurrent"]
+
+    BS_NCL_LT_BORROW:
+      id: BS_NCL_LT_BORROW
+      korean_name: "장기차입금"
+      english_name: "Long-term Borrowings"
+      name: "장기차입금"
+      statement: [balance_sheet]
+      category: [liability, non_current_liability, debt, interest_bearing]
+      sign: positive
+      parent: BS_NCL_TOTAL
+      ratios: [debt_ratio, debt_to_equity]
+      affects: [Leverage, InterestCoverage]
+      cashflow_mapping: [financing]
+      aliases: ["장기차입금"]
+      mappings:
+        dart: ["ifrs-full_LongtermBorrowings"]
+        ifrs: ["LongTermBorrowings"]
+        usgaap: ["LongTermDebt"]
+
+    BS_NCL_BOND:
+      id: BS_NCL_BOND
+      korean_name: "사채"
+      english_name: "Bonds Payable"
+      name: "사채"
+      statement: [balance_sheet]
+      category: [liability, non_current_liability, debt, interest_bearing]
+      sign: positive
+      parent: BS_NCL_TOTAL
+      affects: [Leverage]
+      cashflow_mapping: [financing]
+      aliases: ["사채(장기)"]
+      mappings:
+        dart: ["ifrs-full_BondsPayable"]
+        ifrs: ["BondsPayable"]
+        usgaap: ["LongTermDebt"]
+
+    BS_NCL_LT_PROV:
+      id: BS_NCL_LT_PROV
+      korean_name: "퇴직급여충당부채"
+      english_name: "Employee Benefit Obligations"
+      name: "퇴직급여충당부채"
+      statement: [balance_sheet]
+      category: [liability, non_current_liability, provision, employee_benefit]
+      sign: positive
+      parent: BS_NCL_TOTAL
+      aliases: ["퇴직금충당금", "비유동충당부채"]
+      mappings:
+        dart: ["ifrs-full_EmployeeBenefitsLiabilities"]
+        ifrs: ["EmployeeBenefitsLiabilities"]
+        usgaap: ["PensionAndPostretirementBenefits"]
+      description: "확정급여 퇴직급여 의무에 대한 충당부채."
+
+    BS_NCL_DTL:
+      id: BS_NCL_DTL
+      korean_name: "이연법인세부채"
+      english_name: "Deferred Tax Liabilities"
+      name: "이연법인세부채"
+      statement: [balance_sheet]
+      category: [liability, non_current_liability, deferred_tax]
+      sign: positive
+      parent: BS_NCL_TOTAL
+      aliases: ["이연법인세부채"]
+      mappings:
+        dart: ["ifrs-full_DeferredTaxLiabilities"]
+        ifrs: ["DeferredTaxLiabilities"]
+        usgaap: ["DeferredTaxLiabilitiesNet"]
+
+    BS_NCL_LT_DERIV:
+      id: BS_NCL_LT_DERIV
+      korean_name: "파생상품부채(비유동)"
+      english_name: "Non-current Derivative Liabilities"
+      name: "파생상품부채(비유동)"
+      statement: [balance_sheet]
+      category: [liability, non_current_liability, derivative]
+      sign: positive
+      parent: BS_NCL_TOTAL
+      aliases: ["파생상품(비유동부채)"]
+
+    BS_NCL_OTHER:
+      id: BS_NCL_OTHER
+      korean_name: "기타비유동부채"
+      english_name: "Other Non-current Liabilities"
+      name: "기타비유동부채"
+      statement: [balance_sheet]
+      category: [liability, non_current_liability, other]
+      sign: positive
+      parent: BS_NCL_TOTAL
+      aliases: ["기타의 비유동부채"]
+      mappings:
+        dart: ["ifrs-full_OtherNoncurrentLiabilities"]
+        ifrs: ["OtherNonCurrentLiabilities"]
+        usgaap: ["OtherLiabilitiesNoncurrent"]
+
+    # =========================================================================
+    # 재무상태표 — 자본
+    # =========================================================================
+    BS_EQ_TOTAL:
+      id: BS_EQ_TOTAL
+      korean_name: "자본총계"
+      english_name: "Total Equity"
+      name: "자본총계"
+      statement: [balance_sheet]
+      category: [equity, total]
+      sign: positive
+      children: [BS_EQ_PARENT, BS_EQ_NCI]
+      formula: "BS_EQ_PARENT + BS_EQ_NCI"
+      ratios: [debt_to_equity, equity_ratio, roe, roa]
+      affects: [EquityBase]
+      aliases: ["총자본", "자본의 총액"]
+      mappings:
+        dart: ["ifrs-full_Equity"]
+        ifrs: ["Equity"]
+        usgaap: ["StockholdersEquity"]
+      description: "지배기업 주주지분과 비지배지분의 합. 자산 - 부채."
+
+    BS_EQ_PARENT:
+      id: BS_EQ_PARENT
+      korean_name: "지배기업주주지분"
+      english_name: "Equity Attributable to Owners of Parent"
+      name: "지배기업주주지분"
+      statement: [balance_sheet]
+      category: [equity, parent_equity]
+      sign: positive
+      parent: BS_EQ_TOTAL
+      children: [BS_EQ_CS, BS_EQ_PS, BS_EQ_APIC, BS_EQ_OCI, BS_EQ_RE, BS_EQ_TREASURY, BS_EQ_RV]
+      formula: "BS_EQ_CS + BS_EQ_PS + BS_EQ_APIC + BS_EQ_OCI + BS_EQ_RE + BS_EQ_RV - BS_EQ_TREASURY"
+      ratios: [roe, bvps]
+      aliases: ["자본(지배)", "주주지분"]
+      mappings:
+        dart: ["ifrs-full_EquityAttributableToOwnersOfParent"]
+        ifrs: ["EquityAttributableToOwnersOfParent"]
+        usgaap: ["StockholdersEquity"]
+
+    BS_EQ_CS:
+      id: BS_EQ_CS
+      korean_name: "자본금(보통주)"
+      english_name: "Common Stock"
+      name: "자본금-보통주"
+      statement: [balance_sheet]
+      category: [equity, parent_equity, paid_in_capital, common_stock]
+      sign: positive
+      parent: BS_EQ_PARENT
+      aliases: ["보통주자본금", "납입자본금"]
+      mappings:
+        dart: ["ifrs-full_IssuedCapital"]
+        ifrs: ["IssuedCapital"]
+        usgaap: ["CommonStockValue"]
+
+    BS_EQ_PS:
+      id: BS_EQ_PS
+      korean_name: "자본금(우선주)"
+      english_name: "Preferred Stock"
+      name: "자본금-우선주"
+      statement: [balance_sheet]
+      category: [equity, parent_equity, paid_in_capital, preferred_stock]
+      sign: positive
+      parent: BS_EQ_PARENT
+      aliases: ["우선주자본금"]
+
+    BS_EQ_APIC:
+      id: BS_EQ_APIC
+      korean_name: "자본잉여금"
+      english_name: "Additional Paid-in Capital"
+      name: "자본잉여금"
+      statement: [balance_sheet]
+      category: [equity, parent_equity, paid_in_capital]
+      sign: positive
+      parent: BS_EQ_PARENT
+      aliases: ["주식발행초과금", "기타자본잉여금"]
+      mappings:
+        dart: ["ifrs-full_CapitalReserve"]
+        ifrs: ["SharePremium"]
+        usgaap: ["AdditionalPaidInCapital"]
+
+    BS_EQ_OCI:
+      id: BS_EQ_OCI
+      korean_name: "기타포괄손익누적액"
+      english_name: "Accumulated Other Comprehensive Income"
+      name: "기타포괄손익누적액"
+      statement: [balance_sheet]
+      category: [equity, parent_equity, accumulated_oci]
+      sign: natural
+      parent: BS_EQ_PARENT
+      aliases: ["이연포괄손익", "기타포괄손익"]
+      mappings:
+        dart: ["ifrs-full_OtherReserves"]
+        ifrs: ["ReserveOfCashFlowHedges", "ReserveOfExchangeDifferences"]
+        usgaap: ["AccumulatedOtherComprehensiveIncomeLoss"]
+
+    BS_EQ_RE:
+      id: BS_EQ_RE
+      korean_name: "이익잉여금"
+      english_name: "Retained Earnings"
+      name: "이익잉여금"
+      statement: [balance_sheet]
+      category: [equity, parent_equity, retained_earnings]
+      sign: natural
+      parent: BS_EQ_PARENT
+      ratios: [roe, dividend_payout, retention_ratio]
+      affects: [DividendCapacity]
+      aliases: ["미처분이익잉여금"]
+      mappings:
+        dart: ["ifrs-full_RetainedEarnings"]
+        ifrs: ["RetainedEarnings"]
+        usgaap: ["RetainedEarningsAccumulatedDeficit"]
+      description: "이익 중 사외 유출되지 않고 적립된 누적액."
+
+    BS_EQ_TREASURY:
+      id: BS_EQ_TREASURY
+      korean_name: "자기주식"
+      english_name: "Treasury Stock"
+      name: "자기주식"
+      statement: [balance_sheet]
+      category: [equity, parent_equity, contra_equity, treasury]
+      sign: negative
+      parent: BS_EQ_PARENT
+      aliases: ["자기주식(차감)"]
+      mappings:
+        dart: ["ifrs-full_TreasuryStock"]
+        ifrs: ["TreasuryShares"]
+        usgaap: ["TreasuryStockValue"]
+      description: "자사가 취득·보유 중인 자기 주식. 자본에서 차감(음수)."
+
+    BS_EQ_RV:
+      id: BS_EQ_RV
+      korean_name: "재평가잉여금"
+      english_name: "Revaluation Surplus"
+      name: "재평가잉여금"
+      statement: [balance_sheet]
+      category: [equity, parent_equity, revaluation]
+      sign: natural
+      parent: BS_EQ_PARENT
+      aliases: ["자산재평가잉여금"]
+      mappings:
+        dart: ["ifrs-full_RevaluationReserves"]
+        ifrs: ["RevaluationSurplus"]
+
+    BS_EQ_NCI:
+      id: BS_EQ_NCI
+      korean_name: "비지배지분"
+      english_name: "Non-controlling Interests"
+      name: "비지배지분"
+      statement: [balance_sheet]
+      category: [equity, nci]
+      sign: natural
+      parent: BS_EQ_TOTAL
+      aliases: ["소수주주지분"]
+      mappings:
+        dart: ["ifrs-full_NoncontrollingInterests"]
+        ifrs: ["NonControllingInterests"]
+        usgaap: ["MinorityInterest"]
+      description: "자회사 순자산 중 지배기업이 지배하지 않는 지분."
+
+    # =========================================================================
+    # 손익계산서
+    # =========================================================================
+    IS_REV_TOTAL:
+      id: IS_REV_TOTAL
+      korean_name: "매출액(총계)"
+      english_name: "Total Revenue"
+      name: "매출액"
+      statement: [income_statement]
+      category: [revenue, total]
+      sign: positive
+      children: [IS_REV_SALES, IS_REV_OTHER]
+      formula: "IS_REV_SALES + IS_REV_OTHER"
+      ratios: [gross_margin, operating_margin, ebitda_margin, asset_turnover, revenue_growth]
+      affects: [RevenueBase]
+      aliases: ["매출액", "Revenue"]
+      mappings:
+        dart: ["ifrs-full_Revenue"]
+        ifrs: ["Revenue"]
+        usgaap: ["Revenues"]
+      description: "기간 중 인식한 총 매출(상품·용역 매출 + 기타 매출)."
+
+    IS_REV_SALES:
+      id: IS_REV_SALES
+      korean_name: "매출액(상품·용역)"
+      english_name: "Sales Revenue"
+      name: "상품·용역 매출액"
+      statement: [income_statement]
+      category: [revenue, sales]
+      sign: positive
+      parent: IS_REV_TOTAL
+      ratios: [gross_margin, operating_margin]
+      aliases: ["제품매출", "용역매출"]
+      mappings:
+        dart: ["ifrs-full_RevenueFromSalesOfGoods"]
+        ifrs: ["RevenueFromSaleOfGoods"]
+        usgaap: ["SalesRevenueGoodsNet"]
+
+    IS_REV_OTHER:
+      id: IS_REV_OTHER
+      korean_name: "기타 매출"
+      english_name: "Other Revenue"
+      name: "기타 매출"
+      statement: [income_statement]
+      category: [revenue, other]
+      sign: positive
+      parent: IS_REV_TOTAL
+      aliases: ["잡수익(매출)"]
+      description: "주요 영업 외의 부수적 매출·수익."
+
+    IS_COGS_TOTAL:
+      id: IS_COGS_TOTAL
+      korean_name: "매출원가"
+      english_name: "Cost of Goods Sold"
+      name: "매출원가"
+      statement: [income_statement]
+      category: [expense, cogs]
+      sign: positive
+      ratios: [gross_margin]
+      affects: [GrossProfit]
+      aliases: ["제품판매원가", "COGS"]
+      mappings:
+        dart: ["ifrs-full_CostOfSales"]
+        ifrs: ["CostOfSales"]
+        usgaap: ["CostOfGoodsAndServicesSold"]
+      description: "매출에 대응되는 상품·제품의 원가."
+
+    IS_GP_TOTAL:
+      id: IS_GP_TOTAL
+      korean_name: "매출총이익"
+      english_name: "Gross Profit"
+      name: "매출총이익"
+      statement: [income_statement]
+      category: [profit, gross_profit]
+      sign: natural
+      depends_on: [IS_REV_TOTAL, IS_COGS_TOTAL]
+      formula: "IS_REV_TOTAL - IS_COGS_TOTAL"
+      ratios: [gross_margin]
+      affects: [GrossProfit]
+      aliases: ["매출총이익(그로스마진)"]
+      description: "매출액에서 매출원가를 차감한 이익."
+
+    IS_OPEX_TOTAL:
+      id: IS_OPEX_TOTAL
+      korean_name: "판매비와관리비"
+      english_name: "Selling, General and Administrative Expenses"
+      name: "판매비와관리비"
+      statement: [income_statement]
+      category: [expense, opex]
+      sign: positive
+      children: [IS_OPEX_SELLING, IS_OPEX_ADMIN, IS_OPEX_RD, IS_OPEX_DEPR]
+      formula: "IS_OPEX_SELLING + IS_OPEX_ADMIN + IS_OPEX_RD + IS_OPEX_DEPR"
+      aliases: ["판관비", "SG&A"]
+      description: "영업활동에 소요되는 판매비·관리비·연구개발비·감가상각비."
+
+    IS_OPEX_SELLING:
+      id: IS_OPEX_SELLING
+      korean_name: "판매비"
+      english_name: "Selling Expenses"
+      name: "판매비"
+      statement: [income_statement]
+      category: [expense, opex, selling]
+      sign: positive
+      parent: IS_OPEX_TOTAL
+      aliases: ["판매비용"]
+
+    IS_OPEX_ADMIN:
+      id: IS_OPEX_ADMIN
+      korean_name: "관리비"
+      english_name: "General and Administrative Expenses"
+      name: "관리비"
+      statement: [income_statement]
+      category: [expense, opex, gna]
+      sign: positive
+      parent: IS_OPEX_TOTAL
+      aliases: ["관리비용", "G&A"]
+
+    IS_OPEX_RD:
+      id: IS_OPEX_RD
+      korean_name: "연구개발비"
+      english_name: "Research and Development Expenses"
+      name: "연구개발비"
+      statement: [income_statement]
+      category: [expense, opex, rd]
+      sign: positive
+      parent: IS_OPEX_TOTAL
+      ratios: [rd_intensity]
+      affects: [InnovationCapacity]
+      aliases: ["R&D비용", "연구개발비"]
+      mappings:
+        dart: ["ifrs-full_ResearchAndDevelopmentExpense"]
+        ifrs: ["ResearchAndDevelopmentExpense"]
+        usgaap: ["ResearchAndDevelopmentExpense"]
+
+    IS_OPEX_DEPR:
+      id: IS_OPEX_DEPR
+      korean_name: "감가상각비"
+      english_name: "Depreciation and Amortization"
+      name: "감가상각비"
+      statement: [income_statement, cash_flow]
+      category: [expense, opex, depreciation]
+      sign: positive
+      parent: IS_OPEX_TOTAL
+      affects: [EBITDA, OCF]
+      cashflow_mapping: [operating]
+      aliases: ["유형자산상각비", "D&A"]
+      description: "유형·무형자산의 기간 배분액. EBITDA 산출 시 가산."
+
+    IS_OP_INCOME:
+      id: IS_OP_INCOME
+      korean_name: "영업이익"
+      english_name: "Operating Income"
+      name: "영업이익"
+      statement: [income_statement]
+      category: [profit, operating_profit]
+      sign: natural
+      depends_on: [IS_GP_TOTAL, IS_OPEX_TOTAL]
+      formula: "IS_GP_TOTAL - IS_OPEX_TOTAL"
+      ratios: [operating_margin, ebitda_margin, roa, interest_coverage]
+      affects: [EBITDA, OperatingProfit]
+      aliases: ["영업이익", "EBIT(근사)"]
+      mappings:
+        dart: ["ifrs-full_OperatingProfit"]
+        ifrs: ["OperatingProfit"]
+      description: "주영업 활동에서 발생한 이익. 영업외손익 전."
+
+    IS_NONOP_REV_TOTAL:
+      id: IS_NONOP_REV_TOTAL
+      korean_name: "영업외수익"
+      english_name: "Non-operating Revenue"
+      name: "영업외수익"
+      statement: [income_statement]
+      category: [revenue, non_operating]
+      sign: positive
+      children: [IS_NONOP_INT_INC, IS_NONOP_DIV_INC, IS_NONOP_EQ_METHOD, IS_NONOP_FX_GAIN, IS_NONOP_FA_GAIN, IS_NONOP_REV_OTHER]
+      aliases: ["영업외수익의 총액"]
+
+    IS_NONOP_INT_INC:
+      id: IS_NONOP_INT_INC
+      korean_name: "이자수익"
+      english_name: "Interest Income"
+      name: "이자수익"
+      statement: [income_statement]
+      category: [revenue, non_operating, financial]
+      sign: positive
+      parent: IS_NONOP_REV_TOTAL
+      aliases: ["수이익"]
+      mappings:
+        dart: ["ifrs-full_FinanceIncome"]
+        ifrs: ["InterestIncome"]
+        usgaap: ["InterestIncome"]
+
+    IS_NONOP_DIV_INC:
+      id: IS_NONOP_DIV_INC
+      korean_name: "배당금수익"
+      english_name: "Dividend Income"
+      name: "배당금수익"
+      statement: [income_statement]
+      category: [revenue, non_operating, financial]
+      sign: positive
+      parent: IS_NONOP_REV_TOTAL
+      aliases: ["배당수익"]
+      mappings:
+        dart: ["ifrs-full_DividendIncome"]
+        ifrs: ["DividendRevenue"]
+
+    IS_NONOP_EQ_METHOD:
+      id: IS_NONOP_EQ_METHOD
+      korean_name: "지분법이익"
+      english_name: "Equity Method Gain"
+      name: "지분법이익"
+      statement: [income_statement]
+      category: [revenue, non_operating, equity_method]
+      sign: natural
+      parent: IS_NONOP_REV_TOTAL
+      aliases: ["지분법손익"]
+      mappings:
+        dart: ["ifrs-full_ShareOfProfitLossOfAssociatesAndJointVenturesAccountedForUsingEquityMethod"]
+        ifrs: ["ShareOfProfitLossOfAssociatesAndJointVentiles"]
+        usgaap: ["IncomeLossFromEquityMethodInvestments"]
+
+    IS_NONOP_FX_GAIN:
+      id: IS_NONOP_FX_GAIN
+      korean_name: "외환관계이익"
+      english_name: "Foreign Exchange Gains"
+      name: "외환관계이익"
+      statement: [income_statement]
+      category: [revenue, non_operating, fx]
+      sign: positive
+      parent: IS_NONOP_REV_TOTAL
+      aliases: ["외환차익"]
+
+    IS_NONOP_FA_GAIN:
+      id: IS_NONOP_FA_GAIN
+      korean_name: "유형자산처분이익"
+      english_name: "Gain on Disposal of PPE"
+      name: "유형자산처분이익"
+      statement: [income_statement]
+      category: [revenue, non_operating, disposal_gain]
+      sign: positive
+      parent: IS_NONOP_REV_TOTAL
+      aliases: ["고정자산처분이익"]
+
+    IS_NONOP_REV_OTHER:
+      id: IS_NONOP_REV_OTHER
+      korean_name: "기타 영업외수익"
+      english_name: "Other Non-operating Revenue"
+      name: "기타 영업외수익"
+      statement: [income_statement]
+      category: [revenue, non_operating, other]
+      sign: positive
+      parent: IS_NONOP_REV_TOTAL
+      aliases: ["잡이익"]
+
+    IS_NONOP_EXP_TOTAL:
+      id: IS_NONOP_EXP_TOTAL
+      korean_name: "영업외비용"
+      english_name: "Non-operating Expenses"
+      name: "영업외비용"
+      statement: [income_statement]
+      category: [expense, non_operating]
+      sign: positive
+      children: [IS_NONOP_INT_EXP, IS_NONOP_FX_LOSS, IS_NONOP_FA_LOSS, IS_NONOP_EXP_OTHER]
+      aliases: ["영업외비용의 총액"]
+
+    IS_NONOP_INT_EXP:
+      id: IS_NONOP_INT_EXP
+      korean_name: "이자비용"
+      english_name: "Interest Expense"
+      name: "이자비용"
+      statement: [income_statement]
+      category: [expense, non_operating, financial]
+      sign: positive
+      parent: IS_NONOP_EXP_TOTAL
+      ratios: [interest_coverage]
+      affects: [InterestCoverage]
+      aliases: ["수비용", "금융비용"]
+      mappings:
+        dart: ["ifrs-full_FinanceCosts"]
+        ifrs: ["FinanceCosts"]
+        usgaap: ["InterestExpense"]
+
+    IS_NONOP_FX_LOSS:
+      id: IS_NONOP_FX_LOSS
+      korean_name: "외환관계손실"
+      english_name: "Foreign Exchange Losses"
+      name: "외환관계손실"
+      statement: [income_statement]
+      category: [expense, non_operating, fx]
+      sign: positive
+      parent: IS_NONOP_EXP_TOTAL
+      aliases: ["외환차손"]
+
+    IS_NONOP_FA_LOSS:
+      id: IS_NONOP_FA_LOSS
+      korean_name: "유형자산처분손실"
+      english_name: "Loss on Disposal of PPE"
+      name: "유형자산처분손실"
+      statement: [income_statement]
+      category: [expense, non_operating, disposal_loss]
+      sign: positive
+      parent: IS_NONOP_EXP_TOTAL
+      aliases: ["고정자산처분손실"]
+
+    IS_NONOP_EXP_OTHER:
+      id: IS_NONOP_EXP_OTHER
+      korean_name: "기타 영업외비용"
+      english_name: "Other Non-operating Expenses"
+      name: "기타 영업외비용"
+      statement: [income_statement]
+      category: [expense, non_operating, other]
+      sign: positive
+      parent: IS_NONOP_EXP_TOTAL
+      aliases: ["잡손실"]
+
+    IS_PBT_TOTAL:
+      id: IS_PBT_TOTAL
+      korean_name: "법인세차감전순이익"
+      english_name: "Profit Before Tax"
+      name: "법인세차감전순이익"
+      statement: [income_statement]
+      category: [profit, profit_before_tax]
+      sign: natural
+      depends_on: [IS_OP_INCOME, IS_NONOP_REV_TOTAL, IS_NONOP_EXP_TOTAL]
+      formula: "IS_OP_INCOME + IS_NONOP_REV_TOTAL - IS_NONOP_EXP_TOTAL"
+      ratios: [interest_coverage, ebit_margin]
+      affects: [EBT]
+      aliases: ["세전순이익", "PBT"]
+      mappings:
+        dart: ["ifrs-full_ProfitLossBeforeTax"]
+        ifrs: ["ProfitLossBeforeTax"]
+        usgaap: ["IncomeLossFromContinuingOperationsBeforeIncomeTaxes"]
+
+    IS_TAX_TOTAL:
+      id: IS_TAX_TOTAL
+      korean_name: "법인세비용"
+      english_name: "Income Tax Expense"
+      name: "법인세비용"
+      statement: [income_statement]
+      category: [expense, tax]
+      sign: positive
+      children: [IS_TAX_CURRENT, IS_TAX_DEFERRED]
+      aliases: ["법인세", "Tax"]
+      mappings:
+        dart: ["ifrs-full_IncomeTaxExpenseBenefit"]
+        ifrs: ["IncomeTaxExpenseBenefit"]
+        usgaap: ["IncomeTaxExpenseBenefit"]
+
+    IS_TAX_CURRENT:
+      id: IS_TAX_CURRENT
+      korean_name: "당기법인세"
+      english_name: "Current Tax Expense"
+      name: "당기법인세"
+      statement: [income_statement]
+      category: [expense, tax, current_tax]
+      sign: positive
+      parent: IS_TAX_TOTAL
+      aliases: ["당기법인세비용"]
+
+    IS_TAX_DEFERRED:
+      id: IS_TAX_DEFERRED
+      korean_name: "이연법인세"
+      english_name: "Deferred Tax Expense"
+      name: "이연법인세"
+      statement: [income_statement]
+      category: [expense, tax, deferred_tax]
+      sign: natural
+      parent: IS_TAX_TOTAL
+      aliases: ["이연법인세비용"]
+
+    IS_NI_TOTAL:
+      id: IS_NI_TOTAL
+      korean_name: "당기순이익"
+      english_name: "Net Income"
+      name: "당기순이익"
+      statement: [income_statement, cash_flow, comprehensive_income, changes_in_equity]
+      category: [profit, net_income]
+      sign: natural
+      depends_on: [IS_PBT_TOTAL, IS_TAX_TOTAL]
+      formula: "IS_PBT_TOTAL - IS_TAX_TOTAL"
+      ratios: [roe, roa, net_margin, eps, dividend_payout]
+      affects: [ROE, ROA, RetainedEarnings, ComprehensiveIncome]
+      aliases: ["순이익", "Net Income"]
+      mappings:
+        dart: ["ifrs-full_ProfitLoss"]
+        ifrs: ["ProfitLoss"]
+        usgaap: ["ProfitLoss"]
+      description: "법인세 차감 후 기간 이익. 지배·비지배로 분할됨."
+
+    IS_NI_PARENT:
+      id: IS_NI_PARENT
+      korean_name: "지배기업소유주지분순이익"
+      english_name: "Net Income Attributable to Parent"
+      name: "지배주주 순이익"
+      statement: [income_statement]
+      category: [profit, net_income, parent]
+      sign: natural
+      parent: IS_NI_TOTAL
+      depends_on: [IS_NI_TOTAL, IS_NI_NCI]
+      formula: "IS_NI_TOTAL - IS_NI_NCI"
+      ratios: [roe, eps]
+      affects: [ROE, EPS]
+      aliases: ["지배순이익"]
+      mappings:
+        dart: ["ifrs-full_ProfitLossAttributableToOwnersOfParent"]
+        ifrs: ["ProfitLossAttributableToOwnersOfParent"]
+        usgaap: ["NetIncomeLoss"]
+
+    IS_NI_NCI:
+      id: IS_NI_NCI
+      korean_name: "비지배지분순이익"
+      english_name: "Net Income Attributable to NCI"
+      name: "비지배주주 순이익"
+      statement: [income_statement]
+      category: [profit, net_income, nci]
+      sign: natural
+      parent: IS_NI_TOTAL
+      aliases: ["소수주주지분순이익"]
+      mappings:
+        dart: ["ifrs-full_ProfitLossAttributableToNoncontrollingInterests"]
+        ifrs: ["ProfitLossAttributableToNonControllingInterests"]
+        usgaap: ["NetIncomeLossAttributableToNoncontrollingInterest"]
+
+    # =========================================================================
+    # 기타포괄손익
+    # =========================================================================
+    CI_NOR_TOTAL:
+      id: CI_NOR_TOTAL
+      korean_name: "재분류 안되는 기타포괄손익"
+      english_name: "OCI Not Reclassified to P&L"
+      name: "재분류안됨"
+      statement: [comprehensive_income]
+      category: [oci, not_reclassified]
+      sign: natural
+      children: [CI_NOR_RV, CI_NOR_PENSION, CI_NOR_FV_EQ]
+      aliases: ["재분류 안되는 항목"]
+
+    CI_NOR_RV:
+      id: CI_NOR_RV
+      korean_name: "재평가차익(OCI)"
+      english_name: "Revaluation Surplus (OCI)"
+      name: "재평가차익"
+      statement: [comprehensive_income]
+      category: [oci, not_reclassified, revaluation]
+      sign: natural
+      parent: CI_NOR_TOTAL
+      aliases: ["유형자산재평가차익"]
+      mappings:
+        dart: ["ifrs-full_GainsLossesOnRevaluation"]
+        ifrs: ["RevaluationSurplusOnPropertyPlantAndEquipment"]
+
+    CI_NOR_PENSION:
+      id: CI_NOR_PENSION
+      korean_name: "확정급여재측정손익"
+      english_name: "Remeasurement of Defined Benefit Plans"
+      name: "확정급여재측정손익"
+      statement: [comprehensive_income]
+      category: [oci, not_reclassified, pension]
+      sign: natural
+      parent: CI_NOR_TOTAL
+      aliases: ["퇴직연금재측정"]
+      mappings:
+        dart: ["ifrs-full_RemeasurementOfNetDefinedBenefitLiabilities"]
+        ifrs: ["RemeasurementOfNetDefinedBenefitLiabilitiesAssets"]
+        usgaap: ["PensionRemeasurement"]
+
+    CI_NOR_FV_EQ:
+      id: CI_NOR_FV_EQ
+      korean_name: "FV변동(지분법, OCI)"
+      english_name: "FV Changes of Equity Investments (OCI)"
+      name: "지분증권 FV변동(OCI)"
+      statement: [comprehensive_income]
+      category: [oci, not_reclassified, fair_value]
+      sign: natural
+      parent: CI_NOR_TOTAL
+      aliases: ["지분법적용투자 FV변동"]
+
+    CI_R_TOTAL:
+      id: CI_R_TOTAL
+      korean_name: "재분류 되는 기타포괄손익"
+      english_name: "OCI Reclassified to P&L"
+      name: "재분류됨"
+      statement: [comprehensive_income]
+      category: [oci, reclassified]
+      sign: natural
+      children: [CI_R_AFS, CI_R_FX, CI_R_CF_HEDGE, CI_R_NI_HEDGE]
+      aliases: ["재분류 되는 항목"]
+
+    CI_R_AFS:
+      id: CI_R_AFS
+      korean_name: "처분가능자산 FV변동"
+      english_name: "FV Changes of Available-for-Sale Assets"
+      name: "처분가능자산 FV변동"
+      statement: [comprehensive_income]
+      category: [oci, reclassified, fair_value]
+      sign: natural
+      parent: CI_R_TOTAL
+      aliases: ["AFS 공정가치변동"]
+
+    CI_R_FX:
+      id: CI_R_FX
+      korean_name: "해외사업환산손익"
+      english_name: "Foreign Currency Translation"
+      name: "해외사업환산손익"
+      statement: [comprehensive_income]
+      category: [oci, reclassified, fx]
+      sign: natural
+      parent: CI_R_TOTAL
+      aliases: ["환율환산차이"]
+      mappings:
+        dart: ["ifrs-full_DifferencesOnExchangeTranslation"]
+        ifrs: ["ExchangeDifferencesOnTranslation"]
+        usgaap: ["ForeignCurrencyTranslationAdjustment"]
+
+    CI_R_CF_HEDGE:
+      id: CI_R_CF_HEDGE
+      korean_name: "현금흐름헤지손익"
+      english_name: "Cash Flow Hedges"
+      name: "현금흐름헤지손익"
+      statement: [comprehensive_income]
+      category: [oci, reclassified, hedge]
+      sign: natural
+      parent: CI_R_TOTAL
+      aliases: ["현금흐름헤지효과"]
+      mappings:
+        dart: ["ifrs-full_GainsLossesOnCashFlowHedges"]
+        ifrs: ["GainsLossesOnCashFlowHedges"]
+        usgaap: ["CashFlowHedgeGainLoss"]
+
+    CI_R_NI_HEDGE:
+      id: CI_R_NI_HEDGE
+      korean_name: "순투자헤지손익"
+      english_name: "Hedges of Net Investments"
+      name: "순투자헤지손익"
+      statement: [comprehensive_income]
+      category: [oci, reclassified, hedge]
+      sign: natural
+      parent: CI_R_TOTAL
+      aliases: ["해외사업순투자헤지"]
+      mappings:
+        dart: ["ifrs-full_GainsLossesOnHedgesOfNetInvestmentsInForeignOperations"]
+        ifrs: ["GainsLossesOnHedgesOfNetInvestmentsInForeignOperations"]
+
+    CI_PERIOD_TOTAL:
+      id: CI_PERIOD_TOTAL
+      korean_name: "당기기타포괄손익"
+      english_name: "Other Comprehensive Income for the Period"
+      name: "당기기타포괄손익"
+      statement: [comprehensive_income]
+      category: [oci, period_total]
+      sign: natural
+      depends_on: [CI_NOR_TOTAL, CI_R_TOTAL]
+      formula: "CI_NOR_TOTAL + CI_R_TOTAL"
+      aliases: ["당기 OCI"]
+
+    CI_COMP_TOTAL:
+      id: CI_COMP_TOTAL
+      korean_name: "당기포괄손익"
+      english_name: "Total Comprehensive Income"
+      name: "당기포괄손익합계"
+      statement: [comprehensive_income]
+      category: [profit, comprehensive_income]
+      sign: natural
+      depends_on: [IS_NI_TOTAL, CI_PERIOD_TOTAL]
+      formula: "IS_NI_TOTAL + CI_PERIOD_TOTAL"
+      affects: [ComprehensiveIncome]
+      aliases: ["포괄손익", "TCI"]
+      mappings:
+        dart: ["ifrs-full_ComprehensiveIncome"]
+        ifrs: ["ComprehensiveIncome"]
+        usgaap: ["ComprehensiveIncomeNetOfTax"]
+      description: "당기순이익과 당기 기타포괄손익의 합."
+
+    # =========================================================================
+    # 자본변동표
+    # =========================================================================
+    CE_TOTAL_OPENING:
+      id: CE_TOTAL_OPENING
+      korean_name: "기초자본"
+      english_name: "Opening Equity"
+      name: "기초자본"
+      statement: [changes_in_equity]
+      category: [equity, opening]
+      sign: natural
+      aliases: ["기초자본액"]
+
+    CE_CAP_ISSUE:
+      id: CE_CAP_ISSUE
+      korean_name: "주식발행"
+      english_name: "Issuance of Shares"
+      name: "주식발행"
+      statement: [changes_in_equity]
+      category: [equity, capital_change, issuance]
+      sign: positive
+      affects: [EquityBase]
+      cashflow_mapping: [financing]
+      aliases: ["유상증자", "신주발행"]
+      description: "신주 발행으로 인한 자본금·자본잉여금 증가."
+
+    CE_CAP_TREASURY:
+      id: CE_CAP_TREASURY
+      korean_name: "자기주식변동"
+      english_name: "Treasury Stock Movements"
+      name: "자기주식변동"
+      statement: [changes_in_equity]
+      category: [equity, capital_change, treasury]
+      sign: natural
+      cashflow_mapping: [financing]
+      aliases: ["자사주취득/처분"]
+
+    CE_CAP_DIV:
+      id: CE_CAP_DIV
+      korean_name: "자본금배당"
+      english_name: "Capital Distribution"
+      name: "자본금배당"
+      statement: [changes_in_equity]
+      category: [equity, capital_change, distribution]
+      sign: negative
+      cashflow_mapping: [financing]
+      aliases: ["감자배당"]
+
+    CE_APIC_CHG:
+      id: CE_APIC_CHG
+      korean_name: "자본잉여금변동"
+      english_name: "Capital Reserve Movements"
+      name: "자본잉여금변동"
+      statement: [changes_in_equity]
+      category: [equity, capital_reserve_change]
+      sign: natural
+      aliases: ["주식발행초과금변동"]
+
+    CE_RE_NI:
+      id: CE_RE_NI
+      korean_name: "이익잉여금-당기순이익"
+      english_name: "Retained Earnings — Net Income"
+      name: "이익잉여금(순이익 반영)"
+      statement: [changes_in_equity]
+      category: [equity, retained_earnings_change, net_income]
+      sign: natural
+      depends_on: [IS_NI_TOTAL]
+      aliases: ["당기순이익처분"]
+      description: "당기순이익이 이익잉여금에 반영된 금액."
+
+    CE_RE_DIV:
+      id: CE_RE_DIV
+      korean_name: "이익잉여금-배당"
+      english_name: "Retained Earnings — Dividends"
+      name: "이익잉여금(배당)"
+      statement: [changes_in_equity]
+      category: [equity, retained_earnings_change, dividend]
+      sign: negative
+      ratios: [dividend_payout]
+      affects: [DividendDistribution]
+      cashflow_mapping: [financing]
+      aliases: ["현금배당", "이익잉여금처분(배당)"]
+      description: "이익잉여금에서 사외 유출된 배당액."
+
+    CE_RE_TRANSF:
+      id: CE_RE_TRANSF
+      korean_name: "이익잉여금-이입처분"
+      english_name: "Retained Earnings — Transfers"
+      name: "이익잉여금(이입·처분)"
+      statement: [changes_in_equity]
+      category: [equity, retained_earnings_change, transfer]
+      sign: natural
+      aliases: ["임의적립금이입", "처분전이익잉여금"]
+      description: "이익잉여금의 적립·이입·처분(배당 외)."
+
+    CE_OCI_CHG:
+      id: CE_OCI_CHG
+      korean_name: "기타포괄손익변동"
+      english_name: "OCI Movements"
+      name: "기타포괄손익변동"
+      statement: [changes_in_equity]
+      category: [equity, oci_change]
+      sign: natural
+      depends_on: [CI_PERIOD_TOTAL]
+      aliases: ["OCI반영액"]
+
+    CE_TOTAL_CLOSING:
+      id: CE_TOTAL_CLOSING
+      korean_name: "기말자본"
+      english_name: "Closing Equity"
+      name: "기말자본"
+      statement: [changes_in_equity]
+      category: [equity, closing]
+      sign: natural
+      depends_on: [CE_TOTAL_OPENING, CE_CAP_ISSUE, CE_CAP_TREASURY, CE_CAP_DIV, CE_RE_NI, CE_RE_DIV, CE_RE_TRANSF, CE_OCI_CHG]
+      formula: "CE_TOTAL_OPENING + CE_CAP_ISSUE + CE_CAP_TREASURY + CE_CAP_DIV + CE_RE_NI + CE_RE_DIV + CE_RE_TRANSF + CE_OCI_CHG"
+      aliases: ["기말자본액"]
+      description: "기초자본에 당기 변동을 가산한 기말 자본."
+
+    # =========================================================================
+    # 현금흐름표 — 영업활동
+    # =========================================================================
+    CF_OP_TOTAL:
+      id: CF_OP_TOTAL
+      korean_name: "영업현금흐름"
+      english_name: "Cash Flow from Operating Activities"
+      name: "영업현금흐름"
+      statement: [cash_flow]
+      category: [cashflow, operating, total]
+      sign: natural
+      depends_on: [IS_NI_TOTAL]
+      ratios: [operating_cashflow_ratio, fcf, cash_flow_adequacy]
+      affects: [FCF, OCF, CashConversionCycle]
+      aliases: ["영업활동 현금흐름", "OCF"]
+      mappings:
+        dart: ["ifrs-full_CashFlowsFromUsedInOperatingActivities"]
+        ifrs: ["CashFlowsFromUsedInOperatingActivities"]
+        usgaap: ["NetCashProvidedByUsedInOperatingActivities"]
+      description: "영업활동에서 발생한 현금 유입·유출의 순액."
+
+    CF_OP_NI:
+      id: CF_OP_NI
+      korean_name: "당기순이익(영업CF 시작)"
+      english_name: "Net Income (CF starting point)"
+      name: "당기순이익(CF)"
+      statement: [cash_flow]
+      category: [cashflow, operating, starting_point]
+      sign: natural
+      parent: CF_OP_TOTAL
+      depends_on: [IS_NI_TOTAL]
+      aliases: ["순이익(간접법 기점)"]
+      description: "간접법 영업현금흐름의 출발점."
+
+    CF_OP_DEPR:
+      id: CF_OP_DEPR
+      korean_name: "감가상각비(영업CF)"
+      english_name: "Depreciation (CF adjustment)"
+      name: "감가상각비(CF)"
+      statement: [cash_flow]
+      category: [cashflow, operating, non_cash_adjustment]
+      sign: positive
+      parent: CF_OP_TOTAL
+      depends_on: [IS_OPEX_DEPR]
+      affects: [EBITDA, OCF]
+      cashflow_mapping: [operating]
+      aliases: ["유형자산상각(CF)"]
+      description: "비현금 비용이므로 현금흐름에 가산."
+
+    CF_OP_INTANG:
+      id: CF_OP_INTANG
+      korean_name: "무형자산상각비(영업CF)"
+      english_name: "Amortization (CF adjustment)"
+      name: "무형자산상각비(CF)"
+      statement: [cash_flow]
+      category: [cashflow, operating, non_cash_adjustment]
+      sign: positive
+      parent: CF_OP_TOTAL
+      affects: [EBITDA]
+      cashflow_mapping: [operating]
+      aliases: ["무형자산상각(CF)"]
+
+    CF_OP_DTL:
+      id: CF_OP_DTL
+      korean_name: "이연법인세(영업CF)"
+      english_name: "Deferred Tax (CF adjustment)"
+      name: "이연법인세(CF)"
+      statement: [cash_flow]
+      category: [cashflow, operating, non_cash_adjustment]
+      sign: natural
+      parent: CF_OP_TOTAL
+      depends_on: [IS_TAX_DEFERRED]
+      cashflow_mapping: [operating]
+      aliases: ["이연법인세변동(CF)"]
+
+    CF_OP_EQ_METHOD:
+      id: CF_OP_EQ_METHOD
+      korean_name: "지분법손익(영업CF)"
+      english_name: "Equity Method (CF adjustment)"
+      name: "지분법손익(CF)"
+      statement: [cash_flow]
+      category: [cashflow, operating, non_cash_adjustment]
+      sign: natural
+      parent: CF_OP_TOTAL
+      depends_on: [IS_NONOP_EQ_METHOD]
+      cashflow_mapping: [operating]
+      aliases: ["지분법손익조정(CF)"]
+
+    CF_OP_FA:
+      id: CF_OP_FA
+      korean_name: "유형자산처분손익(영업CF)"
+      english_name: "Gain/Loss on Disposal (CF adjustment)"
+      name: "유형자산처분손익(CF)"
+      statement: [cash_flow]
+      category: [cashflow, operating, non_cash_adjustment]
+      sign: natural
+      parent: CF_OP_TOTAL
+      depends_on: [IS_NONOP_FA_GAIN, IS_NONOP_FA_LOSS]
+      cashflow_mapping: [operating]
+      aliases: ["처분손익조정(CF)"]
+
+    CF_OP_AR:
+      id: CF_OP_AR
+      korean_name: "매출채권증감"
+      english_name: "Change in Accounts Receivable"
+      name: "매출채권증감"
+      statement: [cash_flow]
+      category: [cashflow, operating, working_capital_change]
+      sign: natural
+      parent: CF_OP_TOTAL
+      depends_on: [BS_CA_AR]
+      affects: [OCF, CashConversionCycle]
+      cashflow_mapping: [operating]
+      aliases: ["영업채권증감"]
+
+    CF_OP_INV:
+      id: CF_OP_INV
+      korean_name: "재고자산증감"
+      english_name: "Change in Inventories"
+      name: "재고자산증감"
+      statement: [cash_flow]
+      category: [cashflow, operating, working_capital_change]
+      sign: natural
+      parent: CF_OP_TOTAL
+      depends_on: [BS_CA_INV]
+      affects: [OCF, CashConversionCycle]
+      cashflow_mapping: [operating]
+      aliases: ["재고증감"]
+
+    CF_OP_AP:
+      id: CF_OP_AP
+      korean_name: "매입채무증감"
+      english_name: "Change in Accounts Payable"
+      name: "매입채무증감"
+      statement: [cash_flow]
+      category: [cashflow, operating, working_capital_change]
+      sign: natural
+      parent: CF_OP_TOTAL
+      depends_on: [BS_CL_AP]
+      affects: [OCF, CashConversionCycle]
+      cashflow_mapping: [operating]
+      aliases: ["영업채무증감"]
+
+    CF_OP_OTHER:
+      id: CF_OP_OTHER
+      korean_name: "기타 영업활동조정"
+      english_name: "Other Operating Adjustments"
+      name: "기타 영업조정"
+      statement: [cash_flow]
+      category: [cashflow, operating, other]
+      sign: natural
+      parent: CF_OP_TOTAL
+      cashflow_mapping: [operating]
+      aliases: ["기타영업현금흐름조정"]
+
+    CF_OP_RCPT:
+      id: CF_OP_RCPT
+      korean_name: "영업현금수입"
+      english_name: "Cash Received from Operating Activities"
+      name: "영업현금수입"
+      statement: [cash_flow]
+      category: [cashflow, operating, receipt]
+      sign: positive
+      parent: CF_OP_TOTAL
+      cashflow_mapping: [operating]
+      aliases: ["영업수취현금"]
+      description: "고객 등으로부터 영업활동에서 수취한 현금."
+
+    CF_OP_PAY:
+      id: CF_OP_PAY
+      korean_name: "영업현금지출"
+      english_name: "Cash Paid for Operating Activities"
+      name: "영업현금지출"
+      statement: [cash_flow]
+      category: [cashflow, operating, payment]
+      sign: negative
+      parent: CF_OP_TOTAL
+      cashflow_mapping: [operating]
+      aliases: ["영업지출현금"]
+      description: "거래처·종업원 등에 영업활동으로 지출한 현금."
+
+    # =========================================================================
+    # 현금흐름표 — 투자활동
+    # =========================================================================
+    CF_INV_TOTAL:
+      id: CF_INV_TOTAL
+      korean_name: "투자현금흐름"
+      english_name: "Cash Flow from Investing Activities"
+      name: "투자현금흐름"
+      statement: [cash_flow]
+      category: [cashflow, investing, total]
+      sign: natural
+      affects: [FCF, CAPEX]
+      aliases: ["투자활동 현금흐름"]
+      mappings:
+        dart: ["ifrs-full_CashFlowsFromUsedInInvestingActivities"]
+        ifrs: ["CashFlowsFromUsedInInvestingActivities"]
+        usgaap: ["NetCashProvidedByUsedInInvestingActivities"]
+
+    CF_INV_PPE:
+      id: CF_INV_PPE
+      korean_name: "유형자산 취득/처분"
+      english_name: "Purchase/Sale of PPE"
+      name: "유형자산 취득/처분"
+      statement: [cash_flow]
+      category: [cashflow, investing, capex]
+      sign: natural
+      parent: CF_INV_TOTAL
+      affects: [CAPEX, FCF]
+      cashflow_mapping: [investing]
+      aliases: ["CAPEX", "설비투자"]
+      mappings:
+        dart: ["ifrs-full_PurchaseOfPropertyPlantAndEquipmentIntangibleAssets"]
+        ifrs: ["PurchaseOfPropertyPlantAndEquipment"]
+        usgaap: ["PaymentsToAcquirePropertyPlantAndEquipment"]
+      description: "유형자산 취득(투자지출)과 처분(투자수입). FCF의 핵심 구성."
+
+    CF_INV_INTANG:
+      id: CF_INV_INTANG
+      korean_name: "무형자산 취득/처분"
+      english_name: "Purchase/Sale of Intangible Assets"
+      name: "무형자산 취득/처분"
+      statement: [cash_flow]
+      category: [cashflow, investing, capex]
+      sign: natural
+      parent: CF_INV_TOTAL
+      affects: [CAPEX, FCF]
+      cashflow_mapping: [investing]
+      aliases: ["무형자산투자"]
+
+    CF_INV_FA:
+      id: CF_INV_FA
+      korean_name: "투자자산 취득/처분"
+      english_name: "Purchase/Sale of Investment Assets"
+      name: "투자자산 취득/처분"
+      statement: [cash_flow]
+      category: [cashflow, investing, investment]
+      sign: natural
+      parent: CF_INV_TOTAL
+      affects: [FCF]
+      cashflow_mapping: [investing]
+      aliases: ["유가증권투자", "지분투자"]
+
+    CF_INV_LOAN:
+      id: CF_INV_LOAN
+      korean_name: "대여금 회수/대부"
+      english_name: "Loans and Advances"
+      name: "대여금 회수/대부"
+      statement: [cash_flow]
+      category: [cashflow, investing, loan]
+      sign: natural
+      parent: CF_INV_TOTAL
+      affects: [FCF]
+      cashflow_mapping: [investing]
+      aliases: ["대부금", "차속대여금"]
+
+    # =========================================================================
+    # 현금흐름표 — 재무활동
+    # =========================================================================
+    CF_FIN_TOTAL:
+      id: CF_FIN_TOTAL
+      korean_name: "재무현금흐름"
+      english_name: "Cash Flow from Financing Activities"
+      name: "재무현금흐름"
+      statement: [cash_flow]
+      category: [cashflow, financing, total]
+      sign: natural
+      affects: [Leverage, FCF]
+      aliases: ["재무활동 현금흐름"]
+      mappings:
+        dart: ["ifrs-full_CashFlowsFromUsedInFinancingActivities"]
+        ifrs: ["CashFlowsFromUsedInFinancingActivities"]
+        usgaap: ["NetCashProvidedByUsedInFinancingActivities"]
+
+    CF_FIN_BORROW:
+      id: CF_FIN_BORROW
+      korean_name: "차입금 증감"
+      english_name: "Change in Borrowings"
+      name: "차입금 증감"
+      statement: [cash_flow]
+      category: [cashflow, financing, debt]
+      sign: natural
+      parent: CF_FIN_TOTAL
+      depends_on: [BS_CL_ST_BORROW, BS_NCL_LT_BORROW]
+      affects: [Leverage]
+      cashflow_mapping: [financing]
+      aliases: ["차입금순증감"]
+      mappings:
+        dart: ["ifrs-full_ProceedsFromBorrowings"]
+        ifrs: ["ProceedsFromBorrowings"]
+        usgaap: ["ProceedsFromIssuanceOfLongTermDebt"]
+
+    CF_FIN_BOND:
+      id: CF_FIN_BOND
+      korean_name: "사채 발행/상환"
+      english_name: "Issuance/Repayment of Bonds"
+      name: "사채 발행/상환"
+      statement: [cash_flow]
+      category: [cashflow, financing, debt]
+      sign: natural
+      parent: CF_FIN_TOTAL
+      depends_on: [BS_NCL_BOND]
+      affects: [Leverage]
+      cashflow_mapping: [financing]
+      aliases: ["사채발행/상환"]
+
+    CF_FIN_TREASURY:
+      id: CF_FIN_TREASURY
+      korean_name: "자기주식 취득/처분"
+      english_name: "Purchase/Sale of Treasury Stock"
+      name: "자기주식 취득/처분"
+      statement: [cash_flow]
+      category: [cashflow, financing, treasury]
+      sign: natural
+      parent: CF_FIN_TOTAL
+      depends_on: [BS_EQ_TREASURY]
+      cashflow_mapping: [financing]
+      aliases: ["자사주매입/처분"]
+
+    CF_FIN_DIV:
+      id: CF_FIN_DIV
+      korean_name: "배당금 지급"
+      english_name: "Dividends Paid"
+      name: "배당금 지급"
+      statement: [cash_flow]
+      category: [cashflow, financing, dividend]
+      sign: negative
+      parent: CF_FIN_TOTAL
+      depends_on: [CE_RE_DIV]
+      ratios: [dividend_payout]
+      affects: [DividendDistribution]
+      cashflow_mapping: [financing]
+      aliases: ["현금배당지급", "배당지급"]
+      mappings:
+        dart: ["ifrs-full_DividendsPaidClassifiedAsFinancingActivities"]
+        ifrs: ["DividendsPaidClassifiedAsFinancingActivities"]
+        usgaap: ["PaymentsForDividends"]
+
+    CF_NET_CHANGE:
+      id: CF_NET_CHANGE
+      korean_name: "현금의 증감"
+      english_name: "Net Change in Cash"
+      name: "현금증감"
+      statement: [cash_flow]
+      category: [cashflow, net_change]
+      sign: natural
+      depends_on: [CF_OP_TOTAL, CF_INV_TOTAL, CF_FIN_TOTAL]
+      formula: "CF_OP_TOTAL + CF_INV_TOTAL + CF_FIN_TOTAL"
+      aliases: ["현금순증감"]
+
+    CF_TOTAL_OPENING:
+      id: CF_TOTAL_OPENING
+      korean_name: "기초현금"
+      english_name: "Opening Cash"
+      name: "기초현금"
+      statement: [cash_flow]
+      category: [cashflow, opening]
+      sign: positive
+      depends_on: [BS_CA_CASH]
+      aliases: ["기초현금및현금성자산"]
+
+    CF_TOTAL_CLOSING:
+      id: CF_TOTAL_CLOSING
+      korean_name: "기말현금"
+      english_name: "Closing Cash"
+      name: "기말현금"
+      statement: [cash_flow]
+      category: [cashflow, closing]
+      sign: positive
+      depends_on: [CF_TOTAL_OPENING, CF_NET_CHANGE]
+      formula: "CF_TOTAL_OPENING + CF_NET_CHANGE"
+      affects: [Liquidity]
+      aliases: ["기말현금및현금성자산"]
+      description: "기초현금에 당기 증감을 가산한 기말 현금."
+
+    CF_FCF_TOTAL:
+      id: CF_FCF_TOTAL
+      korean_name: "잉여현금흐름"
+      english_name: "Free Cash Flow"
+      name: "잉여현금흐름(FCF)"
+      statement: [cash_flow]
+      category: [cashflow, derived, fcf]
+      sign: natural
+      depends_on: [CF_OP_TOTAL, CF_INV_PPE]
+      formula: "CF_OP_TOTAL - abs(CF_INV_PPE 취득) (또는 CF_OP_TOTAL + CF_INV_TOTAL)"
+      ratios: [fcf, fcf_yield]
+      affects: [FCF, Valuation]
+      aliases: ["FCF", "Free Cash Flow"]
+      description: "영업현금흐름에서 설비투자(CAPEX)를 차감한 잉여현금. 기업가치·배당능력의 핵심 지표."

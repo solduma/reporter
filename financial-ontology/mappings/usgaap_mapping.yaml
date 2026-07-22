@@ -1,0 +1,2943 @@
+version: 1.0.0
+metadata:
+  name: US GAAP 매핑 테이블
+  description: 'US GAAP 매핑 테이블 — 온톨로지 계정 ID와 US_GAAP taxonomy/계정명 간 정규화 매핑. 온톨로지 YAML에서 자동 생성(SOT: ontology/*.yaml).'
+  standard: US_GAAP
+  direction: 'bidirectional (forward: ontology_id→taxonomy, reverse: taxonomy/korean_name→ontology_id)'
+  generated_from: ontology/*.yaml
+  generated: '2026-07-22'
+  account_count: 187
+  taxonomy_concept_count: 73
+mappings:
+  BS_A_TOTAL:
+    korean_name: 자산총계
+    english_name: Total Assets
+    statement:
+    - balance_sheet
+    category:
+    - asset
+    - total
+    usgaap:
+    - Assets
+    korean_aliases:
+    - 총자산
+    - 자산의 총액
+  BS_BANK_BOUGHT_RP:
+    korean_name: 매입환매조건부채권
+    english_name: Bonds Acquired under Repos
+    statement:
+    - balance_sheet
+    category:
+    - asset
+    - current_asset
+    - bank
+    - repo
+    usgaap: []
+    korean_aliases:
+    - 매입RP
+  BS_BANK_CALL:
+    korean_name: 콜론
+    english_name: Call Loans
+    statement:
+    - balance_sheet
+    category:
+    - asset
+    - current_asset
+    - bank
+    - call_market
+    usgaap: []
+    korean_aliases:
+    - 콜머니대부
+  BS_BANK_CALL_LIAB:
+    korean_name: 콜머니
+    english_name: Call Money
+    statement:
+    - balance_sheet
+    category:
+    - liability
+    - current_liability
+    - bank
+    - call_market
+    usgaap: []
+    korean_aliases:
+    - 콜차입
+  BS_BANK_CASH:
+    korean_name: 현금·외화
+    english_name: Cash and Foreign Currencies
+    statement:
+    - balance_sheet
+    category:
+    - asset
+    - current_asset
+    - cash
+    - bank
+    usgaap: []
+    korean_aliases:
+    - 현금·외화(은행)
+  BS_BANK_DEPOSIT:
+    korean_name: 예수금
+    english_name: Deposits
+    statement:
+    - balance_sheet
+    category:
+    - liability
+    - current_liability
+    - bank
+    - deposit
+    usgaap:
+    - Deposits
+    korean_aliases:
+    - 수신금
+    - 예금
+  BS_BANK_LOAN_ALLOWANCE:
+    korean_name: 대손충당금
+    english_name: Allowance for Loan Losses
+    statement:
+    - balance_sheet
+    category:
+    - asset
+    - current_asset
+    - bank
+    - loan
+    - contra_asset
+    usgaap: []
+    korean_aliases:
+    - 여신충당금
+    - 대손충당금(대출)
+  BS_BANK_LOAN_LT:
+    korean_name: 장기대출금
+    english_name: Long-term Loans and Advances
+    statement:
+    - balance_sheet
+    category:
+    - asset
+    - non_current_asset
+    - bank
+    - loan
+    usgaap: []
+    korean_aliases:
+    - 여신(장기)
+  BS_BANK_LOAN_ST:
+    korean_name: 단기대출금
+    english_name: Short-term Loans and Advances
+    statement:
+    - balance_sheet
+    category:
+    - asset
+    - current_asset
+    - bank
+    - loan
+    usgaap:
+    - LoansAndLeasesReceivable
+    korean_aliases:
+    - 여신(단기)
+  BS_BANK_RESERVE:
+    korean_name: 지급준비금
+    english_name: Reserve for Payment
+    statement:
+    - balance_sheet
+    category:
+    - asset
+    - current_asset
+    - bank
+    - reserve
+    usgaap: []
+    korean_aliases:
+    - 한국은행예치금
+    - 법정지급준비금
+  BS_BANK_SECURITIES:
+    korean_name: 운용유가증권
+    english_name: Investment Securities (Bank)
+    statement:
+    - balance_sheet
+    category:
+    - asset
+    - non_current_asset
+    - bank
+    - investment_securities
+    usgaap:
+    - InvestmentSecurities
+    korean_aliases:
+    - 유가증권(운용)
+    - 채권운용
+  BS_BANK_SOLD_RP:
+    korean_name: 매도환매조건부채권
+    english_name: Bonds Sold under Repos
+    statement:
+    - balance_sheet
+    category:
+    - liability
+    - current_liability
+    - bank
+    - repo
+    usgaap: []
+    korean_aliases:
+    - 매도RP
+  BS_CA_AR:
+    korean_name: 매출채권
+    english_name: Accounts Receivable, Net
+    statement:
+    - balance_sheet
+    category:
+    - asset
+    - current_asset
+    - working_capital
+    - receivable
+    usgaap:
+    - AccountsReceivableNetCurrent
+    korean_aliases:
+    - 외상매출금
+    - 미수금
+    - Trade Receivables
+  BS_CA_AR_ALLOWANCE:
+    korean_name: 대손충당금
+    english_name: Allowance for Doubtful Accounts
+    statement:
+    - balance_sheet
+    category:
+    - asset
+    - current_asset
+    - receivable
+    - contra_asset
+    usgaap: []
+    korean_aliases:
+    - 매출채권대손충당금
+  BS_CA_AR_GROSS:
+    korean_name: 매출채권(총액)
+    english_name: Accounts Receivable, Gross
+    statement:
+    - balance_sheet
+    category:
+    - asset
+    - current_asset
+    - receivable
+    usgaap: []
+    korean_aliases:
+    - 매출채권 총액
+  BS_CA_CASH:
+    korean_name: 현금및현금성자산
+    english_name: Cash and Cash Equivalents
+    statement:
+    - balance_sheet
+    - cash_flow
+    category:
+    - asset
+    - current_asset
+    - working_capital
+    - cash
+    usgaap:
+    - CashAndCashEquivalentsAtCarryingValue
+    korean_aliases:
+    - 현금예금
+    - 현금및예금
+  BS_CA_HOLD_FOR_SALE:
+    korean_name: 유동재분류자산
+    english_name: Non-current Assets Held for Sale (Current)
+    statement:
+    - balance_sheet
+    category:
+    - asset
+    - current_asset
+    - held_for_sale
+    usgaap: []
+    korean_aliases:
+    - 처분목적보유자산
+    - 유동으로 재분류된 비유동자산
+  BS_CA_INV:
+    korean_name: 재고자산
+    english_name: Inventories
+    statement:
+    - balance_sheet
+    category:
+    - asset
+    - current_asset
+    - working_capital
+    - inventory
+    usgaap:
+    - InventoryNet
+    korean_aliases:
+    - 재고
+    - Inventories
+  BS_CA_INV_FIN:
+    korean_name: 제품
+    english_name: Finished Goods
+    statement:
+    - balance_sheet
+    category:
+    - asset
+    - current_asset
+    - inventory
+    - finished_goods
+    usgaap:
+    - InventoryFinishedGoods
+    korean_aliases:
+    - 제품재고
+    - 완성품
+  BS_CA_INV_RAW:
+    korean_name: 원재료
+    english_name: Raw Materials
+    statement:
+    - balance_sheet
+    category:
+    - asset
+    - current_asset
+    - inventory
+    - raw_material
+    usgaap:
+    - InventoryRawMaterials
+    korean_aliases:
+    - 원재료재고
+    - 구입원재료
+  BS_CA_INV_WIP:
+    korean_name: 재공품
+    english_name: Work in Process
+    statement:
+    - balance_sheet
+    category:
+    - asset
+    - current_asset
+    - inventory
+    - wip
+    usgaap:
+    - InventoryWorkInProcess
+    korean_aliases:
+    - 재공품재고
+  BS_CA_OTHER:
+    korean_name: 기타유동자산
+    english_name: Other Current Assets
+    statement:
+    - balance_sheet
+    category:
+    - asset
+    - current_asset
+    - other
+    usgaap:
+    - OtherAssetsCurrent
+    korean_aliases:
+    - 미수수익
+    - 기타의 유동자산
+  BS_CA_PREPAID:
+    korean_name: 선급금
+    english_name: Prepaid Expenses
+    statement:
+    - balance_sheet
+    category:
+    - asset
+    - current_asset
+    - working_capital
+    - prepaid
+    usgaap: []
+    korean_aliases:
+    - 선급비용
+    - 선수금(자산)
+  BS_CA_ST_FIN:
+    korean_name: 단기금융자산
+    english_name: Short-term Financial Assets
+    statement:
+    - balance_sheet
+    category:
+    - asset
+    - current_asset
+    - financial_asset
+    usgaap: []
+    korean_aliases:
+    - 단기금융상품
+    - 매매목적단기금융자산
+  BS_CA_ST_INV:
+    korean_name: 단기투자자산
+    english_name: Short-term Investments
+    statement:
+    - balance_sheet
+    category:
+    - asset
+    - current_asset
+    - investment
+    usgaap: []
+    korean_aliases:
+    - 단기투자
+    - 매매목적투자증권
+  BS_CA_TOTAL:
+    korean_name: 유동자산
+    english_name: Current Assets
+    statement:
+    - balance_sheet
+    category:
+    - asset
+    - current_asset
+    - working_capital
+    usgaap:
+    - AssetsCurrent
+    korean_aliases:
+    - 유동자산의 총액
+  BS_CL_ADV:
+    korean_name: 선수금
+    english_name: Advances from Customers
+    statement:
+    - balance_sheet
+    category:
+    - liability
+    - current_liability
+    - deferred_revenue
+    usgaap: []
+    korean_aliases:
+    - 선수수익
+  BS_CL_AP:
+    korean_name: 매입채무
+    english_name: Accounts Payable
+    statement:
+    - balance_sheet
+    category:
+    - liability
+    - current_liability
+    - working_capital
+    - payable
+    usgaap:
+    - AccountsPayableCurrent
+    korean_aliases:
+    - 외상매입금
+    - 미지급금(매입)
+  BS_CL_DIV_PAYABLE:
+    korean_name: 미지급배당금
+    english_name: Dividends Payable
+    statement:
+    - balance_sheet
+    category:
+    - liability
+    - current_liability
+    - dividend
+    usgaap: []
+    korean_aliases:
+    - 배당금미지급금
+  BS_CL_OTHER:
+    korean_name: 기타유동부채
+    english_name: Other Current Liabilities
+    statement:
+    - balance_sheet
+    category:
+    - liability
+    - current_liability
+    - other
+    usgaap:
+    - OtherLiabilitiesCurrent
+    korean_aliases:
+    - 기타의 유동부채
+  BS_CL_PAYABLE:
+    korean_name: 미지급금
+    english_name: Other Payables
+    statement:
+    - balance_sheet
+    category:
+    - liability
+    - current_liability
+    - payable
+    usgaap: []
+    korean_aliases:
+    - 기타미지급금
+  BS_CL_ST_BOND:
+    korean_name: 단기사채
+    english_name: Current Portion of Bonds Payable
+    statement:
+    - balance_sheet
+    category:
+    - liability
+    - current_liability
+    - debt
+    - interest_bearing
+    usgaap: []
+    korean_aliases:
+    - 사채(유동)
+  BS_CL_ST_BORROW:
+    korean_name: 단기차입금
+    english_name: Short-term Borrowings
+    statement:
+    - balance_sheet
+    category:
+    - liability
+    - current_liability
+    - debt
+    - interest_bearing
+    usgaap:
+    - ShortTermBorrowings
+    korean_aliases:
+    - 단기차입금 및 하자보수충당금
+  BS_CL_ST_DERIV:
+    korean_name: 파생상품부채(유동)
+    english_name: Current Derivative Liabilities
+    statement:
+    - balance_sheet
+    category:
+    - liability
+    - current_liability
+    - derivative
+    usgaap: []
+    korean_aliases:
+    - 파생상품(유동부채)
+  BS_CL_ST_PROV:
+    korean_name: 유동충당부채
+    english_name: Current Provisions
+    statement:
+    - balance_sheet
+    category:
+    - liability
+    - current_liability
+    - provision
+    usgaap: []
+    korean_aliases:
+    - 충당부채(유동)
+  BS_CL_ST_TAX:
+    korean_name: 당기법인세부채
+    english_name: Current Tax Payable
+    statement:
+    - balance_sheet
+    category:
+    - liability
+    - current_liability
+    - tax
+    usgaap: []
+    korean_aliases:
+    - 미지급법인세
+  BS_CL_TOTAL:
+    korean_name: 유동부채
+    english_name: Current Liabilities
+    statement:
+    - balance_sheet
+    category:
+    - liability
+    - current_liability
+    - working_capital
+    usgaap:
+    - LiabilitiesCurrent
+    korean_aliases:
+    - 유동부채의 총액
+  BS_EQ_APIC:
+    korean_name: 자본잉여금
+    english_name: Additional Paid-in Capital
+    statement:
+    - balance_sheet
+    category:
+    - equity
+    - parent_equity
+    - paid_in_capital
+    usgaap:
+    - AdditionalPaidInCapital
+    korean_aliases:
+    - 주식발행초과금
+    - 기타자본잉여금
+  BS_EQ_CS:
+    korean_name: 자본금(보통주)
+    english_name: Common Stock
+    statement:
+    - balance_sheet
+    category:
+    - equity
+    - parent_equity
+    - paid_in_capital
+    - common_stock
+    usgaap:
+    - CommonStockValue
+    korean_aliases:
+    - 보통주자본금
+    - 납입자본금
+  BS_EQ_NCI:
+    korean_name: 비지배지분
+    english_name: Non-controlling Interests
+    statement:
+    - balance_sheet
+    category:
+    - equity
+    - nci
+    usgaap:
+    - MinorityInterest
+    korean_aliases:
+    - 소수주주지분
+  BS_EQ_OCI:
+    korean_name: 기타포괄손익누적액
+    english_name: Accumulated Other Comprehensive Income
+    statement:
+    - balance_sheet
+    category:
+    - equity
+    - parent_equity
+    - accumulated_oci
+    usgaap:
+    - AccumulatedOtherComprehensiveIncomeLoss
+    korean_aliases:
+    - 이연포괄손익
+    - 기타포괄손익
+  BS_EQ_PARENT:
+    korean_name: 지배기업주주지분
+    english_name: Equity Attributable to Owners of Parent
+    statement:
+    - balance_sheet
+    category:
+    - equity
+    - parent_equity
+    usgaap:
+    - StockholdersEquity
+    korean_aliases:
+    - 자본(지배)
+    - 주주지분
+  BS_EQ_PS:
+    korean_name: 자본금(우선주)
+    english_name: Preferred Stock
+    statement:
+    - balance_sheet
+    category:
+    - equity
+    - parent_equity
+    - paid_in_capital
+    - preferred_stock
+    usgaap: []
+    korean_aliases:
+    - 우선주자본금
+  BS_EQ_RE:
+    korean_name: 이익잉여금
+    english_name: Retained Earnings
+    statement:
+    - balance_sheet
+    category:
+    - equity
+    - parent_equity
+    - retained_earnings
+    usgaap:
+    - RetainedEarningsAccumulatedDeficit
+    korean_aliases:
+    - 미처분이익잉여금
+  BS_EQ_RV:
+    korean_name: 재평가잉여금
+    english_name: Revaluation Surplus
+    statement:
+    - balance_sheet
+    category:
+    - equity
+    - parent_equity
+    - revaluation
+    usgaap: []
+    korean_aliases:
+    - 자산재평가잉여금
+  BS_EQ_TOTAL:
+    korean_name: 자본총계
+    english_name: Total Equity
+    statement:
+    - balance_sheet
+    category:
+    - equity
+    - total
+    usgaap:
+    - StockholdersEquity
+    korean_aliases:
+    - 총자본
+    - 자본의 총액
+  BS_EQ_TREASURY:
+    korean_name: 자기주식
+    english_name: Treasury Stock
+    statement:
+    - balance_sheet
+    category:
+    - equity
+    - parent_equity
+    - contra_equity
+    - treasury
+    usgaap:
+    - TreasuryStockValue
+    korean_aliases:
+    - 자기주식(차감)
+  BS_INS_INVEST_ASSET:
+    korean_name: 투자자산
+    english_name: Investment Assets (Insurance)
+    statement:
+    - balance_sheet
+    category:
+    - asset
+    - non_current_asset
+    - insurance
+    - investment
+    usgaap:
+    - InvestmentSecurities
+    korean_aliases:
+    - 운용자산(보험)
+  BS_INS_REINS_ASSET:
+    korean_name: 재보험금
+    english_name: Reinsurance Recoveries
+    statement:
+    - balance_sheet
+    category:
+    - asset
+    - current_asset
+    - insurance
+    - reinsurance
+    usgaap:
+    - ReinsuranceRecoverables
+    korean_aliases:
+    - 미수재보험금
+    - 재보험회수금
+  BS_INS_REINS_DEPOSIT:
+    korean_name: 재보험예탁금
+    english_name: Reinsurance Deposits
+    statement:
+    - balance_sheet
+    category:
+    - asset
+    - non_current_asset
+    - insurance
+    - reinsurance
+    usgaap: []
+    korean_aliases:
+    - 재보험예치금
+  BS_INS_REINS_RESERVE:
+    korean_name: 재보험책임준비금
+    english_name: Reinsurance Contract Liabilities
+    statement:
+    - balance_sheet
+    category:
+    - liability
+    - non_current_liability
+    - insurance
+    - reinsurance
+    - reserve
+    usgaap: []
+    korean_aliases:
+    - 재보험계약부채
+  BS_L_TOTAL:
+    korean_name: 부채총계
+    english_name: Total Liabilities
+    statement:
+    - balance_sheet
+    category:
+    - liability
+    - total
+    usgaap:
+    - Liabilities
+    korean_aliases:
+    - 총부채
+    - 부채의 총액
+  BS_NCA_DTA:
+    korean_name: 이연법인세자산
+    english_name: Deferred Tax Assets
+    statement:
+    - balance_sheet
+    category:
+    - asset
+    - non_current_asset
+    - deferred_tax
+    usgaap:
+    - DeferredTaxAssetsNet
+    korean_aliases:
+    - 이연법인세자산(순액)
+  BS_NCA_GW:
+    korean_name: 영업권
+    english_name: Goodwill
+    statement:
+    - balance_sheet
+    category:
+    - asset
+    - non_current_asset
+    - intangible
+    - goodwill
+    usgaap:
+    - Goodwill
+    korean_aliases:
+    - 합병영업권
+  BS_NCA_INTANGIBLE:
+    korean_name: 무형자산
+    english_name: Intangible Assets
+    statement:
+    - balance_sheet
+    category:
+    - asset
+    - non_current_asset
+    - intangible
+    usgaap:
+    - IntangibleAssetsNet
+    korean_aliases:
+    - 무형자산(순액)
+  BS_NCA_INV_PROP:
+    korean_name: 투자부동산
+    english_name: Investment Property
+    statement:
+    - balance_sheet
+    category:
+    - asset
+    - non_current_asset
+    - investment_property
+    usgaap:
+    - InvestmentProperty
+    korean_aliases:
+    - 투자용부동산
+  BS_NCA_LT_FIN:
+    korean_name: 장기금융자산
+    english_name: Long-term Financial Assets
+    statement:
+    - balance_sheet
+    category:
+    - asset
+    - non_current_asset
+    - financial_asset
+    usgaap: []
+    korean_aliases:
+    - 장기금융상품
+  BS_NCA_LT_INV:
+    korean_name: 장기투자자산
+    english_name: Long-term Investments
+    statement:
+    - balance_sheet
+    category:
+    - asset
+    - non_current_asset
+    - investment
+    usgaap: []
+    korean_aliases:
+    - 장기성투자
+    - 투자유가증권
+  BS_NCA_OTHER:
+    korean_name: 기타비유동자산
+    english_name: Other Non-current Assets
+    statement:
+    - balance_sheet
+    category:
+    - asset
+    - non_current_asset
+    - other
+    usgaap:
+    - OtherAssetsNoncurrent
+    korean_aliases:
+    - 장성보증금
+    - 기타의 비유동자산
+  BS_NCA_PPE:
+    korean_name: 유형자산
+    english_name: Property, Plant and Equipment
+    statement:
+    - balance_sheet
+    category:
+    - asset
+    - non_current_asset
+    - ppe
+    usgaap:
+    - PropertyPlantAndEquipmentNet
+    korean_aliases:
+    - 유형자산(순액)
+    - PropertyPlantAndEquipment
+  BS_NCA_PPE_BUILDING:
+    korean_name: 건물
+    english_name: Buildings
+    statement:
+    - balance_sheet
+    category:
+    - asset
+    - non_current_asset
+    - ppe
+    - building
+    usgaap:
+    - BuildingsAndFixtures
+    korean_aliases:
+    - 건물 및 부대설비
+  BS_NCA_PPE_LAND:
+    korean_name: 토지
+    english_name: Land
+    statement:
+    - balance_sheet
+    category:
+    - asset
+    - non_current_asset
+    - ppe
+    - land
+    usgaap:
+    - LandAndImprovements
+    korean_aliases:
+    - 사업용토지
+  BS_NCA_PPE_MACHINERY:
+    korean_name: 기계장치
+    english_name: Machinery and Equipment
+    statement:
+    - balance_sheet
+    category:
+    - asset
+    - non_current_asset
+    - ppe
+    - machinery
+    usgaap:
+    - MachineryAndEquipment
+    korean_aliases:
+    - 기계 및 설비
+  BS_NCA_RD_ASSET:
+    korean_name: 개발비(자본화)
+    english_name: Capitalized Development Costs
+    statement:
+    - balance_sheet
+    category:
+    - asset
+    - non_current_asset
+    - intangible
+    - rd_capitalized
+    usgaap:
+    - CapitalizedSoftware
+    korean_aliases:
+    - 자본화연구개발비
+    - 개발원가
+  BS_NCA_ROU:
+    korean_name: 사용권자산
+    english_name: Right-of-Use Asset
+    statement:
+    - balance_sheet
+    category:
+    - asset
+    - non_current_asset
+    - lease
+    usgaap:
+    - RightOfUseAssets
+    korean_aliases:
+    - 리스사용권자산
+  BS_NCA_TOTAL:
+    korean_name: 비유동자산
+    english_name: Non-current Assets
+    statement:
+    - balance_sheet
+    category:
+    - asset
+    - non_current_asset
+    usgaap:
+    - AssetsNonCurrent
+    korean_aliases:
+    - 비유동자산의 총액
+  BS_NCL_BOND:
+    korean_name: 사채
+    english_name: Bonds Payable
+    statement:
+    - balance_sheet
+    category:
+    - liability
+    - non_current_liability
+    - debt
+    - interest_bearing
+    usgaap:
+    - LongTermDebt
+    korean_aliases:
+    - 사채(장기)
+  BS_NCL_DTL:
+    korean_name: 이연법인세부채
+    english_name: Deferred Tax Liabilities
+    statement:
+    - balance_sheet
+    category:
+    - liability
+    - non_current_liability
+    - deferred_tax
+    usgaap:
+    - DeferredTaxLiabilitiesNet
+    korean_aliases:
+    - 이연법인세부채
+  BS_NCL_INS_CLAIM_OUTSTANDING:
+    korean_name: 미지급보험금
+    english_name: Outstanding Claims (Unpaid)
+    statement:
+    - balance_sheet
+    category:
+    - liability
+    - current_liability
+    - insurance
+    - claim
+    usgaap: []
+    korean_aliases:
+    - 지급미결보험금
+  BS_NCL_INS_RESERVE:
+    korean_name: 보험책임준비금
+    english_name: Insurance Contract Liabilities (Reserve)
+    statement:
+    - balance_sheet
+    category:
+    - liability
+    - non_current_liability
+    - insurance
+    - reserve
+    usgaap:
+    - LiabilitiesForInsuranceContracts
+    korean_aliases:
+    - 책임준비금
+    - 보험계약부채
+  BS_NCL_INS_UNEARNED:
+    korean_name: 미경과보험료
+    english_name: Unearned Premium Reserve
+    statement:
+    - balance_sheet
+    category:
+    - liability
+    - non_current_liability
+    - insurance
+    - unearned_premium
+    usgaap: []
+    korean_aliases:
+    - 미경과보험료준비금
+  BS_NCL_LT_BORROW:
+    korean_name: 장기차입금
+    english_name: Long-term Borrowings
+    statement:
+    - balance_sheet
+    category:
+    - liability
+    - non_current_liability
+    - debt
+    - interest_bearing
+    usgaap:
+    - LongTermDebt
+    korean_aliases:
+    - 장기차입금
+  BS_NCL_LT_DERIV:
+    korean_name: 파생상품부채(비유동)
+    english_name: Non-current Derivative Liabilities
+    statement:
+    - balance_sheet
+    category:
+    - liability
+    - non_current_liability
+    - derivative
+    usgaap: []
+    korean_aliases:
+    - 파생상품(비유동부채)
+  BS_NCL_LT_PROV:
+    korean_name: 퇴직급여충당부채
+    english_name: Employee Benefit Obligations
+    statement:
+    - balance_sheet
+    category:
+    - liability
+    - non_current_liability
+    - provision
+    - employee_benefit
+    usgaap:
+    - PensionAndPostretirementBenefits
+    korean_aliases:
+    - 퇴직금충당금
+    - 비유동충당부채
+  BS_NCL_OTHER:
+    korean_name: 기타비유동부채
+    english_name: Other Non-current Liabilities
+    statement:
+    - balance_sheet
+    category:
+    - liability
+    - non_current_liability
+    - other
+    usgaap:
+    - OtherLiabilitiesNoncurrent
+    korean_aliases:
+    - 기타의 비유동부채
+  BS_NCL_TOTAL:
+    korean_name: 비유동부채
+    english_name: Non-current Liabilities
+    statement:
+    - balance_sheet
+    category:
+    - liability
+    - non_current_liability
+    usgaap:
+    - LiabilitiesNonCurrent
+    korean_aliases:
+    - 비유동부채의 총액
+  BS_SEC_BORROWED_SEC:
+    korean_name: 차입유가증권
+    english_name: Borrowed Securities
+    statement:
+    - balance_sheet
+    category:
+    - liability
+    - current_liability
+    - securities
+    - sbl
+    usgaap: []
+    korean_aliases:
+    - 대차차입증권
+  BS_SEC_CALL:
+    korean_name: 콜론
+    english_name: Call Loans (Securities)
+    statement:
+    - balance_sheet
+    category:
+    - asset
+    - current_asset
+    - securities
+    - call_market
+    usgaap: []
+    korean_aliases:
+    - 단기대부
+  BS_SEC_CALL_LIAB:
+    korean_name: 콜머니
+    english_name: Call Money (Securities)
+    statement:
+    - balance_sheet
+    category:
+    - liability
+    - current_liability
+    - securities
+    - call_market
+    usgaap: []
+    korean_aliases:
+    - 콜차입
+  BS_SEC_OPERATING_SEC:
+    korean_name: 운용유가증권
+    english_name: Operating Securities
+    statement:
+    - balance_sheet
+    category:
+    - asset
+    - non_current_asset
+    - securities
+    - operating_securities
+    usgaap:
+    - InvestmentSecurities
+    korean_aliases:
+    - 자기운용증권
+  BS_SEC_SBL_LOAN:
+    korean_name: 대주대출금
+    english_name: Securities Lending and Borrowing Loans
+    statement:
+    - balance_sheet
+    category:
+    - asset
+    - current_asset
+    - securities
+    - sbl
+    usgaap: []
+    korean_aliases:
+    - 대주유가증권
+    - 신용공여
+  BS_SEC_SOLD_RP:
+    korean_name: 매도환매조건부채권
+    english_name: Bonds Sold under Repos (Securities)
+    statement:
+    - balance_sheet
+    category:
+    - liability
+    - current_liability
+    - securities
+    - repo
+    usgaap: []
+    korean_aliases:
+    - 매도RP
+    - 환매조건부매도
+  BS_SEC_TRADING_SEC:
+    korean_name: 매매목적유가증권
+    english_name: Trading Securities
+    statement:
+    - balance_sheet
+    category:
+    - asset
+    - current_asset
+    - securities
+    - trading_securities
+    usgaap:
+    - TradingSecurities
+    korean_aliases:
+    - 매매목적증권
+    - 트레이딩증권
+  CE_APIC_CHG:
+    korean_name: 자본잉여금변동
+    english_name: Capital Reserve Movements
+    statement:
+    - changes_in_equity
+    category:
+    - equity
+    - capital_reserve_change
+    usgaap: []
+    korean_aliases:
+    - 주식발행초과금변동
+  CE_CAP_DIV:
+    korean_name: 자본금배당
+    english_name: Capital Distribution
+    statement:
+    - changes_in_equity
+    category:
+    - equity
+    - capital_change
+    - distribution
+    usgaap: []
+    korean_aliases:
+    - 감자배당
+  CE_CAP_ISSUE:
+    korean_name: 주식발행
+    english_name: Issuance of Shares
+    statement:
+    - changes_in_equity
+    category:
+    - equity
+    - capital_change
+    - issuance
+    usgaap: []
+    korean_aliases:
+    - 유상증자
+    - 신주발행
+  CE_CAP_TREASURY:
+    korean_name: 자기주식변동
+    english_name: Treasury Stock Movements
+    statement:
+    - changes_in_equity
+    category:
+    - equity
+    - capital_change
+    - treasury
+    usgaap: []
+    korean_aliases:
+    - 자사주취득/처분
+  CE_OCI_CHG:
+    korean_name: 기타포괄손익변동
+    english_name: OCI Movements
+    statement:
+    - changes_in_equity
+    category:
+    - equity
+    - oci_change
+    usgaap: []
+    korean_aliases:
+    - OCI반영액
+  CE_RE_DIV:
+    korean_name: 이익잉여금-배당
+    english_name: Retained Earnings — Dividends
+    statement:
+    - changes_in_equity
+    category:
+    - equity
+    - retained_earnings_change
+    - dividend
+    usgaap: []
+    korean_aliases:
+    - 현금배당
+    - 이익잉여금처분(배당)
+  CE_RE_NI:
+    korean_name: 이익잉여금-당기순이익
+    english_name: Retained Earnings — Net Income
+    statement:
+    - changes_in_equity
+    category:
+    - equity
+    - retained_earnings_change
+    - net_income
+    usgaap: []
+    korean_aliases:
+    - 당기순이익처분
+  CE_RE_TRANSF:
+    korean_name: 이익잉여금-이입처분
+    english_name: Retained Earnings — Transfers
+    statement:
+    - changes_in_equity
+    category:
+    - equity
+    - retained_earnings_change
+    - transfer
+    usgaap: []
+    korean_aliases:
+    - 임의적립금이입
+    - 처분전이익잉여금
+  CE_TOTAL_CLOSING:
+    korean_name: 기말자본
+    english_name: Closing Equity
+    statement:
+    - changes_in_equity
+    category:
+    - equity
+    - closing
+    usgaap: []
+    korean_aliases:
+    - 기말자본액
+  CE_TOTAL_OPENING:
+    korean_name: 기초자본
+    english_name: Opening Equity
+    statement:
+    - changes_in_equity
+    category:
+    - equity
+    - opening
+    usgaap: []
+    korean_aliases:
+    - 기초자본액
+  CF_FCF_TOTAL:
+    korean_name: 잉여현금흐름
+    english_name: Free Cash Flow
+    statement:
+    - cash_flow
+    category:
+    - cashflow
+    - derived
+    - fcf
+    usgaap: []
+    korean_aliases:
+    - FCF
+    - Free Cash Flow
+  CF_FIN_BOND:
+    korean_name: 사채 발행/상환
+    english_name: Issuance/Repayment of Bonds
+    statement:
+    - cash_flow
+    category:
+    - cashflow
+    - financing
+    - debt
+    usgaap: []
+    korean_aliases:
+    - 사채발행/상환
+  CF_FIN_BORROW:
+    korean_name: 차입금 증감
+    english_name: Change in Borrowings
+    statement:
+    - cash_flow
+    category:
+    - cashflow
+    - financing
+    - debt
+    usgaap:
+    - ProceedsFromIssuanceOfLongTermDebt
+    korean_aliases:
+    - 차입금순증감
+  CF_FIN_DIV:
+    korean_name: 배당금 지급
+    english_name: Dividends Paid
+    statement:
+    - cash_flow
+    category:
+    - cashflow
+    - financing
+    - dividend
+    usgaap:
+    - PaymentsForDividends
+    korean_aliases:
+    - 현금배당지급
+    - 배당지급
+  CF_FIN_TOTAL:
+    korean_name: 재무현금흐름
+    english_name: Cash Flow from Financing Activities
+    statement:
+    - cash_flow
+    category:
+    - cashflow
+    - financing
+    - total
+    usgaap:
+    - NetCashProvidedByUsedInFinancingActivities
+    korean_aliases:
+    - 재무활동 현금흐름
+  CF_FIN_TREASURY:
+    korean_name: 자기주식 취득/처분
+    english_name: Purchase/Sale of Treasury Stock
+    statement:
+    - cash_flow
+    category:
+    - cashflow
+    - financing
+    - treasury
+    usgaap: []
+    korean_aliases:
+    - 자사주매입/처분
+  CF_INV_FA:
+    korean_name: 투자자산 취득/처분
+    english_name: Purchase/Sale of Investment Assets
+    statement:
+    - cash_flow
+    category:
+    - cashflow
+    - investing
+    - investment
+    usgaap: []
+    korean_aliases:
+    - 유가증권투자
+    - 지분투자
+  CF_INV_INTANG:
+    korean_name: 무형자산 취득/처분
+    english_name: Purchase/Sale of Intangible Assets
+    statement:
+    - cash_flow
+    category:
+    - cashflow
+    - investing
+    - capex
+    usgaap: []
+    korean_aliases:
+    - 무형자산투자
+  CF_INV_LOAN:
+    korean_name: 대여금 회수/대부
+    english_name: Loans and Advances
+    statement:
+    - cash_flow
+    category:
+    - cashflow
+    - investing
+    - loan
+    usgaap: []
+    korean_aliases:
+    - 대부금
+    - 차속대여금
+  CF_INV_PPE:
+    korean_name: 유형자산 취득/처분
+    english_name: Purchase/Sale of PPE
+    statement:
+    - cash_flow
+    category:
+    - cashflow
+    - investing
+    - capex
+    usgaap:
+    - PaymentsToAcquirePropertyPlantAndEquipment
+    korean_aliases:
+    - CAPEX
+    - 설비투자
+  CF_INV_PPE_ACQ:
+    korean_name: 유형자산 취득(CAPEX 지출)
+    english_name: Purchase of PPE (CAPEX outflow)
+    statement:
+    - cash_flow
+    category:
+    - cashflow
+    - investing
+    - capex
+    - outflow
+    usgaap: []
+    korean_aliases:
+    - 설비투자지출
+    - CAPEX지출
+  CF_INV_PPE_DISP:
+    korean_name: 유형자산 처분(투자수입)
+    english_name: Proceeds from Sale of PPE
+    statement:
+    - cash_flow
+    category:
+    - cashflow
+    - investing
+    - capex
+    - inflow
+    usgaap: []
+    korean_aliases:
+    - 고정자산처분수입
+  CF_INV_TOTAL:
+    korean_name: 투자현금흐름
+    english_name: Cash Flow from Investing Activities
+    statement:
+    - cash_flow
+    category:
+    - cashflow
+    - investing
+    - total
+    usgaap:
+    - NetCashProvidedByUsedInInvestingActivities
+    korean_aliases:
+    - 투자활동 현금흐름
+  CF_NET_CHANGE:
+    korean_name: 현금의 증감
+    english_name: Net Change in Cash
+    statement:
+    - cash_flow
+    category:
+    - cashflow
+    - net_change
+    usgaap: []
+    korean_aliases:
+    - 현금순증감
+  CF_OP_AP:
+    korean_name: 매입채무증감
+    english_name: Change in Accounts Payable
+    statement:
+    - cash_flow
+    category:
+    - cashflow
+    - operating
+    - working_capital_change
+    usgaap: []
+    korean_aliases:
+    - 영업채무증감
+  CF_OP_AR:
+    korean_name: 매출채권증감
+    english_name: Change in Accounts Receivable
+    statement:
+    - cash_flow
+    category:
+    - cashflow
+    - operating
+    - working_capital_change
+    usgaap: []
+    korean_aliases:
+    - 영업채권증감
+  CF_OP_DEPR:
+    korean_name: 감가상각비(영업CF)
+    english_name: Depreciation (CF adjustment)
+    statement:
+    - cash_flow
+    category:
+    - cashflow
+    - operating
+    - non_cash_adjustment
+    usgaap: []
+    korean_aliases:
+    - 유형자산상각(CF)
+  CF_OP_DTL:
+    korean_name: 이연법인세(영업CF)
+    english_name: Deferred Tax (CF adjustment)
+    statement:
+    - cash_flow
+    category:
+    - cashflow
+    - operating
+    - non_cash_adjustment
+    usgaap: []
+    korean_aliases:
+    - 이연법인세변동(CF)
+  CF_OP_EQ_METHOD:
+    korean_name: 지분법손익(영업CF)
+    english_name: Equity Method (CF adjustment)
+    statement:
+    - cash_flow
+    category:
+    - cashflow
+    - operating
+    - non_cash_adjustment
+    usgaap: []
+    korean_aliases:
+    - 지분법손익조정(CF)
+  CF_OP_FA:
+    korean_name: 유형자산처분손익(영업CF)
+    english_name: Gain/Loss on Disposal (CF adjustment)
+    statement:
+    - cash_flow
+    category:
+    - cashflow
+    - operating
+    - non_cash_adjustment
+    usgaap: []
+    korean_aliases:
+    - 처분손익조정(CF)
+  CF_OP_INTANG:
+    korean_name: 무형자산상각비(영업CF)
+    english_name: Amortization (CF adjustment)
+    statement:
+    - cash_flow
+    category:
+    - cashflow
+    - operating
+    - non_cash_adjustment
+    usgaap: []
+    korean_aliases:
+    - 무형자산상각(CF)
+  CF_OP_INV:
+    korean_name: 재고자산증감
+    english_name: Change in Inventories
+    statement:
+    - cash_flow
+    category:
+    - cashflow
+    - operating
+    - working_capital_change
+    usgaap: []
+    korean_aliases:
+    - 재고증감
+  CF_OP_NI:
+    korean_name: 당기순이익(영업CF 시작)
+    english_name: Net Income (CF starting point)
+    statement:
+    - cash_flow
+    category:
+    - cashflow
+    - operating
+    - starting_point
+    usgaap: []
+    korean_aliases:
+    - 순이익(간접법 기점)
+  CF_OP_OTHER:
+    korean_name: 기타 영업활동조정
+    english_name: Other Operating Adjustments
+    statement:
+    - cash_flow
+    category:
+    - cashflow
+    - operating
+    - other
+    usgaap: []
+    korean_aliases:
+    - 기타영업현금흐름조정
+  CF_OP_PAY:
+    korean_name: 영업현금지출
+    english_name: Cash Paid for Operating Activities
+    statement:
+    - cash_flow
+    category:
+    - cashflow
+    - operating
+    - payment
+    usgaap: []
+    korean_aliases:
+    - 영업지출현금
+  CF_OP_RCPT:
+    korean_name: 영업현금수입
+    english_name: Cash Received from Operating Activities
+    statement:
+    - cash_flow
+    category:
+    - cashflow
+    - operating
+    - receipt
+    usgaap: []
+    korean_aliases:
+    - 영업수취현금
+  CF_OP_TOTAL:
+    korean_name: 영업현금흐름
+    english_name: Cash Flow from Operating Activities
+    statement:
+    - cash_flow
+    category:
+    - cashflow
+    - operating
+    - total
+    usgaap:
+    - NetCashProvidedByUsedInOperatingActivities
+    korean_aliases:
+    - 영업활동 현금흐름
+    - OCF
+  CF_TOTAL_CLOSING:
+    korean_name: 기말현금
+    english_name: Closing Cash
+    statement:
+    - cash_flow
+    category:
+    - cashflow
+    - closing
+    usgaap: []
+    korean_aliases:
+    - 기말현금및현금성자산
+  CF_TOTAL_OPENING:
+    korean_name: 기초현금
+    english_name: Opening Cash
+    statement:
+    - cash_flow
+    category:
+    - cashflow
+    - opening
+    usgaap: []
+    korean_aliases:
+    - 기초현금및현금성자산
+  CI_COMP_TOTAL:
+    korean_name: 당기포괄손익
+    english_name: Total Comprehensive Income
+    statement:
+    - comprehensive_income
+    category:
+    - profit
+    - comprehensive_income
+    usgaap:
+    - ComprehensiveIncomeNetOfTax
+    korean_aliases:
+    - 포괄손익
+    - TCI
+  CI_NOR_FV_EQ:
+    korean_name: FV변동(지분법, OCI)
+    english_name: FV Changes of Equity Investments (OCI)
+    statement:
+    - comprehensive_income
+    category:
+    - oci
+    - not_reclassified
+    - fair_value
+    usgaap: []
+    korean_aliases:
+    - 지분법적용투자 FV변동
+  CI_NOR_PENSION:
+    korean_name: 확정급여재측정손익
+    english_name: Remeasurement of Defined Benefit Plans
+    statement:
+    - comprehensive_income
+    category:
+    - oci
+    - not_reclassified
+    - pension
+    usgaap:
+    - PensionRemeasurement
+    korean_aliases:
+    - 퇴직연금재측정
+  CI_NOR_RV:
+    korean_name: 재평가차익(OCI)
+    english_name: Revaluation Surplus (OCI)
+    statement:
+    - comprehensive_income
+    category:
+    - oci
+    - not_reclassified
+    - revaluation
+    usgaap: []
+    korean_aliases:
+    - 유형자산재평가차익
+  CI_NOR_TOTAL:
+    korean_name: 재분류 안되는 기타포괄손익
+    english_name: OCI Not Reclassified to P&L
+    statement:
+    - comprehensive_income
+    category:
+    - oci
+    - not_reclassified
+    usgaap: []
+    korean_aliases:
+    - 재분류 안되는 항목
+  CI_PERIOD_TOTAL:
+    korean_name: 당기기타포괄손익
+    english_name: Other Comprehensive Income for the Period
+    statement:
+    - comprehensive_income
+    category:
+    - oci
+    - period_total
+    usgaap: []
+    korean_aliases:
+    - 당기 OCI
+  CI_R_AFS:
+    korean_name: 처분가능자산 FV변동
+    english_name: FV Changes of Available-for-Sale Assets
+    statement:
+    - comprehensive_income
+    category:
+    - oci
+    - reclassified
+    - fair_value
+    usgaap: []
+    korean_aliases:
+    - AFS 공정가치변동
+  CI_R_CF_HEDGE:
+    korean_name: 현금흐름헤지손익
+    english_name: Cash Flow Hedges
+    statement:
+    - comprehensive_income
+    category:
+    - oci
+    - reclassified
+    - hedge
+    usgaap:
+    - CashFlowHedgeGainLoss
+    korean_aliases:
+    - 현금흐름헤지효과
+  CI_R_FX:
+    korean_name: 해외사업환산손익
+    english_name: Foreign Currency Translation
+    statement:
+    - comprehensive_income
+    category:
+    - oci
+    - reclassified
+    - fx
+    usgaap:
+    - ForeignCurrencyTranslationAdjustment
+    korean_aliases:
+    - 환율환산차이
+  CI_R_NI_HEDGE:
+    korean_name: 순투자헤지손익
+    english_name: Hedges of Net Investments
+    statement:
+    - comprehensive_income
+    category:
+    - oci
+    - reclassified
+    - hedge
+    usgaap: []
+    korean_aliases:
+    - 해외사업순투자헤지
+  CI_R_TOTAL:
+    korean_name: 재분류 되는 기타포괄손익
+    english_name: OCI Reclassified to P&L
+    statement:
+    - comprehensive_income
+    category:
+    - oci
+    - reclassified
+    usgaap: []
+    korean_aliases:
+    - 재분류 되는 항목
+  IS_BANK_FEE_EXPENSE:
+    korean_name: 수수료비용
+    english_name: Fee and Commission Expense
+    statement:
+    - income_statement
+    category:
+    - expense
+    - bank
+    - fee
+    usgaap:
+    - FeeExpense
+    korean_aliases:
+    - 수수료·위탁수수료비용
+  IS_BANK_FEE_INCOME:
+    korean_name: 수수료수익
+    english_name: Fee and Commission Income
+    statement:
+    - income_statement
+    category:
+    - revenue
+    - bank
+    - fee
+    usgaap:
+    - FeeIncome
+    korean_aliases:
+    - 수수료·위탁수수료
+  IS_BANK_FX:
+    korean_name: 외환손익
+    english_name: Foreign Exchange Gains/Losses
+    statement:
+    - income_statement
+    category:
+    - profit
+    - bank
+    - fx
+    usgaap: []
+    korean_aliases:
+    - 외환업무손익
+  IS_BANK_INT_EXPENSE:
+    korean_name: 이자비용
+    english_name: Interest Expense (Bank Operating)
+    statement:
+    - income_statement
+    category:
+    - expense
+    - bank
+    - interest
+    usgaap:
+    - InterestExpense
+    korean_aliases:
+    - 예금이자비용
+    - 차입이자비용
+  IS_BANK_INT_INCOME:
+    korean_name: 이자수익
+    english_name: Interest Income (Bank Operating)
+    statement:
+    - income_statement
+    category:
+    - revenue
+    - bank
+    - interest
+    usgaap:
+    - InterestIncome
+    korean_aliases:
+    - 대출이자수익
+    - 운용이자수익
+  IS_BANK_LOAN_LOSS:
+    korean_name: 대손상각비
+    english_name: Provision for Loan Losses
+    statement:
+    - income_statement
+    category:
+    - expense
+    - bank
+    - provision
+    usgaap:
+    - ProvisionForCreditLosses
+    korean_aliases:
+    - 여신충당금충당비
+    - 대손비용
+  IS_BANK_NIM:
+    korean_name: 순이자수익
+    english_name: Net Interest Income
+    statement:
+    - income_statement
+    category:
+    - profit
+    - bank
+    - net_interest
+    usgaap: []
+    korean_aliases:
+    - 이자마진
+    - NII
+  IS_BANK_SEC_GAIN:
+    korean_name: 유가증권손익
+    english_name: Gains/Losses on Securities
+    statement:
+    - income_statement
+    category:
+    - profit
+    - bank
+    - securities
+    usgaap: []
+    korean_aliases:
+    - 유가증권처분·평가손익
+  IS_COGS_LABOR:
+    korean_name: 노무비
+    english_name: Labor Cost
+    statement:
+    - income_statement
+    category:
+    - expense
+    - cogs
+    - labor
+    usgaap: []
+    korean_aliases:
+    - 직접노무비
+    - 임금
+  IS_COGS_OH:
+    korean_name: 제조경비
+    english_name: Manufacturing Overhead
+    statement:
+    - income_statement
+    category:
+    - expense
+    - cogs
+    - overhead
+    usgaap: []
+    korean_aliases:
+    - 간접제조비
+    - 공장경비
+  IS_COGS_RAW:
+    korean_name: 재료비
+    english_name: Material Cost
+    statement:
+    - income_statement
+    category:
+    - expense
+    - cogs
+    - material
+    usgaap: []
+    korean_aliases:
+    - 원재료비
+    - 부재비
+  IS_COGS_TOTAL:
+    korean_name: 매출원가
+    english_name: Cost of Goods Sold
+    statement:
+    - income_statement
+    category:
+    - expense
+    - cogs
+    usgaap:
+    - CostOfGoodsAndServicesSold
+    korean_aliases:
+    - 제품판매원가
+    - COGS
+  IS_GP_TOTAL:
+    korean_name: 매출총이익
+    english_name: Gross Profit
+    statement:
+    - income_statement
+    category:
+    - profit
+    - gross_profit
+    usgaap: []
+    korean_aliases:
+    - 매출총이익(그로스마진)
+  IS_INS_ACQUISITION:
+    korean_name: 신계약비
+    english_name: Acquisition Costs
+    statement:
+    - income_statement
+    category:
+    - expense
+    - insurance
+    - acquisition
+    usgaap: []
+    korean_aliases:
+    - 계약비
+    - 모집비용
+  IS_INS_CLAIM:
+    korean_name: 보험금
+    english_name: Insurance Claims and Benefits Paid
+    statement:
+    - income_statement
+    category:
+    - expense
+    - insurance
+    - claim
+    usgaap:
+    - PolicyholderBenefits
+    korean_aliases:
+    - 보험금지급액
+    - 사망·만기·사고보험금
+  IS_INS_INVEST_INCOME:
+    korean_name: 투자수익
+    english_name: Investment Income (Insurance)
+    statement:
+    - income_statement
+    category:
+    - revenue
+    - insurance
+    - investment
+    usgaap: []
+    korean_aliases:
+    - 운용수익(보험)
+  IS_INS_PREMIUM:
+    korean_name: 보험료수익
+    english_name: Insurance Premium Revenue
+    statement:
+    - income_statement
+    category:
+    - revenue
+    - insurance
+    - premium
+    usgaap:
+    - PremiumsEarned
+    korean_aliases:
+    - 원수보험료
+    - 경과보험료
+  IS_INS_REINS_CLAIM:
+    korean_name: 재보험금(회수)
+    english_name: Reinsurance Recoveries on Claims
+    statement:
+    - income_statement
+    category:
+    - revenue
+    - insurance
+    - reinsurance
+    - claim
+    usgaap: []
+    korean_aliases:
+    - 재보험회수보험금
+  IS_INS_REINS_PREMIUM:
+    korean_name: 재보험료
+    english_name: Reinsurance Premium Ceded
+    statement:
+    - income_statement
+    category:
+    - expense
+    - insurance
+    - reinsurance
+    - premium
+    usgaap: []
+    korean_aliases:
+    - 출재보험료
+    - 재보험료지급
+  IS_INS_RESERVE_CHG:
+    korean_name: 책임준비금변동
+    english_name: Change in Insurance Reserve
+    statement:
+    - income_statement
+    category:
+    - expense
+    - insurance
+    - reserve_change
+    usgaap: []
+    korean_aliases:
+    - 준비금증감
+    - 책임준비금전입(전출)
+  IS_NI_NCI:
+    korean_name: 비지배지분순이익
+    english_name: Net Income Attributable to NCI
+    statement:
+    - income_statement
+    category:
+    - profit
+    - net_income
+    - nci
+    usgaap:
+    - NetIncomeLossAttributableToNoncontrollingInterest
+    korean_aliases:
+    - 소수주주지분순이익
+  IS_NI_PARENT:
+    korean_name: 지배기업소유주지분순이익
+    english_name: Net Income Attributable to Parent
+    statement:
+    - income_statement
+    category:
+    - profit
+    - net_income
+    - parent
+    usgaap:
+    - NetIncomeLoss
+    korean_aliases:
+    - 지배순이익
+  IS_NI_TOTAL:
+    korean_name: 당기순이익
+    english_name: Net Income
+    statement:
+    - income_statement
+    - cash_flow
+    - comprehensive_income
+    - changes_in_equity
+    category:
+    - profit
+    - net_income
+    usgaap:
+    - ProfitLoss
+    korean_aliases:
+    - 순이익
+    - Net Income
+  IS_NONOP_DIV_INC:
+    korean_name: 배당금수익
+    english_name: Dividend Income
+    statement:
+    - income_statement
+    category:
+    - revenue
+    - non_operating
+    - financial
+    usgaap: []
+    korean_aliases:
+    - 배당수익
+  IS_NONOP_EQ_METHOD:
+    korean_name: 지분법이익
+    english_name: Equity Method Gain
+    statement:
+    - income_statement
+    category:
+    - revenue
+    - non_operating
+    - equity_method
+    usgaap:
+    - IncomeLossFromEquityMethodInvestments
+    korean_aliases:
+    - 지분법손익
+  IS_NONOP_EXP_OTHER:
+    korean_name: 기타 영업외비용
+    english_name: Other Non-operating Expenses
+    statement:
+    - income_statement
+    category:
+    - expense
+    - non_operating
+    - other
+    usgaap: []
+    korean_aliases:
+    - 잡손실
+  IS_NONOP_EXP_TOTAL:
+    korean_name: 영업외비용
+    english_name: Non-operating Expenses
+    statement:
+    - income_statement
+    category:
+    - expense
+    - non_operating
+    usgaap: []
+    korean_aliases:
+    - 영업외비용의 총액
+  IS_NONOP_FA_GAIN:
+    korean_name: 유형자산처분이익
+    english_name: Gain on Disposal of PPE
+    statement:
+    - income_statement
+    category:
+    - revenue
+    - non_operating
+    - disposal_gain
+    usgaap: []
+    korean_aliases:
+    - 고정자산처분이익
+  IS_NONOP_FA_LOSS:
+    korean_name: 유형자산처분손실
+    english_name: Loss on Disposal of PPE
+    statement:
+    - income_statement
+    category:
+    - expense
+    - non_operating
+    - disposal_loss
+    usgaap: []
+    korean_aliases:
+    - 고정자산처분손실
+  IS_NONOP_FX_GAIN:
+    korean_name: 외환관계이익
+    english_name: Foreign Exchange Gains
+    statement:
+    - income_statement
+    category:
+    - revenue
+    - non_operating
+    - fx
+    usgaap: []
+    korean_aliases:
+    - 외환차익
+  IS_NONOP_FX_LOSS:
+    korean_name: 외환관계손실
+    english_name: Foreign Exchange Losses
+    statement:
+    - income_statement
+    category:
+    - expense
+    - non_operating
+    - fx
+    usgaap: []
+    korean_aliases:
+    - 외환차손
+  IS_NONOP_INT_EXP:
+    korean_name: 이자비용
+    english_name: Interest Expense
+    statement:
+    - income_statement
+    category:
+    - expense
+    - non_operating
+    - financial
+    usgaap:
+    - InterestExpense
+    korean_aliases:
+    - 수비용
+    - 금융비용
+  IS_NONOP_INT_INC:
+    korean_name: 이자수익
+    english_name: Interest Income
+    statement:
+    - income_statement
+    category:
+    - revenue
+    - non_operating
+    - financial
+    usgaap:
+    - InterestIncome
+    korean_aliases:
+    - 수이익
+  IS_NONOP_REV_OTHER:
+    korean_name: 기타 영업외수익
+    english_name: Other Non-operating Revenue
+    statement:
+    - income_statement
+    category:
+    - revenue
+    - non_operating
+    - other
+    usgaap: []
+    korean_aliases:
+    - 잡이익
+  IS_NONOP_REV_TOTAL:
+    korean_name: 영업외수익
+    english_name: Non-operating Revenue
+    statement:
+    - income_statement
+    category:
+    - revenue
+    - non_operating
+    usgaap: []
+    korean_aliases:
+    - 영업외수익의 총액
+  IS_OPEX_ADMIN:
+    korean_name: 관리비
+    english_name: General and Administrative Expenses
+    statement:
+    - income_statement
+    category:
+    - expense
+    - opex
+    - gna
+    usgaap: []
+    korean_aliases:
+    - 관리비용
+    - G&A
+  IS_OPEX_DEPR:
+    korean_name: 감가상각비
+    english_name: Depreciation and Amortization
+    statement:
+    - income_statement
+    - cash_flow
+    category:
+    - expense
+    - opex
+    - depreciation
+    usgaap: []
+    korean_aliases:
+    - 유형자산상각비
+    - D&A
+  IS_OPEX_RD:
+    korean_name: 연구개발비
+    english_name: Research and Development Expenses
+    statement:
+    - income_statement
+    category:
+    - expense
+    - opex
+    - rd
+    usgaap:
+    - ResearchAndDevelopmentExpense
+    korean_aliases:
+    - R&D비용
+    - 연구개발비
+  IS_OPEX_SELLING:
+    korean_name: 판매비
+    english_name: Selling Expenses
+    statement:
+    - income_statement
+    category:
+    - expense
+    - opex
+    - selling
+    usgaap: []
+    korean_aliases:
+    - 판매비용
+  IS_OPEX_TOTAL:
+    korean_name: 판매비와관리비
+    english_name: Selling, General and Administrative Expenses
+    statement:
+    - income_statement
+    category:
+    - expense
+    - opex
+    usgaap: []
+    korean_aliases:
+    - 판관비
+    - SG&A
+  IS_OP_INCOME:
+    korean_name: 영업이익
+    english_name: Operating Income
+    statement:
+    - income_statement
+    category:
+    - profit
+    - operating_profit
+    usgaap: []
+    korean_aliases:
+    - 영업이익
+    - EBIT(근사)
+  IS_PBT_TOTAL:
+    korean_name: 법인세차감전순이익
+    english_name: Profit Before Tax
+    statement:
+    - income_statement
+    category:
+    - profit
+    - profit_before_tax
+    usgaap:
+    - IncomeLossFromContinuingOperationsBeforeIncomeTaxes
+    korean_aliases:
+    - 세전순이익
+    - PBT
+  IS_REV_OTHER:
+    korean_name: 기타 매출
+    english_name: Other Revenue
+    statement:
+    - income_statement
+    category:
+    - revenue
+    - other
+    usgaap: []
+    korean_aliases:
+    - 잡수익(매출)
+  IS_REV_SALES:
+    korean_name: 매출액(상품·용역)
+    english_name: Sales Revenue
+    statement:
+    - income_statement
+    category:
+    - revenue
+    - sales
+    usgaap:
+    - SalesRevenueGoodsNet
+    korean_aliases:
+    - 제품매출
+    - 용역매출
+  IS_REV_TOTAL:
+    korean_name: 매출액(총계)
+    english_name: Total Revenue
+    statement:
+    - income_statement
+    category:
+    - revenue
+    - total
+    usgaap:
+    - Revenues
+    korean_aliases:
+    - 매출액
+    - Revenue
+  IS_SEC_BROKERAGE:
+    korean_name: 위탁매매수수료
+    english_name: Brokerage Commission
+    statement:
+    - income_statement
+    category:
+    - revenue
+    - securities
+    - commission
+    usgaap:
+    - CommissionsAndFees
+    korean_aliases:
+    - 중개수수료
+    - 위탁매매
+  IS_SEC_INTEREST:
+    korean_name: 이자수익(증권)
+    english_name: Interest Income (Securities)
+    statement:
+    - income_statement
+    category:
+    - revenue
+    - securities
+    - interest
+    usgaap:
+    - InterestIncome
+    korean_aliases:
+    - 콜론·예치금이자
+  IS_SEC_OPERATING_GAIN:
+    korean_name: 운용증권손익
+    english_name: Gain/Loss on Operating Securities
+    statement:
+    - income_statement
+    category:
+    - profit
+    - securities
+    - operating
+    usgaap: []
+    korean_aliases:
+    - 운용유가증권평가·처분손익
+  IS_SEC_SBL_INCOME:
+    korean_name: 대주수수료
+    english_name: Securities Lending Fee Income
+    statement:
+    - income_statement
+    category:
+    - revenue
+    - securities
+    - commission
+    - sbl
+    usgaap: []
+    korean_aliases:
+    - 대차수수료
+    - 신용공여수익
+  IS_SEC_TRADING_GAIN:
+    korean_name: 매매유가증권손익
+    english_name: Gain/Loss on Trading Securities
+    statement:
+    - income_statement
+    category:
+    - profit
+    - securities
+    - trading
+    usgaap:
+    - TradingAccountGainsLosses
+    korean_aliases:
+    - 매매증권평가·처분손익
+  IS_SEC_UNDERWRITING:
+    korean_name: 인수수수료
+    english_name: Underwriting Commission
+    statement:
+    - income_statement
+    category:
+    - revenue
+    - securities
+    - commission
+    - underwriting
+    usgaap: []
+    korean_aliases:
+    - 인수·모집수수료
+    - IB수수료
+  IS_TAX_CURRENT:
+    korean_name: 당기법인세
+    english_name: Current Tax Expense
+    statement:
+    - income_statement
+    category:
+    - expense
+    - tax
+    - current_tax
+    usgaap: []
+    korean_aliases:
+    - 당기법인세비용
+  IS_TAX_DEFERRED:
+    korean_name: 이연법인세
+    english_name: Deferred Tax Expense
+    statement:
+    - income_statement
+    category:
+    - expense
+    - tax
+    - deferred_tax
+    usgaap: []
+    korean_aliases:
+    - 이연법인세비용
+  IS_TAX_TOTAL:
+    korean_name: 법인세비용
+    english_name: Income Tax Expense
+    statement:
+    - income_statement
+    category:
+    - expense
+    - tax
+    usgaap:
+    - IncomeTaxExpenseBenefit
+    korean_aliases:
+    - 법인세
+    - Tax
+by_taxonomy:
+  AccountsPayableCurrent: BS_CL_AP
+  AccountsReceivableNetCurrent: BS_CA_AR
+  AccumulatedOtherComprehensiveIncomeLoss: BS_EQ_OCI
+  AdditionalPaidInCapital: BS_EQ_APIC
+  Assets: BS_A_TOTAL
+  AssetsCurrent: BS_CA_TOTAL
+  AssetsNonCurrent: BS_NCA_TOTAL
+  BuildingsAndFixtures: BS_NCA_PPE_BUILDING
+  CapitalizedSoftware: BS_NCA_RD_ASSET
+  CashAndCashEquivalentsAtCarryingValue: BS_CA_CASH
+  CashFlowHedgeGainLoss: CI_R_CF_HEDGE
+  CommissionsAndFees: IS_SEC_BROKERAGE
+  CommonStockValue: BS_EQ_CS
+  ComprehensiveIncomeNetOfTax: CI_COMP_TOTAL
+  CostOfGoodsAndServicesSold: IS_COGS_TOTAL
+  DeferredTaxAssetsNet: BS_NCA_DTA
+  DeferredTaxLiabilitiesNet: BS_NCL_DTL
+  Deposits: BS_BANK_DEPOSIT
+  FeeExpense: IS_BANK_FEE_EXPENSE
+  FeeIncome: IS_BANK_FEE_INCOME
+  ForeignCurrencyTranslationAdjustment: CI_R_FX
+  Goodwill: BS_NCA_GW
+  IncomeLossFromContinuingOperationsBeforeIncomeTaxes: IS_PBT_TOTAL
+  IncomeLossFromEquityMethodInvestments: IS_NONOP_EQ_METHOD
+  IncomeTaxExpenseBenefit: IS_TAX_TOTAL
+  IntangibleAssetsNet: BS_NCA_INTANGIBLE
+  InterestExpense: IS_BANK_INT_EXPENSE
+  InterestIncome: IS_BANK_INT_INCOME
+  InventoryFinishedGoods: BS_CA_INV_FIN
+  InventoryNet: BS_CA_INV
+  InventoryRawMaterials: BS_CA_INV_RAW
+  InventoryWorkInProcess: BS_CA_INV_WIP
+  InvestmentProperty: BS_NCA_INV_PROP
+  InvestmentSecurities: BS_BANK_SECURITIES
+  LandAndImprovements: BS_NCA_PPE_LAND
+  Liabilities: BS_L_TOTAL
+  LiabilitiesCurrent: BS_CL_TOTAL
+  LiabilitiesForInsuranceContracts: BS_NCL_INS_RESERVE
+  LiabilitiesNonCurrent: BS_NCL_TOTAL
+  LoansAndLeasesReceivable: BS_BANK_LOAN_ST
+  LongTermDebt: BS_NCL_BOND
+  MachineryAndEquipment: BS_NCA_PPE_MACHINERY
+  MinorityInterest: BS_EQ_NCI
+  NetCashProvidedByUsedInFinancingActivities: CF_FIN_TOTAL
+  NetCashProvidedByUsedInInvestingActivities: CF_INV_TOTAL
+  NetCashProvidedByUsedInOperatingActivities: CF_OP_TOTAL
+  NetIncomeLoss: IS_NI_PARENT
+  NetIncomeLossAttributableToNoncontrollingInterest: IS_NI_NCI
+  OtherAssetsCurrent: BS_CA_OTHER
+  OtherAssetsNoncurrent: BS_NCA_OTHER
+  OtherLiabilitiesCurrent: BS_CL_OTHER
+  OtherLiabilitiesNoncurrent: BS_NCL_OTHER
+  PaymentsForDividends: CF_FIN_DIV
+  PaymentsToAcquirePropertyPlantAndEquipment: CF_INV_PPE
+  PensionAndPostretirementBenefits: BS_NCL_LT_PROV
+  PensionRemeasurement: CI_NOR_PENSION
+  PolicyholderBenefits: IS_INS_CLAIM
+  PremiumsEarned: IS_INS_PREMIUM
+  ProceedsFromIssuanceOfLongTermDebt: CF_FIN_BORROW
+  ProfitLoss: IS_NI_TOTAL
+  PropertyPlantAndEquipmentNet: BS_NCA_PPE
+  ProvisionForCreditLosses: IS_BANK_LOAN_LOSS
+  ReinsuranceRecoverables: BS_INS_REINS_ASSET
+  ResearchAndDevelopmentExpense: IS_OPEX_RD
+  RetainedEarningsAccumulatedDeficit: BS_EQ_RE
+  Revenues: IS_REV_TOTAL
+  RightOfUseAssets: BS_NCA_ROU
+  SalesRevenueGoodsNet: IS_REV_SALES
+  ShortTermBorrowings: BS_CL_ST_BORROW
+  StockholdersEquity: BS_EQ_PARENT
+  TradingAccountGainsLosses: IS_SEC_TRADING_GAIN
+  TradingSecurities: BS_SEC_TRADING_SEC
+  TreasuryStockValue: BS_EQ_TREASURY
+by_korean_name:
+  AFS 공정가치변동: CI_R_AFS
+  CAPEX: CF_INV_PPE
+  CAPEX지출: CF_INV_PPE_ACQ
+  COGS: IS_COGS_TOTAL
+  D&A: IS_OPEX_DEPR
+  EBIT(근사): IS_OP_INCOME
+  FCF: CF_FCF_TOTAL
+  FV변동(지분법, OCI): CI_NOR_FV_EQ
+  Free Cash Flow: CF_FCF_TOTAL
+  G&A: IS_OPEX_ADMIN
+  IB수수료: IS_SEC_UNDERWRITING
+  Inventories: BS_CA_INV
+  NII: IS_BANK_NIM
+  Net Income: IS_NI_TOTAL
+  OCF: CF_OP_TOTAL
+  OCI반영액: CE_OCI_CHG
+  PBT: IS_PBT_TOTAL
+  PropertyPlantAndEquipment: BS_NCA_PPE
+  R&D비용: IS_OPEX_RD
+  Revenue: IS_REV_TOTAL
+  SG&A: IS_OPEX_TOTAL
+  TCI: CI_COMP_TOTAL
+  Tax: IS_TAX_TOTAL
+  Trade Receivables: BS_CA_AR
+  간접제조비: IS_COGS_OH
+  감가상각비: IS_OPEX_DEPR
+  감가상각비(영업CF): CF_OP_DEPR
+  감자배당: CE_CAP_DIV
+  개발비(자본화): BS_NCA_RD_ASSET
+  개발원가: BS_NCA_RD_ASSET
+  건물: BS_NCA_PPE_BUILDING
+  건물 및 부대설비: BS_NCA_PPE_BUILDING
+  경과보험료: IS_INS_PREMIUM
+  계약비: IS_INS_ACQUISITION
+  고정자산처분손실: IS_NONOP_FA_LOSS
+  고정자산처분수입: CF_INV_PPE_DISP
+  고정자산처분이익: IS_NONOP_FA_GAIN
+  공장경비: IS_COGS_OH
+  관리비: IS_OPEX_ADMIN
+  관리비용: IS_OPEX_ADMIN
+  구입원재료: BS_CA_INV_RAW
+  금융비용: IS_NONOP_INT_EXP
+  기계 및 설비: BS_NCA_PPE_MACHINERY
+  기계장치: BS_NCA_PPE_MACHINERY
+  기말자본: CE_TOTAL_CLOSING
+  기말자본액: CE_TOTAL_CLOSING
+  기말현금: CF_TOTAL_CLOSING
+  기말현금및현금성자산: CF_TOTAL_CLOSING
+  기초자본: CE_TOTAL_OPENING
+  기초자본액: CE_TOTAL_OPENING
+  기초현금: CF_TOTAL_OPENING
+  기초현금및현금성자산: CF_TOTAL_OPENING
+  기타 매출: IS_REV_OTHER
+  기타 영업외비용: IS_NONOP_EXP_OTHER
+  기타 영업외수익: IS_NONOP_REV_OTHER
+  기타 영업활동조정: CF_OP_OTHER
+  기타미지급금: BS_CL_PAYABLE
+  기타비유동부채: BS_NCL_OTHER
+  기타비유동자산: BS_NCA_OTHER
+  기타영업현금흐름조정: CF_OP_OTHER
+  기타유동부채: BS_CL_OTHER
+  기타유동자산: BS_CA_OTHER
+  기타의 비유동부채: BS_NCL_OTHER
+  기타의 비유동자산: BS_NCA_OTHER
+  기타의 유동부채: BS_CL_OTHER
+  기타의 유동자산: BS_CA_OTHER
+  기타자본잉여금: BS_EQ_APIC
+  기타포괄손익: BS_EQ_OCI
+  기타포괄손익누적액: BS_EQ_OCI
+  기타포괄손익변동: CE_OCI_CHG
+  납입자본금: BS_EQ_CS
+  노무비: IS_COGS_LABOR
+  단기금융상품: BS_CA_ST_FIN
+  단기금융자산: BS_CA_ST_FIN
+  단기대부: BS_SEC_CALL
+  단기대출금: BS_BANK_LOAN_ST
+  단기사채: BS_CL_ST_BOND
+  단기차입금: BS_CL_ST_BORROW
+  단기차입금 및 하자보수충당금: BS_CL_ST_BORROW
+  단기투자: BS_CA_ST_INV
+  단기투자자산: BS_CA_ST_INV
+  당기 OCI: CI_PERIOD_TOTAL
+  당기기타포괄손익: CI_PERIOD_TOTAL
+  당기법인세: IS_TAX_CURRENT
+  당기법인세부채: BS_CL_ST_TAX
+  당기법인세비용: IS_TAX_CURRENT
+  당기순이익: IS_NI_TOTAL
+  당기순이익(영업CF 시작): CF_OP_NI
+  당기순이익처분: CE_RE_NI
+  당기포괄손익: CI_COMP_TOTAL
+  대부금: CF_INV_LOAN
+  대손비용: IS_BANK_LOAN_LOSS
+  대손상각비: IS_BANK_LOAN_LOSS
+  대손충당금: BS_BANK_LOAN_ALLOWANCE
+  대손충당금(대출): BS_BANK_LOAN_ALLOWANCE
+  대여금 회수/대부: CF_INV_LOAN
+  대주대출금: BS_SEC_SBL_LOAN
+  대주수수료: IS_SEC_SBL_INCOME
+  대주유가증권: BS_SEC_SBL_LOAN
+  대차수수료: IS_SEC_SBL_INCOME
+  대차차입증권: BS_SEC_BORROWED_SEC
+  대출이자수익: IS_BANK_INT_INCOME
+  리스사용권자산: BS_NCA_ROU
+  매도RP: BS_BANK_SOLD_RP
+  매도환매조건부채권: BS_BANK_SOLD_RP
+  매매목적단기금융자산: BS_CA_ST_FIN
+  매매목적유가증권: BS_SEC_TRADING_SEC
+  매매목적증권: BS_SEC_TRADING_SEC
+  매매목적투자증권: BS_CA_ST_INV
+  매매유가증권손익: IS_SEC_TRADING_GAIN
+  매매증권평가·처분손익: IS_SEC_TRADING_GAIN
+  매입RP: BS_BANK_BOUGHT_RP
+  매입채무: BS_CL_AP
+  매입채무증감: CF_OP_AP
+  매입환매조건부채권: BS_BANK_BOUGHT_RP
+  매출액: IS_REV_TOTAL
+  매출액(상품·용역): IS_REV_SALES
+  매출액(총계): IS_REV_TOTAL
+  매출원가: IS_COGS_TOTAL
+  매출채권: BS_CA_AR
+  매출채권 총액: BS_CA_AR_GROSS
+  매출채권(총액): BS_CA_AR_GROSS
+  매출채권대손충당금: BS_CA_AR_ALLOWANCE
+  매출채권증감: CF_OP_AR
+  매출총이익: IS_GP_TOTAL
+  매출총이익(그로스마진): IS_GP_TOTAL
+  모집비용: IS_INS_ACQUISITION
+  무형자산: BS_NCA_INTANGIBLE
+  무형자산 취득/처분: CF_INV_INTANG
+  무형자산(순액): BS_NCA_INTANGIBLE
+  무형자산상각(CF): CF_OP_INTANG
+  무형자산상각비(영업CF): CF_OP_INTANG
+  무형자산투자: CF_INV_INTANG
+  미경과보험료: BS_NCL_INS_UNEARNED
+  미경과보험료준비금: BS_NCL_INS_UNEARNED
+  미수금: BS_CA_AR
+  미수수익: BS_CA_OTHER
+  미수재보험금: BS_INS_REINS_ASSET
+  미지급금: BS_CL_PAYABLE
+  미지급금(매입): BS_CL_AP
+  미지급배당금: BS_CL_DIV_PAYABLE
+  미지급법인세: BS_CL_ST_TAX
+  미지급보험금: BS_NCL_INS_CLAIM_OUTSTANDING
+  미처분이익잉여금: BS_EQ_RE
+  배당금 지급: CF_FIN_DIV
+  배당금미지급금: BS_CL_DIV_PAYABLE
+  배당금수익: IS_NONOP_DIV_INC
+  배당수익: IS_NONOP_DIV_INC
+  배당지급: CF_FIN_DIV
+  법인세: IS_TAX_TOTAL
+  법인세비용: IS_TAX_TOTAL
+  법인세차감전순이익: IS_PBT_TOTAL
+  법정지급준비금: BS_BANK_RESERVE
+  보통주자본금: BS_EQ_CS
+  보험계약부채: BS_NCL_INS_RESERVE
+  보험금: IS_INS_CLAIM
+  보험금지급액: IS_INS_CLAIM
+  보험료수익: IS_INS_PREMIUM
+  보험책임준비금: BS_NCL_INS_RESERVE
+  부재비: IS_COGS_RAW
+  부채의 총액: BS_L_TOTAL
+  부채총계: BS_L_TOTAL
+  비유동부채: BS_NCL_TOTAL
+  비유동부채의 총액: BS_NCL_TOTAL
+  비유동자산: BS_NCA_TOTAL
+  비유동자산의 총액: BS_NCA_TOTAL
+  비유동충당부채: BS_NCL_LT_PROV
+  비지배지분: BS_EQ_NCI
+  비지배지분순이익: IS_NI_NCI
+  사망·만기·사고보험금: IS_INS_CLAIM
+  사업용토지: BS_NCA_PPE_LAND
+  사용권자산: BS_NCA_ROU
+  사채: BS_NCL_BOND
+  사채 발행/상환: CF_FIN_BOND
+  사채(유동): BS_CL_ST_BOND
+  사채(장기): BS_NCL_BOND
+  사채발행/상환: CF_FIN_BOND
+  선급금: BS_CA_PREPAID
+  선급비용: BS_CA_PREPAID
+  선수금: BS_CL_ADV
+  선수금(자산): BS_CA_PREPAID
+  선수수익: BS_CL_ADV
+  설비투자: CF_INV_PPE
+  설비투자지출: CF_INV_PPE_ACQ
+  세전순이익: IS_PBT_TOTAL
+  소수주주지분: BS_EQ_NCI
+  소수주주지분순이익: IS_NI_NCI
+  수비용: IS_NONOP_INT_EXP
+  수수료·위탁수수료: IS_BANK_FEE_INCOME
+  수수료·위탁수수료비용: IS_BANK_FEE_EXPENSE
+  수수료비용: IS_BANK_FEE_EXPENSE
+  수수료수익: IS_BANK_FEE_INCOME
+  수신금: BS_BANK_DEPOSIT
+  수이익: IS_NONOP_INT_INC
+  순이익: IS_NI_TOTAL
+  순이익(간접법 기점): CF_OP_NI
+  순이자수익: IS_BANK_NIM
+  순투자헤지손익: CI_R_NI_HEDGE
+  신계약비: IS_INS_ACQUISITION
+  신용공여: BS_SEC_SBL_LOAN
+  신용공여수익: IS_SEC_SBL_INCOME
+  신주발행: CE_CAP_ISSUE
+  여신(단기): BS_BANK_LOAN_ST
+  여신(장기): BS_BANK_LOAN_LT
+  여신충당금: BS_BANK_LOAN_ALLOWANCE
+  여신충당금충당비: IS_BANK_LOAN_LOSS
+  연구개발비: IS_OPEX_RD
+  영업권: BS_NCA_GW
+  영업수취현금: CF_OP_RCPT
+  영업외비용: IS_NONOP_EXP_TOTAL
+  영업외비용의 총액: IS_NONOP_EXP_TOTAL
+  영업외수익: IS_NONOP_REV_TOTAL
+  영업외수익의 총액: IS_NONOP_REV_TOTAL
+  영업이익: IS_OP_INCOME
+  영업지출현금: CF_OP_PAY
+  영업채권증감: CF_OP_AR
+  영업채무증감: CF_OP_AP
+  영업현금수입: CF_OP_RCPT
+  영업현금지출: CF_OP_PAY
+  영업현금흐름: CF_OP_TOTAL
+  영업활동 현금흐름: CF_OP_TOTAL
+  예금: BS_BANK_DEPOSIT
+  예금이자비용: IS_BANK_INT_EXPENSE
+  예수금: BS_BANK_DEPOSIT
+  완성품: BS_CA_INV_FIN
+  외상매입금: BS_CL_AP
+  외상매출금: BS_CA_AR
+  외환관계손실: IS_NONOP_FX_LOSS
+  외환관계이익: IS_NONOP_FX_GAIN
+  외환손익: IS_BANK_FX
+  외환업무손익: IS_BANK_FX
+  외환차손: IS_NONOP_FX_LOSS
+  외환차익: IS_NONOP_FX_GAIN
+  용역매출: IS_REV_SALES
+  우선주자본금: BS_EQ_PS
+  운용수익(보험): IS_INS_INVEST_INCOME
+  운용유가증권: BS_BANK_SECURITIES
+  운용유가증권평가·처분손익: IS_SEC_OPERATING_GAIN
+  운용이자수익: IS_BANK_INT_INCOME
+  운용자산(보험): BS_INS_INVEST_ASSET
+  운용증권손익: IS_SEC_OPERATING_GAIN
+  원수보험료: IS_INS_PREMIUM
+  원재료: BS_CA_INV_RAW
+  원재료비: IS_COGS_RAW
+  원재료재고: BS_CA_INV_RAW
+  위탁매매: IS_SEC_BROKERAGE
+  위탁매매수수료: IS_SEC_BROKERAGE
+  유가증권(운용): BS_BANK_SECURITIES
+  유가증권손익: IS_BANK_SEC_GAIN
+  유가증권처분·평가손익: IS_BANK_SEC_GAIN
+  유가증권투자: CF_INV_FA
+  유동부채: BS_CL_TOTAL
+  유동부채의 총액: BS_CL_TOTAL
+  유동으로 재분류된 비유동자산: BS_CA_HOLD_FOR_SALE
+  유동자산: BS_CA_TOTAL
+  유동자산의 총액: BS_CA_TOTAL
+  유동재분류자산: BS_CA_HOLD_FOR_SALE
+  유동충당부채: BS_CL_ST_PROV
+  유상증자: CE_CAP_ISSUE
+  유형자산: BS_NCA_PPE
+  유형자산 처분(투자수입): CF_INV_PPE_DISP
+  유형자산 취득(CAPEX 지출): CF_INV_PPE_ACQ
+  유형자산 취득/처분: CF_INV_PPE
+  유형자산(순액): BS_NCA_PPE
+  유형자산상각(CF): CF_OP_DEPR
+  유형자산상각비: IS_OPEX_DEPR
+  유형자산재평가차익: CI_NOR_RV
+  유형자산처분손실: IS_NONOP_FA_LOSS
+  유형자산처분손익(영업CF): CF_OP_FA
+  유형자산처분이익: IS_NONOP_FA_GAIN
+  이연법인세: IS_TAX_DEFERRED
+  이연법인세(영업CF): CF_OP_DTL
+  이연법인세변동(CF): CF_OP_DTL
+  이연법인세부채: BS_NCL_DTL
+  이연법인세비용: IS_TAX_DEFERRED
+  이연법인세자산: BS_NCA_DTA
+  이연법인세자산(순액): BS_NCA_DTA
+  이연포괄손익: BS_EQ_OCI
+  이익잉여금: BS_EQ_RE
+  이익잉여금-당기순이익: CE_RE_NI
+  이익잉여금-배당: CE_RE_DIV
+  이익잉여금-이입처분: CE_RE_TRANSF
+  이익잉여금처분(배당): CE_RE_DIV
+  이자마진: IS_BANK_NIM
+  이자비용: IS_BANK_INT_EXPENSE
+  이자수익: IS_BANK_INT_INCOME
+  이자수익(증권): IS_SEC_INTEREST
+  인수·모집수수료: IS_SEC_UNDERWRITING
+  인수수수료: IS_SEC_UNDERWRITING
+  임금: IS_COGS_LABOR
+  임의적립금이입: CE_RE_TRANSF
+  잉여현금흐름: CF_FCF_TOTAL
+  자기운용증권: BS_SEC_OPERATING_SEC
+  자기주식: BS_EQ_TREASURY
+  자기주식 취득/처분: CF_FIN_TREASURY
+  자기주식(차감): BS_EQ_TREASURY
+  자기주식변동: CE_CAP_TREASURY
+  자본(지배): BS_EQ_PARENT
+  자본금(보통주): BS_EQ_CS
+  자본금(우선주): BS_EQ_PS
+  자본금배당: CE_CAP_DIV
+  자본의 총액: BS_EQ_TOTAL
+  자본잉여금: BS_EQ_APIC
+  자본잉여금변동: CE_APIC_CHG
+  자본총계: BS_EQ_TOTAL
+  자본화연구개발비: BS_NCA_RD_ASSET
+  자사주매입/처분: CF_FIN_TREASURY
+  자사주취득/처분: CE_CAP_TREASURY
+  자산의 총액: BS_A_TOTAL
+  자산재평가잉여금: BS_EQ_RV
+  자산총계: BS_A_TOTAL
+  잡손실: IS_NONOP_EXP_OTHER
+  잡수익(매출): IS_REV_OTHER
+  잡이익: IS_NONOP_REV_OTHER
+  장기금융상품: BS_NCA_LT_FIN
+  장기금융자산: BS_NCA_LT_FIN
+  장기대출금: BS_BANK_LOAN_LT
+  장기성투자: BS_NCA_LT_INV
+  장기차입금: BS_NCL_LT_BORROW
+  장기투자자산: BS_NCA_LT_INV
+  장성보증금: BS_NCA_OTHER
+  재고: BS_CA_INV
+  재고자산: BS_CA_INV
+  재고자산증감: CF_OP_INV
+  재고증감: CF_OP_INV
+  재공품: BS_CA_INV_WIP
+  재공품재고: BS_CA_INV_WIP
+  재료비: IS_COGS_RAW
+  재무현금흐름: CF_FIN_TOTAL
+  재무활동 현금흐름: CF_FIN_TOTAL
+  재보험계약부채: BS_INS_REINS_RESERVE
+  재보험금: BS_INS_REINS_ASSET
+  재보험금(회수): IS_INS_REINS_CLAIM
+  재보험료: IS_INS_REINS_PREMIUM
+  재보험료지급: IS_INS_REINS_PREMIUM
+  재보험예치금: BS_INS_REINS_DEPOSIT
+  재보험예탁금: BS_INS_REINS_DEPOSIT
+  재보험책임준비금: BS_INS_REINS_RESERVE
+  재보험회수금: BS_INS_REINS_ASSET
+  재보험회수보험금: IS_INS_REINS_CLAIM
+  재분류 되는 기타포괄손익: CI_R_TOTAL
+  재분류 되는 항목: CI_R_TOTAL
+  재분류 안되는 기타포괄손익: CI_NOR_TOTAL
+  재분류 안되는 항목: CI_NOR_TOTAL
+  재평가잉여금: BS_EQ_RV
+  재평가차익(OCI): CI_NOR_RV
+  제조경비: IS_COGS_OH
+  제품: BS_CA_INV_FIN
+  제품매출: IS_REV_SALES
+  제품재고: BS_CA_INV_FIN
+  제품판매원가: IS_COGS_TOTAL
+  주식발행: CE_CAP_ISSUE
+  주식발행초과금: BS_EQ_APIC
+  주식발행초과금변동: CE_APIC_CHG
+  주주지분: BS_EQ_PARENT
+  준비금증감: IS_INS_RESERVE_CHG
+  중개수수료: IS_SEC_BROKERAGE
+  지급미결보험금: BS_NCL_INS_CLAIM_OUTSTANDING
+  지급준비금: BS_BANK_RESERVE
+  지배기업소유주지분순이익: IS_NI_PARENT
+  지배기업주주지분: BS_EQ_PARENT
+  지배순이익: IS_NI_PARENT
+  지분법손익: IS_NONOP_EQ_METHOD
+  지분법손익(영업CF): CF_OP_EQ_METHOD
+  지분법손익조정(CF): CF_OP_EQ_METHOD
+  지분법이익: IS_NONOP_EQ_METHOD
+  지분법적용투자 FV변동: CI_NOR_FV_EQ
+  지분투자: CF_INV_FA
+  직접노무비: IS_COGS_LABOR
+  차속대여금: CF_INV_LOAN
+  차입금 증감: CF_FIN_BORROW
+  차입금순증감: CF_FIN_BORROW
+  차입유가증권: BS_SEC_BORROWED_SEC
+  차입이자비용: IS_BANK_INT_EXPENSE
+  채권운용: BS_BANK_SECURITIES
+  책임준비금: BS_NCL_INS_RESERVE
+  책임준비금변동: IS_INS_RESERVE_CHG
+  책임준비금전입(전출): IS_INS_RESERVE_CHG
+  처분가능자산 FV변동: CI_R_AFS
+  처분목적보유자산: BS_CA_HOLD_FOR_SALE
+  처분손익조정(CF): CF_OP_FA
+  처분전이익잉여금: CE_RE_TRANSF
+  총부채: BS_L_TOTAL
+  총자본: BS_EQ_TOTAL
+  총자산: BS_A_TOTAL
+  출재보험료: IS_INS_REINS_PREMIUM
+  충당부채(유동): BS_CL_ST_PROV
+  콜론: BS_BANK_CALL
+  콜론·예치금이자: IS_SEC_INTEREST
+  콜머니: BS_BANK_CALL_LIAB
+  콜머니대부: BS_BANK_CALL
+  콜차입: BS_BANK_CALL_LIAB
+  토지: BS_NCA_PPE_LAND
+  퇴직금충당금: BS_NCL_LT_PROV
+  퇴직급여충당부채: BS_NCL_LT_PROV
+  퇴직연금재측정: CI_NOR_PENSION
+  투자부동산: BS_NCA_INV_PROP
+  투자수익: IS_INS_INVEST_INCOME
+  투자용부동산: BS_NCA_INV_PROP
+  투자유가증권: BS_NCA_LT_INV
+  투자자산: BS_INS_INVEST_ASSET
+  투자자산 취득/처분: CF_INV_FA
+  투자현금흐름: CF_INV_TOTAL
+  투자활동 현금흐름: CF_INV_TOTAL
+  트레이딩증권: BS_SEC_TRADING_SEC
+  파생상품(비유동부채): BS_NCL_LT_DERIV
+  파생상품(유동부채): BS_CL_ST_DERIV
+  파생상품부채(비유동): BS_NCL_LT_DERIV
+  파생상품부채(유동): BS_CL_ST_DERIV
+  판관비: IS_OPEX_TOTAL
+  판매비: IS_OPEX_SELLING
+  판매비와관리비: IS_OPEX_TOTAL
+  판매비용: IS_OPEX_SELLING
+  포괄손익: CI_COMP_TOTAL
+  한국은행예치금: BS_BANK_RESERVE
+  합병영업권: BS_NCA_GW
+  해외사업순투자헤지: CI_R_NI_HEDGE
+  해외사업환산손익: CI_R_FX
+  현금·외화: BS_BANK_CASH
+  현금·외화(은행): BS_BANK_CASH
+  현금및예금: BS_CA_CASH
+  현금및현금성자산: BS_CA_CASH
+  현금배당: CE_RE_DIV
+  현금배당지급: CF_FIN_DIV
+  현금순증감: CF_NET_CHANGE
+  현금예금: BS_CA_CASH
+  현금의 증감: CF_NET_CHANGE
+  현금흐름헤지손익: CI_R_CF_HEDGE
+  현금흐름헤지효과: CI_R_CF_HEDGE
+  확정급여재측정손익: CI_NOR_PENSION
+  환매조건부매도: BS_SEC_SOLD_RP
+  환율환산차이: CI_R_FX

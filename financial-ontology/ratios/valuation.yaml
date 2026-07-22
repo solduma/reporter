@@ -1,0 +1,154 @@
+# Financial Ratios — Valuation (가치평가 지표)
+# 시장 가격 정보(주가·시가총액·EV)와 온톨로지 계정을 결합한 가치평가 배수.
+# 시장 데이터(market_price, shares_outstanding, enterprise_value)는 외부 입력으로 required_inputs에 명시.
+version: "1.0.0"
+
+metadata:
+  name: "가치평가 비율 정의"
+  description: "주가·시가총액·EV 대비 이익·자본·현금흐름 배수. 시장 데이터는 외부 입력."
+  category: valuation
+  created: "2026-07-22"
+  updated: "2026-07-22"
+
+ratios:
+  eps:
+    name: "EPS (주당순이익)"
+    korean_name: "주당순이익"
+    formula: "IS_NI_PARENT / shares_outstanding"
+    required_accounts: [IS_NI_PARENT]
+    required_inputs: [shares_outstanding]
+    unit: monetary_per_share
+    higher_is_better: true
+    depends_on: [IS_NI_PARENT]
+    affects: [EPS, Valuation]
+    description: "지배순이익 / 발행주식수. 주주 1주당 이익. PER 분자."
+    tags: [per_share, core]
+
+  bvps:
+    name: "BPS (주당순자산)"
+    korean_name: "주당순자산"
+    formula: "BS_EQ_PARENT / shares_outstanding"
+    required_accounts: [BS_EQ_PARENT]
+    required_inputs: [shares_outstanding]
+    unit: monetary_per_share
+    higher_is_better: true
+    depends_on: [BS_EQ_PARENT]
+    affects: [BPS, Valuation]
+    description: "지배주주지분 / 발행주식수. 주당 청산가치 근사. PBR 분자."
+    tags: [per_share]
+
+  per:
+    name: "PER (주가수익비율)"
+    korean_name: "주가수익비율"
+    formula: "market_price / EPS = market_cap / IS_NI_PARENT"
+    required_accounts: [IS_NI_PARENT]
+    required_inputs: [market_price, shares_outstanding, market_cap]
+    unit: multiple
+    higher_is_better: false
+    depends_on: [IS_NI_PARENT]
+    affects: [Valuation]
+    description: "주가 / 주당순이익. 이익 기준 가치평가 배수. 낮을수록 저평가(단 정확도 주의)."
+    tags: [multiple, core]
+
+  pbr:
+    name: "PBR (주가순자산비율)"
+    korean_name: "주가순자산비율"
+    formula: "market_price / BPS = market_cap / BS_EQ_PARENT"
+    required_accounts: [BS_EQ_PARENT]
+    required_inputs: [market_price, shares_outstanding, market_cap]
+    unit: multiple
+    higher_is_better: false
+    depends_on: [BS_EQ_PARENT]
+    affects: [Valuation]
+    description: "주가 / 주당순자산. 자산 기준 가치평가 배수. ROE와 결합 해석."
+    tags: [multiple, core]
+
+  psr:
+    name: "PSR (주가매출비율)"
+    korean_name: "주가매출비율"
+    formula: "market_cap / IS_REV_TOTAL"
+    required_accounts: [IS_REV_TOTAL]
+    required_inputs: [market_cap]
+    unit: multiple
+    higher_is_better: false
+    depends_on: [IS_REV_TOTAL]
+    affects: [Valuation]
+    description: "시가총액 / 매출. 매출 기준 가치평가. 적자기업·성장기업 평가에 유용."
+    tags: [multiple]
+
+  evebitda:
+    name: "EV/EBITDA"
+    korean_name: "EV/EBITDA"
+    formula: "enterprise_value / (IS_OP_INCOME + IS_OPEX_DEPR)"
+    required_accounts: [IS_OP_INCOME, IS_OPEX_DEPR, BS_CA_CASH, BS_L_TOTAL]
+    required_inputs: [market_cap, enterprise_value]
+    unit: multiple
+    higher_is_better: false
+    depends_on: [IS_OP_INCOME, IS_OPEX_DEPR]
+    affects: [Valuation]
+    description: "EV / EBITDA. 자본구조·상각 중립 가치평가 배수. EV = 시가총액 + 순차입금(−현금)."
+    tags: [multiple, ebitda, core]
+
+  evebit:
+    name: "EV/EBIT"
+    korean_name: "EV/EBIT"
+    formula: "enterprise_value / IS_OP_INCOME"
+    required_accounts: [IS_OP_INCOME, BS_CA_CASH, BS_L_TOTAL]
+    required_inputs: [market_cap, enterprise_value]
+    unit: multiple
+    higher_is_better: false
+    depends_on: [IS_OP_INCOME]
+    affects: [Valuation]
+    description: "EV / 영업이익(EBIT). 감가상각 구조 차이가 큰 비교에 유용."
+
+  fcf_yield:
+    name: "FCF 수익률"
+    korean_name: "잉여현금흐름수익률"
+    formula: "CF_FCF_TOTAL / market_cap"
+    required_accounts: [CF_FCF_TOTAL, CF_OP_TOTAL, CF_INV_PPE]
+    required_inputs: [market_cap]
+    unit: percentage
+    higher_is_better: true
+    depends_on: [CF_FCF_TOTAL]
+    affects: [Valuation, DividendCapacity]
+    description: "FCF / 시가총액. 주주환원·현금창출 기반 가치평가. 높을수록 저평가."
+    tags: [cashflow]
+
+  dividend_yield:
+    name: "배당수익률"
+    korean_name: "배당수익률"
+    formula: "(CE_RE_DIV / shares_outstanding) / market_price"
+    required_accounts: [CE_RE_DIV]
+    required_inputs: [market_price, shares_outstanding]
+    unit: percentage
+    higher_is_better: natural
+    depends_on: [CE_RE_DIV]
+    affects: [ShareholderReturn, Valuation]
+    description: "주당배당금 / 주가. 주주환원 관점 수익률."
+    tags: [dividend]
+
+  peg:
+    name: "PEG"
+    korean_name: "PEG"
+    formula: "PER / EPS성장률"
+    required_accounts: [IS_NI_PARENT]
+    required_inputs: [market_price, shares_outstanding, earnings_growth_rate]
+    unit: ratio
+    higher_is_better: false
+    depends_on: [IS_NI_PARENT]
+    affects: [Valuation, Growth]
+    description: "PER / 예상 이익성장률. 성장률 보정 PER. 1 미만 시 저평가 해석."
+    tags: [growth]
+
+  roe_cost_of_equity:
+    name: "ROE - 자본비용 초과"
+    korean_name: "ROE초과수익"
+    formula: "ROE - cost_of_equity"
+    required_accounts: [IS_NI_PARENT, BS_EQ_PARENT]
+    required_inputs: [cost_of_equity]
+    unit: percentage
+    higher_is_better: true
+    depends_on: [IS_NI_PARENT, BS_EQ_PARENT]
+    affects: [Valuation, ValueCreation]
+    description: "ROE에서 자본비용을 차감한 초과수익. 경제적 이윤(EVA) 근사. 양수면 가치창출."
+    tags: [eva]

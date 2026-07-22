@@ -1,0 +1,231 @@
+# Financial Ontology — Securities Extension (증권업)
+# common.yaml을 상속·확장. 증권업은 매매·운용·대출유가증권(자산)과 매도RP·차입유가증권(부채)이
+# 재무상태표를 구성하며, 손익은 매매·운용손익과 위탁매매·인수·대주 수수료가 주된 항목.
+version: "1.0.0"
+
+metadata:
+  name: "재무 온톨로지 — 증권업 확장"
+  description: "common(K-IFRS)을 상속. 매매·운용·대출유가증권과 위탁매매·인수·대주 수수료·유가증권손익을 추가한 증권 특화 온톨로지."
+  standards: ["K-IFRS", "IFRS", "DART_XBRL"]
+  industries: ["securities"]
+  extends: "common.yaml"
+  created: "2026-07-22"
+  updated: "2026-07-22"
+
+ontology:
+  statements:
+    BALANCE_SHEET:
+      id: BALANCE_SHEET
+      name: "재무상태표"
+      type: balance_sheet
+      description: "증권 재무상태표 — 유가증권(자산)과 매도RP·차입유가증권(부채)가 대부분."
+      order: 1
+    INCOME_STATEMENT:
+      id: INCOME_STATEMENT
+      name: "손익계산서"
+      type: income_statement
+      description: "매매·운용·파생 손익과 위탁매매·인수·대주 수수료가 영업수익의 핵심."
+      order: 2
+
+  accounts:
+    # =========================================================================
+    # 자산 — 유가증권·대부
+    # =========================================================================
+    BS_SEC_TRADING_SEC:
+      id: BS_SEC_TRADING_SEC
+      korean_name: "매매목적유가증권"
+      english_name: "Trading Securities"
+      name: "매매유가증권"
+      statement: [balance_sheet]
+      category: [asset, current_asset, securities, trading_securities]
+      sign: positive
+      parent: BS_CA_ST_INV
+      ratios: [trading_securities_ratio, leverage_ratio]
+      affects: [TradingGains, Leverage]
+      cashflow_mapping: [operating]
+      aliases: ["매매목적증권", "트레이딩증권"]
+      mappings:
+        dart: ["ifrs-full_FinancialAssetsAtFairValueThroughProfitOrLoss"]
+        ifrs: ["FinancialAssetsAtFairValueThroughProfitOrLoss"]
+        usgaap: ["TradingSecurities"]
+      description: "단기 매매 목적 보유 유가증권. 공정가치 측정, 손익은 당기손익 인식."
+
+    BS_SEC_OPERATING_SEC:
+      id: BS_SEC_OPERATING_SEC
+      korean_name: "운용유가증권"
+      english_name: "Operating Securities"
+      name: "운용유가증권"
+      statement: [balance_sheet]
+      category: [asset, non_current_asset, securities, operating_securities]
+      sign: positive
+      parent: BS_NCA_LT_INV
+      affects: [OperatingGains, FCF]
+      cashflow_mapping: [investing]
+      aliases: ["자기운용증권"]
+      mappings:
+        dart: ["ifrs-full_FinancialAssetsAtAmortisedCost"]
+        ifrs: ["FinancialAssetsAtAmortisedCost"]
+        usgaap: ["InvestmentSecurities"]
+      description: "자기자금 운용 목적 보유 유가증권(만기보유·지분 등)."
+
+    BS_SEC_SBL_LOAN:
+      id: BS_SEC_SBL_LOAN
+      korean_name: "대주대출금"
+      english_name: "Securities Lending and Borrowing Loans"
+      name: "대주대출금"
+      statement: [balance_sheet]
+      category: [asset, current_asset, securities, sbl]
+      sign: positive
+      parent: BS_CA_TOTAL
+      affects: [SBLIncome]
+      cashflow_mapping: [operating]
+      aliases: ["대주유가증권", "신용공여"]
+      description: "증권 대차거래(SBL)에서 대주한 유가증권·대출금."
+
+    BS_SEC_CALL:
+      id: BS_SEC_CALL
+      korean_name: "콜론"
+      english_name: "Call Loans (Securities)"
+      name: "콜론(증권)"
+      statement: [balance_sheet]
+      category: [asset, current_asset, securities, call_market]
+      sign: positive
+      parent: BS_CA_TOTAL
+      aliases: ["단기대부"]
+      description: "콜시장에 단기 대부한 자금."
+
+    # =========================================================================
+    # 부채 — 차입유가증권·매도RP
+    # =========================================================================
+    BS_SEC_SOLD_RP:
+      id: BS_SEC_SOLD_RP
+      korean_name: "매도환매조건부채권"
+      english_name: "Bonds Sold under Repos (Securities)"
+      name: "매도RP채권"
+      statement: [balance_sheet]
+      category: [liability, current_liability, securities, repo]
+      sign: positive
+      parent: BS_CL_TOTAL
+      ratios: [leverage_ratio]
+      affects: [Leverage]
+      cashflow_mapping: [financing]
+      aliases: ["매도RP", "환매조건부매도"]
+      description: "환매조건부 채권 매도. 증권사 단기 자금 조달의 주된 수단."
+
+    BS_SEC_BORROWED_SEC:
+      id: BS_SEC_BORROWED_SEC
+      korean_name: "차입유가증권"
+      english_name: "Borrowed Securities"
+      name: "차입유가증권"
+      statement: [balance_sheet]
+      category: [liability, current_liability, securities, sbl]
+      sign: positive
+      parent: BS_CL_TOTAL
+      aliases: ["대차차입증권"]
+      description: "증권 대차거래에서 차입한 유가증권(반환 의무)."
+
+    BS_SEC_CALL_LIAB:
+      id: BS_SEC_CALL_LIAB
+      korean_name: "콜머니"
+      english_name: "Call Money (Securities)"
+      name: "콜머니(증권)"
+      statement: [balance_sheet]
+      category: [liability, current_liability, securities, call_market]
+      sign: positive
+      parent: BS_CL_TOTAL
+      aliases: ["콜차입"]
+      description: "콜시장에서 단기 차입한 자금."
+
+    # =========================================================================
+    # 손익계산서 — 매매·운용·수수료
+    # =========================================================================
+    IS_SEC_TRADING_GAIN:
+      id: IS_SEC_TRADING_GAIN
+      korean_name: "매매유가증권손익"
+      english_name: "Gain/Loss on Trading Securities"
+      name: "매매유가증권손익"
+      statement: [income_statement]
+      category: [profit, securities, trading]
+      sign: natural
+      depends_on: [BS_SEC_TRADING_SEC]
+      ratios: [trading_gain_ratio]
+      affects: [TradingGains, OperatingProfit]
+      aliases: ["매매증권평가·처분손익"]
+      mappings:
+        dart: ["ifrs-full_GainsLossesOnFinancialAssetsAtFairValueThroughProfitOrLoss"]
+        ifrs: ["GainsLossesOnFinancialAssetsDesignatedAsAtFairValueThroughProfitOrLoss"]
+        usgaap: ["TradingAccountGainsLosses"]
+      description: "매매목적유가증권의 평가·처분 손익. 증권사 영업손익의 변동성 큰 항목."
+
+    IS_SEC_OPERATING_GAIN:
+      id: IS_SEC_OPERATING_GAIN
+      korean_name: "운용증권손익"
+      english_name: "Gain/Loss on Operating Securities"
+      name: "운용증권손익"
+      statement: [income_statement]
+      category: [profit, securities, operating]
+      sign: natural
+      depends_on: [BS_SEC_OPERATING_SEC]
+      affects: [OperatingGains, OperatingProfit]
+      aliases: ["운용유가증권평가·처분손익"]
+      description: "운용유가증권에서 발생하는 이자·배당·처분·평가 손익."
+
+    IS_SEC_BROKERAGE:
+      id: IS_SEC_BROKERAGE
+      korean_name: "위탁매매수수료"
+      english_name: "Brokerage Commission"
+      name: "위탁매매수수료수익"
+      statement: [income_statement]
+      category: [revenue, securities, commission]
+      sign: positive
+      parent: IS_REV_TOTAL
+      ratios: [commission_ratio]
+      affects: [CommissionIncome, OperatingProfit]
+      aliases: ["중개수수료", "위탁매매"]
+      mappings:
+        dart: ["ifrs-full_FeeAndCommissionIncome"]
+        ifrs: ["FeeAndCommissionIncome"]
+        usgaap: ["CommissionsAndFees"]
+      description: "고객 주식·채권 위탁매매 중개에 따른 수수료 수익."
+
+    IS_SEC_UNDERWRITING:
+      id: IS_SEC_UNDERWRITING
+      korean_name: "인수수수료"
+      english_name: "Underwriting Commission"
+      name: "인수·주관수수료"
+      statement: [income_statement]
+      category: [revenue, securities, commission, underwriting]
+      sign: positive
+      parent: IS_REV_TOTAL
+      aliases: ["인수·모집수수료", "IB수수료"]
+      description: "유가증권 인수·주관·모집에서 발생하는 수수료 수익."
+
+    IS_SEC_SBL_INCOME:
+      id: IS_SEC_SBL_INCOME
+      korean_name: "대주수수료"
+      english_name: "Securities Lending Fee Income"
+      name: "대주·신용공여수수료"
+      statement: [income_statement]
+      category: [revenue, securities, commission, sbl]
+      sign: positive
+      parent: IS_REV_TOTAL
+      depends_on: [BS_SEC_SBL_LOAN]
+      aliases: ["대차수수료", "신용공여수익"]
+      description: "증권 대차거래·신용공여에서 발생하는 수수료·이자 수익."
+
+    IS_SEC_INTEREST:
+      id: IS_SEC_INTEREST
+      korean_name: "이자수익(증권)"
+      english_name: "Interest Income (Securities)"
+      name: "이자수익(증권)"
+      statement: [income_statement]
+      category: [revenue, securities, interest]
+      sign: positive
+      parent: IS_REV_TOTAL
+      depends_on: [BS_SEC_CALL]
+      aliases: ["콜론·예치금이자"]
+      mappings:
+        dart: ["ifrs-full_InterestIncome"]
+        ifrs: ["InterestRevenue"]
+        usgaap: ["InterestIncome"]
+      description: "콜론·예치금·매출미수금 등에서 발생하는 이자 수익."
