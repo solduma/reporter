@@ -540,11 +540,15 @@ def company_financial_statements(
     _EQUITY_KEYWORDS = ("자본", "자본금", "이익잉여금", "자본잉여금", "기타자본", "자본조정", "자본총계")
     for r in rows:
         data = r.data or {}
-        # IS(손익계산서)는 DART에서 CIS(포괄손익계산서)로 분류되는 경우가 많아
-        # IS가 비었으면 CIS를 IS로 사용한다.
-        is_items = [FinancialStatementItem(**i) for i in data.get("IS", [])]
-        if not is_items:
-            is_items = [FinancialStatementItem(**i) for i in data.get("CIS", [])]
+        # IS(손익계산서) + CIS(포괄손익계산서) 병합 — DART에서 손익 항목이
+        # IS와 CIS에 나뉘어 있어 둘을 합쳐야 완전한 손익계산서가 된다.
+        seen_names: set[str] = set()
+        is_items: list[FinancialStatementItem] = []
+        for src in ("IS", "CIS"):
+            for item in data.get(src, []):
+                if item.get("name") not in seen_names:
+                    seen_names.add(item.get("name"))
+                    is_items.append(FinancialStatementItem(**item))
         # 자본변동표: BS에서 자본 관련 항목만 추출
         bs_items = [FinancialStatementItem(**i) for i in data.get("BS", [])]
         equity_items = [i for i in bs_items if any(kw in i.name for kw in _EQUITY_KEYWORDS)]
