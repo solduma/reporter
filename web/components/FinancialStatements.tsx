@@ -48,17 +48,22 @@ function formatChange(pct: number | null): string {
   return `${sign}${(pct * 100).toFixed(1)}%`;
 }
 
-/** 전기 대비 변동률 계산. threshold(0.3=30%) 이상이면 하이라이트. */
-function getChangeClass(
-  current: number | null,
-  prev: number | null,
-  threshold = 0.3,
-): string | null {
-  if (current === null || prev === null || prev === 0) return null;
+/** 전기 대비 변동률로 그라데이션 opacity 계산. 0%→0, 50%+→1.0 사이 smooth step. */
+function changeOpacity(current: number | null, prev: number | null): number {
+  if (current === null || prev === null || prev === 0) return 0;
+  const pct = Math.abs((current - prev) / prev);
+  // 0% → 0, 50% → 1.0, 그 사이는 smooth step
+  const t = Math.min(pct, 0.5) / 0.5;
+  return t * t * (3 - 2 * t); // smoothstep
+}
+
+/** 변동 방향: 1=상승, -1=하락, 0=변화없음 */
+function changeDirection(current: number | null, prev: number | null): number {
+  if (current === null || prev === null || prev === 0) return 0;
   const pct = (current - prev) / Math.abs(prev);
-  if (pct > threshold) return styles.changeUp;
-  if (pct < -threshold) return styles.changeDown;
-  return null;
+  if (pct > 0) return 1;
+  if (pct < 0) return -1;
+  return 0;
 }
 
 export default function FinancialStatements({ code }: Props) {
@@ -182,7 +187,17 @@ export default function FinancialStatements({ code }: Props) {
           <tbody>
             {displayItems.map((item, i) => {
               const prevAmt = prevAmount(item.name);
-              const changeClass = getChangeClass(item.amount, prevAmt);
+              const op = changeOpacity(item.amount, prevAmt);
+              const dir = changeDirection(item.amount, prevAmt);
+              const hlStyle = op > 0
+                ? {
+                    backgroundColor: dir > 0
+                      ? `rgba(18, 138, 77, ${op * 0.15})`
+                      : `rgba(192, 43, 43, ${op * 0.15})`,
+                    color: dir > 0 ? 'var(--buy)' : 'var(--sell)',
+                    fontWeight: op > 0.5 ? 600 : 400,
+                  }
+                : undefined;
               return (
                 <tr
                   key={`${item.account_id}-${i}`}
@@ -195,10 +210,10 @@ export default function FinancialStatements({ code }: Props) {
                       {item.name}
                     </span>
                   </td>
-                  <td className={`${styles.tdRight} ${changeClass ?? ""}`}>
+                  <td className={styles.tdRight} style={hlStyle}>
                     {formatAmount(item.amount)}
                   </td>
-                  <td className={`${styles.tdRight} ${styles.changeCol} ${changeClass ?? ""}`}>
+                  <td className={`${styles.tdRight} ${styles.changeCol}`} style={hlStyle}>
                     {formatChange(
                       item.amount !== null && prevAmt !== null && prevAmt !== 0
                         ? (item.amount - prevAmt) / Math.abs(prevAmt)

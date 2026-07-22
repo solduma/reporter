@@ -123,17 +123,7 @@
   padding-left: 0.75rem;
 }
 
-/* 변동률 하이라이트 */
-.changeUp {
-  color: var(--buy);
-  font-weight: 600;
-}
-
-.changeDown {
-  color: var(--sell);
-  font-weight: 600;
-}
-
+/* 변동률 컬럼 */
 .changeCol {
   font-size: 0.75rem;
 }
