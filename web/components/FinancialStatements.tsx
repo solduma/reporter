@@ -96,10 +96,10 @@ function ItemRow({
           )}
           <span className={styles.nameLevel0}>{item.name}</span>
         </td>
-        <td className={styles.tdRight} style={hlStyle}>
+        <td className={styles.tdRight}>
           {formatAmount(item.amount)}
         </td>
-        <td className={styles.tdRight} style={hlStyle}>
+        <td className={styles.tdRight}>
           {formatAmount(item.prev_amount)}
         </td>
         <td className={`${styles.tdRight} ${styles.changeCol}`} style={hlStyle}>
@@ -129,10 +129,10 @@ function ItemRow({
                   <span className={styles.expandPlaceholder} />
                   <span className={styles.nameLevel1}>{child.name}</span>
                 </td>
-                <td className={styles.tdRight} style={chlStyle}>
+                <td className={styles.tdRight}>
                   {formatAmount(child.amount)}
                 </td>
-                <td className={styles.tdRight} style={chlStyle}>
+                <td className={styles.tdRight}>
                   {formatAmount(child.prev_amount)}
                 </td>
                 <td className={`${styles.tdRight} ${styles.changeCol}`} style={chlStyle}>

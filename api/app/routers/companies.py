@@ -539,38 +539,43 @@ def company_financial_statements(
 
     # level 재계산용 IFRS 표준 계정 prefix — 저장된 데이터의 level이 오래된
     # 버전일 수 있어 응답 시점에 다시 판정한다.
+    # level 0(대분류) — 재무제표의 최상위 계정과목만. 세부 항목(현금, 매출채권 등)은
+    # 대분류 아래 children 으로 들어가므로 여기서 제외.
     _LEVEL0_PREFIXES = (
+        # BS
         "유동자산", "비유동자산", "자산총계",
         "유동부채", "비유동부채", "부채총계",
         "자본금", "자본잉여금", "이익잉여금", "자본총계",
-        "현금및현금성자산", "매출채권", "재고자산",
-        "유형자산", "무형자산", "투자자산",
-        "단기차입금", "장기차입금", "매입채무",
+        # IS/CIS
         "수익(매출액)", "매출원가", "매출총이익",
         "판매비와관리비", "영업이익(",
-        "영업외수익", "영업외비용",
         "법인세비용차감전순이익", "법인세비용", "당기순이익",
-        "총포괄손익", "지배기업의 소유주",
+        "총포괄손익",
+        # CF
         "영업활동현금흐름", "투자활동현금흐름", "재무활동현금흐름",
         "기초현금및현금성자산", "기말현금및현금성자산",
     )
     _EQUITY_KEYWORDS = ("자본", "자본금", "이익잉여금", "자본잉여금", "기타자본", "자본조정", "자본총계")
 
-    def _relevel(items: list[dict]) -> list[FinancialStatementItem]:
+    def _is_level0(name: str) -> bool:
+        return any(name.startswith(p) for p in _LEVEL0_PREFIXES) or any(
+            kw in name for kw in ("합계", "총계")
+        )
+
+    def _build_items(raw: list[dict]) -> list[FinancialStatementItem]:
+        """원본 DART 순서 유지 + level 판정."""
         return [
             FinancialStatementItem(
                 account_id=i.get("account_id", ""),
                 name=i.get("name", ""),
                 amount=i.get("amount"),
-                level=0 if any(i.get("name", "").startswith(p) for p in _LEVEL0_PREFIXES)
-                       or any(kw in i.get("name", "") for kw in ("합계", "총계"))
-                       else 1,
+                level=0 if _is_level0(i.get("name", "")) else 1,
             )
-            for i in items
+            for i in raw
         ]
 
     def _group_items(flat: list[FinancialStatementItem]) -> list[FinancialStatementItem]:
-        """level 0 항목 아래 level 1 항목을 children 으로 묶는다."""
+        """level 0 항목 아래 level 1 항목을 children 으로 묶는다. 원본 순서 유지."""
         grouped: list[FinancialStatementItem] = []
         current: FinancialStatementItem | None = None
         for item in flat:
@@ -580,22 +585,71 @@ def company_financial_statements(
             elif item.level == 1 and current is not None:
                 current.children.append(item)
             else:
-                grouped.append(item)  # level 1 without parent → standalone
+                grouped.append(item)
         return grouped
+
+    def _add_calculated_totals(
+        items: list[FinancialStatementItem], label: str, children_keywords: tuple[str, ...]
+    ) -> None:
+        """계산된 합계 항목(총자산·총부채·총자본)을 items 맨 앞에 추가.
+        prev_amount 도 children 의 prev_amount 합으로 계산한다."""
+        total = 0.0
+        prev_total = 0.0
+        has_any = False
+        has_prev = False
+        matched: list[FinancialStatementItem] = []
+        for item in items:
+            if any(kw in item.name for kw in children_keywords):
+                if item.amount is not None:
+                    total += item.amount
+                    has_any = True
+                if item.prev_amount is not None:
+                    prev_total += item.prev_amount
+                    has_prev = True
+                matched.append(item)
+        if has_any:
+            total_item = FinancialStatementItem(
+                name=label, amount=total, level=0, children=matched,
+            )
+            if has_prev:
+                total_item.prev_amount = prev_total
+            items.insert(0, total_item)
+
+    def _find_yoy_period(current_period: str, all_rows: list) -> tuple[str | None, dict | None]:
+        """전년 동기 period 찾기: '2026.03' → '2025.03'."""
+        parts = current_period.split(".")
+        if len(parts) != 2:
+            return None, None
+        try:
+            y, m = int(parts[0]), parts[1]
+        except ValueError:
+            return None, None
+        target = f"{y - 1}.{m}"
+        for pr in all_rows:
+            if pr.period == target:
+                return target, pr.data or {}
+        return None, None
+
+    def _build_prev_map(prev_data: dict) -> dict[str, float | None]:
+        """전기 데이터 → name→amount 맵."""
+        pm: dict[str, float | None] = {}
+        for src in ("BS", "IS", "CIS", "CF"):
+            for item in prev_data.get(src, []):
+                pm[item.get("name", "")] = item.get("amount")
+        return pm
 
     def _apply_prev(
         items: list[FinancialStatementItem], prev_map: dict[str, float | None]
     ) -> None:
-        """전기 금액을 항목 name 으로 매칭해 prev_amount 에 설정."""
         for item in items:
             if item.name in prev_map:
                 item.prev_amount = prev_map[item.name]
             _apply_prev(item.children, prev_map)
 
     periods = []
-    for i, r in enumerate(rows):
+    for r in rows:
         data = r.data or {}
-        # IS(손익계산서) + CIS(포괄손익계산서) 병합
+        # IS + CIS 병합(원본 DART 순서 유지)
         seen_names: set[str] = set()
         is_raw: list[dict] = []
         for src in ("IS", "CIS"):
@@ -603,39 +657,30 @@ def company_financial_statements(
                 if item.get("name") not in seen_names:
                     seen_names.add(item.get("name"))
                     is_raw.append(item)
-        # level 재계산
-        bs_items = _relevel(data.get("BS", []))
-        is_items = _relevel(is_raw)
-        cf_items = _relevel(data.get("CF", []))
-        cis_items = _relevel(data.get("CIS", []))
+        # level 재계산 (원본 순서 유지)
+        bs_items = _build_items(data.get("BS", []))
+        is_items = _build_items(is_raw)
+        cf_items = _build_items(data.get("CF", []))
+        cis_items = _build_items(data.get("CIS", []))
         # 자본변동표: BS에서 자본 관련 항목만 추출
         equity_items = [i for i in bs_items if any(kw in i.name for kw in _EQUITY_KEYWORDS)]
-        # 전기(이전 period) 데이터 매칭
-        prev_period: str | None = None
-        if i > 0:
-            prev_period = rows[i - 1].period
-            prev_data = rows[i - 1].data or {}
-            # prev name → amount 맵 구축
-            prev_map: dict[str, float | None] = {}
-            for src in ("BS",):
-                for item in prev_data.get(src, []):
-                    prev_map[item.get("name", "")] = item.get("amount")
-            for src in ("IS", "CIS"):
-                for item in prev_data.get(src, []):
-                    prev_map[item.get("name", "")] = item.get("amount")
-            for src in ("CF",):
-                for item in prev_data.get(src, []):
-                    prev_map[item.get("name", "")] = item.get("amount")
-            # 전기 금액 적용
-            _apply_prev(bs_items, prev_map)
-            _apply_prev(is_items, prev_map)
-            _apply_prev(cf_items, prev_map)
-            _apply_prev(cis_items, prev_map)
-            _apply_prev(equity_items, prev_map)
-        # 그룹화
+        # 전년 동기 데이터 매칭 (계산된 합계 전에 실행 — 합계는 children prev 합으로 계산)
+        yoy_period, yoy_data = _find_yoy_period(r.period, rows)
+        if yoy_data:
+            pm = _build_prev_map(yoy_data)
+            _apply_prev(bs_items, pm)
+            _apply_prev(is_items, pm)
+            _apply_prev(cf_items, pm)
+            _apply_prev(cis_items, pm)
+            _apply_prev(equity_items, pm)
+        # 계산된 합계 항목 추가(총자산·총부채·총자본) — prev_amount 도 children 합산
+        _add_calculated_totals(bs_items, "총자산", ("유동자산", "비유동자산"))
+        _add_calculated_totals(bs_items, "총부채", ("유동부채", "비유동부채"))
+        _add_calculated_totals(bs_items, "총자본", ("자본금", "자본잉여금", "이익잉여금"))
+        # 그룹화 (원본 순서 유지)
         periods.append(FinancialStatementPeriod(
             period=r.period,
-            prev_period=prev_period,
+            prev_period=yoy_period,
             fs_div=r.fs_div,
             bs=_group_items(bs_items),
             **{"is": _group_items(is_items)},
