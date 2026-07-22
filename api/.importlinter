@@ -3,12 +3,13 @@
 ; 신규 위반(예: 서비스가 라우터를 import, worker 가 라우터에 의존)을 githook/CI 에서 차단한다.
 
 [importlinter]
-; app 과 reporter 를 함께 root 로 둔다 — reporter 를 external 이 아닌 internal 로 그래프에 올려야
-; reporter 의 서브모듈(reporter.pipeline 등)을 forbidden 대상으로 지정할 수 있다(external 서브패키지는
-; forbidden 불가). 공유 커널 경계(app→CLI전용 금지)·LLM 포트 경계를 계약으로 강제하기 위함.
+; app·reporter·financial_ontology 을 함께 root 로 둔다 — external 이 아닌 internal 로 그래프에 올려야
+; 서브모듈/패키지를 forbidden 대상으로 지정할 수 있다(external 서브패키지는 forbidden 불가).
+; 공유 커널 경계(app→CLI전용 금지)·LLM·온톨로지 포트 경계를 계약으로 강제하기 위함.
 root_packages =
     app
     reporter
+    financial_ontology
 ; domain·ports 가 외부 IO 패키지를 import 하지 않는지 검사하려면 외부 패키지도 그래프에 포함.
 include_external_packages = True
 
@@ -156,4 +157,19 @@ forbidden_modules =
 ; 유일한 구현(adapters/llm)만 reporter.ollama_client 직접 참조, 나머지는 app.ports.llm(LLMPort)에
 ; 의존. root_packages 로 reporter 를 internal 화해 이제 이 서브모듈 경계를 계약으로 강제할 수 있다
 ; (이전엔 external 서브패키지라 불가해 코드 격리로만 지켰음). allow_indirect 로 직접 import 만 금지.
+allow_indirect_imports = true
+
+[importlinter:contract:ontology-behind-port]
+name = 온톨로지(financial_ontology)은 adapters.financial_ontology 뒤에만 — 서비스·라우터·도메인·포트는 OntologyPort 경유
+type = forbidden
+source_modules =
+    app.services
+    app.routers
+    app.domain
+    app.ports
+forbidden_modules =
+    financial_ontology
+; 유일한 구현(adapters/financial_ontology)만 financial_ontology 패키지 직접 참조, 나머지는
+; app.ports.financial_ontology(OntologyPort)에 의존. 2차-A 의 순수 패키지를 2차-B 에서 포트 뒤에 캡슐화.
+; adapters 안에서만 패키지 import 허용, services 이하는 포트 경유. allow_indirect 로 직접 import 만 금지.
 allow_indirect_imports = true

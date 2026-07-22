@@ -272,6 +272,7 @@ class FinancialsStatusOut(BaseModel):
 
 class FinancialStatementItem(BaseModel):
     """재무제표 한 라인아이템."""
+
     account_id: str = ""
     name: str
     amount: float | None = None
@@ -282,6 +283,7 @@ class FinancialStatementItem(BaseModel):
 
 class FinancialStatementPeriod(BaseModel):
     """한 기간의 재무제표 전체."""
+
     period: str
     prev_period: str | None = None  # 전기 기간
     fs_div: str
@@ -294,6 +296,7 @@ class FinancialStatementPeriod(BaseModel):
 
 class FinancialStatementsOut(BaseModel):
     """종목의 전체 재무제표 시계열."""
+
     stock_code: str
     periods: list[FinancialStatementPeriod]
 
@@ -661,3 +664,81 @@ class DeepDiveSharedReport(BaseModel):
     report: DeepDiveReportOut
     created_at: datetime
     expires_at: datetime
+
+
+# --- 재무 온톨로지(/api/ontology) -------------------------------------------------
+class OntologyNormalizeItem(BaseModel):
+    """정규화 단건 결과."""
+
+    term: str
+    id: str | None = None
+    matched_via: str = ""
+    resolved: bool = False
+
+
+class OntologyNormalizeRequest(BaseModel):
+    """계정명·taxonomy 요소 일괄 정규화 요청."""
+
+    terms: list[str]
+    standard: str | None = Field(
+        default=None, description="dart|ifrs|usgaap. 미지정 시 dart→한국명→영문→별칭 순 해석"
+    )
+
+
+class OntologyNormalizeResponse(BaseModel):
+    items: list[OntologyNormalizeItem]
+    coverage: float  # 정규화 성공 비율(0~1)
+
+
+class OntologyRatioValueRequest(BaseModel):
+    """단일 비율 계산 요청. values 는 계정 ID(평균/closing) + 명시 기간(id:opening) + 외부 입력."""
+
+    ratio_id: str
+    values: dict[str, float] = Field(default_factory=dict)
+
+
+class OntologyRatiosRequest(BaseModel):
+    """다수 비율 일괄 계산 요청."""
+
+    ratio_ids: list[str]
+    values: dict[str, float] = Field(default_factory=dict)
+
+
+class OntologyRatioResult(BaseModel):
+    """비율 평가 결과. value 는 문자열(Decimal 직렬화)."""
+
+    ratio_id: str
+    value: str | None = None
+    ok: bool
+    missing: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    reason: str = ""
+
+
+class OntologyRatioMeta(BaseModel):
+    """비율 정의(목록용)."""
+
+    id: str
+    name: str
+    korean_name: str = ""
+    category: str = ""
+    unit: str | None = None
+    formula: str
+    required_accounts: list[str] = Field(default_factory=list)
+
+
+class OntologyAccountMeta(BaseModel):
+    """계정 메타데이터(조회용)."""
+
+    id: str
+    korean_name: str = ""
+    english_name: str = ""
+    statement: list[str] = Field(default_factory=list)
+    category: list[str] = Field(default_factory=list)
+    parent: str | None = None
+    children: list[str] = Field(default_factory=list)
+    ratios: list[str] = Field(default_factory=list)
+    aliases: list[str] = Field(default_factory=list)
+    sign: str | None = None
+    formula: str | None = None
+    description: str | None = None
