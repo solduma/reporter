@@ -80,9 +80,10 @@ function ItemRow({
       }
     : undefined;
 
+  const isLevel0 = item.level === 0;
   return (
     <>
-      <tr className={styles.rowLevel0}>
+      <tr className={isLevel0 ? styles.rowLevel0 : styles.rowLevel1}>
         <td className={styles.tdLeft}>
           {hasChildren ? (
             <button
@@ -96,7 +97,7 @@ function ItemRow({
           ) : (
             <span className={styles.expandPlaceholder} />
           )}
-          <span className={styles.nameLevel0}>{item.name}</span>
+          <span className={isLevel0 ? styles.nameLevel0 : styles.nameLevel1}>{item.name}</span>
         </td>
         <td className={styles.tdRight}>
           {formatAmount(item.amount)}
