@@ -17,14 +17,14 @@ const STATEMENT_TABS: { key: StatementTab; label: string }[] = [
   { key: "bs", label: "재무상태표" },
   { key: "is", label: "손익계산서" },
   { key: "cf", label: "현금흐름표" },
-  { key: "cis", label: "자본변동표" },
+  { key: "cis", label: "포괄손익계산서" },
 ];
 
 const STATEMENT_LABELS: Record<StatementTab, string> = {
   bs: "재무상태표",
   is: "손익계산서",
   cf: "현금흐름표",
-  cis: "자본변동표",
+  cis: "포괄손익계산서",
 };
 
 /** 금액 포맷: 억원 단위로 표시. 원 단위 입력 → 억원 변환. */

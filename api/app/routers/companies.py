@@ -539,11 +539,16 @@ def company_financial_statements(
     periods = []
     for r in rows:
         data = r.data or {}
+        # IS(손익계산서)는 DART에서 CIS(포괄손익계산서)로 분류되는 경우가 많아
+        # IS가 비었으면 CIS를 IS로 사용한다.
+        is_items = [FinancialStatementItem(**i) for i in data.get("IS", [])]
+        if not is_items:
+            is_items = [FinancialStatementItem(**i) for i in data.get("CIS", [])]
         periods.append(FinancialStatementPeriod(
             period=r.period,
             fs_div=r.fs_div,
             bs=[FinancialStatementItem(**i) for i in data.get("BS", [])],
-            is_=[FinancialStatementItem(**i) for i in data.get("IS", [])],
+            is_=is_items,
             cis=[FinancialStatementItem(**i) for i in data.get("CIS", [])],
             cf=[FinancialStatementItem(**i) for i in data.get("CF", [])],
         ))
