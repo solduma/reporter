@@ -34,6 +34,10 @@ financial-ontology/
 │   ├── samsung_electronics.yaml  # 삼성전자 공시 → 온톨로지 노드(제조)
 │   ├── hyundai_motor.yaml        # 현대차(제조)
 │   └── kb_financial.yaml         # KB금융지주(은행)
+├── python/                       # Python 로더·정규화·비율엔진 패키지(uv)
+│   ├── pyproject.toml
+│   ├── financial_ontology/       # loader/normalizer/ratios/graph + safe eval
+│   └── tests/                    # pytest 38 (loader·normalizer·ratios·graph)
 ├── scripts/
 │   ├── build_mappings.py         # ontology/*.yaml → mappings/*.yaml 자동 생성
 │   └── validate.py               # 전체 무결성 검증(스키마+참조+ID 패턴)
@@ -77,6 +81,23 @@ python3 financial-ontology/scripts/build_mappings.py
 python3 financial-ontology/scripts/validate.py
 ```
 의존성: `pyyaml`, `jsonschema`.
+
+### Python 패키지 (로더·정규화·비율엔진)
+```bash
+cd financial-ontology/python
+uv run pytest -q          # 38 테스트
+uv run ruff check financial_ontology tests
+```
+```python
+from financial_ontology import get_ontology, Normalizer, RatioEngine, Graph
+
+ont = get_ontology()                                    # 로드+스키마 검증+캐시
+Normalizer(ont).resolve("매출채권")                     # -> "BS_CA_AR"
+Normalizer(ont).resolve("ifrs-full_CashAndCashEquivalents", standard="dart")  # -> "BS_CA_CASH"
+RatioEngine(ont).calculate("current_ratio", {"BS_CA_TOTAL": 100, "BS_CL_TOTAL": 60})  # 1.666...
+Graph(ont).ratio_inputs("roe")                          # ["IS_NI_PARENT", "BS_EQ_PARENT"]
+```
+비율 formula 가 타 비율 참조·외부 입력·한글 서술만 있으면 자동 평가 불가(`reason="composite_or_manual"`) — 결측/0분할은 `reason`·`missing`·`warnings` 로 보고(잘못된 값 반환 안 함).
 
 ## 정규화 사용 예시
 DART XBRL 요소 → 온톨로지 ID:
