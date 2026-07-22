@@ -55,3 +55,18 @@ def test_resolve_many_and_coverage(normalizer):
 
 def test_resolve_empty(normalizer):
     assert normalizer.resolve("") is None
+
+
+def test_resolve_strips_parenthetical_suffix(normalizer):
+    # DART 공시명은 정준명에 괄호 접미사를 붙여 내는 경우가 많다.
+    assert normalizer.resolve("영업이익(손실)") == "IS_OP_INCOME"
+    assert normalizer.resolve("당기순이익(손실)") == "IS_NI_TOTAL"
+    assert normalizer.resolve("법인세비용(수익)") == "IS_TAX_TOTAL"
+    r = normalizer.resolve_detail("영업이익(손실)")
+    assert r.id == "IS_OP_INCOME"
+    assert r.matched_via == "korean_name"
+
+
+def test_resolve_fullwidth_paren(normalizer):
+    # 전각 괄호(（）)도 처리 — 일부 공시 텍기에 섞임.
+    assert normalizer.resolve("영업이익（손실）") == "IS_OP_INCOME"

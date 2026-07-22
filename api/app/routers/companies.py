@@ -44,6 +44,9 @@ from app.services import (
     today_service,
     trend,
 )
+from app.services import (
+    ontology as ontology_service,
+)
 
 router = APIRouter(prefix="/api/companies", tags=["companies"])
 
@@ -178,7 +181,9 @@ def company_analysis(
     )
 
     # 가치 축 — 최신 밸류에이션 (DB only, 항상 빠름). 연결(CFS) 우선, 없으면 별도(OFS).
-    fin = company_service.latest_valuation(db, code, fs_div="CFS") or company_service.latest_valuation(db, code, fs_div="OFS")
+    fin = company_service.latest_valuation(
+        db, code, fs_div="CFS"
+    ) or company_service.latest_valuation(db, code, fs_div="OFS")
     per = fin.per if fin else None
     pbr = fin.pbr if fin else None
     ev = fin.ev_ebitda if fin else None
@@ -542,40 +547,84 @@ def company_financial_statements(
     # level 0(대분류) — 재무제표의 최상위 계정과목만.
     _LEVEL0_PREFIXES = (
         # BS
-        "유동자산", "비유동자산", "자산총계",
-        "유동부채", "비유동부채", "부채총계",
-        "자본금", "자본잉여금", "이익잉여금", "자본총계",
+        "유동자산",
+        "비유동자산",
+        "자산총계",
+        "유동부채",
+        "비유동부채",
+        "부채총계",
+        "자본금",
+        "자본잉여금",
+        "이익잉여금",
+        "자본총계",
         # IS/CIS
-        "수익(매출액)", "매출원가", "매출총이익",
-        "판매비와관리비", "영업이익(",
-        "법인세비용차감전순이익", "법인세비용", "당기순이익",
+        "수익(매출액)",
+        "매출원가",
+        "매출총이익",
+        "판매비와관리비",
+        "영업이익(",
+        "법인세비용차감전순이익",
+        "법인세비용",
+        "당기순이익",
         "총포괄손익",
         # CF
-        "영업활동현금흐름", "투자활동현금흐름", "재무활동현금흐름",
-        "기초현금및현금성자산", "기말현금및현금성자산",
+        "영업활동현금흐름",
+        "투자활동현금흐름",
+        "재무활동현금흐름",
+        "기초현금및현금성자산",
+        "기말현금및현금성자산",
     )
 
     # 공시 순서 정렬 키 — IFRS 표준 재무제표 계정 순서.
     # 숫자가 작을수록 먼저 표시. 목록에 없는 항목은 9999(맨 뒤).
     _BS_ORDER: dict[str, int] = {
-        "총자산": 0, "유동자산": 1, "비유동자산": 2, "자산총계": 3,
-        "총부채": 4, "유동부채": 5, "비유동부채": 6, "부채총계": 7,
-        "총자본": 8, "자본금": 9, "자본잉여금": 10, "이익잉여금": 11, "자본총계": 12,
+        "총자산": 0,
+        "유동자산": 1,
+        "비유동자산": 2,
+        "자산총계": 3,
+        "총부채": 4,
+        "유동부채": 5,
+        "비유동부채": 6,
+        "부채총계": 7,
+        "총자본": 8,
+        "자본금": 9,
+        "자본잉여금": 10,
+        "이익잉여금": 11,
+        "자본총계": 12,
     }
     _IS_ORDER: dict[str, int] = {
-        "수익(매출액)": 0, "매출원가": 1, "매출총이익": 2,
-        "판매비와관리비": 3, "영업이익": 4, "영업이익(손실)": 4,
-        "영업외수익": 5, "영업외비용": 6,
-        "법인세비용차감전순이익": 7, "법인세비용차감전순이익(손실)": 7,
-        "법인세비용": 8, "법인세비용(수익)": 8,
-        "당기순이익": 9, "당기순이익(손실)": 9,
+        "수익(매출액)": 0,
+        "매출원가": 1,
+        "매출총이익": 2,
+        "판매비와관리비": 3,
+        "영업이익": 4,
+        "영업이익(손실)": 4,
+        "영업외수익": 5,
+        "영업외비용": 6,
+        "법인세비용차감전순이익": 7,
+        "법인세비용차감전순이익(손실)": 7,
+        "법인세비용": 8,
+        "법인세비용(수익)": 8,
+        "당기순이익": 9,
+        "당기순이익(손실)": 9,
         "총포괄손익": 10,
     }
     _CF_ORDER: dict[str, int] = {
-        "영업활동현금흐름": 0, "투자활동현금흐름": 1, "재무활동현금흐름": 2,
-        "기초현금및현금성자산": 3, "기말현금및현금성자산": 4,
+        "영업활동현금흐름": 0,
+        "투자활동현금흐름": 1,
+        "재무활동현금흐름": 2,
+        "기초현금및현금성자산": 3,
+        "기말현금및현금성자산": 4,
     }
-    _EQUITY_KEYWORDS = ("자본", "자본금", "이익잉여금", "자본잉여금", "기타자본", "자본조정", "자본총계")
+    _EQUITY_KEYWORDS = (
+        "자본",
+        "자본금",
+        "이익잉여금",
+        "자본잉여금",
+        "기타자본",
+        "자본조정",
+        "자본총계",
+    )
 
     def _is_level0(name: str) -> bool:
         return any(name.startswith(p) for p in _LEVEL0_PREFIXES) or any(
@@ -583,15 +632,22 @@ def company_financial_statements(
         )
 
     def _build_items(raw: list[dict]) -> list[FinancialStatementItem]:
-        """원본 DART 순서 유지 + level 판정."""
+        """원본 DART 순서 유지 + level 판정 + 온톨로지 ID 부여.
+
+        name(한국 계정명)을 온톨로지 정준 ID로 정규화해 ontology_id 에 부여.
+        DART 공시명과 온톨로지 정준명이 다르면 None(미부여). 정규화는 인메모리 색인 조회라
+        호출 비용이 작다."""
+        names = [i.get("name", "") for i in raw]
+        ont_ids = [r.id for r in ontology_service.normalize(names)]
         return [
             FinancialStatementItem(
                 account_id=i.get("account_id", ""),
                 name=i.get("name", ""),
                 amount=i.get("amount"),
                 level=0 if _is_level0(i.get("name", "")) else 1,
+                ontology_id=ont_ids[idx] if names[idx] else None,
             )
-            for i in raw
+            for idx, i in enumerate(raw)
         ]
 
     def _sort_key(name: str, order: dict[str, int]) -> int:
@@ -649,7 +705,11 @@ def company_financial_statements(
                 remaining.append(item)
         if has_any:
             total_item = FinancialStatementItem(
-                name=label, amount=total, level=0, children=matched,
+                name=label,
+                amount=total,
+                level=0,
+                children=matched,
+                ontology_id=ontology_service.normalize([label])[0].id,
             )
             if has_prev:
                 total_item.prev_amount = prev_total
@@ -679,9 +739,7 @@ def company_financial_statements(
                 pm[item.get("name", "")] = item.get("amount")
         return pm
 
-    def _apply_prev(
-        items: list[FinancialStatementItem], prev_map: dict[str, float | None]
-    ) -> None:
+    def _apply_prev(items: list[FinancialStatementItem], prev_map: dict[str, float | None]) -> None:
         for item in items:
             if item.name in prev_map:
                 item.prev_amount = prev_map[item.name]
@@ -720,16 +778,18 @@ def company_financial_statements(
         _add_calculated_totals(bs_grouped, "총부채", ("유동부채", "비유동부채"))
         _add_calculated_totals(bs_grouped, "총자본", ("자본금", "자본잉여금", "이익잉여금"))
         # IS/CF: 일반 그룹핑
-        periods.append(FinancialStatementPeriod(
-            period=r.period,
-            prev_period=yoy_period,
-            fs_div=r.fs_div,
-            bs=_sort_items(bs_grouped, _BS_ORDER),
-            **{"is": _sort_items(_group_items(is_items), _IS_ORDER)},
-            cis=_sort_items(_group_items(cis_items), _IS_ORDER),
-            cf=_sort_items(_group_items(cf_items), _CF_ORDER),
-            equity=_sort_items(_group_items(equity_items), _BS_ORDER),
-        ))
+        periods.append(
+            FinancialStatementPeriod(
+                period=r.period,
+                prev_period=yoy_period,
+                fs_div=r.fs_div,
+                bs=_sort_items(bs_grouped, _BS_ORDER),
+                **{"is": _sort_items(_group_items(is_items), _IS_ORDER)},
+                cis=_sort_items(_group_items(cis_items), _IS_ORDER),
+                cf=_sort_items(_group_items(cf_items), _CF_ORDER),
+                equity=_sort_items(_group_items(equity_items), _BS_ORDER),
+            )
+        )
     return FinancialStatementsOut(stock_code=code, periods=periods)
 
 

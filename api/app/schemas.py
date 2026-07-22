@@ -278,6 +278,7 @@ class FinancialStatementItem(BaseModel):
     amount: float | None = None
     prev_amount: float | None = None  # 전기 동일 항목 금액
     level: int = 0
+    ontology_id: str | None = None  # name 을 온톨로지 정준 ID 로 정규화(미매칭 시 None)
     children: list[FinancialStatementItem] = []  # 하위 항목(level 0일 때)
 
 

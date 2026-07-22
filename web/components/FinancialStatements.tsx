@@ -54,6 +54,12 @@ function changeDirection(current: number | null, prev: number | null): number {
   return (current - prev) / Math.abs(prev) > 0 ? 1 : -1;
 }
 
+/** 온톨로지 정준 ID 표시(미매칭 시 미노출). DART 공시명→온톨로지 매핑 확인용. */
+function OntologyTag({ ontologyId }: { ontologyId?: string | null }) {
+  if (!ontologyId) return null;
+  return <span className={styles.ontologyTag}>{ontologyId}</span>;
+}
+
 /** 한 행(level 0) + children 렌더링 */
 function ItemRow({
   item,
@@ -98,6 +104,7 @@ function ItemRow({
             <span className={styles.expandPlaceholder} />
           )}
           <span className={isLevel0 ? styles.nameLevel0 : styles.nameLevel1}>{item.name}</span>
+          <OntologyTag ontologyId={item.ontology_id} />
         </td>
         <td className={styles.tdRight}>
           {formatAmount(item.amount)}
@@ -131,6 +138,7 @@ function ItemRow({
                 <td className={styles.tdLeft}>
                   <span className={styles.expandPlaceholder} />
                   <span className={styles.nameLevel1}>{child.name}</span>
+                  <OntologyTag ontologyId={child.ontology_id} />
                 </td>
                 <td className={styles.tdRight}>
                   {formatAmount(child.amount)}

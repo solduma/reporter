@@ -174,3 +174,16 @@
   color: var(--muted);
   font-size: 0.85rem;
 }
+
+/* 온톨로지 정준 ID 태그 — DART 공시명→온톨로지 매핑 확인. 미매칭 시 미노출. */
+.ontologyTag {
+  margin-left: 0.4rem;
+  padding: 0.05rem 0.3rem;
+  border-radius: 3px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.62rem;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--muted) 12%, transparent);
+  white-space: nowrap;
+  vertical-align: middle;
+}
