@@ -525,16 +525,17 @@ def company_financials_status(code: str, db: Session = Depends(get_session)) -> 
 
 @router.get("/{code}/financial-statements", response_model=FinancialStatementsOut)
 def company_financial_statements(
-    code: str, db: Session = Depends(get_session), fs_div: str = "CFS"
+    code: str, bg: BackgroundTasks, db: Session = Depends(get_session), fs_div: str = "CFS"
 ) -> FinancialStatementsOut:
     """종목의 전체 재무제표(재무상태표·손익계산서·현금흐름표·자본변동표) 시계열.
 
-    fs_div: CFS(연결) | OFS(별도). DB 에 없으면 DART 에서 온디맨드 조회해 저장한다.
+    데이터 흐름: DART(원천) → DB → Cache(응답).
+    DB 에 없으면 빈 응답을 즉시 반환하고 백그라운드에서 DART 조회·저장한다.
+    백그라운드는 자체 DB 세션을 사용해 요청 세션과 lock 경합을 피한다.
     """
     rows = company_service.financial_statement_rows(db, code, fs_div)
     if not rows:
-        company_service.fetch_and_store_financial_statements(db, code, fs_div)
-        rows = company_service.financial_statement_rows(db, code, fs_div)
+        bg.add_task(company_service.fetch_financial_statements_bg, code, fs_div)
 
     # level 재계산용 IFRS 표준 계정 prefix — 저장된 데이터의 level이 오래된
     # 버전일 수 있어 응답 시점에 다시 판정한다.

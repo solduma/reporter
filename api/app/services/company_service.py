@@ -196,6 +196,18 @@ def fetch_and_store_financial_statements(
     db.commit()
 
 
+def fetch_financial_statements_bg(code: str, fs_div: str = "CFS") -> None:
+    """백그라운드로 DART 재무제표 조회·저장. 자체 DB 세션 사용(lock 회피)."""
+    db = SessionLocal()
+    try:
+        fetch_and_store_financial_statements(db, code, fs_div)
+    except Exception as e:
+        db.rollback()
+        logger.warning("financial statements bg fetch failed %s: %s", code, e)
+    finally:
+        db.close()
+
+
 def latest_valuation(db: Session, code: str, fs_div: str | None = None) -> Financial | None:
     """가치 축용 최신 밸류에이션 Financial(비추정). fs_div=None이면 전체."""
     has_value = case((or_(Financial.per.is_not(None), Financial.pbr.is_not(None)), 0), else_=1)
