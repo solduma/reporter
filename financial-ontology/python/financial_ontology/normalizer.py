@@ -7,6 +7,8 @@
   1. 입력이 이미 ontology ID → 그대로
   2. standard 지정 시 해당 표준 taxonomy 매핑 우선
   3. 미지정 시 dart → korean_name → english_name → alias 순(한국 공시 1차)
+  4. 위 매칭 실패 시 괄호 접미사 제거 베이스형으로 재시도 — DART 공시명('영업이익(손실)',
+     '당기순이익(손실)', '법인세비용(수익)')은 정준명에 괄호를 붙여 내는 경우가 많다.
 """
 
 from __future__ import annotations
@@ -19,11 +21,18 @@ from .models import Ontology
 # 매핑 파일에 쓰인 DART XBRL taxonomy 접두어. 사용자 입력에 접두어 없이 들어와도 보정.
 _DART_PREFIX = "ifrs-full_"
 _WS = re.compile(r"\s+")
+# 끝에 붙은 괄호 접미사(예: '(손실)', '(수익)')를 잡는다. 앞에 공백이 있을 수도.
+_TAIL_PAREN = re.compile(r"\s*[（(][^（）()]*[）)]\s*$")
 
 
 def _norm(term: str) -> str:
     """비교 정규화: 소문자화 + 공백 축소. 한국어는 그대로(대소문자 구분 없는 영문 매칭용)."""
     return _WS.sub(" ", term).strip()
+
+
+def _base_form(term: str) -> str:
+    """괄호 접미사 제거 베이스형. '영업이익(손실)' → '영업이익'. 없으면 원형 공백 strip."""
+    return _TAIL_PAREN.sub("", term).strip()
 
 
 @dataclass(frozen=True)
@@ -83,6 +92,19 @@ class Normalizer:
         tid = self._ont.by_alias.get(term) or self._ont.by_alias.get(key)
         if tid:
             return Resolution(term, tid, "alias")
+
+        # 7) 괄호 접미사 제거 베이스형으로 재시도 — DART 공시명 매칭률 향상
+        base = _base_form(term)
+        if base and base != term:
+            bkey = _norm(base)
+            for store, via in (
+                (self._ont.by_korean_name, "korean_name"),
+                (self._ont.by_english_name, "english_name"),
+                (self._ont.by_alias, "alias"),
+            ):
+                tid = store.get(base) or store.get(bkey)
+                if tid:
+                    return Resolution(term, tid, via)
 
         return Resolution(term, None, "")
 
