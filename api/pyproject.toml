@@ -16,6 +16,8 @@ dependencies = [
     "reporter",
     "textual>=8.2.8",
     "openpyxl>=3.1.5",
+    # 재무 온톨로지 로더·정규화·비율엔진(2차-A, financial-ontology/python). 포트 뒤 어댑터만 직접 사용.
+    "financial-ontology",
 ]
 
 [project.scripts]
@@ -34,6 +36,7 @@ dev = [
 
 [tool.uv.sources]
 reporter = { path = "..", editable = true }
+financial-ontology = { path = "../financial-ontology/python", editable = true }
 
 [build-system]
 requires = ["hatchling"]
@@ -53,7 +56,7 @@ ignore = ["E501", "B008"]
 allowed-confusables = ["×", "−", "÷"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["app", "reporter"]
+known-first-party = ["app", "reporter", "financial_ontology"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

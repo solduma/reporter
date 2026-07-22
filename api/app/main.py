@@ -22,6 +22,7 @@ from app.routers import (
     industries,
     ir_interview,
     market,
+    ontology,
     realtime,
     screener,
     today,
@@ -86,6 +87,7 @@ app.include_router(calendar.router)
 app.include_router(us.screener_router)
 app.include_router(deepdive.router)
 app.include_router(ir_interview.router)
+app.include_router(ontology.router)
 
 
 @app.get("/health")
