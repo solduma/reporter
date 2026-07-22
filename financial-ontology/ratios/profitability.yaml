@@ -1,0 +1,214 @@
+# Financial Ratios — Profitability (수익성 지표)
+# 각 비율은 name/formula/required_accounts/description + depends_on(상향 계정)/affects(하향 지표) 그래프를 갖는다.
+# required_accounts는 온톨로지 계정 ID(ontology/*.yaml)를 참조한다.
+version: "1.0.0"
+
+metadata:
+  name: "수익성 비율 정의"
+  description: "이익 창출 능력 지표. 매출·자산·자본 대비 이익률과 마진 계열."
+  category: profitability
+  created: "2026-07-22"
+  updated: "2026-07-22"
+
+ratios:
+  roe:
+    name: "ROE (자기자본이익률)"
+    korean_name: "자기자본이익률"
+    formula: "IS_NI_PARENT / ((BS_EQ_PARENT_기초 + BS_EQ_PARENT_기말) / 2)"
+    required_accounts: [IS_NI_PARENT, BS_EQ_PARENT]
+    unit: percentage
+    higher_is_better: true
+    depends_on: [IS_NI_PARENT, BS_EQ_PARENT]
+    affects: [Valuation, ROE, DuPont]
+    description: "지배주주 지분 대비 지배순이익. 자본 효율성의 대표 지표. 평균 자본 사용 권장."
+    tags: [core, dupont]
+
+  roa:
+    name: "ROA (총자산이익률)"
+    korean_name: "총자산이익률"
+    formula: "IS_NI_TOTAL / ((BS_A_TOTAL_기초 + BS_A_TOTAL_기말) / 2)"
+    required_accounts: [IS_NI_TOTAL, BS_A_TOTAL]
+    unit: percentage
+    higher_is_better: true
+    depends_on: [IS_NI_TOTAL, BS_A_TOTAL]
+    affects: [ROA, DuPont]
+    description: "총자산 대비 당기순이익. 자산 활용 효율. 평균 자산 사용 권장."
+    tags: [core, dupont]
+
+  gross_margin:
+    name: "매출총이익률"
+    korean_name: "매출총이익률"
+    formula: "IS_GP_TOTAL / IS_REV_TOTAL"
+    required_accounts: [IS_GP_TOTAL, IS_REV_TOTAL]
+    unit: percentage
+    higher_is_better: true
+    depends_on: [IS_GP_TOTAL, IS_REV_TOTAL]
+    affects: [GrossProfit, Profitability]
+    description: "매출 대비 매출총이익. 제품·원가 경쟁력의 핵심 마진."
+    tags: [margin]
+
+  operating_margin:
+    name: "영업이익률"
+    korean_name: "영업이익률"
+    formula: "IS_OP_INCOME / IS_REV_TOTAL"
+    required_accounts: [IS_OP_INCOME, IS_REV_TOTAL]
+    unit: percentage
+    higher_is_better: true
+    depends_on: [IS_OP_INCOME, IS_REV_TOTAL]
+    affects: [OperatingProfit, EBITDA]
+    description: "매출 대비 영업이익. 주영업 수익성. 본업 경쟁력 지표."
+    tags: [margin, core]
+
+  net_margin:
+    name: "당기순이익률"
+    korean_name: "당기순이익률"
+    formula: "IS_NI_TOTAL / IS_REV_TOTAL"
+    required_accounts: [IS_NI_TOTAL, IS_REV_TOTAL]
+    unit: percentage
+    higher_is_better: true
+    depends_on: [IS_NI_TOTAL, IS_REV_TOTAL]
+    affects: [Profitability, DuPont]
+    description: "매출 대비 당기순이익. 최종 수익성."
+    tags: [margin]
+
+  ebitda_margin:
+    name: "EBITDA 마진"
+    korean_name: "EBITDA마진"
+    formula: "(IS_OP_INCOME + IS_OPEX_DEPR) / IS_REV_TOTAL"
+    required_accounts: [IS_OP_INCOME, IS_OPEX_DEPR, IS_REV_TOTAL]
+    unit: percentage
+    higher_is_better: true
+    depends_on: [IS_OP_INCOME, IS_OPEX_DEPR, IS_REV_TOTAL]
+    affects: [EBITDA, Valuation]
+    description: "영업이익 + 감가상각비(EBITDA)를 매출로 나눈 마진. 자본구조·상각 전 현금창출 수익성."
+    tags: [margin, ebitda]
+
+  ebit_margin:
+    name: "EBIT 마진"
+    korean_name: "EBIT마진(세전영업이익률 근사)"
+    formula: "IS_OP_INCOME / IS_REV_TOTAL (또는 IS_PBT_TOTAL + IS_NONOP_INT_EXP)"
+    required_accounts: [IS_OP_INCOME, IS_REV_TOTAL]
+    unit: percentage
+    higher_is_better: true
+    depends_on: [IS_OP_INCOME, IS_REV_TOTAL]
+    affects: [EBIT, Valuation]
+    description: "영업이익 기준 EBIT 마진. EV/EBIT 가치평가 입력."
+    tags: [margin, ebit]
+
+  roic:
+    name: "ROIC (투하자본수익률)"
+    korean_name: "투하자본수익률"
+    formula: "(IS_OP_INCOME * (1 - 실효세율)) / ((BS_NCL_LT_BORROW + BS_NCL_BOND + BS_EQ_TOTAL)_평균)"
+    required_accounts: [IS_OP_INCOME, BS_NCL_LT_BORROW, BS_NCL_BOND, BS_EQ_TOTAL, IS_TAX_TOTAL, IS_PBT_TOTAL]
+    unit: percentage
+    higher_is_better: true
+    depends_on: [IS_OP_INCOME, BS_NCL_LT_BORROW, BS_NCL_BOND, BS_EQ_TOTAL]
+    affects: [ROIC, Valuation]
+    description: "영업투하자산(이자발생부채+자본) 대비 세후영업이익. WACC 대비 가치창출 판단."
+    tags: [capital_efficiency]
+
+  roce:
+    name: "ROCE (사용자본수익률)"
+    korean_name: "사용자본수익률"
+    formula: "IS_OP_INCOME / ((BS_EQ_TOTAL + BS_NCL_LT_BORROW + BS_NCL_BOND)_평균)"
+    required_accounts: [IS_OP_INCOME, BS_EQ_TOTAL, BS_NCL_LT_BORROW, BS_NCL_BOND]
+    unit: percentage
+    higher_is_better: true
+    depends_on: [IS_OP_INCOME, BS_EQ_TOTAL, BS_NCL_LT_BORROW, BS_NCL_BOND]
+    affects: [ROCE]
+    description: "사용자본(자본+장기차입) 대비 영업이익. 자본구조 중립적 수익성."
+
+  nim:
+    name: "NIM (순이자마진)"
+    korean_name: "순이자마진"
+    formula: "IS_BANK_NIM / ((BS_BANK_LOAN_ST + BS_BANK_LOAN_LT + BS_BANK_SECURITIES)_평균)"
+    required_accounts: [IS_BANK_NIM, BS_BANK_LOAN_ST, BS_BANK_LOAN_LT, BS_BANK_SECURITIES]
+    unit: percentage
+    higher_is_better: true
+    depends_on: [IS_BANK_NIM, BS_BANK_LOAN_ST, BS_BANK_LOAN_LT]
+    affects: [NIM, BankProfitability]
+    description: "이자부자산 대비 순이자수익률. 은행 핵심 수익성 지표. 산업: bank."
+    tags: [bank]
+
+  nim_margin:
+    name: "순이자마진(이자수익-비용률)"
+    korean_name: "이자마진율"
+    formula: "(IS_BANK_INT_INCOME - IS_BANK_INT_EXPENSE) / IS_BANK_INT_INCOME"
+    required_accounts: [IS_BANK_INT_INCOME, IS_BANK_INT_EXPENSE]
+    unit: percentage
+    higher_is_better: true
+    depends_on: [IS_BANK_INT_INCOME, IS_BANK_INT_EXPENSE]
+    affects: [NIM]
+    description: "이자수익 대비 순이자수익 비율. 조달·운용 마진 폭. 산업: bank."
+    tags: [bank]
+
+  dividend_payout:
+    name: "배당성향"
+    korean_name: "배당성향"
+    formula: "CE_RE_DIV / IS_NI_PARENT (또는 CF_FIN_DIV / IS_NI_PARENT)"
+    required_accounts: [CE_RE_DIV, IS_NI_PARENT]
+    unit: percentage
+    higher_is_better: natural
+    depends_on: [CE_RE_DIV, IS_NI_PARENT]
+    affects: [DividendCapacity, RetainedEarnings]
+    description: "지배순이익 대비 배당 지급액. 주주환원 정책 지표."
+    tags: [dividend]
+
+  retention_ratio:
+    name: "이익유보율"
+    korean_name: "이익유보율"
+    formula: "1 - 배당성향"
+    required_accounts: [CE_RE_DIV, IS_NI_PARENT]
+    unit: percentage
+    higher_is_better: natural
+    depends_on: [CE_RE_DIV, IS_NI_PARENT]
+    affects: [GrowthCapacity]
+    description: "순이익 중 사내 유보 비율. 성장 자금 원천."
+
+  rd_intensity:
+    name: "R&D 집약도"
+    korean_name: "연구개발비집약도"
+    formula: "IS_OPEX_RD / IS_REV_TOTAL"
+    required_accounts: [IS_OPEX_RD, IS_REV_TOTAL]
+    unit: percentage
+    higher_is_better: natural
+    depends_on: [IS_OPEX_RD, IS_REV_TOTAL]
+    affects: [InnovationCapacity, GrowthCapacity]
+    description: "매출 대비 연구개발비. 기술 경쟁력·미래 성장 투자 지표. 산업: manufacturing."
+    tags: [manufacturing]
+
+  revenue_growth:
+    name: "매출증가율"
+    korean_name: "매출액증가율"
+    formula: "(IS_REV_TOTAL_당기 - IS_REV_TOTAL_전기) / IS_REV_TOTAL_전기"
+    required_accounts: [IS_REV_TOTAL]
+    unit: percentage
+    higher_is_better: true
+    depends_on: [IS_REV_TOTAL]
+    affects: [Growth, Valuation]
+    description: "전년 대비 매출 성장률. 성장성 기본 지표(시계열 필요)."
+    tags: [growth]
+
+  interest_income_ratio:
+    name: "이자수익 비중"
+    korean_name: "이자수익비중"
+    formula: "IS_BANK_INT_INCOME / IS_REV_TOTAL"
+    required_accounts: [IS_BANK_INT_INCOME, IS_REV_TOTAL]
+    unit: percentage
+    higher_is_better: natural
+    depends_on: [IS_BANK_INT_INCOME, IS_REV_TOTAL]
+    affects: [BankProfitability]
+    description: "총영업수익 중 이자수익 비중. 은행 영업구조 지표. 산업: bank."
+    tags: [bank]
+
+  fee_income_ratio:
+    name: "수수료수익 비중"
+    korean_name: "수수료수익비중"
+    formula: "IS_BANK_FEE_INCOME / IS_REV_TOTAL"
+    required_accounts: [IS_BANK_FEE_INCOME, IS_REV_TOTAL]
+    unit: percentage
+    higher_is_better: natural
+    depends_on: [IS_BANK_FEE_INCOME, IS_REV_TOTAL]
+    affects: [BankProfitability, Diversification]
+    description: "총영업수익 중 수수료수익 비중. 비이자영업 다각화 지표. 산업: bank/insurance."
+    tags: [bank]

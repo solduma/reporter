@@ -1,0 +1,235 @@
+# Financial Ontology — Manufacturing Extension (제조업)
+# common.yaml을 상속·확장. 제조업 특화 계정: 재고자산 상세 분해, 매출원가 요소(재료비/노무비/제조경비),
+# 유형자산 상세, R&D 자본화. 신규 ID 접두어 없이 common의 ID 체계를 그대로 따른다(확장 계정만 추가).
+version: "1.0.0"
+
+metadata:
+  name: "재무 온톨로지 — 제조업 확장"
+  description: "common(K-IFRS)을 상속. 재고·원가요소·유형자산·CAPEX 상세를 추가한 제조업 특화 온톨로지."
+  standards: ["K-IFRS", "IFRS", "DART_XBRL"]
+  industries: ["manufacturing"]
+  extends: "common.yaml"
+  created: "2026-07-22"
+  updated: "2026-07-22"
+
+ontology:
+  statements:
+    BALANCE_SHEET:
+      id: BALANCE_SHEET
+      name: "재무상태표"
+      type: balance_sheet
+      description: "제조업 재무상태표 — 재고자산·유형자산 비중이 큼."
+      order: 1
+    INCOME_STATEMENT:
+      id: INCOME_STATEMENT
+      name: "손익계산서"
+      type: income_statement
+      description: "매출원가를 재료비·노무비·제조경비로 분해하는 제조업 손익구조."
+      order: 2
+    CASH_FLOW:
+      id: CASH_FLOW
+      name: "현금흐름표"
+      type: cash_flow
+      description: "설비투자(CAPEX)가 투자현금흐름의 주된 항목."
+      order: 5
+
+  accounts:
+    # --- 재고자산 상세 (parent: BS_CA_INV) ---
+    BS_CA_INV_RAW:
+      id: BS_CA_INV_RAW
+      korean_name: "원재료"
+      english_name: "Raw Materials"
+      name: "원재료"
+      statement: [balance_sheet]
+      category: [asset, current_asset, inventory, raw_material]
+      sign: positive
+      parent: BS_CA_INV
+      ratios: [inventory_turnover, raw_material_days]
+      affects: [WorkingCapital, OCF]
+      cashflow_mapping: [operating]
+      aliases: ["원재료재고", "구입원재료"]
+      mappings:
+        dart: ["ifrs-full_RawMaterials"]
+        ifrs: ["RawMaterials"]
+        usgaap: ["InventoryRawMaterials"]
+      description: "생산 투입 전 보유 원재료."
+
+    BS_CA_INV_WIP:
+      id: BS_CA_INV_WIP
+      korean_name: "재공품"
+      english_name: "Work in Process"
+      name: "재공품"
+      statement: [balance_sheet]
+      category: [asset, current_asset, inventory, wip]
+      sign: positive
+      parent: BS_CA_INV
+      ratios: [inventory_turnover, wip_days]
+      affects: [WorkingCapital, OCF]
+      cashflow_mapping: [operating]
+      aliases: ["재공품재고"]
+      mappings:
+        dart: ["ifrs-full_WorkInProcess"]
+        ifrs: ["WorkInProgress"]
+        usgaap: ["InventoryWorkInProcess"]
+      description: "생산 진행 중인 반제품."
+
+    BS_CA_INV_FIN:
+      id: BS_CA_INV_FIN
+      korean_name: "제품"
+      english_name: "Finished Goods"
+      name: "제품"
+      statement: [balance_sheet]
+      category: [asset, current_asset, inventory, finished_goods]
+      sign: positive
+      parent: BS_CA_INV
+      ratios: [inventory_turnover, finished_goods_days]
+      affects: [WorkingCapital, OCF]
+      cashflow_mapping: [operating]
+      aliases: ["제품재고", "완성품"]
+      mappings:
+        dart: ["ifrs-full_FinishedGoods"]
+        ifrs: ["FinishedGoods"]
+        usgaap: ["InventoryFinishedGoods"]
+      description: "생산 완료 후 판매 대기 중인 제품."
+
+    # --- 매출원가 요소 (parent: IS_COGS_TOTAL) ---
+    IS_COGS_RAW:
+      id: IS_COGS_RAW
+      korean_name: "재료비"
+      english_name: "Material Cost"
+      name: "재료비(원재료비)"
+      statement: [income_statement]
+      category: [expense, cogs, material]
+      sign: positive
+      parent: IS_COGS_TOTAL
+      ratios: [material_cost_ratio]
+      affects: [GrossProfit, COGS]
+      aliases: ["원재료비", "부재비"]
+      description: "제품 생산에 투입된 원재료 비용. 매출원가의 최대 비중."
+
+    IS_COGS_LABOR:
+      id: IS_COGS_LABOR
+      korean_name: "노무비"
+      english_name: "Labor Cost"
+      name: "노무비"
+      statement: [income_statement]
+      category: [expense, cogs, labor]
+      sign: positive
+      parent: IS_COGS_TOTAL
+      ratios: [labor_cost_ratio]
+      affects: [GrossProfit, COGS]
+      aliases: ["직접노무비", "임금"]
+      description: "생산 직접 인력에 대한 임금·급여."
+
+    IS_COGS_OH:
+      id: IS_COGS_OH
+      korean_name: "제조경비"
+      english_name: "Manufacturing Overhead"
+      name: "제조경비"
+      statement: [income_statement]
+      category: [expense, cogs, overhead]
+      sign: positive
+      parent: IS_COGS_TOTAL
+      affects: [GrossProfit, COGS]
+      aliases: ["간접제조비", "공장경비"]
+      description: "공장 운영 간접비(전력·수선·감가상각 등)."
+
+    # --- 유형자산 상세 (parent: BS_NCA_PPE) ---
+    BS_NCA_PPE_LAND:
+      id: BS_NCA_PPE_LAND
+      korean_name: "토지"
+      english_name: "Land"
+      name: "토지"
+      statement: [balance_sheet]
+      category: [asset, non_current_asset, ppe, land]
+      sign: positive
+      parent: BS_NCA_PPE
+      cashflow_mapping: [investing]
+      aliases: ["사업용토지"]
+      mappings:
+        dart: ["ifrs-full_Land"]
+        ifrs: ["Land"]
+        usgaap: ["LandAndImprovements"]
+      description: "감가상각 대상이 아닌 영업용 토지."
+
+    BS_NCA_PPE_BUILDING:
+      id: BS_NCA_PPE_BUILDING
+      korean_name: "건물"
+      english_name: "Buildings"
+      name: "건물"
+      statement: [balance_sheet]
+      category: [asset, non_current_asset, ppe, building]
+      sign: positive
+      parent: BS_NCA_PPE
+      cashflow_mapping: [investing]
+      aliases: ["건물 및 부대설비"]
+      mappings:
+        dart: ["ifrs-full_Buildings"]
+        ifrs: ["Buildings"]
+        usgaap: ["BuildingsAndFixtures"]
+
+    BS_NCA_PPE_MACHINERY:
+      id: BS_NCA_PPE_MACHINERY
+      korean_name: "기계장치"
+      english_name: "Machinery and Equipment"
+      name: "기계장치"
+      statement: [balance_sheet]
+      category: [asset, non_current_asset, ppe, machinery]
+      sign: positive
+      parent: BS_NCA_PPE
+      affects: [CAPEX, FCF]
+      cashflow_mapping: [investing]
+      aliases: ["기계 및 설비"]
+      mappings:
+        dart: ["ifrs-full_MachineryEquipment"]
+        ifrs: ["MachineryAndEquipment"]
+        usgaap: ["MachineryAndEquipment"]
+      description: "생산 설비의 핵심. 제조업 CAPEX의 주된 구성."
+
+    # --- R&D 자본화 무형자산 (parent: BS_NCA_INTANGIBLE) ---
+    BS_NCA_RD_ASSET:
+      id: BS_NCA_RD_ASSET
+      korean_name: "개발비(자본화)"
+      english_name: "Capitalized Development Costs"
+      name: "개발비(무형자산)"
+      statement: [balance_sheet]
+      category: [asset, non_current_asset, intangible, rd_capitalized]
+      sign: positive
+      parent: BS_NCA_INTANGIBLE
+      cashflow_mapping: [investing]
+      affects: [FCF]
+      aliases: ["자본화연구개발비", "개발원가"]
+      mappings:
+        dart: ["ifrs-full_DevelopmentCosts"]
+        ifrs: ["DevelopmentCosts"]
+        usgaap: ["CapitalizedSoftware"]
+      description: "개발단계 지출 중 자본화된 무형자산. IFRS에서 인식 조건 충족 시."
+
+    # --- 설비투자 지표 (derived, parent: CF_INV_PPE) ---
+    CF_INV_PPE_ACQ:
+      id: CF_INV_PPE_ACQ
+      korean_name: "유형자산 취득(CAPEX 지출)"
+      english_name: "Purchase of PPE (CAPEX outflow)"
+      name: "유형자산 취득(CAPEX)"
+      statement: [cash_flow]
+      category: [cashflow, investing, capex, outflow]
+      sign: negative
+      parent: CF_INV_PPE
+      affects: [CAPEX, FCF]
+      ratios: [capex_ratio, capex_to_sales]
+      cashflow_mapping: [investing]
+      aliases: ["설비투자지출", "CAPEX지출"]
+      description: "유형·무형자산 취득을 위한 현금 지출. FCF 차감 항목."
+
+    CF_INV_PPE_DISP:
+      id: CF_INV_PPE_DISP
+      korean_name: "유형자산 처분(투자수입)"
+      english_name: "Proceeds from Sale of PPE"
+      name: "유형자산 처분수입"
+      statement: [cash_flow]
+      category: [cashflow, investing, capex, inflow]
+      sign: positive
+      parent: CF_INV_PPE
+      cashflow_mapping: [investing]
+      aliases: ["고정자산처분수입"]
+      description: "유형자산 처분으로 수취한 현금."

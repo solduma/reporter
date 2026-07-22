@@ -1,0 +1,244 @@
+# Financial Ontology — Insurance Extension (보험업)
+# common.yaml을 상속·확장. 보험업은 책임준비금(부채)·미경과보험료·재보험 계정과
+# 보험료수익·보험금·신계약비·책임준비금변동 손익구조가 특화됨. 자산은 투자자산 중심.
+version: "1.0.0"
+
+metadata:
+  name: "재무 온톨로지 — 보험업 확장"
+  description: "common(K-IFRS)을 상속. 보험책임준비금·미경과보험료·재보험 계정과 보험료·보험금·준비금변동 손익을 추가한 보험 특화 온톨로지."
+  standards: ["K-IFRS", "IFRS", "DART_XBRL"]
+  industries: ["insurance"]
+  extends: "common.yaml"
+  created: "2026-07-22"
+  updated: "2026-07-22"
+
+ontology:
+  statements:
+    BALANCE_SHEET:
+      id: BALANCE_SHEET
+      name: "재무상태표"
+      type: balance_sheet
+      description: "보험 재무상태표 — 책임준비금(부채)과 투자자산(자산)이 대부분."
+      order: 1
+    INCOME_STATEMENT:
+      id: INCOME_STATEMENT
+      name: "손익계산서"
+      type: income_statement
+      description: "보험료수익에서 보험금·준비금변동을 차감해 보험손익을 산출. 투자수익이 중요."
+      order: 2
+
+  accounts:
+    # =========================================================================
+    # 자산 — 재보험·투자
+    # =========================================================================
+    BS_INS_REINS_ASSET:
+      id: BS_INS_REINS_ASSET
+      korean_name: "재보험금"
+      english_name: "Reinsurance Recoveries"
+      name: "재보험금"
+      statement: [balance_sheet]
+      category: [asset, current_asset, insurance, reinsurance]
+      sign: positive
+      parent: BS_CA_TOTAL
+      ratios: [reinsurance_ratio]
+      affects: [UnderwritingResult]
+      aliases: ["미수재보험금", "재보험회수금"]
+      mappings:
+        dart: ["ifrs-full_ReinsuranceAssets"]
+        ifrs: ["ReinsuranceAssets"]
+        usgaap: ["ReinsuranceRecoverables"]
+      description: "재보험자로부터 회수할 보험금. 출재에 따른 자산."
+
+    BS_INS_REINS_DEPOSIT:
+      id: BS_INS_REINS_DEPOSIT
+      korean_name: "재보험예탁금"
+      english_name: "Reinsurance Deposits"
+      name: "재보험예탁금"
+      statement: [balance_sheet]
+      category: [asset, non_current_asset, insurance, reinsurance]
+      sign: positive
+      parent: BS_NCA_TOTAL
+      aliases: ["재보험예치금"]
+      description: "재보험자에 예탁한 담보금."
+
+    BS_INS_INVEST_ASSET:
+      id: BS_INS_INVEST_ASSET
+      korean_name: "투자자산"
+      english_name: "Investment Assets (Insurance)"
+      name: "보험투자자산"
+      statement: [balance_sheet]
+      category: [asset, non_current_asset, insurance, investment]
+      sign: positive
+      parent: BS_NCA_LT_INV
+      affects: [InvestmentYield, FCF]
+      cashflow_mapping: [investing]
+      aliases: ["운용자산(보험)"]
+      mappings:
+        dart: ["ifrs-full_FinancialAssetsAtFairValue", "ifrs-full_InvestmentProperty"]
+        ifrs: ["FinancialAssetsAtFairValue"]
+        usgaap: ["InvestmentSecurities"]
+      description: "보험료 부금을 운용한 투자자산(채권·주식·부동산). 수익성·유동성의 핵심."
+
+    # =========================================================================
+    # 부채 — 준비금
+    # =========================================================================
+    BS_NCL_INS_RESERVE:
+      id: BS_NCL_INS_RESERVE
+      korean_name: "보험책임준비금"
+      english_name: "Insurance Contract Liabilities (Reserve)"
+      name: "보험책임준비금"
+      statement: [balance_sheet]
+      category: [liability, non_current_liability, insurance, reserve]
+      sign: positive
+      parent: BS_NCL_TOTAL
+      ratios: [reserve_ratio, solvency_ratio]
+      affects: [Solvency, UnderwritingResult]
+      aliases: ["책임준비금", "보험계약부채"]
+      mappings:
+        dart: ["ifrs-full_InsuranceContractLiabilities"]
+        ifrs: ["InsuranceContractLiabilities"]
+        usgaap: ["LiabilitiesForInsuranceContracts"]
+      description: "미래 보험금 지급을 위해 적립하는 준비금. 보험 부채의 핵심(IFRS 17 보험계약부채)."
+
+    BS_NCL_INS_UNEARNED:
+      id: BS_NCL_INS_UNEARNED
+      korean_name: "미경과보험료"
+      english_name: "Unearned Premium Reserve"
+      name: "미경과보험료"
+      statement: [balance_sheet]
+      category: [liability, non_current_liability, insurance, unearned_premium]
+      sign: positive
+      parent: BS_NCL_TOTAL
+      aliases: ["미경과보험료준비금"]
+      mappings:
+        dart: ["ifrs-full_UnearnedPremiumReserve"]
+        ifrs: ["UnearnedPremiumRevenue"]
+      description: "기간 배분 전 전입 보험료 중 차기 이후에 수익 인식될 금액."
+
+    BS_NCL_INS_CLAIM_OUTSTANDING:
+      id: BS_NCL_INS_CLAIM_OUTSTANDING
+      korean_name: "미지급보험금"
+      english_name: "Outstanding Claims (Unpaid)"
+      name: "미지급보험금"
+      statement: [balance_sheet]
+      category: [liability, current_liability, insurance, claim]
+      sign: positive
+      parent: BS_CL_TOTAL
+      aliases: ["지급미결보험금"]
+      description: "발생했으나 아직 지급하지 않은 보험금."
+
+    BS_INS_REINS_RESERVE:
+      id: BS_INS_REINS_RESERVE
+      korean_name: "재보험책임준비금"
+      english_name: "Reinsurance Contract Liabilities"
+      name: "재보험책임준비금"
+      statement: [balance_sheet]
+      category: [liability, non_current_liability, insurance, reinsurance, reserve]
+      sign: positive
+      parent: BS_NCL_TOTAL
+      aliases: ["재보험계약부채"]
+      description: "재보험 계약과 관련된 준비금 부채."
+
+    # =========================================================================
+    # 손익계산서 — 보험료·보험금·준비금변동
+    # =========================================================================
+    IS_INS_PREMIUM:
+      id: IS_INS_PREMIUM
+      korean_name: "보험료수익"
+      english_name: "Insurance Premium Revenue"
+      name: "보험료수익"
+      statement: [income_statement]
+      category: [revenue, insurance, premium]
+      sign: positive
+      parent: IS_REV_TOTAL
+      ratios: [premium_growth, loss_ratio, expense_ratio, combined_ratio]
+      affects: [UnderwritingResult, RevenueBase]
+      aliases: ["원수보험료", "경과보험료"]
+      mappings:
+        dart: ["ifrs-full_InsuranceRevenue"]
+        ifrs: ["InsuranceRevenue"]
+        usgaap: ["PremiumsEarned"]
+      description: "기간에 인식된 보험료 수익(경과보험료 기준)."
+
+    IS_INS_REINS_PREMIUM:
+      id: IS_INS_REINS_PREMIUM
+      korean_name: "재보험료"
+      english_name: "Reinsurance Premium Ceded"
+      name: "재보험료(출재보험료)"
+      statement: [income_statement]
+      category: [expense, insurance, reinsurance, premium]
+      sign: negative
+      ratios: [reinsurance_ratio, combined_ratio]
+      affects: [UnderwritingResult]
+      aliases: ["출재보험료", "재보험료지급"]
+      description: "재보험자에게 전가한 보험료(차감항목)."
+
+    IS_INS_CLAIM:
+      id: IS_INS_CLAIM
+      korean_name: "보험금"
+      english_name: "Insurance Claims and Benefits Paid"
+      name: "보험금"
+      statement: [income_statement]
+      category: [expense, insurance, claim]
+      sign: positive
+      ratios: [loss_ratio, combined_ratio]
+      affects: [UnderwritingResult, LossRatio]
+      aliases: ["보험금지급액", "사망·만기·사고보험금"]
+      mappings:
+        dart: ["ifrs-full_InsuranceServiceExpense"]
+        ifrs: ["InsuranceServiceExpense"]
+        usgaap: ["PolicyholderBenefits"]
+      description: "기간 중 발생한 보험금·급부 지급. 손해률의 분자."
+
+    IS_INS_REINS_CLAIM:
+      id: IS_INS_REINS_CLAIM
+      korean_name: "재보험금(회수)"
+      english_name: "Reinsurance Recoveries on Claims"
+      name: "재보험금회수"
+      statement: [income_statement]
+      category: [revenue, insurance, reinsurance, claim]
+      sign: positive
+      affects: [UnderwritingResult]
+      aliases: ["재보험회수보험금"]
+      description: "재보험자로부터 회수한 보험금(보험금 차감 효과)."
+
+    IS_INS_ACQUISITION:
+      id: IS_INS_ACQUISITION
+      korean_name: "신계약비"
+      english_name: "Acquisition Costs"
+      name: "신계약비"
+      statement: [income_statement]
+      category: [expense, insurance, acquisition]
+      sign: positive
+      ratios: [expense_ratio, combined_ratio]
+      affects: [UnderwritingResult, ExpenseRatio]
+      aliases: ["계약비", "모집비용"]
+      description: "신계약 획득에 소요된 비용. 사업비(비율)의 주된 항목."
+
+    IS_INS_RESERVE_CHG:
+      id: IS_INS_RESERVE_CHG
+      korean_name: "책임준비금변동"
+      english_name: "Change in Insurance Reserve"
+      name: "책임준비금변동"
+      statement: [income_statement]
+      category: [expense, insurance, reserve_change]
+      sign: natural
+      depends_on: [BS_NCL_INS_RESERVE, BS_NCL_INS_UNEARNED]
+      ratios: [loss_ratio]
+      affects: [UnderwritingResult]
+      aliases: ["준비금증감", "책임준비금전입(전출)"]
+      description: "당기 책임준비금·미경과보험료의 증감. 보험손익 산출의 핵심 조정."
+
+    IS_INS_INVEST_INCOME:
+      id: IS_INS_INVEST_INCOME
+      korean_name: "투자수익"
+      english_name: "Investment Income (Insurance)"
+      name: "보험투자수익"
+      statement: [income_statement]
+      category: [revenue, insurance, investment]
+      sign: natural
+      depends_on: [BS_INS_INVEST_ASSET]
+      ratios: [investment_yield]
+      affects: [InvestmentYield, OperatingProfit]
+      aliases: ["운용수익(보험)"]
+      description: "보험 투자자산에서 발생하는 이자·배당·처분·평가 수익."

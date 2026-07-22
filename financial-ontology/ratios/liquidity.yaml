@@ -1,0 +1,139 @@
+# Financial Ratios — Liquidity (유동성 지표)
+# 단기 지급능력과 현금창출 지표. required_accounts는 온톨로지 계정 ID를 참조.
+version: "1.0.0"
+
+metadata:
+  name: "유동성 비율 정의"
+  description: "단기 채무 지급능력과 현금흐름 충족능력 지표."
+  category: liquidity
+  created: "2026-07-22"
+  updated: "2026-07-22"
+
+ratios:
+  current_ratio:
+    name: "유동비율"
+    korean_name: "유동비율"
+    formula: "BS_CA_TOTAL / BS_CL_TOTAL"
+    required_accounts: [BS_CA_TOTAL, BS_CL_TOTAL]
+    unit: ratio
+    higher_is_better: true
+    depends_on: [BS_CA_TOTAL, BS_CL_TOTAL]
+    affects: [Liquidity, WorkingCapital]
+    description: "유동자산 / 유동부채. 단기 지급능력의 대표 지표(200% 이상 양호)."
+    tags: [core]
+
+  quick_ratio:
+    name: "당좌비율"
+    korean_name: "당좌비율"
+    formula: "(BS_CA_TOTAL - BS_CA_INV - BS_CA_PREPAID) / BS_CL_TOTAL"
+    required_accounts: [BS_CA_TOTAL, BS_CA_INV, BS_CA_PREPAID, BS_CL_TOTAL]
+    unit: ratio
+    higher_is_better: true
+    depends_on: [BS_CA_TOTAL, BS_CA_INV, BS_CL_TOTAL]
+    affects: [Liquidity]
+    description: "당좌자산(유동자산-재고-선급금) / 유동부채. 재고 처분 없이 단기 채무 상환 능력(100% 이상 양호)."
+    tags: [core]
+
+  cash_ratio:
+    name: "현금비율"
+    korean_name: "현금비율"
+    formula: "(BS_CA_CASH + BS_CA_ST_FIN + BS_CA_ST_INV) / BS_CL_TOTAL"
+    required_accounts: [BS_CA_CASH, BS_CA_ST_FIN, BS_CA_ST_INV, BS_CL_TOTAL]
+    unit: ratio
+    higher_is_better: true
+    depends_on: [BS_CA_CASH, BS_CL_TOTAL]
+    affects: [Liquidity]
+    description: "현금성자산 / 유동부채. 가장 보수적인 단기 유동성 지표."
+
+  working_capital:
+    name: "운전자본"
+    korean_name: "운전자본"
+    formula: "BS_CA_TOTAL - BS_CL_TOTAL"
+    required_accounts: [BS_CA_TOTAL, BS_CL_TOTAL]
+    unit: monetary
+    higher_is_better: true
+    depends_on: [BS_CA_TOTAL, BS_CL_TOTAL]
+    affects: [WorkingCapital, OCF, CashConversionCycle]
+    description: "유동자산 - 유동부채. 단기 영업 자금 여력. 음수는 단기 유동성 위험."
+
+  operating_cashflow_ratio:
+    name: "영업현금흐름비율"
+    korean_name: "영업현금흐름비율"
+    formula: "CF_OP_TOTAL / BS_CL_TOTAL"
+    required_accounts: [CF_OP_TOTAL, BS_CL_TOTAL]
+    unit: ratio
+    higher_is_better: true
+    depends_on: [CF_OP_TOTAL, BS_CL_TOTAL]
+    affects: [OCF, Liquidity]
+    description: "영업현금흐름 / 유동부채. 영업활동으로 단기부채 상환 능력."
+    tags: [cashflow]
+
+  cash_flow_adequacy:
+    name: "현금흐름충족률"
+    korean_name: "현금흐름충족률"
+    formula: "CF_OP_TOTAL / (CF_INV_PPE + CE_RE_DIV)"
+    required_accounts: [CF_OP_TOTAL, CF_INV_PPE, CE_RE_DIV]
+    unit: ratio
+    higher_is_better: true
+    depends_on: [CF_OP_TOTAL, CF_INV_PPE, CE_RE_DIV]
+    affects: [FCF, DividendCapacity]
+    description: "영업현금흐름이 설비투자+배당을 충족하는 비율. 1 이상이면 자급자족."
+    tags: [cashflow]
+
+  fcf:
+    name: "잉여현금흐름(FCF)"
+    korean_name: "잉여현금흐름"
+    formula: "CF_OP_TOTAL + CF_INV_PPE (취득액 음수 가정) = CF_OP_TOTAL - CAPEX"
+    required_accounts: [CF_OP_TOTAL, CF_INV_PPE]
+    unit: monetary
+    higher_is_better: true
+    depends_on: [CF_OP_TOTAL, CF_INV_PPE]
+    affects: [FCF, Valuation, DividendCapacity]
+    description: "영업현금흐름에서 설비투자(CAPEX) 차감. 주주환원·부채상환·가치평가의 핵심."
+    tags: [cashflow, core]
+
+  cash_conversion_cycle:
+    name: "현금전환주기(CCC)"
+    korean_name: "현금전환주기"
+    formula: "매출채권회전기간 + 재고회전기간 - 매입채무회전기간"
+    required_accounts: [BS_CA_AR, BS_CA_INV, BS_CL_AP, IS_REV_TOTAL, IS_COGS_TOTAL]
+    unit: days
+    higher_is_better: false
+    depends_on: [BS_CA_AR, BS_CA_INV, BS_CL_AP]
+    affects: [WorkingCapital, OCF, CashConversionCycle]
+    description: "현금 지출 후 회수까지의 기간(일). 짧을수록 운전자본 효율. 제조업 핵심."
+    tags: [working_capital, manufacturing]
+
+  receivable_turnover:
+    name: "매출채권회전율"
+    korean_name: "매출채권회전율"
+    formula: "IS_REV_TOTAL / BS_CA_AR_평균"
+    required_accounts: [IS_REV_TOTAL, BS_CA_AR]
+    unit: ratio
+    higher_is_better: true
+    depends_on: [IS_REV_TOTAL, BS_CA_AR]
+    affects: [OCF, CashConversionCycle]
+    description: "매출 / 평균 매출채권. 채권 회수 속도."
+
+  inventory_turnover:
+    name: "재고자산회전율"
+    korean_name: "재고자산회전율"
+    formula: "IS_COGS_TOTAL / BS_CA_INV_평균"
+    required_accounts: [IS_COGS_TOTAL, BS_CA_INV]
+    unit: ratio
+    higher_is_better: true
+    depends_on: [IS_COGS_TOTAL, BS_CA_INV]
+    affects: [OCF, CashConversionCycle]
+    description: "매출원가 / 평균 재고. 재고 회전 속도. 제조·유통업 핵심."
+    tags: [manufacturing]
+
+  payable_turnover:
+    name: "매입채무회전율"
+    korean_name: "매입채무회전율"
+    formula: "IS_COGS_TOTAL / BS_CL_AP_평균"
+    required_accounts: [IS_COGS_TOTAL, BS_CL_AP]
+    unit: ratio
+    higher_is_better: natural
+    depends_on: [IS_COGS_TOTAL, BS_CL_AP]
+    affects: [OCF, CashConversionCycle]
+    description: "매출원가 / 평균 매입채무. 외상 대금 지급 속도."

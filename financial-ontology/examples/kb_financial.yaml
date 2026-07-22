@@ -1,0 +1,205 @@
+# Example Company Mapping — KB금융지주 (KB Financial Group)
+# DART 사업보고서(K-IFRS, 연결) 공시 항목 → 온톨로지 계정 ID 정규화 매핑.
+# 은행업(bank) extension 적용. 지주회사 연결 기준 — 예수금·대출금·운용유가증권·이자수익·대손상각비 중심.
+# reported_value는 2023회계연도 연결 기준 근사치(조 원)이며 매핑 예시용.
+version: "1.0.0"
+
+metadata:
+  company_name: "KB금융 주식회사"
+  company_name_en: "KB Financial Group Inc."
+  ticker: "105560"
+  exchange: KOSPI
+  industry: bank
+  ontology_profile: [common, bank]
+  fiscal_period: "2023 FY (연결)"
+  source: "DART 사업보고서"
+  currency: "KRW"
+  value_unit: "조 원(근사치)"
+  approximate: true
+  created: "2026-07-22"
+
+mapping:
+  # ===== 손익계산서 (은행 특화 구조) =====
+  - reported_name: "이자수익"
+    ontology_id: IS_BANK_INT_INCOME
+    statement: income_statement
+    reported_value: 12.6
+    note: "대출·운용자산 이자. 영업수익(은행은 영업외 아님)."
+  - reported_name: "이자비용"
+    ontology_id: IS_BANK_INT_EXPENSE
+    statement: income_statement
+    reported_value: 6.8
+    note: "예금·차입금 이자. 자금조달원가."
+  - reported_name: "순이자수익"
+    ontology_id: IS_BANK_NIM
+    statement: income_statement
+    note: "IS_BANK_INT_INCOME - IS_BANK_INT_EXPENSE"
+  - reported_name: "수수료수익"
+    ontology_id: IS_BANK_FEE_INCOME
+    statement: income_statement
+    note: "수신·여신·외환·신탁 수수료."
+  - reported_name: "수수료비용"
+    ontology_id: IS_BANK_FEE_EXPENSE
+    statement: income_statement
+  - reported_name: "외환손익"
+    ontology_id: IS_BANK_FX
+    statement: income_statement
+  - reported_name: "유가증권손익"
+    ontology_id: IS_BANK_SEC_GAIN
+    statement: income_statement
+    note: "운용유가증권 평가·처분 손익."
+  - reported_name: "대손상각비"
+    ontology_id: IS_BANK_LOAN_LOSS
+    statement: income_statement
+    note: "여신충당금 전입비. 자산 건전성 비용."
+  - reported_name: "판매비와 관리비"
+    ontology_id: IS_OPEX_TOTAL
+    statement: income_statement
+    child_mapping:
+      - {reported_name: "감가상각비", ontology_id: IS_OPEX_DEPR}
+      - {reported_name: "인건비", ontology_id: IS_OPEX_ADMIN}
+  - reported_name: "영업이익"
+    ontology_id: IS_OP_INCOME
+    statement: income_statement
+  - reported_name: "법인세비용"
+    ontology_id: IS_TAX_TOTAL
+    statement: income_statement
+  - reported_name: "당기순이익"
+    ontology_id: IS_NI_TOTAL
+    statement: income_statement
+    child_mapping:
+      - {reported_name: "지배기업 소유주지분 순이익", ontology_id: IS_NI_PARENT}
+      - {reported_name: "비지배지분 순이익", ontology_id: IS_NI_NCI}
+
+  # ===== 재무상태표 — 자산 =====
+  - reported_name: "현금·외화"
+    ontology_id: BS_BANK_CASH
+    statement: balance_sheet
+  - reported_name: "지급준비금"
+    ontology_id: BS_BANK_RESERVE
+    statement: balance_sheet
+  - reported_name: "콜론 및 단기대부"
+    ontology_id: BS_BANK_CALL
+    statement: balance_sheet
+  - reported_name: "매입환매조건부채권"
+    ontology_id: BS_BANK_BOUGHT_RP
+    statement: balance_sheet
+  - reported_name: "대출금(당기)"
+    ontology_id: BS_BANK_LOAN_ST
+    statement: balance_sheet
+    note: "단기대출금. 대손충당금 BS_BANK_LOAN_ALLOWANCE 차감."
+  - reported_name: "대출금(장기)"
+    ontology_id: BS_BANK_LOAN_LT
+    statement: balance_sheet
+  - reported_name: "대손충당금"
+    ontology_id: BS_BANK_LOAN_ALLOWANCE
+    statement: balance_sheet
+    note: "대출금에서 차감(음수). NPL 건전성."
+  - reported_name: "운용유가증권"
+    ontology_id: BS_BANK_SECURITIES
+    statement: balance_sheet
+    note: "국공채·회사채·주식 운용."
+  - reported_name: "유동자산"
+    ontology_id: BS_CA_TOTAL
+    statement: balance_sheet
+  - reported_name: "비유동자산"
+    ontology_id: BS_NCA_TOTAL
+    statement: balance_sheet
+  - reported_name: "자산총계"
+    ontology_id: BS_A_TOTAL
+    statement: balance_sheet
+
+  # ===== 재무상태표 — 부채·자본 =====
+  - reported_name: "예수금"
+    ontology_id: BS_BANK_DEPOSIT
+    statement: balance_sheet
+    reported_value: 720.0
+    note: "요구불·거치·적립 예금. 부채의 대부분."
+  - reported_name: "콜머니"
+    ontology_id: BS_BANK_CALL_LIAB
+    statement: balance_sheet
+  - reported_name: "매도환매조건부채권"
+    ontology_id: BS_BANK_SOLD_RP
+    statement: balance_sheet
+  - reported_name: "차입금"
+    ontology_id: BS_CL_ST_BORROW
+    statement: balance_sheet
+    note: "한국은행 차입 등. common 단기차입금."
+  - reported_name: "유동부채"
+    ontology_id: BS_CL_TOTAL
+    statement: balance_sheet
+  - reported_name: "고정부채(비유동부채)"
+    ontology_id: BS_NCL_TOTAL
+    statement: balance_sheet
+    child_mapping:
+      - {reported_name: "사채", ontology_id: BS_NCL_BOND}
+      - {reported_name: "퇴직급여충당부채", ontology_id: BS_NCL_LT_PROV}
+      - {reported_name: "이연법인세부채", ontology_id: BS_NCL_DTL}
+  - reported_name: "부채총계"
+    ontology_id: BS_L_TOTAL
+    statement: balance_sheet
+  - reported_name: "자본금"
+    ontology_id: BS_EQ_CS
+    statement: balance_sheet
+  - reported_name: "자본잉여금"
+    ontology_id: BS_EQ_APIC
+    statement: balance_sheet
+  - reported_name: "이익잉여금"
+    ontology_id: BS_EQ_RE
+    statement: balance_sheet
+  - reported_name: "기타포괄손익누적액"
+    ontology_id: BS_EQ_OCI
+    statement: balance_sheet
+  - reported_name: "자기주식"
+    ontology_id: BS_EQ_TREASURY
+    statement: balance_sheet
+  - reported_name: "지배기업 주주지분"
+    ontology_id: BS_EQ_PARENT
+    statement: balance_sheet
+  - reported_name: "비지배지분"
+    ontology_id: BS_EQ_NCI
+    statement: balance_sheet
+  - reported_name: "자본총계"
+    ontology_id: BS_EQ_TOTAL
+    statement: balance_sheet
+
+  # ===== 현금흐름표 =====
+  - reported_name: "영업활동 현금흐름"
+    ontology_id: CF_OP_TOTAL
+    statement: cash_flow
+    note: "은행은 예대 증감이 영업CF에 반영."
+  - reported_name: "투자활동 현금흐름"
+    ontology_id: CF_INV_TOTAL
+    statement: cash_flow
+    child_mapping:
+      - {reported_name: "유가증권의 취득/처분", ontology_id: CF_INV_FA}
+  - reported_name: "재무활동 현금흐름"
+    ontology_id: CF_FIN_TOTAL
+    statement: cash_flow
+    child_mapping:
+      - {reported_name: "배당금의 지급", ontology_id: CF_FIN_DIV}
+      - {reported_name: "자기주식의 취득", ontology_id: CF_FIN_TREASURY}
+  - reported_name: "현금의 증감"
+    ontology_id: CF_NET_CHANGE
+    statement: cash_flow
+
+key_metrics:
+  - ratio: nim
+    inputs: [IS_BANK_NIM, BS_BANK_LOAN_ST, BS_BANK_LOAN_LT, BS_BANK_SECURITIES]
+    note: "은행 핵심 수익성"
+  - ratio: ldr
+    inputs: [BS_BANK_LOAN_ST, BS_BANK_LOAN_LT, BS_BANK_DEPOSIT]
+    note: "예대율 — 유동성"
+  - ratio: npl_ratio
+    inputs: [BS_BANK_LOAN_ST, BS_BANK_LOAN_LT, BS_BANK_LOAN_ALLOWANCE]
+    note: "자산 건전성"
+  - ratio: cost_of_risk
+    inputs: [IS_BANK_LOAN_LOSS, BS_BANK_LOAN_ST, BS_BANK_LOAN_LT]
+  - ratio: equity_ratio
+    inputs: [BS_EQ_TOTAL, BS_A_TOTAL]
+    note: "BIS 자기자본비율 근간"
+  - ratio: roe
+    inputs: [IS_NI_PARENT, BS_EQ_PARENT]
+  - ratio: interest_coverage
+    inputs: [IS_OP_INCOME, IS_NONOP_INT_EXP]
+    note: "은행은 이자비용이 영업비용이라 한계적"

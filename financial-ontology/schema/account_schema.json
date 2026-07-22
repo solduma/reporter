@@ -1,0 +1,113 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://reporter.dev/financial-ontology/schema/account",
+  "title": "Financial Account Schema",
+  "description": "Schema for validating individual financial statement accounts across IFRS, K-IFRS (DART), and US GAAP",
+  "type": "object",
+  "required": ["id", "name", "statement", "category"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Z]+_[A-Z]+_[A-Z0-9_]+$",
+      "description": "Global unique identifier. Format: {STATEMENT}_{CATEGORY}_{ACCOUNT}. Stable — never changes once assigned."
+    },
+    "korean_name": {
+      "type": "string",
+      "description": "Korean account name as used in K-IFRS / DART filings"
+    },
+    "english_name": {
+      "type": "string",
+      "description": "English account name as used in IFRS / US GAAP filings"
+    },
+    "name": {
+      "type": "string",
+      "description": "Display name (defaults to korean_name for Korean contexts)"
+    },
+    "statement": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["balance_sheet", "income_statement", "comprehensive_income", "changes_in_equity", "cash_flow"]
+      },
+      "minItems": 1,
+      "description": "Which financial statement(s) this account appears in"
+    },
+    "category": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1,
+      "description": "Hierarchical category path. E.g. ['asset', 'current_asset', 'working_capital']"
+    },
+    "type": {
+      "type": "string",
+      "enum": ["monetary", "percentage", "ratio", "count", "date", "text"],
+      "default": "monetary"
+    },
+    "sign": {
+      "type": "string",
+      "enum": ["positive", "negative", "natural"],
+      "description": "positive: always >= 0. negative: always <= 0. natural: sign follows accounting convention"
+    },
+    "normalization": {
+      "type": "object",
+      "properties": {
+        "scale": { "type": "string", "enum": ["unit", "thousand", "million", "billion"] },
+        "default_scale": { "type": "string", "enum": ["unit", "thousand", "million", "billion"] }
+      }
+    },
+    "parent": {
+      "type": "string",
+      "pattern": "^[A-Z]+_[A-Z]+_[A-Z0-9_]+$",
+      "description": "Parent account ID for hierarchical rollup"
+    },
+    "children": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[A-Z]+_[A-Z]+_[A-Z0-9_]+$" },
+      "description": "Child account IDs for hierarchical rollup"
+    },
+    "depends_on": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[A-Z]+_[A-Z]+_[A-Z0-9_]+$" },
+      "description": "Account IDs that this account depends on for calculation (upstream)"
+    },
+    "affects": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Ratios or derived metrics that this account feeds into (downstream)"
+    },
+    "ratios": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Financial ratios that use this account as an input"
+    },
+    "cashflow_mapping": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["operating", "investing", "financing"] },
+      "description": "Cash flow statement classification"
+    },
+    "aliases": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Alternative names used in different reporting standards or languages"
+    },
+    "mappings": {
+      "type": "object",
+      "properties": {
+        "dart": { "type": "array", "items": { "type": "string" } },
+        "ifrs": { "type": "array", "items": { "type": "string" } },
+        "usgaap": { "type": "array", "items": { "type": "string" } }
+      },
+      "description": "Cross-standard taxonomy element mappings"
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Free-form tags for filtering and grouping"
+    },
+    "description": { "type": "string" },
+    "formula": {
+      "type": "string",
+      "description": "Formula for calculated accounts (e.g. 'BS_CA_TOTAL - BS_CA_INV - BS_CA_PREPAID')"
+    }
+  }
+}
