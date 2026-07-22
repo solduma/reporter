@@ -275,12 +275,15 @@ class FinancialStatementItem(BaseModel):
     account_id: str = ""
     name: str
     amount: float | None = None
+    prev_amount: float | None = None  # 전기 동일 항목 금액
     level: int = 0
+    children: list[FinancialStatementItem] = []  # 하위 항목(level 0일 때)
 
 
 class FinancialStatementPeriod(BaseModel):
     """한 기간의 재무제표 전체."""
     period: str
+    prev_period: str | None = None  # 전기 기간
     fs_div: str
     bs: list[FinancialStatementItem] = []
     is_: list[FinancialStatementItem] = Field(default=[], alias="is")

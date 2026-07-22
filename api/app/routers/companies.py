@@ -569,32 +569,79 @@ def company_financial_statements(
             for i in items
         ]
 
+    def _group_items(flat: list[FinancialStatementItem]) -> list[FinancialStatementItem]:
+        """level 0 항목 아래 level 1 항목을 children 으로 묶는다."""
+        grouped: list[FinancialStatementItem] = []
+        current: FinancialStatementItem | None = None
+        for item in flat:
+            if item.level == 0:
+                current = item
+                grouped.append(item)
+            elif item.level == 1 and current is not None:
+                current.children.append(item)
+            else:
+                grouped.append(item)  # level 1 without parent → standalone
+        return grouped
+
+    def _apply_prev(
+        items: list[FinancialStatementItem], prev_map: dict[str, float | None]
+    ) -> None:
+        """전기 금액을 항목 name 으로 매칭해 prev_amount 에 설정."""
+        for item in items:
+            if item.name in prev_map:
+                item.prev_amount = prev_map[item.name]
+            _apply_prev(item.children, prev_map)
+
     periods = []
-    for r in rows:
+    for i, r in enumerate(rows):
         data = r.data or {}
         # IS(손익계산서) + CIS(포괄손익계산서) 병합
         seen_names: set[str] = set()
-        is_items: list[FinancialStatementItem] = []
+        is_raw: list[dict] = []
         for src in ("IS", "CIS"):
             for item in data.get(src, []):
                 if item.get("name") not in seen_names:
                     seen_names.add(item.get("name"))
-                    is_items.append(item)
+                    is_raw.append(item)
         # level 재계산
         bs_items = _relevel(data.get("BS", []))
-        is_items = _relevel(is_items)
+        is_items = _relevel(is_raw)
         cf_items = _relevel(data.get("CF", []))
         cis_items = _relevel(data.get("CIS", []))
         # 자본변동표: BS에서 자본 관련 항목만 추출
         equity_items = [i for i in bs_items if any(kw in i.name for kw in _EQUITY_KEYWORDS)]
+        # 전기(이전 period) 데이터 매칭
+        prev_period: str | None = None
+        if i > 0:
+            prev_period = rows[i - 1].period
+            prev_data = rows[i - 1].data or {}
+            # prev name → amount 맵 구축
+            prev_map: dict[str, float | None] = {}
+            for src in ("BS",):
+                for item in prev_data.get(src, []):
+                    prev_map[item.get("name", "")] = item.get("amount")
+            for src in ("IS", "CIS"):
+                for item in prev_data.get(src, []):
+                    prev_map[item.get("name", "")] = item.get("amount")
+            for src in ("CF",):
+                for item in prev_data.get(src, []):
+                    prev_map[item.get("name", "")] = item.get("amount")
+            # 전기 금액 적용
+            _apply_prev(bs_items, prev_map)
+            _apply_prev(is_items, prev_map)
+            _apply_prev(cf_items, prev_map)
+            _apply_prev(cis_items, prev_map)
+            _apply_prev(equity_items, prev_map)
+        # 그룹화
         periods.append(FinancialStatementPeriod(
             period=r.period,
+            prev_period=prev_period,
             fs_div=r.fs_div,
-            bs=bs_items,
-            **{"is": is_items},
-            cis=cis_items,
-            cf=cf_items,
-            equity=equity_items,
+            bs=_group_items(bs_items),
+            **{"is": _group_items(is_items)},
+            cis=_group_items(cis_items),
+            cf=_group_items(cf_items),
+            equity=_group_items(equity_items),
         ))
     return FinancialStatementsOut(stock_code=code, periods=periods)
 

@@ -803,11 +803,14 @@ export interface FinancialStatementItem {
   account_id: string;
   name: string;
   amount: number | null;
+  prev_amount: number | null;
   level: number;
+  children: FinancialStatementItem[];
 }
 
 export interface FinancialStatementPeriod {
   period: string;
+  prev_period: string | null;
   fs_div: string;
   bs: FinancialStatementItem[];
   is: FinancialStatementItem[];

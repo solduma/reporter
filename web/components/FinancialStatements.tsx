@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { fetchFinancialStatements } from "@/lib/api";
-import type { FinancialStatementPeriod, FinancialStatementsResponse } from "@/lib/types";
+import type { FinancialStatementItem as FSItem, FinancialStatementsResponse } from "@/lib/types";
 
 import styles from "./FinancialStatements.module.css";
 
@@ -20,14 +20,7 @@ const STATEMENT_TABS: { key: StatementTab; label: string }[] = [
   { key: "equity", label: "자본변동표" },
 ];
 
-const STATEMENT_LABELS: Record<StatementTab, string> = {
-  bs: "재무상태표",
-  is: "손익계산서",
-  cf: "현금흐름표",
-  equity: "자본변동표",
-};
-
-/** 금액 포맷: 억원 단위로 표시. 원 단위 입력 → 억원 변환. */
+/** 금액 포맷: 억원 단위. 원 단위 입력 → 억원 변환. */
 function formatAmount(amount: number | null): string {
   if (amount === null || amount === undefined) return "—";
   const eok = Math.abs(amount) / 1e8;
@@ -48,22 +41,113 @@ function formatChange(pct: number | null): string {
   return `${sign}${(pct * 100).toFixed(1)}%`;
 }
 
-/** 전기 대비 변동률로 그라데이션 opacity 계산. 0%→0, 50%+→1.0 사이 smooth step. */
+/** 전기 대비 변동률로 그라데이션 opacity. 0%→0, 50%+→1.0 smoothstep. */
 function changeOpacity(current: number | null, prev: number | null): number {
   if (current === null || prev === null || prev === 0) return 0;
   const pct = Math.abs((current - prev) / prev);
-  // 0% → 0, 50% → 1.0, 그 사이는 smooth step
   const t = Math.min(pct, 0.5) / 0.5;
-  return t * t * (3 - 2 * t); // smoothstep
+  return t * t * (3 - 2 * t);
 }
 
-/** 변동 방향: 1=상승, -1=하락, 0=변화없음 */
 function changeDirection(current: number | null, prev: number | null): number {
   if (current === null || prev === null || prev === 0) return 0;
-  const pct = (current - prev) / Math.abs(prev);
-  if (pct > 0) return 1;
-  if (pct < 0) return -1;
-  return 0;
+  return (current - prev) / Math.abs(prev) > 0 ? 1 : -1;
+}
+
+/** 한 행(level 0) + children 렌더링 */
+function ItemRow({
+  item,
+  periodLabel,
+  prevPeriodLabel,
+}: {
+  item: FSItem;
+  periodLabel: string;
+  prevPeriodLabel: string | null;
+}) {
+  const [open, setOpen] = useState(false);
+  const hasChildren = item.children && item.children.length > 0;
+  const op = changeOpacity(item.amount, item.prev_amount);
+  const dir = changeDirection(item.amount, item.prev_amount);
+  const hlStyle = op > 0
+    ? {
+        backgroundColor: dir > 0
+          ? `rgba(18, 138, 77, ${op * 0.15})`
+          : `rgba(192, 43, 43, ${op * 0.15})`,
+        color: dir > 0 ? "var(--buy)" : "var(--sell)",
+        fontWeight: op > 0.5 ? 600 : 400,
+      }
+    : undefined;
+
+  return (
+    <>
+      <tr className={styles.rowLevel0}>
+        <td className={styles.tdLeft}>
+          {hasChildren ? (
+            <button
+              type="button"
+              className={styles.expandBtn}
+              onClick={() => setOpen((v) => !v)}
+              aria-label={open ? "접기" : "펼치기"}
+            >
+              <span className={open ? styles.arrowDown : styles.arrowRight}>▶</span>
+            </button>
+          ) : (
+            <span className={styles.expandPlaceholder} />
+          )}
+          <span className={styles.nameLevel0}>{item.name}</span>
+        </td>
+        <td className={styles.tdRight} style={hlStyle}>
+          {formatAmount(item.amount)}
+        </td>
+        <td className={styles.tdRight} style={hlStyle}>
+          {formatAmount(item.prev_amount)}
+        </td>
+        <td className={`${styles.tdRight} ${styles.changeCol}`} style={hlStyle}>
+          {formatChange(
+            item.amount !== null && item.prev_amount !== null && item.prev_amount !== 0
+              ? (item.amount - item.prev_amount) / Math.abs(item.prev_amount)
+              : null,
+          )}
+        </td>
+      </tr>
+      {open && hasChildren
+        ? item.children.map((child, ci) => {
+            const cop = changeOpacity(child.amount, child.prev_amount);
+            const cdir = changeDirection(child.amount, child.prev_amount);
+            const chlStyle = cop > 0
+              ? {
+                  backgroundColor: cdir > 0
+                    ? `rgba(18, 138, 77, ${cop * 0.15})`
+                    : `rgba(192, 43, 43, ${cop * 0.15})`,
+                  color: cdir > 0 ? "var(--buy)" : "var(--sell)",
+                  fontWeight: cop > 0.5 ? 600 : 400,
+                }
+              : undefined;
+            return (
+              <tr key={`${child.account_id}-${ci}`} className={styles.rowLevel1}>
+                <td className={styles.tdLeft}>
+                  <span className={styles.expandPlaceholder} />
+                  <span className={styles.nameLevel1}>{child.name}</span>
+                </td>
+                <td className={styles.tdRight} style={chlStyle}>
+                  {formatAmount(child.amount)}
+                </td>
+                <td className={styles.tdRight} style={chlStyle}>
+                  {formatAmount(child.prev_amount)}
+                </td>
+                <td className={`${styles.tdRight} ${styles.changeCol}`} style={chlStyle}>
+                  {formatChange(
+                    child.amount !== null && child.prev_amount !== null && child.prev_amount !== 0
+                      ? (child.amount - child.prev_amount) / Math.abs(child.prev_amount)
+                      : null,
+                  )}
+                </td>
+              </tr>
+            );
+          })
+        : null}
+    </>
+  );
 }
 
 export default function FinancialStatements({ code }: Props) {
@@ -72,7 +156,6 @@ export default function FinancialStatements({ code }: Props) {
   const [data, setData] = useState<FinancialStatementsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -92,37 +175,15 @@ export default function FinancialStatements({ code }: Props) {
     return () => { active = false; };
   }, [code, fsDiv]);
 
-  // 최신 2개 기간(전기 대비 변동률 계산용)
-  const latestPeriods = useMemo(() => {
-    if (!data?.periods || data.periods.length < 2) return { current: null, prev: null };
-    const ps = data.periods;
-    return { current: ps[ps.length - 1], prev: ps[ps.length - 2] };
+  const latestPeriod = useMemo(() => {
+    if (!data?.periods || data.periods.length === 0) return null;
+    return data.periods[data.periods.length - 1];
   }, [data]);
 
-  const currentItems = useMemo(() => {
-    if (!latestPeriods.current) return [];
-    return latestPeriods.current[activeTab] ?? [];
-  }, [latestPeriods, activeTab]);
-
-  const prevItems = useMemo(() => {
-    if (!latestPeriods.prev) return [];
-    return latestPeriods.prev[activeTab] ?? [];
-  }, [latestPeriods, activeTab]);
-
-  // 항목명으로 전기 금액 찾기
-  const prevAmount = useCallback(
-    (name: string): number | null => {
-      const found = prevItems.find((i) => i.name === name);
-      return found?.amount ?? null;
-    },
-    [prevItems],
-  );
-
-  // 요약 모드: level 0(대분류)만
-  const displayItems = useMemo(() => {
-    if (expanded) return currentItems;
-    return currentItems.filter((i) => i.level === 0);
-  }, [currentItems, expanded]);
+  const items = useMemo(() => {
+    if (!latestPeriod) return [];
+    return latestPeriod[activeTab] ?? [];
+  }, [latestPeriod, activeTab]);
 
   if (loading) {
     return <div className={styles.sectionStatus}>재무제표 불러오는 중…</div>;
@@ -134,7 +195,8 @@ export default function FinancialStatements({ code }: Props) {
     return <div className={styles.sectionStatus}>재무제표 데이터가 없습니다</div>;
   }
 
-  const periodLabel = latestPeriods.current?.period ?? "";
+  const periodLabel = latestPeriod?.period ?? "";
+  const prevPeriodLabel = latestPeriod?.prev_period ?? null;
 
   return (
     <div className={styles.container}>
@@ -181,60 +243,22 @@ export default function FinancialStatements({ code }: Props) {
             <tr>
               <th className={styles.thLeft}>항목</th>
               <th className={styles.thRight}>{periodLabel}</th>
-              <th className={styles.thRight}>전기 대비</th>
+              <th className={styles.thRight}>{prevPeriodLabel ?? "전기"}</th>
+              <th className={styles.thRight}>변동률</th>
             </tr>
           </thead>
           <tbody>
-            {displayItems.map((item, i) => {
-              const prevAmt = prevAmount(item.name);
-              const op = changeOpacity(item.amount, prevAmt);
-              const dir = changeDirection(item.amount, prevAmt);
-              const hlStyle = op > 0
-                ? {
-                    backgroundColor: dir > 0
-                      ? `rgba(18, 138, 77, ${op * 0.15})`
-                      : `rgba(192, 43, 43, ${op * 0.15})`,
-                    color: dir > 0 ? 'var(--buy)' : 'var(--sell)',
-                    fontWeight: op > 0.5 ? 600 : 400,
-                  }
-                : undefined;
-              return (
-                <tr
-                  key={`${item.account_id}-${i}`}
-                  className={
-                    item.level === 0 ? styles.rowLevel0 : styles.rowLevel1
-                  }
-                >
-                  <td className={styles.tdLeft}>
-                    <span className={item.level === 0 ? styles.nameLevel0 : styles.nameLevel1}>
-                      {item.name}
-                    </span>
-                  </td>
-                  <td className={styles.tdRight} style={hlStyle}>
-                    {formatAmount(item.amount)}
-                  </td>
-                  <td className={`${styles.tdRight} ${styles.changeCol}`} style={hlStyle}>
-                    {formatChange(
-                      item.amount !== null && prevAmt !== null && prevAmt !== 0
-                        ? (item.amount - prevAmt) / Math.abs(prevAmt)
-                        : null,
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
+            {items.map((item, i) => (
+              <ItemRow
+                key={`${item.account_id}-${i}`}
+                item={item}
+                periodLabel={periodLabel}
+                prevPeriodLabel={prevPeriodLabel}
+              />
+            ))}
           </tbody>
         </table>
       </div>
-
-      {/* 요약/상세 토글 */}
-      <button
-        type="button"
-        className={styles.toggleBtn}
-        onClick={() => setExpanded((v) => !v)}
-      >
-        {expanded ? "▲ 요약 접기" : "▼ 상세 항목 보기"}
-      </button>
     </div>
   );
 }

@@ -123,30 +123,48 @@
   padding-left: 0.75rem;
 }
 
+/* 확장 버튼 */
+.expandBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.2rem;
+  height: 1.2rem;
+  padding: 0;
+  margin-right: 0.25rem;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 0.6rem;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+  vertical-align: middle;
+}
+
+.expandBtn:hover {
+  color: var(--accent);
+}
+
+.expandPlaceholder {
+  display: inline-block;
+  width: 1.2rem;
+  margin-right: 0.25rem;
+}
+
+.arrowRight {
+  display: inline-block;
+  transition: transform 0.15s ease;
+}
+
+.arrowDown {
+  display: inline-block;
+  transform: rotate(90deg);
+  transition: transform 0.15s ease;
+}
+
 /* 변동률 컬럼 */
 .changeCol {
   font-size: 0.75rem;
-}
-
-/* 요약/상세 토글 */
-.toggleBtn {
-  display: block;
-  width: 100%;
-  padding: 0.4rem;
-  margin-top: 0.25rem;
-  border: 1px dashed var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
-  color: var(--muted);
-  font-size: 0.8rem;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  text-align: center;
-}
-
-.toggleBtn:hover {
-  background: var(--accent-soft);
-  color: var(--accent);
 }
 
 /* 로딩/에러/빈 상태 */
