@@ -1,0 +1,6 @@
+# Python(uv) 빌드/캐시 산물 — 커밋 제외. uv.lock 은 재현성 위해 커밋.
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
