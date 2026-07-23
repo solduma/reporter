@@ -136,6 +136,60 @@ def transitive_inputs(ratio_id: str) -> list[str]:
     return _port().transitive_inputs(ratio_id)
 
 
+def financial_metrics_meta(keys: list[str]) -> dict[str, dict[str, object]]:
+    """Financial 시계열 키(revenue, per ...) → 온톨로지 정준 메타 + 관련 지표.
+
+    account 종류는 파생 가능한 비율(related_ratios)을, ratio 종류는 필요 계정(related_accounts)을
+    함께 반환해 LLM 이 수치의 정의·산출 근거를 볼 수 있게 한다(E1).
+    """
+    port = _port()
+    ratio_map: dict[str, RatioMeta] | None = None
+    out: dict[str, dict[str, object]] = {}
+
+    def _ratio_map() -> dict[str, RatioMeta]:
+        nonlocal ratio_map
+        if ratio_map is None:
+            ratio_map = {r.id: r for r in port.list_ratios()}
+        return ratio_map
+
+    for key in keys:
+        entry = FINANCIAL_COLUMN_ONTOLOGY.get(key)
+        ont_id: str | None = None
+        kind: str | None = None
+        if entry:
+            ont_id, kind = entry
+        else:
+            if port.account(key) is not None:
+                ont_id = key
+                kind = "account"
+            elif _ratio_map().get(key) is not None:
+                ont_id = key
+                kind = "ratio"
+
+        if kind == "account":
+            meta = port.account(ont_id) if ont_id else None
+            if meta:
+                out[key] = {
+                    "ontology_id": meta.id,
+                    "term": meta.korean_name,
+                    "english_name": meta.english_name,
+                    "description": meta.description,
+                    "related_ratios": list(meta.ratios),
+                }
+        elif kind == "ratio":
+            meta = _ratio_map().get(ont_id)
+            if meta:
+                out[key] = {
+                    "ontology_id": meta.id,
+                    "term": meta.name,
+                    "korean_name": meta.korean_name,
+                    "description": meta.description,
+                    "unit": meta.unit,
+                    "related_accounts": list(meta.required_accounts),
+                }
+    return out
+
+
 def metric_info(keys: list[str]) -> tuple[list[dict[str, str | None]], float]:
     """Financial 컬럼 key / 온톨로지 account·ratio ID → 정준 라벨(term)·설명 조회.
 

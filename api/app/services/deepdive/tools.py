@@ -20,6 +20,7 @@ from app.adapters.dart import client as dart
 from app.config import Settings
 from app.db.models import CorpCodeMap, Report, ReportAnalysis
 from app.services import company_service
+from app.services import ontology as ontology_service
 from app.services.deepdive import websearch
 
 logger = logging.getLogger(__name__)
@@ -119,7 +120,10 @@ def tool_financials(ctx: ToolContext, args: dict) -> dict:
         }
         for r in rows
     ]
-    return {"count": len(out), "periods": out}
+    # 온톨로지 정준 메타 추가 — key는 그대로 두고 설명/단위/파생 지표만 부가(E1).
+    keys = list(out[0].keys()) if out else []
+    meta = ontology_service.financial_metrics_meta(keys)
+    return {"count": len(out), "periods": out, "metrics_meta": meta}
 
 
 def tool_disclosures(ctx: ToolContext, args: dict) -> dict:
