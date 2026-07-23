@@ -570,6 +570,20 @@ export interface UsFinancial {
   roe: number | null; // %
 }
 
+export interface UsFinancialOntologyItem {
+  key: string;
+  ontology_id: string;
+  kind: "account" | "ratio";
+  value: number | null;
+  label: string;
+  description: string | null;
+}
+
+export interface UsFinancialOntologyOut {
+  ticker: string;
+  items: UsFinancialOntologyItem[];
+}
+
 // US 스크리너 행(/api/us/screener)
 export interface UsScreenerRow {
   ticker: string;

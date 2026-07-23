@@ -52,6 +52,7 @@ import type {
   TradePresets,
   UsDisclosure,
   UsFinancial,
+  UsFinancialOntologyOut,
   UsQuote,
   UsScreenerQuery,
   UsScreenerResult,
@@ -199,6 +200,12 @@ export function fetchUsQuote(ticker: string): Promise<UsQuote> {
 
 export function fetchUsFinancials(ticker: string): Promise<UsFinancial> {
   return getJson<UsFinancial>(`/api/us/companies/${encodeURIComponent(ticker)}/financials`);
+}
+
+export function fetchUsFinancialsOntology(ticker: string): Promise<UsFinancialOntologyOut> {
+  return getJson<UsFinancialOntologyOut>(
+    `/api/us/companies/${encodeURIComponent(ticker)}/financials/ontology`,
+  );
 }
 
 export function fetchUsScreener(query: UsScreenerQuery): Promise<UsScreenerResult> {

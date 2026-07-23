@@ -193,3 +193,46 @@
   border-radius: 4px;
   padding: 1px 6px;
 }
+
+.ontologyTable {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+@media (max-width: 640px) {
+  .ontologyTable {
+    grid-template-columns: 1fr;
+  }
+}
+
+.ontologyRow {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  background: var(--bg);
+  border-radius: 8px;
+}
+
+.ontologyKey {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.ontologyLabel {
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.ontologyValue {
+  font-size: 1rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.ontologyDescription {
+  font-size: 0.8rem;
+  color: var(--muted);
+  line-height: 1.35;
+}
