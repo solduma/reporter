@@ -722,12 +722,19 @@ def company_financial_statements(
                 grouped.append(item)
         return grouped
 
+    def _bump_levels(items: list[FinancialStatementItem]) -> None:
+        """하위 트리의 level 을 한 단계씩 증가."""
+        for item in items:
+            item.level += 1
+            _bump_levels(item.children)
+
     def _add_calculated_totals(
         items: list[FinancialStatementItem], label: str, children_prefixes: tuple[str, ...]
     ) -> None:
         """계산된 합계 항목(총자산·총부채·총자본)을 items 맨 앞에 추가.
         children_prefixes 로 시작하는 항목을 children 으로 묶고 원본 목록에서 제거.
-        prev_amount 도 children 의 prev_amount 합으로 계산한다."""
+        prev_amount 도 children 의 prev_amount 합으로 계산한다.
+        matched 항목들은 새 합계 항목의 자식이 되므로 level 과 그 하위 트리 level 을 1씩 증가."""
         total = 0.0
         prev_total = 0.0
         has_any = False
@@ -746,6 +753,9 @@ def company_financial_statements(
             else:
                 remaining.append(item)
         if has_any:
+            for m in matched:
+                m.level += 1
+                _bump_levels(m.children)
             total_item = FinancialStatementItem(
                 name=label,
                 amount=total,
