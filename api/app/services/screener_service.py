@@ -43,6 +43,39 @@ _COVERAGE_DAYS = 90
 _EVENT_DAYS = 14  # 이벤트 컬럼: 최근 N일 내 이벤트만
 
 
+# 스크리너 필터 → 온톨로지 정준 ID 매핑 메타(D1). SQL 컬럼은 기존 그대로, 라벨/설명만 단일 출처.
+_SCREENER_FILTER_ONTOLOGY: list[dict[str, object]] = [
+    {"key": "per_max", "ontology_id": "per", "column": "Financial.per", "category": "value", "param_type": "float_max"},
+    {"key": "pbr_max", "ontology_id": "pbr", "column": "Financial.pbr", "category": "value", "param_type": "float_max"},
+    {"key": "roe_min", "ontology_id": "roe", "column": "Financial.roe", "category": "value", "param_type": "float_min"},
+    {"key": "div_min", "ontology_id": "dividend_yield", "column": "Financial.div_yield", "category": "value", "param_type": "float_min"},
+    {"key": "rev_yoy_min", "ontology_id": "IS_REV_TOTAL", "column": "GrowthMetric.revenue_yoy", "category": "growth", "param_type": "float_min"},
+    {"key": "op_growth", "ontology_id": None, "column": "GrowthMetric.op_status", "category": "growth", "param_type": "choice", "choices": ["turnaround", "growth"]},
+    {"key": "mom_min", "ontology_id": None, "column": "UniverseSnapshot.momentum_3m", "category": "trend", "param_type": "float_min"},
+    {"key": "mom_max", "ontology_id": None, "column": "UniverseSnapshot.momentum_3m", "category": "trend", "param_type": "float_max"},
+    {"key": "mktcap_max", "ontology_id": None, "column": "UniverseSnapshot.market_cap", "category": "common", "param_type": "int_max"},
+    {"key": "mktcap_min", "ontology_id": None, "column": "UniverseSnapshot.market_cap", "category": "common", "param_type": "int_min"},
+    {"key": "liq_min", "ontology_id": None, "column": "UniverseSnapshot.trading_value", "category": "common", "param_type": "int_min"},
+    {"key": "market", "ontology_id": None, "column": "UniverseSnapshot.market", "category": "common", "param_type": "choice", "choices": ["KOSPI", "KOSDAQ"]},
+    {"key": "sector", "ontology_id": None, "column": "SectorTheme.name", "category": "common", "param_type": "choice"},
+    {"key": "coverage", "ontology_id": None, "column": "ReportAnalysis.sentiment", "category": "common", "param_type": "choice", "choices": ["has", "none"]},
+    {"key": "recent_buy", "ontology_id": None, "column": "ReportAnalysis.sentiment", "category": "common", "param_type": "bool"},
+]
+
+
+def filter_meta() -> list[dict[str, object]]:
+    """스크리너 필터 메타데이터 — 온톨로지 정준 ID 기준 라벨/설명 조회."""
+    ont_ids = [f["ontology_id"] for f in _SCREENER_FILTER_ONTOLOGY if f.get("ontology_id")]
+    info_map = {it["key"]: it for it in ontology_service.metric_info(ont_ids)[0]}
+    out: list[dict[str, object]] = []
+    for f in _SCREENER_FILTER_ONTOLOGY:
+        info = info_map.get(f["ontology_id"]) if f.get("ontology_id") else None
+        label = info.get("term") if info else None
+        description = info.get("description") if info else None
+        out.append({**f, "label": label or f["key"], "description": description})
+    return out
+
+
 def _latest_date(db: Session) -> date | None:
     return universe_ingest.latest_snapshot_date(db)
 

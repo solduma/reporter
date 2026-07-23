@@ -8,6 +8,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
+from app import schemas
 from app.db.session import get_session
 from app.schemas import ScreenerResult
 from app.services import screener_service
@@ -65,6 +66,12 @@ def screen(
         limit=limit,
         offset=offset,
     )
+
+
+@router.get("/filters", response_model=list[schemas.ScreenerFilterMeta])
+def screener_filters() -> list[schemas.ScreenerFilterMeta]:
+    """스크리너 필터 메타데이터 — 온톨로지 정준 ID 기준 라벨·설명 단일 출처(D1)."""
+    return screener_service.filter_meta()
 
 
 @router.get("/sectors", response_model=list[str])

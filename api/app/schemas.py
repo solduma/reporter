@@ -97,6 +97,19 @@ class ScreenerResult(BaseModel):
     items: list[ScreenerRow]
 
 
+class ScreenerFilterMeta(BaseModel):
+    """스크리너 필터 메타데이터 — 온톨로지 정준 ID 기준 라벨/설명 단일 출처(D1)."""
+
+    key: str  # query param 키 (e.g. per_max)
+    ontology_id: str | None  # 온톨로지 account/ratio ID
+    column: str | None  # SQL 컬럼 경로 (성능상 그대로 사용)
+    category: str  # value | growth | trend | common
+    label: str
+    description: str | None = None
+    param_type: str  # float_max | float_min | choice | bool | int_max | int_min
+    choices: list[str] | None = None
+
+
 class CandlePoint(BaseModel):
     t: str  # ISO 시각 (일/주/월봉은 YYYY-MM-DD, 30분봉은 ISO datetime)
     o: float
