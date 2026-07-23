@@ -835,6 +835,7 @@ export interface RatioItem {
   missing: string[];
   warnings: string[];
   reason: string;
+  inputs: string[];
 }
 
 export interface CompanyRatiosResponse {

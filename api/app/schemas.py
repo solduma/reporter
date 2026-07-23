@@ -284,6 +284,7 @@ class RatioOut(BaseModel):
     missing: list[str] = []
     warnings: list[str] = []
     reason: str = ""
+    inputs: list[str] = []
 
 
 class CompanyRatiosOut(BaseModel):

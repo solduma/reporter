@@ -15,6 +15,7 @@ from app.ports.financial_ontology import (
 )
 from financial_ontology import (
     Account,
+    Graph,
     Normalizer,
     Ontology,
     Ratio,
@@ -26,6 +27,7 @@ from financial_ontology import (
 _ONT: Ontology | None = None
 _NORMALIZER: Normalizer | None = None
 _ENGINE: RatioEngine | None = None
+_GRAPH: Graph | None = None
 
 
 def _ensure() -> tuple[Ontology, Normalizer, RatioEngine]:
@@ -37,6 +39,15 @@ def _ensure() -> tuple[Ontology, Normalizer, RatioEngine]:
         _ENGINE = RatioEngine(_ONT)
     assert _ONT is not None and _NORMALIZER is not None and _ENGINE is not None
     return _ONT, _NORMALIZER, _ENGINE
+
+
+def _graph() -> Graph:
+    """의존성 그래프 지연 로드(온톨로지 로드 후 1회 초기화)."""
+    global _GRAPH
+    if _GRAPH is None:
+        _GRAPH = Graph(_ensure()[0])
+    assert _GRAPH is not None
+    return _GRAPH
 
 
 class OntologyAdapter:
@@ -90,6 +101,9 @@ class OntologyAdapter:
         ont, _norm, _eng = _ensure()
         a = ont.account(account_id)
         return _account_meta(a) if a else None
+
+    def transitive_inputs(self, ratio_id: str) -> list[str]:
+        return _graph().transitive_inputs(ratio_id)
 
 
 def _to_out(r: RatioResult) -> RatioResultOut:

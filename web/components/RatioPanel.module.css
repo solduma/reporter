@@ -28,17 +28,29 @@
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 12px;
 }
 
 .item {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  flex-direction: column;
   padding: 10px 12px;
   border-radius: 8px;
   background: var(--bg-subtle, #f9fafb);
+  gap: 8px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
 }
 
 .name {
@@ -53,6 +65,49 @@
   font-size: 14px;
   font-weight: 600;
   color: var(--text-primary, #111827);
+}
+
+.chevron {
+  margin-left: 8px;
+  font-size: 12px;
+  color: var(--text-secondary, #6b7280);
+}
+
+.inputs {
+  padding-top: 8px;
+  border-top: 1px solid var(--border, #e5e7eb);
+}
+
+.inputsTitle {
+  font-size: 12px;
+  color: var(--text-secondary, #6b7280);
+  margin-bottom: 6px;
+}
+
+.inputsList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.inputsItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary, #6b7280);
+}
+
+.inputId {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  color: var(--text-primary, #111827);
+}
+
+.inputTerm {
+  color: var(--text-secondary, #6b7280);
 }
 
 .status {
