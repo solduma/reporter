@@ -1,0 +1,63 @@
+.panel {
+  margin-top: 16px;
+}
+
+.tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.tab,
+.tabActive {
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border, #e5e7eb);
+  background: var(--bg-subtle, #f9fafb);
+  color: var(--text-secondary, #6b7280);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.tabActive {
+  background: var(--bg-inverse, #111827);
+  color: var(--text-inverse, #ffffff);
+  border-color: var(--bg-inverse, #111827);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--bg-subtle, #f9fafb);
+}
+
+.name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  color: var(--text-secondary, #6b7280);
+}
+
+.value {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary, #111827);
+}
+
+.status {
+  padding: 24px;
+  text-align: center;
+  color: var(--text-secondary, #6b7280);
+  font-size: 14px;
+}

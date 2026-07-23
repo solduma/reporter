@@ -7,6 +7,7 @@ import type {
   ChartTimeframe,
   CompanyAnalysis,
   CompanyGrowth,
+  CompanyRatiosResponse,
   CompanySummary,
   DeepDiveReport,
   DeepDiveShare,
@@ -347,6 +348,15 @@ export function fetchOntologyMetricInfo(
   keys: string[],
 ): Promise<OntologyMetricInfoResponse> {
   return postJson<OntologyMetricInfoResponse>("/api/ontology/metric-info", { keys });
+}
+
+export function fetchCompanyRatios(
+  code: string,
+  fsDiv: string = "CFS",
+): Promise<CompanyRatiosResponse> {
+  return getJson<CompanyRatiosResponse>(
+    `/api/companies/${encodeURIComponent(code)}/ratios?fs_div=${fsDiv}`,
+  );
 }
 
 export function fetchPeers(code: string): Promise<Peer[]> {

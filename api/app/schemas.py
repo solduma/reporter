@@ -270,6 +270,31 @@ class FinancialsStatusOut(BaseModel):
     report_10y_done: bool
 
 
+class RatioOut(BaseModel):
+    """온톨로지 비율 하나의 계산 결과."""
+
+    ratio_id: str
+    name: str
+    korean_name: str
+    category: str
+    unit: str | None
+    description: str | None
+    value: float | None
+    ok: bool
+    missing: list[str] = []
+    warnings: list[str] = []
+    reason: str = ""
+
+
+class CompanyRatiosOut(BaseModel):
+    """종목 기준 온톨로지 비율 집계."""
+
+    stock_code: str
+    fs_div: str
+    period: str | None
+    items: list[RatioOut]
+
+
 class FinancialStatementItem(BaseModel):
     """재무제표 한 라인아이템."""
 

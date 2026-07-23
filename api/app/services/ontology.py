@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from sqlalchemy.orm import Session
+
 from app.adapters.financial_ontology import get_ontology_port
 from app.ports.financial_ontology import (
     AccountMeta,
@@ -159,3 +161,49 @@ def metric_info(keys: list[str]) -> tuple[list[dict[str, str | None]], float]:
             resolved += 1
     coverage = resolved / len(keys) if keys else 0.0
     return out, coverage
+
+
+def build_ratio_values(db: Session, code: str, fs_div: str = "CFS") -> dict[str, object]:
+    """FinancialStatement JSONB 에서 ontology_id 기반 계정값을 수집해 RatioEngine 입력 구성(C1).
+
+    - 최신 기간 = closing/suffix 없음 (BS 는 기말, IS/CF 는 당기 누적).
+    - 직전 기간 = :prior / :opening (재무상태표 기초, 기타 기간 비교용).
+    amount 는 DART 원문이 문자열일 수 있어 float 변환; 실패 항목은 스킵.
+    """
+    # 지연 import — services ↔ company_service 순환 방지.
+    from app.services.company_service import financial_statement_rows
+
+    statements = financial_statement_rows(db, code, fs_div=fs_div)
+    if not statements:
+        return {}
+    statements.sort(key=lambda s: s.period)
+    current = statements[-1]
+    prior = statements[-2] if len(statements) >= 2 else None
+
+    values: dict[str, object] = {}
+    for stmt, suffix in (
+        (current, ""),
+        (prior, ":prior") if prior else (None, ""),
+        (prior, ":opening") if prior else (None, ""),
+    ):
+        if stmt is None:
+            continue
+        for section_items in stmt.data.values():
+            for item in section_items:
+                ont_id = item.get("ontology_id")
+                amount = item.get("amount")
+                if ont_id is None or amount is None:
+                    continue
+                try:
+                    values[f"{ont_id}{suffix}"] = float(amount)
+                except (TypeError, ValueError):
+                    continue
+    return values
+
+
+def company_ratios(db: Session, code: str, fs_div: str = "CFS") -> list[RatioResultOut]:
+    """종목의 최신 재무제표 기준 57개 온톨로지 비율 일괄 계산(C1)."""
+    port = _port()
+    ratio_ids = [r.id for r in port.list_ratios()]
+    values = build_ratio_values(db, code, fs_div=fs_div)
+    return port.calculate_many(ratio_ids, values)
