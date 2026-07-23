@@ -584,6 +584,23 @@ export interface UsFinancialOntologyOut {
   items: UsFinancialOntologyItem[];
 }
 
+export interface UsFinancialRawOntologyItem {
+  ontology_id: string;
+  label: string;
+  taxonomy_concept: string;
+  namespace: string;
+  unit: string;
+  period_end: string;
+  period_start: string | null;
+  value: number;
+}
+
+export interface UsFinancialRawOntologyOut {
+  ticker: string;
+  count: number;
+  items: UsFinancialRawOntologyItem[];
+}
+
 // US 스크리너 행(/api/us/screener)
 export interface UsScreenerRow {
   ticker: string;

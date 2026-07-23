@@ -53,6 +53,8 @@ import type {
   UsDisclosure,
   UsFinancial,
   UsFinancialOntologyOut,
+  UsFinancialRawOntologyItem,
+  UsFinancialRawOntologyOut,
   UsQuote,
   UsScreenerQuery,
   UsScreenerResult,
@@ -205,6 +207,14 @@ export function fetchUsFinancials(ticker: string): Promise<UsFinancial> {
 export function fetchUsFinancialsOntology(ticker: string): Promise<UsFinancialOntologyOut> {
   return getJson<UsFinancialOntologyOut>(
     `/api/us/companies/${encodeURIComponent(ticker)}/financials/ontology`,
+  );
+}
+
+export function fetchUsFinancialsRawOntology(
+  ticker: string,
+): Promise<UsFinancialRawOntologyOut> {
+  return getJson<UsFinancialRawOntologyOut>(
+    `/api/us/companies/${encodeURIComponent(ticker)}/financials/raw-ontology`,
   );
 }
 

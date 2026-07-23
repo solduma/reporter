@@ -15,6 +15,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.adapters import sec
+from app.adapters.financial_ontology import get_ontology_port
 from app.config import Settings, get_settings
 from app.db.models import SyncState, UsFinancial, UsUniverse
 from app.domain import us_financials
@@ -96,6 +97,15 @@ def get_financials(db: Session, ticker: str, *, force: bool = False) -> UsFinanc
     market_cap = (close * shares) if (close and shares) else None
 
     m = us_financials.compute(facts, market_cap)
+
+    # XBRL 원시 계정 ontology 정규화(F3b). companyfacts 의 모든 us-gaap/dei 개념명을
+    # 한 번에 정규화하고, 매핑된 항목만 raw_ontology JSONB 에 영속화한다.
+    raw_concepts = list(facts.get("facts", {}).get("us-gaap", {}).keys())
+    raw_concepts += list(facts.get("facts", {}).get("dei", {}).keys())
+    resolved = get_ontology_port().resolve_many(raw_concepts, standard="usgaap")
+    normalized = {r.term: r.id for r in resolved if r.id}
+    raw_ontology = us_financials.extract_ontology_facts(facts, normalized)
+
     values = {
         "name": sec.company_name(settings, ticker) or ticker,
         "ttm_revenue": m.ttm_revenue,
@@ -109,6 +119,7 @@ def get_financials(db: Session, ticker: str, *, force: bool = False) -> UsFinanc
         "pbr": m.pbr,
         "psr": m.psr,
         "roe": m.roe,
+        "raw_ontology": raw_ontology,
         "updated_at": datetime.now(UTC),
     }
     stmt = (
