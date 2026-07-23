@@ -5,8 +5,10 @@ import type { IChartApi, LineData, Time } from "lightweight-charts";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { ChartRange } from "@/components/CandleChart";
+import InfoDot from "@/components/InfoDot";
 import { useChartRangeSync } from "@/lib/useChartRangeSync";
 import type { FinancialPeriod } from "@/lib/types";
+import { useMetricInfo } from "@/lib/useMetricInfo";
 
 import styles from "./FinancialsLineChart.module.css";
 
@@ -101,6 +103,10 @@ export default function FinancialsLineChart({ data, range = null, onRangeChange 
     (m) => active.has(m.key) && seriesData[m.key]?.length > 0,
   ).length;
   const chartHeight = autoHeight(renderedCount);
+
+  // 온톨로지 정준 설명(B1) — 미매칭/로딩 시 InfoDot 미노출(회귀 없음).
+  const metricKeys = METRICS.map((m) => m.key as string);
+  const { info } = useMetricInfo(metricKeys);
 
   // 연동 동기화용 봉 epoch(초) 축 — 그려지는 지표들의 시각 합집합(오름차순). 논리 인덱스는 차트에
   // 올라간 모든 시리즈의 병합 시각 기준이라, 켜진 지표의 날짜 합집합으로 축을 만든다.
@@ -208,20 +214,23 @@ export default function FinancialsLineChart({ data, range = null, onRangeChange 
         {METRICS.map((m) => {
           const on = active.has(m.key);
           const has = seriesData[m.key]?.length > 0;
+          const desc = info[m.key as string]?.description;
           return (
-            <button
-              key={m.key}
-              type="button"
-              className={on ? `${styles.chip} ${styles.chipOn}` : styles.chip}
-              style={on ? { borderColor: m.color, color: m.color } : undefined}
-              onClick={() => toggle(m.key)}
-              disabled={!has}
-              aria-pressed={on}
-              title={has ? undefined : "데이터 없음"}
-            >
-              <span className={styles.dot} style={{ background: m.color }} />
-              {m.label}
-            </button>
+            <span key={m.key} className={styles.chipItem}>
+              <button
+                type="button"
+                className={on ? `${styles.chip} ${styles.chipOn}` : styles.chip}
+                style={on ? { borderColor: m.color, color: m.color } : undefined}
+                onClick={() => toggle(m.key)}
+                disabled={!has}
+                aria-pressed={on}
+                title={has ? undefined : "데이터 없음"}
+              >
+                <span className={styles.dot} style={{ background: m.color }} />
+                {m.label}
+              </button>
+              {desc ? <InfoDot what={desc} /> : null}
+            </span>
           );
         })}
       </div>

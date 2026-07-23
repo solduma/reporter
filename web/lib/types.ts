@@ -810,6 +810,19 @@ export interface FinancialStatementItem {
   children: FinancialStatementItem[];
 }
 
+/** 온톨로지 재무 지표 라벨·설명(B1 단일 출처). */
+export interface OntologyMetricInfoItem {
+  key: string;
+  ontology_id: string | null;
+  term: string | null;
+  description: string | null;
+}
+
+export interface OntologyMetricInfoResponse {
+  items: OntologyMetricInfoItem[];
+  coverage: number;
+}
+
 export interface FinancialStatementPeriod {
   period: string;
   prev_period: string | null;
