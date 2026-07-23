@@ -6,6 +6,8 @@ sync_disclosures 가 예외를 던져 세션이 오염돼도, company_timeline �
 
 from __future__ import annotations
 
+from datetime import date
+
 import pytest
 
 from app.config import Settings
@@ -35,6 +37,12 @@ class _FakeDB:
     def scalars(self, stmt):
         return _FakeScalars()
 
+    def scalar(self, stmt):
+        return None
+
+    def commit(self):
+        pass
+
     def rollback(self):
         self.rolled_back = True
 
@@ -53,15 +61,15 @@ def test_timeline_rolls_back_and_returns_on_sync_failure(monkeypatch, _dart_key)
 
     db = _FakeDB()
     # sync 예외가 전파되지 않고, 빈 타임라인을 정상 반환해야 한다.
-    result = companies.company_timeline("093320", db=db)
+    result = companies.company_timeline("093320", db=db, from_=date(2024, 1, 1), to=date.today())
 
-    assert result == []
+    assert result.items == []
     assert db.rolled_back is True  # 세션 정리됨 → 후속 쿼리 오염 없음
 
 
 def test_timeline_no_rollback_when_sync_ok(monkeypatch, _dart_key):
     monkeypatch.setattr(company_service.dart_ingest, "sync_disclosures", lambda *a, **k: 0)
     db = _FakeDB()
-    result = companies.company_timeline("093320", db=db)
-    assert result == []
+    result = companies.company_timeline("093320", db=db, from_=date(2024, 1, 1), to=date.today())
+    assert result.items == []
     assert db.rolled_back is False
