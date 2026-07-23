@@ -20,19 +20,19 @@ const STATEMENT_TABS: { key: StatementTab; label: string }[] = [
   { key: "equity", label: "자본변동표" },
 ];
 
-type AmountUnit = { divisor: number; suffix: string };
+type AmountUnit = { divisor: number; suffix: string; decimals: number };
 
 const UNITS: AmountUnit[] = [
-  { divisor: 1e8, suffix: "억" },
-  { divisor: 1e4, suffix: "만 원" },
+  { divisor: 1e8, suffix: "억", decimals: 1 },
+  { divisor: 1e4, suffix: "만", decimals: 0 },
 ];
 
-/** 금액 포맷: 테이블 단위(divisor)로 변환, 소수점 첫째 자리, 숫자-단위 사이 공백. */
-function formatAmount(amount: number | null, divisor: number, suffix: string): string {
+/** 금액 포맷: 테이블 단위(divisor)로 변환, 숫자-단위 사이 공백. */
+function formatAmount(amount: number | null, divisor: number, suffix: string, decimals: number): string {
   if (amount === null || amount === undefined) return "—";
   const abs = Math.abs(amount);
   const sign = amount >= 0 ? "" : "-";
-  return `${sign}${(abs / divisor).toFixed(1).replace(/\B(?=(\d{3})+(?!\d))/g, ",")} ${suffix}`;
+  return `${sign}${(abs / divisor).toFixed(decimals).replace(/\B(?=(\d{3})+(?!\d))/g, ",")} ${suffix}`;
 }
 
 /** 테이블 전체 금액 중 최대 절대값을 보고 공통 단위 결정. */
@@ -40,7 +40,7 @@ function resolveAmountUnit(maxAbs: number): AmountUnit {
   for (const unit of UNITS) {
     if (maxAbs >= unit.divisor) return unit;
   }
-  return { divisor: 1, suffix: "원" };
+  return { divisor: 1, suffix: "원", decimals: 0 };
 }
 
 function collectAmounts(items: FSItem[]): number[] {
@@ -123,10 +123,10 @@ function ItemRow({
           </span>
         </td>
         <td className={styles.tdRight}>
-          {formatAmount(item.amount, unit.divisor, unit.suffix)}
+          {formatAmount(item.amount, unit.divisor, unit.suffix, unit.decimals)}
         </td>
         <td className={styles.tdRight}>
-          {formatAmount(item.prev_amount, unit.divisor, unit.suffix)}
+          {formatAmount(item.prev_amount, unit.divisor, unit.suffix, unit.decimals)}
         </td>
         <td className={`${styles.tdRight} ${styles.changeCol}`} style={hlStyle}>
           {formatChange(
