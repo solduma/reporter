@@ -747,7 +747,16 @@ export interface DeepDiveReport {
   narrative_md: string | null;
   verdict: string | null;
   upside_pct: number | null;
+  ontology_refs: OntologyRef[] | null;
   as_of: string | null;
+}
+
+export interface OntologyRef {
+  stage: string | null;
+  key: string;
+  ontology_id: string;
+  label: string;
+  description: string | null;
 }
 
 // 공유 링크 생성 응답 — token 으로 /share/{token} 조립.

@@ -15,17 +15,26 @@ from sqlalchemy.orm import Session
 from app.db.models import DeepDiveReport, DeepDiveShare
 from app.schemas import DeepDiveReportOut
 from app.services import company_service
+from app.services.deepdive.ontology_refs import extract_ontology_refs
 
 SHARE_TTL = timedelta(minutes=30)
 
 
 def report_to_out(rep: DeepDiveReport) -> DeepDiveReportOut:
     """DeepDiveReport ORM → 응답/스냅샷 DTO. 라우터·공유 스냅샷이 공유."""
+    report_json = {
+        "overview": rep.overview_json,
+        "redflags": rep.redflags_json,
+        "business": rep.business_json,
+        "thesis": rep.thesis_json,
+        "valuation": rep.valuation_json,
+    }
     return DeepDiveReportOut(
         stock_code=rep.stock_code, model=rep.model,
         overview=rep.overview_json, redflags=rep.redflags_json, business=rep.business_json,
         thesis=rep.thesis_json, hitl=rep.hitl_json, valuation=rep.valuation_json,
-        narrative_md=rep.narrative_md, verdict=rep.verdict, upside_pct=rep.upside_pct, as_of=rep.as_of,
+        narrative_md=rep.narrative_md, verdict=rep.verdict, upside_pct=rep.upside_pct,
+        ontology_refs=extract_ontology_refs(report_json), as_of=rep.as_of,
     )
 
 

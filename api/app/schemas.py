@@ -656,6 +656,7 @@ class DeepDiveReportOut(BaseModel):
     narrative_md: str | None = None
     verdict: str | None = None
     upside_pct: float | None = None
+    ontology_refs: list[dict[str, str | None]] | None = None
     as_of: datetime | None = None
 
 
