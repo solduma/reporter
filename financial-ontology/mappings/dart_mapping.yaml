@@ -7,7 +7,7 @@ metadata:
   generated_from: ontology/*.yaml
   generated: '2026-07-22'
   account_count: 187
-  taxonomy_concept_count: 87
+  taxonomy_concept_count: 102
 mappings:
   BS_A_TOTAL:
     korean_name: 자산총계
@@ -578,6 +578,7 @@ mappings:
     - parent_equity
     dart:
     - ifrs-full_EquityAttributableToOwnersOfParent
+    - ifrs_EquityAttributableToOwnersOfParent
     korean_aliases:
     - 자본(지배)
     - 주주지분
@@ -630,6 +631,7 @@ mappings:
     - total
     dart:
     - ifrs-full_Equity
+    - ifrs_Equity
     korean_aliases:
     - 총자본
     - 자본의 총액
@@ -1354,7 +1356,10 @@ mappings:
     - cashflow
     - investing
     - capex
-    dart: []
+    dart:
+    - ifrs-full_PurchaseOfIntangibleAssetsClassifiedAsInvestingActivities
+    - ifrs_PurchaseOfIntangibleAssetsClassifiedAsInvestingActivities
+    - ifrs-full_PurchaseOfIntangibleAssetsOtherThanGoodwill
     korean_aliases:
     - 무형자산투자
   CF_INV_LOAN:
@@ -1381,6 +1386,8 @@ mappings:
     - capex
     dart:
     - ifrs-full_PurchaseOfPropertyPlantAndEquipmentIntangibleAssets
+    - ifrs-full_PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities
+    - ifrs_PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities
     korean_aliases:
     - CAPEX
     - 설비투자
@@ -2035,6 +2042,7 @@ mappings:
     - parent
     dart:
     - ifrs-full_ProfitLossAttributableToOwnersOfParent
+    - ifrs_ProfitLossAttributableToOwnersOfParent
     korean_aliases:
     - 지배순이익
   IS_NI_TOTAL:
@@ -2050,6 +2058,7 @@ mappings:
     - net_income
     dart:
     - ifrs-full_ProfitLoss
+    - ifrs_ProfitLoss
     korean_aliases:
     - 순이익
     - Net Income
@@ -2275,6 +2284,8 @@ mappings:
     - operating_profit
     dart:
     - ifrs-full_OperatingProfit
+    - dart_OperatingIncomeLoss
+    - ifrs-full_ProfitLossFromOperatingActivities
     korean_aliases:
     - 영업이익
     - EBIT(근사)
@@ -2288,6 +2299,7 @@ mappings:
     - profit_before_tax
     dart:
     - ifrs-full_ProfitLossBeforeTax
+    - ifrs_ProfitLossBeforeTax
     korean_aliases:
     - 세전순이익
     - PBT
@@ -2325,6 +2337,7 @@ mappings:
     - total
     dart:
     - ifrs-full_Revenue
+    - ifrs_Revenue
     korean_aliases:
     - 매출액
     - Revenue
@@ -2442,10 +2455,13 @@ mappings:
     - tax
     dart:
     - ifrs-full_IncomeTaxExpenseBenefit
+    - ifrs-full_IncomeTaxExpenseContinuingOperations
+    - ifrs_IncomeTaxExpenseContinuingOperations
     korean_aliases:
     - 법인세
     - Tax
 by_taxonomy:
+  dart_OperatingIncomeLoss: IS_OP_INCOME
   ifrs-full_Assets: BS_A_TOTAL
   ifrs-full_BondsPayable: BS_NCL_BOND
   ifrs-full_Buildings: BS_NCA_PPE_BUILDING
@@ -2486,6 +2502,7 @@ by_taxonomy:
   ifrs-full_GainsLossesOnRevaluation: CI_NOR_RV
   ifrs-full_Goodwill: BS_NCA_GW
   ifrs-full_IncomeTaxExpenseBenefit: IS_TAX_TOTAL
+  ifrs-full_IncomeTaxExpenseContinuingOperations: IS_TAX_TOTAL
   ifrs-full_InsuranceContractLiabilities: BS_NCL_INS_RESERVE
   ifrs-full_InsuranceRevenue: IS_INS_PREMIUM
   ifrs-full_InsuranceServiceExpense: IS_INS_CLAIM
@@ -2515,7 +2532,11 @@ by_taxonomy:
   ifrs-full_ProfitLossAttributableToNoncontrollingInterests: IS_NI_NCI
   ifrs-full_ProfitLossAttributableToOwnersOfParent: IS_NI_PARENT
   ifrs-full_ProfitLossBeforeTax: IS_PBT_TOTAL
+  ifrs-full_ProfitLossFromOperatingActivities: IS_OP_INCOME
   ifrs-full_PropertyPlantAndEquipment: BS_NCA_PPE
+  ifrs-full_PurchaseOfIntangibleAssetsClassifiedAsInvestingActivities: CF_INV_INTANG
+  ifrs-full_PurchaseOfIntangibleAssetsOtherThanGoodwill: CF_INV_INTANG
+  ifrs-full_PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities: CF_INV_PPE
   ifrs-full_PurchaseOfPropertyPlantAndEquipmentIntangibleAssets: CF_INV_PPE
   ifrs-full_RawMaterials: BS_CA_INV_RAW
   ifrs-full_ReinsuranceAssets: BS_INS_REINS_ASSET
@@ -2533,6 +2554,15 @@ by_taxonomy:
   ifrs-full_TreasuryStock: BS_EQ_TREASURY
   ifrs-full_UnearnedPremiumReserve: BS_NCL_INS_UNEARNED
   ifrs-full_WorkInProcess: BS_CA_INV_WIP
+  ifrs_Equity: BS_EQ_TOTAL
+  ifrs_EquityAttributableToOwnersOfParent: BS_EQ_PARENT
+  ifrs_IncomeTaxExpenseContinuingOperations: IS_TAX_TOTAL
+  ifrs_ProfitLoss: IS_NI_TOTAL
+  ifrs_ProfitLossAttributableToOwnersOfParent: IS_NI_PARENT
+  ifrs_ProfitLossBeforeTax: IS_PBT_TOTAL
+  ifrs_PurchaseOfIntangibleAssetsClassifiedAsInvestingActivities: CF_INV_INTANG
+  ifrs_PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities: CF_INV_PPE
+  ifrs_Revenue: IS_REV_TOTAL
 by_korean_name:
   AFS 공정가치변동: CI_R_AFS
   CAPEX: CF_INV_PPE
