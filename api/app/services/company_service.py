@@ -246,7 +246,7 @@ def latest_valuation(db: Session, code: str, fs_div: str | None = None) -> Finan
     q = select(Financial).where(Financial.stock_code == code, Financial.is_estimate.is_(False))
     if fs_div:
         q = q.where(Financial.fs_div == fs_div)
-    fin = q.order_by(has_value.asc(), Financial.period.desc()).limit(1).scalar_one_or_none()
+    fin = db.execute(q.order_by(has_value.asc(), Financial.period.desc()).limit(1)).scalar_one_or_none()
     if fin is None:
         return None
     # 배당·EV/EBITDA 는 연간(.12)에만 있어(분기 최신 행엔 결측), 최신 연간값을 끌어와 보정한다.
@@ -268,7 +268,7 @@ def _latest_annual_value(db: Session, code: str, column, fs_div: str | None = No
     )
     if fs_div:
         q = q.where(Financial.fs_div == fs_div)
-    return q.order_by(Financial.period.desc()).limit(1).scalar_one_or_none()
+    return db.execute(q.order_by(Financial.period.desc()).limit(1)).scalar_one_or_none()
 
 
 def financials_fresh(db: Session, code: str) -> bool:
