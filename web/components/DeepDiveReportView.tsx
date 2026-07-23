@@ -1,8 +1,9 @@
 "use client";
 
+import InfoDot from "@/components/InfoDot";
 import Markdown from "@/components/Markdown";
 import ValuationCard from "@/components/ValuationCard";
-import type { DeepDiveReport, HitlClaim } from "@/lib/types";
+import type { DeepDiveReport, HitlClaim, OntologyRef } from "@/lib/types";
 
 import styles from "./DeepDivePanel.module.css";
 
@@ -26,20 +27,39 @@ function renderValue(v: unknown): string {
 }
 
 // 구조화 JSON 한 섹션을 키-값 목록으로 렌더(값이 배열·객체면 사람이 읽게 평탄화).
-function Section({ title, data }: { title: string; data: Record<string, unknown> | null }) {
+// E2: 온톨로지와 매핑되는 키 옆에 ⓘ 툴팁으로 정준명/설명/ID 를 노출한다.
+function Section({
+  title,
+  data,
+  refs,
+}: {
+  title: string;
+  data: Record<string, unknown> | null;
+  refs: OntologyRef[];
+}) {
   if (!data) {
     return null;
   }
+  const refMap = new Map(refs.filter((r) => r.stage === null || r.stage === title.toLowerCase()).map((r) => [r.key, r]));
   return (
     <div className={styles.section}>
       <h4 className={styles.sectionTitle}>{title}</h4>
       <dl className={styles.kv}>
-        {Object.entries(data).map(([k, v]) => (
-          <div key={k} className={styles.kvRow}>
-            <dt className={styles.kvKey}>{k}</dt>
-            <dd className={styles.kvVal}>{renderValue(v)}</dd>
-          </div>
-        ))}
+        {Object.entries(data).map(([k, v]) => {
+          const ref = refMap.get(k);
+          const tooltip = ref
+            ? `${ref.label} (${ref.ontology_id})${ref.description ? ` — ${ref.description}` : ""}`
+            : undefined;
+          return (
+            <div key={k} className={styles.kvRow}>
+              <dt className={styles.kvKey}>
+                {k}
+                {tooltip ? <InfoDot what={tooltip} /> : null}
+              </dt>
+              <dd className={styles.kvVal}>{renderValue(v)}</dd>
+            </div>
+          );
+        })}
       </dl>
     </div>
   );
@@ -144,12 +164,12 @@ export default function DeepDiveReportView({ report, openByDefault = false }: De
       ) : null}
       <details className={styles.rawDetails} {...openProp}>
         <summary className={styles.rawSummary}>단계별 상세 데이터</summary>
-        <Section title="① 기본사항" data={report.overview} />
-        <Section title="② 재무 특이점" data={report.redflags} />
-        <Section title="③ 사업모델" data={report.business} />
-        <Section title="④ 투자 아이디어·리스크" data={report.thesis} />
+        <Section title="① 기본사항" data={report.overview} refs={report.ontology_refs ?? []} />
+        <Section title="② 재무 특이점" data={report.redflags} refs={report.ontology_refs ?? []} />
+        <Section title="③ 사업모델" data={report.business} refs={report.ontology_refs ?? []} />
+        <Section title="④ 투자 아이디어·리스크" data={report.thesis} refs={report.ontology_refs ?? []} />
         {isMultiMethodValuation(report.valuation) ? null : (
-          <Section title="⑤ 밸류에이션·결론" data={report.valuation} />
+          <Section title="⑤ 밸류에이션·결론" data={report.valuation} refs={report.ontology_refs ?? []} />
         )}
       </details>
     </div>
