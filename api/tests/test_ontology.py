@@ -37,6 +37,24 @@ def test_service_normalize_dart_taxonomy():
     assert results[0].matched_via == "taxonomy"
 
 
+def test_service_enrich_with_ontology_id():
+    """enrich 가 항목 dict 에 ontology_id 를 주입(영속화용). 순서·미매칭 보존."""
+    statements = {
+        "BS": [
+            {"account_id": "ifrs-full_CashAndCashEquivalents", "name": "현금및현금성자산", "amount": 1.0},
+            {"account_id": "", "name": "미매칭계정", "amount": 2.0},
+        ],
+        "IS": [{"account_id": "dart_OperatingIncomeLoss", "name": "영업이익", "amount": 3.0}],
+    }
+    ontology_service.enrich_with_ontology_id(statements)
+    assert statements["BS"][0]["ontology_id"] == "BS_CA_CASH"
+    assert statements["BS"][1]["ontology_id"] is None  # 미매칭
+    assert statements["IS"][0]["ontology_id"] == "IS_OP_INCOME"
+    # 빈 입력은 no-op
+    empty: dict[str, list[dict]] = {}
+    assert ontology_service.enrich_with_ontology_id(empty) is empty
+
+
 def test_service_required_accounts():
     req = ontology_service.required_accounts("ebitda_margin")
     assert set(req) == {"IS_OP_INCOME", "IS_OPEX_DEPR", "IS_REV_TOTAL"}
