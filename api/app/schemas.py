@@ -726,6 +726,7 @@ class OntologyRatioMeta(BaseModel):
     unit: str | None = None
     formula: str
     required_accounts: list[str] = Field(default_factory=list)
+    description: str | None = None
 
 
 class OntologyAccountMeta(BaseModel):
@@ -743,3 +744,21 @@ class OntologyAccountMeta(BaseModel):
     sign: str | None = None
     formula: str | None = None
     description: str | None = None
+
+
+class OntologyMetricInfoItem(BaseModel):
+    """재무 지표(Financial 컬럼)의 온톨로지 정준 라벨·설명(B1)."""
+
+    key: str
+    ontology_id: str | None = None
+    term: str | None = None
+    description: str | None = None
+
+
+class OntologyMetricInfoRequest(BaseModel):
+    keys: list[str]
+
+
+class OntologyMetricInfoResponse(BaseModel):
+    items: list[OntologyMetricInfoItem]
+    coverage: float

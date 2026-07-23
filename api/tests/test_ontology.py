@@ -214,3 +214,20 @@ def test_http_get_account(client: TestClient):
 def test_http_get_account_404(client: TestClient):
     res = client.get("/api/ontology/accounts/NO_SUCH_ACCOUNT")
     assert res.status_code == 404
+
+
+def test_http_metric_info(client: TestClient):
+    res = client.post(
+        "/api/ontology/metric-info",
+        json={"keys": ["revenue", "operating_income", "per", "no_such_column"]},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    by_key = {i["key"]: i for i in body["items"]}
+    assert by_key["revenue"]["ontology_id"] == "IS_REV_TOTAL"
+    assert by_key["revenue"]["description"] is not None
+    assert by_key["operating_income"]["ontology_id"] == "IS_OP_INCOME"
+    assert by_key["per"]["ontology_id"] == "per"
+    assert by_key["per"]["description"] is not None
+    assert by_key["no_such_column"]["ontology_id"] is None
+    assert body["coverage"] == pytest.approx(3 / 4)

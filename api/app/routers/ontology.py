@@ -75,6 +75,16 @@ def get_account(account_id: str) -> schemas.OntologyAccountMeta:
     return schemas.OntologyAccountMeta(**asdict(a))
 
 
+@router.post("/metric-info", response_model=schemas.OntologyMetricInfoResponse)
+def metric_info(req: schemas.OntologyMetricInfoRequest) -> schemas.OntologyMetricInfoResponse:
+    """Financial 컬럼 key 들의 온톨로지 정준 라벨·설명 조회(B1 라벨 단일 출처)."""
+    items, coverage = ontology_service.metric_info(req.keys)
+    return schemas.OntologyMetricInfoResponse(
+        items=[schemas.OntologyMetricInfoItem(**it) for it in items],
+        coverage=coverage,
+    )
+
+
 def _ratio_out(r: RatioResultOut) -> schemas.OntologyRatioResult:
     return schemas.OntologyRatioResult(
         ratio_id=r.ratio_id,

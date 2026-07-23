@@ -112,6 +112,7 @@ def _ratio_meta(r: Ratio) -> RatioMeta:
         unit=r.unit,
         formula=r.formula,
         required_accounts=list(r.required_accounts),
+        description=r.description,
     )
 
 
