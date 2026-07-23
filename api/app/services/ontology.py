@@ -25,6 +25,28 @@ def normalize(terms: list[str], standard: str | None = None) -> list[NormalizeRe
     return _port().resolve_many(terms, standard=standard)
 
 
+def enrich_with_ontology_id(statements: dict[str, list[dict]]) -> dict[str, list[dict]]:
+    """재무제표 항목(dict)에 name 정규화 결과 ontology_id 를 주입(인플레이스 mutating).
+
+    수집(writer) 단계에서 호출해 FinancialStatement JSONB 에 ontology_id 를 영속화한다.
+    응답 단(companies.py:_build_items)은 영속화된 값을 우선 사용하고, 구버전 행(미보관)은
+    동적 정규화 fallback 한다. 항목 순서 보존 — names 수집과 id 대입을 동일 순회 순서로 수행.
+    """
+    names: list[str] = []
+    for items in statements.values():
+        for item in items:
+            names.append(item.get("name", "") or "")
+    if not names:
+        return statements
+    ont_ids = [r.id for r in normalize(names)]
+    idx = 0
+    for items in statements.values():
+        for item in items:
+            item["ontology_id"] = ont_ids[idx] if names[idx] else None
+            idx += 1
+    return statements
+
+
 def calculate_one(ratio_id: str, values: dict[str, object]) -> RatioResultOut:
     return _port().calculate(ratio_id, values)
 

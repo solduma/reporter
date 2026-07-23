@@ -42,6 +42,9 @@ from app.services import (
     sync_state,
     universe_ingest,
 )
+from app.services import (
+    ontology as ontology_service,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -184,6 +187,7 @@ def fetch_and_store_financial_statements(
             )
             if not full:
                 continue
+            ontology_service.enrich_with_ontology_id(full)
             period = _period_str(year, q)
             stmt = insert(FinancialStatement).values(
                 stock_code=code, period=period, fs_div=fs_div, data=full,
@@ -206,6 +210,34 @@ def fetch_financial_statements_bg(code: str, fs_div: str = "CFS") -> None:
         logger.warning("financial statements bg fetch failed %s: %s", code, e)
     finally:
         db.close()
+
+
+def backfill_financial_statement_ontology_id(
+    db: Session, code: str | None = None, limit: int | None = None
+) -> int:
+    """기존 FinancialStatement 행의 data JSONB 에 ontology_id 를 in-place 보강.
+
+    DART 호출 없이 name 정규화만 수행(A1 영속화 도입 전 행 마이그레이션용).
+    code 지정 시 해당 종목만, 미지정 시 전체. 갱신된 행 수 반환.
+    """
+    q = select(FinancialStatement)
+    if code:
+        q = q.where(FinancialStatement.stock_code == code)
+    if limit:
+        q = q.limit(limit)
+    rows = list(db.scalars(q).all())
+    updated = 0
+    for row in rows:
+        data = row.data or {}
+        before = sum(1 for items in data.values() for item in items if item.get("ontology_id") is not None)
+        ontology_service.enrich_with_ontology_id(data)
+        after = sum(1 for items in data.values() for item in items if item.get("ontology_id") is not None)
+        if after > before:
+            row.data = data  # JSONB 재할당으로 dirty 마킹
+            updated += 1
+    if updated:
+        db.commit()
+    return updated
 
 
 def latest_valuation(db: Session, code: str, fs_div: str | None = None) -> Financial | None:

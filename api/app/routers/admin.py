@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db.session import get_session
-from app.services import broadcast_ingest, growth_ingest, ingest, universe_ingest
+from app.services import broadcast_ingest, company_service, growth_ingest, ingest, universe_ingest
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -46,3 +46,14 @@ def trigger_growth_batch(
     db: Session = Depends(get_session),
 ) -> dict:
     return growth_ingest.run_growth_batch(db, limit=limit)
+
+
+@router.post("/financial-statements/backfill-ontology")
+def trigger_fs_ontology_backfill(
+    code: str | None = Query(default=None, description="종목 코드(미지정 시 전체)"),
+    limit: int | None = Query(default=None, description="처리 행 수 상한"),
+    db: Session = Depends(get_session),
+) -> dict:
+    """기존 FinancialStatement 행의 ontology_id in-place 보강(DART 호출 없음)."""
+    updated = company_service.backfill_financial_statement_ontology_id(db, code=code, limit=limit)
+    return {"rows_updated": updated}

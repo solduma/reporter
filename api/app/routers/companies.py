@@ -634,20 +634,20 @@ def company_financial_statements(
     def _build_items(raw: list[dict]) -> list[FinancialStatementItem]:
         """원본 DART 순서 유지 + level 판정 + 온톨로지 ID 부여.
 
-        name(한국 계정명)을 온톨로지 정준 ID로 정규화해 ontology_id 에 부여.
-        DART 공시명과 온톨로지 정준명이 다르면 None(미부여). 정규화는 인메모리 색인 조회라
-        호출 비용이 작다."""
-        names = [i.get("name", "") for i in raw]
-        ont_ids = [r.id for r in ontology_service.normalize(names)]
+        영속화된 ontology_id 를 우선 사용(수집 단계에서 enrich_with_ontology_id 로 주입).
+        구버전 행(미보관)만 name 정규화 fallback. 정규화는 인메모리 색인 조회라 호출 비용이 작다."""
+        for i in raw:
+            if i.get("ontology_id") is None and i.get("name", ""):
+                i["ontology_id"] = ontology_service.normalize([i["name"]])[0].id
         return [
             FinancialStatementItem(
                 account_id=i.get("account_id", ""),
                 name=i.get("name", ""),
                 amount=i.get("amount"),
                 level=0 if _is_level0(i.get("name", "")) else 1,
-                ontology_id=ont_ids[idx] if names[idx] else None,
+                ontology_id=i.get("ontology_id"),
             )
-            for idx, i in enumerate(raw)
+            for i in raw
         ]
 
     def _sort_key(name: str, order: dict[str, int]) -> int:

@@ -36,6 +36,7 @@ from app.db.models import (
     UniverseSnapshot,
 )
 from app.domain import financials
+from app.services import ontology as ontology_service
 from app.services import sync_state, universe_ingest
 
 logger = logging.getLogger(__name__)
@@ -205,6 +206,7 @@ def backfill_stock(db: Session, settings: Settings, code: str) -> bool:
 
     # 전체 재무제표 라인아이템 저장(FinancialStatement).
     for (year, q), stmt in stmt_data.items():
+        ontology_service.enrich_with_ontology_id(stmt)
         period = _period_str(year, q)
         stmt_insert = insert(FinancialStatement).values(
             stock_code=code, period=period, fs_div="CFS", data=stmt,
