@@ -20,16 +20,16 @@ const STATEMENT_TABS: { key: StatementTab; label: string }[] = [
   { key: "equity", label: "자본변동표" },
 ];
 
-/** 금액 포맷: 억원 단위. 원 단위 입력 → 억원 변환. */
+/** 금액 포맷: 자산 규모에 따라 억/만원 단위로 통일, 소수점 첫째 자리. */
 function formatAmount(amount: number | null): string {
   if (amount === null || amount === undefined) return "—";
-  const eok = Math.abs(amount) / 1e8;
-  if (eok >= 1) {
-    return `${(amount >= 0 ? "" : "-")}${eok.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ",")}억`;
+  const abs = Math.abs(amount);
+  const sign = amount >= 0 ? "" : "-";
+  if (abs >= 1e8) {
+    return `${sign}${(abs / 1e8).toFixed(1).replace(/\B(?=(\d{3})+(?!\d))/g, ",")}억`;
   }
-  const man = Math.abs(amount) / 1e4;
-  if (man >= 1) {
-    return `${(amount >= 0 ? "" : "-")}${man.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ",")}만`;
+  if (abs >= 1e4) {
+    return `${sign}${(abs / 1e4).toFixed(1).replace(/\B(?=(\d{3})+(?!\d))/g, ",")}만원`;
   }
   return `${amount.toLocaleString()}원`;
 }
