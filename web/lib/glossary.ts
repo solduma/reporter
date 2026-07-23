@@ -8,29 +8,31 @@ export interface GlossaryEntry {
 }
 
 export const GLOSSARY: Record<string, GlossaryEntry> = {
+  // 재무 비율 — term/what 은 /api/ontology/metric-info 의 정준 description 으로 대체(B2).
+  // guide 는 초보자용 해석 기준으로 유지.
   per: {
-    term: "PER",
-    what: "주가 ÷ 주당순이익. 이익 1원을 시장이 몇 배로 쳐주는지.",
+    term: "",
+    what: "",
     guide: "낮을수록 이익 대비 싸다. 통상 10배 이하는 저평가 축, 고성장주는 높아도 정당할 수 있음.",
   },
   pbr: {
-    term: "PBR",
-    what: "주가 ÷ 주당순자산. 회사 순자산의 몇 배 가격인지.",
+    term: "",
+    what: "",
     guide: "낮을수록 자산 대비 싸다. 1배 미만은 장부가보다 싸게 거래된다는 뜻.",
   },
   psr: {
-    term: "PSR",
-    what: "시가총액 ÷ 매출. 매출 1원을 몇 배로 쳐주는지.",
+    term: "",
+    what: "",
     guide: "이익이 아직 작은 성장주 밸류 비교에 유용. 낮을수록 매출 대비 싸다.",
   },
   ev_ebitda: {
-    term: "EV/EBITDA",
-    what: "기업가치(시총+순차입) ÷ 상각전영업이익. 부채까지 감안한 이익 배수.",
+    term: "",
+    what: "",
     guide: "PER 을 부채·감가상각 보정한 것. 낮을수록 저평가 축.",
   },
   roe: {
-    term: "ROE",
-    what: "순이익 ÷ 자기자본. 자기 돈으로 얼마나 버는지(자본수익률).",
+    term: "",
+    what: "",
     guide: "높을수록 자본 효율이 좋다. 통상 15% 이상이면 우량.",
   },
   revenue_yoy: {
