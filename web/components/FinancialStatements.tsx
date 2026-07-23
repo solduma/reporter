@@ -54,24 +54,8 @@ function changeDirection(current: number | null, prev: number | null): number {
   return (current - prev) / Math.abs(prev) > 0 ? 1 : -1;
 }
 
-/** 온톨로지 정준 ID 표시(미매칭 시 미노출). DART 공시명→온톨로지 매핑 확인용. */
-function OntologyTag({ ontologyId }: { ontologyId?: string | null }) {
-  if (!ontologyId) return null;
-  return <span className={styles.ontologyTag}>{ontologyId}</span>;
-}
-
-/** 한 행(level 0) + children 렌더링 */
-function ItemRow({
-  item,
-  periodLabel,
-  prevPeriodLabel,
-  defaultOpen = false,
-}: {
-  item: FSItem;
-  periodLabel: string;
-  prevPeriodLabel: string | null;
-  defaultOpen?: boolean;
-}) {
+/** 재무제표 행: level에 따라 스타일·들여쓰기, children은 재귀 렌더링. */
+function ItemRow({ item, defaultOpen = false }: { item: FSItem; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(defaultOpen);
   const hasChildren = item.children && item.children.length > 0;
   const op = changeOpacity(item.amount, item.prev_amount);
@@ -87,6 +71,7 @@ function ItemRow({
     : undefined;
 
   const isLevel0 = item.level === 0;
+  const namePaddingLeft = isLevel0 ? 0 : `${item.level * 0.75}rem`;
   return (
     <>
       <tr className={isLevel0 ? styles.rowLevel0 : styles.rowLevel1}>
@@ -103,8 +88,12 @@ function ItemRow({
           ) : (
             <span className={styles.expandPlaceholder} />
           )}
-          <span className={isLevel0 ? styles.nameLevel0 : styles.nameLevel1}>{item.name}</span>
-          <OntologyTag ontologyId={item.ontology_id} />
+          <span
+            className={isLevel0 ? styles.nameLevel0 : styles.nameLevel1}
+            style={{ paddingLeft: namePaddingLeft }}
+          >
+            {item.name}
+          </span>
         </td>
         <td className={styles.tdRight}>
           {formatAmount(item.amount)}
@@ -121,41 +110,13 @@ function ItemRow({
         </td>
       </tr>
       {open && hasChildren
-        ? item.children.map((child, ci) => {
-            const cop = changeOpacity(child.amount, child.prev_amount);
-            const cdir = changeDirection(child.amount, child.prev_amount);
-            const chlStyle = cop > 0
-              ? {
-                  backgroundColor: cdir > 0
-                    ? `rgba(18, 138, 77, ${cop * 0.15})`
-                    : `rgba(192, 43, 43, ${cop * 0.15})`,
-                  color: cdir > 0 ? "var(--buy)" : "var(--sell)",
-                  fontWeight: cop > 0.5 ? 600 : 400,
-                }
-              : undefined;
-            return (
-              <tr key={`${child.account_id}-${ci}`} className={styles.rowLevel1}>
-                <td className={styles.tdLeft}>
-                  <span className={styles.expandPlaceholder} />
-                  <span className={styles.nameLevel1}>{child.name}</span>
-                  <OntologyTag ontologyId={child.ontology_id} />
-                </td>
-                <td className={styles.tdRight}>
-                  {formatAmount(child.amount)}
-                </td>
-                <td className={styles.tdRight}>
-                  {formatAmount(child.prev_amount)}
-                </td>
-                <td className={`${styles.tdRight} ${styles.changeCol}`} style={chlStyle}>
-                  {formatChange(
-                    child.amount !== null && child.prev_amount !== null && child.prev_amount !== 0
-                      ? (child.amount - child.prev_amount) / Math.abs(child.prev_amount)
-                      : null,
-                  )}
-                </td>
-              </tr>
-            );
-          })
+        ? item.children.map((child, ci) => (
+            <ItemRow
+              key={`${child.account_id}-${ci}`}
+              item={child}
+              defaultOpen={defaultOpen}
+            />
+          ))
         : null}
     </>
   );
@@ -263,8 +224,6 @@ export default function FinancialStatements({ code }: Props) {
               <ItemRow
                 key={`${item.account_id}-${i}`}
                 item={item}
-                periodLabel={periodLabel}
-                prevPeriodLabel={prevPeriodLabel}
                 defaultOpen={activeTab === "bs"}
               />
             ))}
