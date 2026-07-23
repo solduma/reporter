@@ -10,10 +10,11 @@ ENV TZ=Asia/Seoul
 
 WORKDIR /app
 
-# 루트 reporter 패키지(크롤·PDF·GLM 로직) + api 소스
+# 루트 reporter 패키지(크롤·PDF·GLM 로직) + api 소스 + 온톨로지 데이터/파이썬 패키지
 COPY pyproject.toml uv.lock README.md ./
 COPY src ./src
 COPY api ./api
+COPY financial-ontology ./financial-ontology
 
 WORKDIR /app/api
 # api/.env 는 이미지에 넣지 않는다(런타임 env 로 주입). 의존성만 설치.
