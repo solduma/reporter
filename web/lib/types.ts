@@ -823,6 +823,27 @@ export interface OntologyMetricInfoResponse {
   coverage: number;
 }
 
+export interface RatioItem {
+  ratio_id: string;
+  name: string;
+  korean_name: string;
+  category: string;
+  unit: string | null;
+  description: string | null;
+  value: number | null;
+  ok: boolean;
+  missing: string[];
+  warnings: string[];
+  reason: string;
+}
+
+export interface CompanyRatiosResponse {
+  stock_code: string;
+  fs_div: string;
+  period: string | null;
+  items: RatioItem[];
+}
+
 export interface FinancialStatementPeriod {
   period: string;
   prev_period: string | null;

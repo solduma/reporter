@@ -19,6 +19,7 @@ from app.schemas import (
     CandlePoint,
     CompanyAnalysis,
     CompanyGrowth,
+    CompanyRatiosOut,
     CompanySummary,
     CompanyTrend,
     FinancialPeriodOut,
@@ -28,6 +29,7 @@ from app.schemas import (
     FinancialStatementsOut,
     JudgmentOut,
     PeerOut,
+    RatioOut,
     ReportCard,
     ScoreFactor,
     StockSearchHit,
@@ -525,6 +527,44 @@ def company_financials_status(code: str, db: Session = Depends(get_session)) -> 
         fresh=company_service.financials_fresh(db, code),
         financials_10y_done=company_service.financials_10y_done(db, code),
         report_10y_done=company_service.report_10y_done(db, code),
+    )
+
+
+@router.get("/{code}/ratios", response_model=CompanyRatiosOut)
+def company_ratios(
+    code: str, db: Session = Depends(get_session), fs_div: str = "CFS"
+) -> CompanyRatiosOut:
+    """온톨로지 RatioEngine 으로 계산한 57개 재무비율(C1).
+
+    FinancialStatement JSONB 의 ontology_id 를 기반으로 최신/직전 기간 값을 수집해
+    calculate_many 를 실행한다. 비율 값이 없으면 ok=false 와 reason/missing 계정을 반환.
+    """
+    results = ontology_service.company_ratios(db, code, fs_div=fs_div)
+    statements = company_service.financial_statement_rows(db, code, fs_div=fs_div)
+    latest_period = max(s.period for s in statements) if statements else None
+    meta_map = {m.id: m for m in ontology_service.ratios()}
+
+    def _ratio_out(r):
+        meta = meta_map.get(r.ratio_id)
+        return RatioOut(
+            ratio_id=r.ratio_id,
+            name=meta.name if meta else r.ratio_id,
+            korean_name=meta.korean_name if meta else r.ratio_id,
+            category=meta.category if meta else "",
+            unit=meta.unit if meta else None,
+            description=meta.description if meta else None,
+            value=float(r.value) if r.value is not None else None,
+            ok=r.ok,
+            missing=r.missing,
+            warnings=r.warnings,
+            reason=r.reason,
+        )
+
+    return CompanyRatiosOut(
+        stock_code=code,
+        fs_div=fs_div,
+        period=latest_period,
+        items=[_ratio_out(r) for r in results],
     )
 
 

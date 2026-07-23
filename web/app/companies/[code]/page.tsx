@@ -59,6 +59,10 @@ const MultipleBandChart = dynamic(() => import("@/components/MultipleBandChart")
   ssr: false,
   loading: () => <div className={styles.sectionStatus}>차트 불러오는 중…</div>,
 });
+const RatioPanel = dynamic(() => import("@/components/RatioPanel"), {
+  ssr: false,
+  loading: () => <div className={styles.sectionStatus}>비율 불러오는 중…</div>,
+});
 const TrendPanel = dynamic(() => import("@/components/TrendPanel"), {
   ssr: false,
   loading: () => <div className={styles.sectionStatus}>추세 불러오는 중…</div>,
@@ -778,7 +782,11 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
               range={valuationChartRange}
               onRangeChange={handleValuationRangeChange}
             />
-          </>
+             <div className={styles.compareStock}>
+              <h3 className={styles.subHead}>온톨로지 재무비율</h3>
+              <RatioPanel code={code} />
+            </div>
+         </>
         ) : (
           <div className={styles.sectionStatus}>재무 데이터가 없습니다</div>
         )}
