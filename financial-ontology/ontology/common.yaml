@@ -690,7 +690,7 @@ ontology:
       affects: [EquityBase]
       aliases: ["총자본", "자본의 총액"]
       mappings:
-        dart: ["ifrs-full_Equity"]
+        dart: ["ifrs-full_Equity", "ifrs_Equity"]
         ifrs: ["Equity"]
         usgaap: ["StockholdersEquity"]
       description: "지배기업 주주지분과 비지배지분의 합. 자산 - 부채."
@@ -709,7 +709,7 @@ ontology:
       ratios: [roe, bvps]
       aliases: ["자본(지배)", "주주지분"]
       mappings:
-        dart: ["ifrs-full_EquityAttributableToOwnersOfParent"]
+        dart: ["ifrs-full_EquityAttributableToOwnersOfParent", "ifrs_EquityAttributableToOwnersOfParent"]
         ifrs: ["EquityAttributableToOwnersOfParent"]
         usgaap: ["StockholdersEquity"]
 
@@ -850,7 +850,7 @@ ontology:
       affects: [RevenueBase]
       aliases: ["매출액", "Revenue"]
       mappings:
-        dart: ["ifrs-full_Revenue"]
+        dart: ["ifrs-full_Revenue", "ifrs_Revenue"]
         ifrs: ["Revenue"]
         usgaap: ["Revenues"]
       description: "기간 중 인식한 총 매출(상품·용역 매출 + 기타 매출)."
@@ -995,7 +995,7 @@ ontology:
       affects: [EBITDA, OperatingProfit]
       aliases: ["영업이익", "EBIT(근사)"]
       mappings:
-        dart: ["ifrs-full_OperatingProfit"]
+        dart: ["ifrs-full_OperatingProfit", "dart_OperatingIncomeLoss", "ifrs-full_ProfitLossFromOperatingActivities"]
         ifrs: ["OperatingProfit"]
       description: "주영업 활동에서 발생한 이익. 영업외손익 전."
 
@@ -1162,7 +1162,7 @@ ontology:
       affects: [EBT]
       aliases: ["세전순이익", "PBT"]
       mappings:
-        dart: ["ifrs-full_ProfitLossBeforeTax"]
+        dart: ["ifrs-full_ProfitLossBeforeTax", "ifrs_ProfitLossBeforeTax"]
         ifrs: ["ProfitLossBeforeTax"]
         usgaap: ["IncomeLossFromContinuingOperationsBeforeIncomeTaxes"]
 
@@ -1177,7 +1177,7 @@ ontology:
       children: [IS_TAX_CURRENT, IS_TAX_DEFERRED]
       aliases: ["법인세", "Tax"]
       mappings:
-        dart: ["ifrs-full_IncomeTaxExpenseBenefit"]
+        dart: ["ifrs-full_IncomeTaxExpenseBenefit", "ifrs-full_IncomeTaxExpenseContinuingOperations", "ifrs_IncomeTaxExpenseContinuingOperations"]
         ifrs: ["IncomeTaxExpenseBenefit"]
         usgaap: ["IncomeTaxExpenseBenefit"]
 
@@ -1217,7 +1217,7 @@ ontology:
       affects: [ROE, ROA, RetainedEarnings, ComprehensiveIncome]
       aliases: ["순이익", "Net Income"]
       mappings:
-        dart: ["ifrs-full_ProfitLoss"]
+        dart: ["ifrs-full_ProfitLoss", "ifrs_ProfitLoss"]
         ifrs: ["ProfitLoss"]
         usgaap: ["ProfitLoss"]
       description: "법인세 차감 후 기간 이익. 지배·비지배로 분할됨."
@@ -1237,7 +1237,7 @@ ontology:
       affects: [ROE, EPS]
       aliases: ["지배순이익"]
       mappings:
-        dart: ["ifrs-full_ProfitLossAttributableToOwnersOfParent"]
+        dart: ["ifrs-full_ProfitLossAttributableToOwnersOfParent", "ifrs_ProfitLossAttributableToOwnersOfParent"]
         ifrs: ["ProfitLossAttributableToOwnersOfParent"]
         usgaap: ["NetIncomeLoss"]
 
@@ -1737,7 +1737,7 @@ ontology:
       cashflow_mapping: [investing]
       aliases: ["CAPEX", "설비투자"]
       mappings:
-        dart: ["ifrs-full_PurchaseOfPropertyPlantAndEquipmentIntangibleAssets"]
+        dart: ["ifrs-full_PurchaseOfPropertyPlantAndEquipmentIntangibleAssets", "ifrs-full_PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities", "ifrs_PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities"]
         ifrs: ["PurchaseOfPropertyPlantAndEquipment"]
         usgaap: ["PaymentsToAcquirePropertyPlantAndEquipment"]
       description: "유형자산 취득(투자지출)과 처분(투자수입). FCF의 핵심 구성."
@@ -1754,6 +1754,8 @@ ontology:
       affects: [CAPEX, FCF]
       cashflow_mapping: [investing]
       aliases: ["무형자산투자"]
+      mappings:
+        dart: ["ifrs-full_PurchaseOfIntangibleAssetsClassifiedAsInvestingActivities", "ifrs_PurchaseOfIntangibleAssetsClassifiedAsInvestingActivities", "ifrs-full_PurchaseOfIntangibleAssetsOtherThanGoodwill"]
 
     CF_INV_FA:
       id: CF_INV_FA
