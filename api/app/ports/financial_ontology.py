@@ -113,3 +113,7 @@ class OntologyPort(Protocol):
     def account(self, account_id: str) -> AccountMeta | None:
         """단일 계정 메타데이터 조회."""
         ...
+
+    def transitive_inputs(self, ratio_id: str) -> list[str]:
+        """비율에 필요한 모든 기초 계정 ID(의존 계정의 depends_on 재귀 전개)."""
+        ...

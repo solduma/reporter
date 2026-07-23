@@ -132,11 +132,17 @@ def account(account_id: str) -> AccountMeta | None:
     return _port().account(account_id)
 
 
-def metric_info(keys: list[str]) -> tuple[list[dict[str, str | None]], float]:
-    """Financial 컬럼 key → 온톨로지 정준 라벨(term)·설명(description) 조회(B1 라벨 단일 출처).
+def transitive_inputs(ratio_id: str) -> list[str]:
+    return _port().transitive_inputs(ratio_id)
 
-    key 가 FINANCIAL_COLUMN_ONTOLOGY 에 있으면 해당 account/ratio 메타에서 term·description
-    을 가져온다. 없거나 온톨로지에 미매칭이면 null. coverage = description 확보된 key 비율.
+
+def metric_info(keys: list[str]) -> tuple[list[dict[str, str | None]], float]:
+    """Financial 컬럼 key / 온톨로지 account·ratio ID → 정준 라벨(term)·설명 조회.
+
+    key 가 FINANCIAL_COLUMN_ONTOLOGY 에 있으면 매핑된 account/ratio 메타에서 조회한다.
+    매핑에 없으면 key 자체를 온톨로지 account ID, 없으면 ratio ID 로 시도 — 이후 C3 에서
+    비율 입력 계정 ID(`IS_NI_PARENT` 등) 라벨 조회에 재사용한다.
+    coverage = description 확보된 key 비율.
     """
     port = _port()
     ratio_map: dict[str, RatioMeta] | None = None
@@ -144,20 +150,35 @@ def metric_info(keys: list[str]) -> tuple[list[dict[str, str | None]], float]:
     resolved = 0
     for key in keys:
         entry = FINANCIAL_COLUMN_ONTOLOGY.get(key)
-        if not entry:
-            out.append({"key": key, "ontology_id": None, "term": None, "description": None})
-            continue
-        ont_id, kind = entry
+        ont_id: str | None = None
+        kind: str | None = None
+        if entry:
+            ont_id, kind = entry
+        else:
+            # key 자체가 account/ratio ID 인지 시도
+            if port.account(key) is not None:
+                ont_id = key
+                kind = "account"
+            else:
+                if ratio_map is None:
+                    ratio_map = {r.id: r for r in port.list_ratios()}
+                if ratio_map.get(key) is not None:
+                    ont_id = key
+                    kind = "ratio"
+
+        term: str | None = None
+        desc: str | None = None
         if kind == "account":
-            meta = port.account(ont_id)
+            meta = port.account(ont_id) if ont_id else None
             term = meta.korean_name if meta else None
             desc = meta.description if meta else None
-        else:  # ratio
+        elif kind == "ratio":
             if ratio_map is None:
                 ratio_map = {r.id: r for r in port.list_ratios()}
-            meta = ratio_map.get(ont_id)
+            meta = ratio_map.get(ont_id) if ont_id else None
             term = meta.name if meta else None
             desc = meta.description if meta else None
+
         out.append({"key": key, "ontology_id": ont_id, "term": term, "description": desc})
         if desc is not None:
             resolved += 1

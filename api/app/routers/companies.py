@@ -559,6 +559,7 @@ def company_ratios(
             missing=r.missing,
             warnings=r.warnings,
             reason=r.reason,
+            inputs=ontology_service.transitive_inputs(r.ratio_id),
         )
 
     return CompanyRatiosOut(
