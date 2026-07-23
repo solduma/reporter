@@ -479,30 +479,3 @@ def company_ratios(db: Session, code: str, fs_div: str = "CFS", industry: str | 
         )
         for r in results
     ]
-    """종목의 최신 재무제표 기준 57개 온톨로지 비율 일괄 계산(C1).
-
-    PER/PBR/PSR/EV/EBITDA/ROE 등 시장데이터 기반 비율은 Financial 저장값이 있으면
-    fallback 으로 채워 반환한다(온톨로지 계산값과 저장값의 차이는 warnings/reason 에
-    노출되지 않고 저장값 우선).
-    """
-    port = _port()
-    ratio_ids = [r.id for r in port.list_ratios()]
-    values, stored = build_ratio_values(db, code, fs_div=fs_div)
-    if not values and fs_div == "CFS":
-        # 연결 재무제표가 없으면 별도 재무제표로 폴백(기존 latest_valuation 동작과 동일).
-        values, stored = build_ratio_values(db, code, fs_div="OFS")
-    results = port.calculate_many(ratio_ids, values)
-    return [
-        (
-            replace(
-                r,
-                value=Decimal(stored[r.ratio_id]),
-                ok=True,
-                reason="stored_fallback",
-                missing=[],
-            )
-            if r.value is None and r.ratio_id in stored
-            else r
-        )
-        for r in results
-    ]
