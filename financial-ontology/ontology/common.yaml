@@ -10,7 +10,7 @@ metadata:
   standards: ["K-IFRS", "IFRS", "DART_XBRL"]
   industries: ["common", "manufacturing", "bank", "insurance", "securities"]
   created: "2026-07-22"
-  updated: "2026-07-22"
+  updated: "2026-07-23"
 
 ontology:
   statements:
@@ -1120,7 +1120,7 @@ ontology:
       affects: [InterestCoverage]
       aliases: ["수비용", "금융비용"]
       mappings:
-        dart: ["ifrs-full_FinanceCosts"]
+        dart: ["ifrs-full_FinanceCosts", "dart_InterestExpenseFinanceExpense", "ifrs-full_InterestExpense", "ifrs_InterestExpense"]
         ifrs: ["FinanceCosts"]
         usgaap: ["InterestExpense"]
 
@@ -1264,6 +1264,21 @@ ontology:
         dart: ["ifrs-full_ProfitLossAttributableToNoncontrollingInterests"]
         ifrs: ["ProfitLossAttributableToNonControllingInterests"]
         usgaap: ["NetIncomeLossAttributableToNoncontrollingInterest"]
+
+    IS_EPS_BASIC:
+      id: IS_EPS_BASIC
+      korean_name: "기본주당순이익"
+      english_name: "Basic Earnings Per Share"
+      name: "기본 EPS"
+      statement: [income_statement]
+      category: [profit, per_share]
+      sign: natural
+      affects: [EPS]
+      mappings:
+        dart: ["ifrs-full_BasicEarningsLossPerShare", "ifrs_BasicEarningsLossPerShare"]
+        ifrs: ["BasicEarningsLossPerShare"]
+        usgaap: ["EarningsPerShareBasic"]
+      description: "보통주 1주당 당기순이익. 희석 EPS 와 구분."
 
     # =========================================================================
     # 기타포괄손익
@@ -1715,6 +1730,20 @@ ontology:
       aliases: ["영업지출현금"]
       description: "거래처·종업원 등에 영업활동으로 지출한 현금."
 
+    CF_OP_INTEREST_PAID:
+      id: CF_OP_INTEREST_PAID
+      korean_name: "영업활동이자지급"
+      english_name: "Interest Paid (Operating Activities)"
+      name: "영업활동 이자지급"
+      statement: [cash_flow]
+      category: [cashflow, operating, interest]
+      sign: negative
+      parent: CF_OP_TOTAL
+      cashflow_mapping: [operating]
+      mappings:
+        dart: ["ifrs-full_InterestPaidClassifiedAsOperatingActivities"]
+        ifrs: ["InterestPaidClassifiedAsOperatingActivities"]
+
     # =========================================================================
     # 현금흐름표 — 투자활동
     # =========================================================================
@@ -1873,6 +1902,20 @@ ontology:
         dart: ["ifrs-full_DividendsPaidClassifiedAsFinancingActivities"]
         ifrs: ["DividendsPaidClassifiedAsFinancingActivities"]
         usgaap: ["PaymentsForDividends"]
+
+    CF_FIN_INTEREST_PAID:
+      id: CF_FIN_INTEREST_PAID
+      korean_name: "재무활동이자지급"
+      english_name: "Interest Paid (Financing Activities)"
+      name: "재무활동 이자지급"
+      statement: [cash_flow]
+      category: [cashflow, financing, interest]
+      sign: negative
+      parent: CF_FIN_TOTAL
+      cashflow_mapping: [financing]
+      mappings:
+        dart: ["ifrs-full_InterestPaidClassifiedAsFinancingActivities"]
+        ifrs: ["InterestPaidClassifiedAsFinancingActivities"]
 
     CF_NET_CHANGE:
       id: CF_NET_CHANGE

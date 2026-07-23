@@ -105,6 +105,10 @@ class OntologyAdapter:
     def transitive_inputs(self, ratio_id: str) -> list[str]:
         return _graph().transitive_inputs(ratio_id)
 
+    def mapping(self, standard: str, ontology_id: str) -> list[str]:
+        acc = _ensure()[0].accounts.get(ontology_id)
+        return list(acc.mappings.get(standard, ())) if acc else []
+
 
 def _to_out(r: RatioResult) -> RatioResultOut:
     return RatioResultOut(
@@ -145,4 +149,5 @@ def _account_meta(a: Account) -> AccountMeta:
         sign=a.sign,
         formula=a.formula,
         description=a.description,
+        mappings={k: list(v) for k, v in a.mappings.items()},
     )

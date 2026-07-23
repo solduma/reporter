@@ -6,8 +6,8 @@ metadata:
   direction: 'bidirectional (forward: ontology_id→taxonomy, reverse: taxonomy/korean_name→ontology_id)'
   generated_from: ontology/*.yaml
   generated: '2026-07-22'
-  account_count: 187
-  taxonomy_concept_count: 88
+  account_count: 190
+  taxonomy_concept_count: 91
 mappings:
   BS_A_TOTAL:
     korean_name: 자산총계
@@ -1307,6 +1307,18 @@ mappings:
     korean_aliases:
     - 현금배당지급
     - 배당지급
+  CF_FIN_INTEREST_PAID:
+    korean_name: 재무활동이자지급
+    english_name: Interest Paid (Financing Activities)
+    statement:
+    - cash_flow
+    category:
+    - cashflow
+    - financing
+    - interest
+    ifrs:
+    - InterestPaidClassifiedAsFinancingActivities
+    korean_aliases: []
   CF_FIN_TOTAL:
     korean_name: 재무현금흐름
     english_name: Cash Flow from Financing Activities
@@ -1519,6 +1531,18 @@ mappings:
     ifrs: []
     korean_aliases:
     - 무형자산상각(CF)
+  CF_OP_INTEREST_PAID:
+    korean_name: 영업활동이자지급
+    english_name: Interest Paid (Operating Activities)
+    statement:
+    - cash_flow
+    category:
+    - cashflow
+    - operating
+    - interest
+    ifrs:
+    - InterestPaidClassifiedAsOperatingActivities
+    korean_aliases: []
   CF_OP_INV:
     korean_name: 재고자산증감
     english_name: Change in Inventories
@@ -1907,6 +1931,17 @@ mappings:
     korean_aliases:
     - 제품판매원가
     - COGS
+  IS_EPS_BASIC:
+    korean_name: 기본주당순이익
+    english_name: Basic Earnings Per Share
+    statement:
+    - income_statement
+    category:
+    - profit
+    - per_share
+    ifrs:
+    - BasicEarningsLossPerShare
+    korean_aliases: []
   IS_GP_TOTAL:
     korean_name: 매출총이익
     english_name: Gross Profit
@@ -2447,6 +2482,7 @@ mappings:
     - Tax
 by_taxonomy:
   Assets: BS_A_TOTAL
+  BasicEarningsLossPerShare: IS_EPS_BASIC
   BondsPayable: BS_NCL_BOND
   Buildings: BS_NCA_PPE_BUILDING
   CashAndCashEquivalents: BS_CA_CASH
@@ -2488,6 +2524,8 @@ by_taxonomy:
   IntangibleAssets: BS_NCA_INTANGIBLE
   InterestExpense: IS_BANK_INT_EXPENSE
   InterestIncome: IS_NONOP_INT_INC
+  InterestPaidClassifiedAsFinancingActivities: CF_FIN_INTEREST_PAID
+  InterestPaidClassifiedAsOperatingActivities: CF_OP_INTEREST_PAID
   InterestRevenue: IS_BANK_INT_INCOME
   Inventories: BS_CA_INV
   InvestmentProperty: BS_NCA_INV_PROP
@@ -2583,6 +2621,7 @@ by_korean_name:
   기말자본액: CE_TOTAL_CLOSING
   기말현금: CF_TOTAL_CLOSING
   기말현금및현금성자산: CF_TOTAL_CLOSING
+  기본주당순이익: IS_EPS_BASIC
   기초자본: CE_TOTAL_OPENING
   기초자본액: CE_TOTAL_OPENING
   기초현금: CF_TOTAL_OPENING
@@ -2756,6 +2795,7 @@ by_korean_name:
   영업현금지출: CF_OP_PAY
   영업현금흐름: CF_OP_TOTAL
   영업활동 현금흐름: CF_OP_TOTAL
+  영업활동이자지급: CF_OP_INTEREST_PAID
   예금: BS_BANK_DEPOSIT
   예금이자비용: IS_BANK_INT_EXPENSE
   예수금: BS_BANK_DEPOSIT
@@ -2865,6 +2905,7 @@ by_korean_name:
   재료비: IS_COGS_RAW
   재무현금흐름: CF_FIN_TOTAL
   재무활동 현금흐름: CF_FIN_TOTAL
+  재무활동이자지급: CF_FIN_INTEREST_PAID
   재보험계약부채: BS_INS_REINS_RESERVE
   재보험금: BS_INS_REINS_ASSET
   재보험금(회수): IS_INS_REINS_CLAIM

@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s http://localhost:8010/*)",
+      "Bash(curl -s http://127.0.0.1:8010/*)",
+      "Bash(curl -s http://localhost:43100/*)",
+      "Bash(curl -s http://127.0.0.1:43100/*)",
+      "Bash(curl -s \"https://opendart.fss.or.kr/*\")"
+    ]
+  }
+}

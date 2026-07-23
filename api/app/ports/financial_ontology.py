@@ -76,6 +76,7 @@ class AccountMeta:
     sign: str | None
     formula: str | None
     description: str | None
+    mappings: dict[str, list[str]] = field(default_factory=dict)
 
 
 class OntologyPort(Protocol):
@@ -117,4 +118,8 @@ class OntologyPort(Protocol):
 
     def transitive_inputs(self, ratio_id: str) -> list[str]:
         """비율에 필요한 모든 기초 계정 ID(의존 계정의 depends_on 재귀 전개)."""
+        ...
+
+    def mapping(self, standard: str, ontology_id: str) -> list[str]:
+        """특정 ontology 계정에 매핑된 표준 taxonomy 요소 목록(DART/IFRS/US-GAAP)."""
         ...
