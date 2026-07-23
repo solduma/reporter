@@ -35,6 +35,7 @@ from app.db.models import (
 )
 from app.domain import analysis_scoring
 from app.schemas import ScreenerResult, ScreenerRow
+from app.services import ontology as ontology_service
 from app.services import sector_flow, sector_ingest, universe_ingest
 from reporter import sector_etf
 
@@ -82,11 +83,19 @@ def _value_score(fin, g=None) -> float | None:
 
     g(GrowthMetric)를 주면 PEG(eps_yoy) 및 흑자전환 대체점(net_status·마진 pp)까지 종목분석과
     동일하게 반영한다. 없으면 PER/PBR/EV/ROE/배당만으로 계산.
+
+    입력값은 Financial 컬럼 대신 온톨로지 정준 ID 기준 저장 비율값을 사용해, /analysis 와
+    단일 출처를 유지한다(C2).
     """
     if fin is None:
         return None
+    stored = ontology_service.financial_row_stored_ratios(fin)
     score, _ = analysis_scoring.value_score_abs(
-        fin.per, fin.pbr, fin.ev_ebitda, fin.roe, fin.div_yield,
+        stored.get("per"),
+        stored.get("pbr"),
+        stored.get("evebitda"),
+        stored.get("roe"),
+        stored.get("dividend_yield"),
         g.eps_yoy if g else None,
         g.net_status if g else None,
         g.net_margin_delta if g else None,
