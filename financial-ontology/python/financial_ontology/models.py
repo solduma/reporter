@@ -74,6 +74,7 @@ class Ratio:
     unit: str | None
     higher_is_better: str | None
     description: str | None
+    tags: tuple[str, ...] = ()
 
     @classmethod
     def from_dict(cls, raw: dict) -> Ratio:
@@ -88,6 +89,7 @@ class Ratio:
             category=raw.get("category", ""),
             unit=raw.get("unit"),
             higher_is_better=raw.get("higher_is_better"),
+            tags=tuple(raw.get("tags", [])),
             description=raw.get("description"),
         )
 

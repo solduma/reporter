@@ -292,7 +292,60 @@ def build_ratio_values(
     return values, stored_ratios
 
 
-def company_ratios(db: Session, code: str, fs_div: str = "CFS") -> list[RatioResultOut]:
+_INDUSTRY_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "bank": ("은행", "bank"),
+    "insurance": ("보험", "insurance"),
+    "securities": ("증권", "securities", "브로커"),
+}
+
+
+def _detect_financial_industry(themes: list[str]) -> str | None:
+    """judal 테마명에서 온톨로지 산업 태그(bank/insurance/securities)를 감지."""
+    lowered = [t.lower() for t in themes]
+    for industry, keywords in _INDUSTRY_KEYWORDS.items():
+        if any(kw in theme for theme in lowered for kw in keywords):
+            return industry
+    return None
+
+
+def company_ratios(db: Session, code: str, fs_div: str = "CFS", industry: str | None = None) -> list[RatioResultOut]:
+    """종목의 최신 재무제표 기준 온톨로지 비율 일괄 계산(C1+E3).
+
+    산업 태그(bank/insurance/securities)가 있으면 해당 산업 확장 비율 + 공통 비율만 계산.
+    미지정 시 종목의 judal 테마명으로 자동 감지. 태그 없는 비율은 항상 포함.
+    PER/PBR/PSR/EV/EBITDA/ROE 등 시장데이터 기반 비율은 Financial 저장값이 있으면
+    fallback 으로 채워 반환한다.
+    """
+    port = _port()
+    if industry is None:
+        # 지연 import — services ↔ company_service 순환 방지.
+        from app.services.company_service import theme_names
+
+        industry = _detect_financial_industry(theme_names(db, code))
+    ratio_ids = [
+        r.id
+        for r in port.list_ratios()
+        if industry is None or not r.tags or industry in r.tags
+    ]
+    values, stored = build_ratio_values(db, code, fs_div=fs_div)
+    if not values and fs_div == "CFS":
+        # 연결 재무제표가 없으면 별도 재무제표로 폴백(기존 latest_valuation 동작과 동일).
+        values, stored = build_ratio_values(db, code, fs_div="OFS")
+    results = port.calculate_many(ratio_ids, values)
+    return [
+        (
+            replace(
+                r,
+                value=Decimal(stored[r.ratio_id]),
+                ok=True,
+                reason="stored_fallback",
+                missing=[],
+            )
+            if r.value is None and r.ratio_id in stored
+            else r
+        )
+        for r in results
+    ]
     """종목의 최신 재무제표 기준 57개 온톨로지 비율 일괄 계산(C1).
 
     PER/PBR/PSR/EV/EBITDA/ROE 등 시장데이터 기반 비율은 Financial 저장값이 있으면

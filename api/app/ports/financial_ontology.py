@@ -56,6 +56,7 @@ class RatioMeta:
     unit: str | None
     formula: str
     required_accounts: list[str]
+    tags: list[str]
     description: str | None
 
 
