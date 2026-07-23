@@ -829,15 +829,18 @@ def company_financial_statements(
         _add_calculated_totals(bs_grouped, "총자산", ("유동자산", "비유동자산"))
         _add_calculated_totals(bs_grouped, "총부채", ("유동부채", "비유동부채"))
         _add_calculated_totals(bs_grouped, "총자본", ("자본금", "자본잉여금", "이익잉여금"))
-        # IS/CF: 일반 그룹핑
+        # IS/CIS: DART 원본 순서를 유지하고 flat 으로 노출.
+        # 손익계산서는 BS/CF 처럼 명확한 대분류-세부항목 구조가 아니라서
+        # level 0 뒤의 level 1 을 무조건 children 으로 묶으면 엉뚱한 매핑이 생긴다.
+        # level 은 프론트 들여쓰기 용도로만 사용.
         periods.append(
             FinancialStatementPeriod(
                 period=r.period,
                 prev_period=yoy_period,
                 fs_div=r.fs_div,
                 bs=_sort_items(bs_grouped, _BS_ORDER),
-                **{"is": _sort_items(_group_items(is_items), _IS_ORDER)},
-                cis=_sort_items(_group_items(cis_items), _IS_ORDER),
+                **{"is": _sort_items(is_items, _IS_ORDER)},
+                cis=_sort_items(cis_items, _IS_ORDER),
                 cf=_sort_items(_group_items(cf_items), _CF_ORDER),
                 equity=_sort_items(_group_items(equity_items), _BS_ORDER),
             )
