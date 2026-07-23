@@ -18,6 +18,7 @@ from xml.etree import ElementTree
 import requests
 
 from app.adapters.dart import throttle as dart_throttle
+from app.adapters.financial_ontology import get_ontology_port
 from app.domain.disclosure import Disclosure, OwnershipChange  # 하위호환 재노출(정의는 domain)
 
 logger = logging.getLogger(__name__)
@@ -381,36 +382,40 @@ class IncomeEquity:
         return (self.borrowings or 0.0) - (self.cash or 0.0)
 
 
+def _dart_account_ids(*ontology_ids: str) -> set[str]:
+    """ontology 정준 ID 에 매핑된 DART XBRL account_id 집합을 반환한다.
+
+    financial-ontology 의 dart 매핑이 단일 진실원(SOT). 누락 ontology ID 는 경고 후
+    빈 집합 — 호출측이 기존 동작 폴백하거나 결측 처리.
+    """
+    port = get_ontology_port()
+    out: set[str] = set()
+    for oid in ontology_ids:
+        terms = port.mapping("dart", oid)
+        if not terms:
+            logger.warning("DART ontology mapping missing: %s", oid)
+        out.update(terms)
+    return out
+
+
 # IFRS 표준 account_id 로 매칭한다(계정명은 회사마다 편차가 커 신뢰 불가).
-# 과거(≤2018경) 공시는 구 태그(ifrs_*, 언더스코어), 최근은 ifrs-full_* (하이픈)을 쓴다 — 둘 다 본다.
-_AID_REVENUE = {"ifrs-full_Revenue", "ifrs_Revenue"}
-_AID_OP = {"dart_OperatingIncomeLoss", "ifrs-full_ProfitLossFromOperatingActivities"}
-_AID_NI_OWNERS = {
-    "ifrs-full_ProfitLossAttributableToOwnersOfParent",
-    "ifrs_ProfitLossAttributableToOwnersOfParent",
-}
-_AID_NI = {"ifrs-full_ProfitLoss", "ifrs_ProfitLoss"}  # 지배주주 항목 없을 때 폴백
-_AID_EPS = {"ifrs-full_BasicEarningsLossPerShare", "ifrs_BasicEarningsLossPerShare"}
-_AID_EQ_OWNERS = {
-    "ifrs-full_EquityAttributableToOwnersOfParent",
-    "ifrs_EquityAttributableToOwnersOfParent",
-}
-_AID_EQ = {"ifrs-full_Equity", "ifrs_Equity"}  # 지배주주 지분 없을 때 폴백
+# 과거(≤2018경) 공시는 구 태그(ifrs_*, 언더스코어), 최근은 ifrs-full_* (하이픈)을 쓴다 —
+# 둘 다 ontology dart mapping 에 포함되어 있어 별도 하드코딩 불필요.
+_AID_REVENUE = _dart_account_ids("IS_REV_TOTAL")
+_AID_OP = _dart_account_ids("IS_OP_INCOME")
+_AID_NI_OWNERS = _dart_account_ids("IS_NI_PARENT")
+_AID_NI = _dart_account_ids("IS_NI_TOTAL")  # 지배주주 항목 없을 때 폴백
+_AID_EPS = _dart_account_ids("IS_EPS_BASIC")
+_AID_EQ_OWNERS = _dart_account_ids("BS_EQ_PARENT")
+_AID_EQ = _dart_account_ids("BS_EQ_TOTAL")  # 지배주주 지분 없을 때 폴백
 # CAPEX: 유형·무형자산 취득(CF 투자활동). 회사마다 유출 부호가 양/음 혼재라 abs 로 합산.
-_AID_CAPEX = {
-    "ifrs-full_PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities",
-    "ifrs_PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities",
-    "ifrs-full_PurchaseOfIntangibleAssetsClassifiedAsInvestingActivities",
-    "ifrs_PurchaseOfIntangibleAssetsClassifiedAsInvestingActivities",
-    "ifrs-full_PurchaseOfIntangibleAssetsOtherThanGoodwill",
-}
+_AID_CAPEX = _dart_account_ids("CF_INV_PPE", "CF_INV_INTANG")
 # 실효세율·부채비용 실측 계정.
-_AID_TAX = {"ifrs-full_IncomeTaxExpenseContinuingOperations", "ifrs_IncomeTaxExpenseContinuingOperations"}
-_AID_PRETAX = {"ifrs-full_ProfitLossBeforeTax", "ifrs_ProfitLossBeforeTax"}
-_AID_INTEREST = {"dart_InterestExpenseFinanceExpense", "ifrs-full_InterestExpense", "ifrs_InterestExpense"}
+_AID_TAX = _dart_account_ids("IS_TAX_TOTAL")
+_AID_PRETAX = _dart_account_ids("IS_PBT_TOTAL")
+_AID_INTEREST = _dart_account_ids("IS_NONOP_INT_EXP")
 # 대형사 폴백: 손익에 이자비용 계정이 없으면(삼성 등) CF 이자지급으로 근사.
-_AID_INTEREST_PAID_CF = {"ifrs-full_InterestPaidClassifiedAsOperatingActivities",
-                         "ifrs-full_InterestPaidClassifiedAsFinancingActivities"}
+_AID_INTEREST_PAID_CF = _dart_account_ids("CF_OP_INTEREST_PAID", "CF_FIN_INTEREST_PAID")
 
 
 def fetch_income_and_equity(
