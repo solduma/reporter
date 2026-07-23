@@ -635,6 +635,7 @@ def company_financial_statements(
         "자본총계": 12,
     }
     _IS_ORDER: dict[str, int] = {
+        "매출액": 0,
         "수익(매출액)": 0,
         "매출원가": 1,
         "매출총이익": 2,
@@ -707,6 +708,117 @@ def company_financial_statements(
             if item.children:
                 item.children = _sort_items(item.children, order)
         return sorted(items, key=lambda i: (_sort_key(i.name, order), i.name))
+
+    def _group_is_items(items: list[FinancialStatementItem]) -> list[FinancialStatementItem]:
+        """account_id 기반으로 IS/CIS 항목을 표준 그룹에 재분류.
+
+        DART fnlttSinglAcntAll 은 손익계산서의 계층 정보를 주지 않는다.
+        이름 기반 grouping 은 엉뚱한 매핑(EPS가 매출원가 아래)을 만들기 때문에
+        IFRS XBRL account_id 로 알려진 parent-child 관계를 활용해 그룹을 만든다.
+        그룹 내에서만 children 으로 묶고, 매핑되지 않는 항목은 flat 하게 남긴다.
+        그룹에 항목이 1개뿐이면 synthetic parent 를 만들지 않고 해당 항목을 level 0 으로 승격.
+        """
+        _IS_GROUPS: dict[str, tuple[str, ...]] = {
+            "수익(매출액)": ("ifrs-full_Revenue",),
+            "매출원가": ("ifrs-full_CostOfSales",),
+            "매출총이익": ("ifrs-full_GrossProfit",),
+            "판매비와관리비": ("dart_TotalSellingGeneralAdministrativeExpenses",),
+            "영업이익": (
+                "dart_OperatingIncomeLoss",
+                "ifrs-full_ProfitLossFromOperations",
+            ),
+            "영업외수익": ("ifrs-full_FinanceIncome", "dart_OtherGains"),
+            "영업외비용": ("ifrs-full_FinanceCosts", "dart_OtherLosses"),
+            "법인세비용차감전순이익": ("ifrs-full_ProfitLossBeforeTax",),
+            "법인세비용": (
+                "ifrs-full_IncomeTaxExpenseContinuingOperations",
+                "ifrs-full_IncomeTaxExpense",
+            ),
+            "당기순이익": (
+                "ifrs-full_ProfitLoss",
+                "ifrs-full_ProfitLossFromContinuingOperations",
+                "ifrs-full_ProfitLossAttributableToOwnersOfParent",
+                "ifrs-full_ProfitLossAttributableToNoncontrollingInterests",
+                "ifrs-full_ProfitLossFromContinuingOperationsAttributableToNoncontrollingInterests",
+            ),
+            "총포괄손익": (
+                "ifrs-full_ComprehensiveIncome",
+                "ifrs-full_OtherComprehensiveIncome",
+                "ifrs-full_GainsLossesOnFinancialAssetsMeasuredAtFairValueThroughOtherComprehensiveIncomeNetOfTax",
+                "ifrs-full_OtherComprehensiveIncomeThatWillNotBeReclassifiedToProfitOrLossNetOfTax",
+                "ifrs-full_OtherComprehensiveIncomeThatWillBeReclassifiedToProfitOrLossNetOfTax",
+                "ifrs-full_GainsLossesOnExchangeDifferencesOnTranslationNetOfTax",
+                "ifrs-full_OtherComprehensiveIncomeNetOfTaxGainsLossesOnRemeasurementsOfDefinedBenefitPlans",
+                "ifrs-full_ComprehensiveIncomeAttributableToOwnersOfParent",
+                "ifrs-full_ComprehensiveIncomeAttributableToNoncontrollingInterests",
+                "ifrs-full_ShareOfOtherComprehensiveIncome",
+                "ifrs-full_GainsLossesOnCashFlowHedgesNetOfTax",
+            ),
+            "EPS": (
+                "ifrs-full_BasicEarningsLossPerShare",
+                "ifrs-full_DilutedEarningsLossPerShare",
+                "ifrs-full_ProfitLossFromContinuingOperationsAttributableToOrdinaryEquityHoldersOfParentEntityIncludingDilutiveEffects",
+            ),
+        }
+        # account_id 가 비어있는 항목(비표준 태그)은 이름으로 그룹을 찾는다.
+        _NAME_GROUPS: dict[str, tuple[str, ...]] = {
+            "영업이익": ("지분법",),
+        }
+
+        def _group_label(item: FinancialStatementItem) -> str | None:
+            for label, patterns in _IS_GROUPS.items():
+                if any(item.account_id.startswith(p) for p in patterns):
+                    return label
+            for label, name_patterns in _NAME_GROUPS.items():
+                if any(p in item.name for p in name_patterns):
+                    return label
+            return None
+
+        grouped: dict[str, list[FinancialStatementItem]] = {label: [] for label in _IS_GROUPS}
+        ungrouped: list[FinancialStatementItem] = []
+        for item in items:
+            label = _group_label(item)
+            if label is None:
+                ungrouped.append(item)
+                continue
+            grouped[label].append(item)
+
+        result: list[FinancialStatementItem] = []
+        for label, members in grouped.items():
+            if not members:
+                continue
+            if len(members) == 1:
+                # 항목 1개뿐이면 synthetic parent 없이 해당 항목을 level 0 으로 승격
+                sole = members[0]
+                sole.level = 0
+                result.append(sole)
+                continue
+            parent = FinancialStatementItem(
+                account_id="",
+                name=label,
+                amount=None,
+                level=0,
+                ontology_id=ontology_service.normalize([label])[0].id,
+            )
+            # 합계 성격 그룹(영업이익·당기순이익·총포괄손익·EPS)에서만 대표 항목(그룹의
+            # 첫 번째 account_id prefix)을 parent amount 로 승격하고 children 에서는
+            # 중복 노출을 피한다. 영업외수익/비용 등 breakdown 그룹은 children 을 모두
+            # 노출하고 parent amount 는 null 로 둔다.
+            _TOTAL_LIKE_GROUPS = {"영업이익", "당기순이익", "총포괄손익", "EPS"}
+            children = list(members)
+            if label in _TOTAL_LIKE_GROUPS:
+                representative_prefix = _IS_GROUPS[label][0]
+                for idx, m in enumerate(members):
+                    if m.account_id.startswith(representative_prefix):
+                        parent.amount = m.amount
+                        parent.prev_amount = m.prev_amount
+                        children.pop(idx)
+                        break
+            for m in children:
+                m.level = 1
+                parent.children.append(m)
+            result.append(parent)
+        return result + ungrouped
 
     def _group_items(flat: list[FinancialStatementItem]) -> list[FinancialStatementItem]:
         """level 0 항목 아래 level 1 항목을 children 으로 묶는다."""
@@ -829,18 +941,17 @@ def company_financial_statements(
         _add_calculated_totals(bs_grouped, "총자산", ("유동자산", "비유동자산"))
         _add_calculated_totals(bs_grouped, "총부채", ("유동부채", "비유동부채"))
         _add_calculated_totals(bs_grouped, "총자본", ("자본금", "자본잉여금", "이익잉여금"))
-        # IS/CIS: DART 원본 순서를 유지하고 flat 으로 노출.
-        # 손익계산서는 BS/CF 처럼 명확한 대분류-세부항목 구조가 아니라서
-        # level 0 뒤의 level 1 을 무조건 children 으로 묶으면 엉뚱한 매핑이 생긴다.
-        # level 은 프론트 들여쓰기 용도로만 사용.
+        # IS/CIS: account_id 기반으로 표준 그룹에 재분류.
+        # DART 는 손익계산서 계층을 주지 않으므로, IFRS XBRL account_id 로 알려진
+        # 관계를 활용해 금융수익/영업외손익, 지배/비지배, EPS 등을 올바른 그룹 아래로 묶는다.
         periods.append(
             FinancialStatementPeriod(
                 period=r.period,
                 prev_period=yoy_period,
                 fs_div=r.fs_div,
                 bs=_sort_items(bs_grouped, _BS_ORDER),
-                **{"is": _sort_items(is_items, _IS_ORDER)},
-                cis=_sort_items(cis_items, _IS_ORDER),
+                **{"is": _sort_items(_group_is_items(is_items), _IS_ORDER)},
+                cis=_sort_items(_group_is_items(cis_items), _IS_ORDER),
                 cf=_sort_items(_group_items(cf_items), _CF_ORDER),
                 equity=_sort_items(_group_items(equity_items), _BS_ORDER),
             )
