@@ -7,7 +7,7 @@ metadata:
   generated_from: ontology/*.yaml
   generated: '2026-07-22'
   account_count: 187
-  taxonomy_concept_count: 73
+  taxonomy_concept_count: 79
 mappings:
   BS_A_TOTAL:
     korean_name: 자산총계
@@ -1895,6 +1895,7 @@ mappings:
     - cogs
     usgaap:
     - CostOfGoodsAndServicesSold
+    - CostOfRevenue
     korean_aliases:
     - 제품판매원가
     - COGS
@@ -1906,7 +1907,8 @@ mappings:
     category:
     - profit
     - gross_profit
-    usgaap: []
+    usgaap:
+    - GrossProfit
     korean_aliases:
     - 매출총이익(그로스마진)
   IS_INS_ACQUISITION:
@@ -2199,7 +2201,8 @@ mappings:
     - expense
     - opex
     - gna
-    usgaap: []
+    usgaap:
+    - GeneralAndAdministrativeExpense
     korean_aliases:
     - 관리비용
     - G&A
@@ -2240,7 +2243,8 @@ mappings:
     - expense
     - opex
     - selling
-    usgaap: []
+    usgaap:
+    - SellingAndMarketingExpense
     korean_aliases:
     - 판매비용
   IS_OPEX_TOTAL:
@@ -2251,7 +2255,8 @@ mappings:
     category:
     - expense
     - opex
-    usgaap: []
+    usgaap:
+    - SellingGeneralAndAdministrativeExpense
     korean_aliases:
     - 판관비
     - SG&A
@@ -2263,7 +2268,8 @@ mappings:
     category:
     - profit
     - operating_profit
-    usgaap: []
+    usgaap:
+    - OperatingIncomeLoss
     korean_aliases:
     - 영업이익
     - EBIT(근사)
@@ -2450,13 +2456,16 @@ by_taxonomy:
   CommonStockValue: BS_EQ_CS
   ComprehensiveIncomeNetOfTax: CI_COMP_TOTAL
   CostOfGoodsAndServicesSold: IS_COGS_TOTAL
+  CostOfRevenue: IS_COGS_TOTAL
   DeferredTaxAssetsNet: BS_NCA_DTA
   DeferredTaxLiabilitiesNet: BS_NCL_DTL
   Deposits: BS_BANK_DEPOSIT
   FeeExpense: IS_BANK_FEE_EXPENSE
   FeeIncome: IS_BANK_FEE_INCOME
   ForeignCurrencyTranslationAdjustment: CI_R_FX
+  GeneralAndAdministrativeExpense: IS_OPEX_ADMIN
   Goodwill: BS_NCA_GW
+  GrossProfit: IS_GP_TOTAL
   IncomeLossFromContinuingOperationsBeforeIncomeTaxes: IS_PBT_TOTAL
   IncomeLossFromEquityMethodInvestments: IS_NONOP_EQ_METHOD
   IncomeTaxExpenseBenefit: IS_TAX_TOTAL
@@ -2483,6 +2492,7 @@ by_taxonomy:
   NetCashProvidedByUsedInOperatingActivities: CF_OP_TOTAL
   NetIncomeLoss: IS_NI_PARENT
   NetIncomeLossAttributableToNoncontrollingInterest: IS_NI_NCI
+  OperatingIncomeLoss: IS_OP_INCOME
   OtherAssetsCurrent: BS_CA_OTHER
   OtherAssetsNoncurrent: BS_NCA_OTHER
   OtherLiabilitiesCurrent: BS_CL_OTHER
@@ -2503,6 +2513,8 @@ by_taxonomy:
   Revenues: IS_REV_TOTAL
   RightOfUseAssets: BS_NCA_ROU
   SalesRevenueGoodsNet: IS_REV_SALES
+  SellingAndMarketingExpense: IS_OPEX_SELLING
+  SellingGeneralAndAdministrativeExpense: IS_OPEX_TOTAL
   ShortTermBorrowings: BS_CL_ST_BORROW
   StockholdersEquity: BS_EQ_PARENT
   TradingAccountGainsLosses: IS_SEC_TRADING_GAIN
