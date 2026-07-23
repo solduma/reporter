@@ -3,12 +3,19 @@
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 
-import { fetchChart, fetchUsDisclosures, fetchUsFinancials, fetchUsQuote } from "@/lib/api";
+import {
+  fetchChart,
+  fetchUsDisclosures,
+  fetchUsFinancials,
+  fetchUsFinancialsOntology,
+  fetchUsQuote,
+} from "@/lib/api";
 import type {
   CandlePoint,
   ChartTimeframe,
   UsDisclosure,
   UsFinancial,
+  UsFinancialOntologyItem,
   UsQuote,
 } from "@/lib/types";
 
@@ -40,6 +47,24 @@ function num(v: number | null, suffix = ""): string {
   return v === null ? "—" : `${v}${suffix}`;
 }
 
+function fmtOntologyValue(item: UsFinancialOntologyItem): string {
+  const v = item.value;
+  if (v === null) return "—";
+  switch (item.key) {
+    case "ttm_revenue":
+    case "ttm_net_income":
+    case "ttm_operating_income":
+    case "equity":
+      return usdShort(v);
+    case "ttm_eps":
+      return `$${v}`;
+    case "roe":
+      return `${v}%`;
+    default:
+      return num(v);
+  }
+}
+
 export default function UsCompanyPage({ params }: { params: { ticker: string } }) {
   const ticker = params.ticker.toUpperCase();
   const [quote, setQuote] = useState<UsQuote | null>(null);
@@ -48,6 +73,7 @@ export default function UsCompanyPage({ params }: { params: { ticker: string } }
   const [tf, setTf] = useState<ChartTimeframe>("day");
   const [disclosures, setDisclosures] = useState<UsDisclosure[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [ontologyItems, setOntologyItems] = useState<UsFinancialOntologyItem[]>([]);
 
   // 시세 + 재무(각자 독립 로드). 재무는 SEC 첫 계산이 느릴 수 있어 시세를 먼저 보여준다.
   useEffect(() => {
@@ -60,6 +86,11 @@ export default function UsCompanyPage({ params }: { params: { ticker: string } }
       .then((f) => active && setFin(f))
       .catch(() => {
         /* 재무 없음(SEC 미등록)은 치명적 아님 — 차트·시세만 표시 */
+      });
+    void fetchUsFinancialsOntology(ticker)
+      .then((o) => active && setOntologyItems(o.items))
+      .catch(() => {
+        /* 온톨로지 매핑 실패 시 기존 재무 카드로만 표시 */
       });
     void fetchUsDisclosures(ticker)
       .then((d) => active && setDisclosures(d))
@@ -130,6 +161,26 @@ export default function UsCompanyPage({ params }: { params: { ticker: string } }
           ))}
         </div>
       </section>
+
+      {ontologyItems.length > 0 ? (
+        <section className={styles.card}>
+          <div className={styles.cardHead}>
+            <h2 className={styles.sectionTitle}>온톨로지 정규화 지표</h2>
+          </div>
+          <div className={styles.ontologyTable}>
+            {ontologyItems.map((item) => (
+              <div key={item.key} className={styles.ontologyRow}>
+                <span className={styles.ontologyKey}>{item.key}</span>
+                <span className={styles.ontologyLabel}>{item.label}</span>
+                <span className={styles.ontologyValue}>{fmtOntologyValue(item)}</span>
+                {item.description ? (
+                  <span className={styles.ontologyDescription}>{item.description}</span>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <section className={styles.card}>
         <div className={styles.cardHead}>

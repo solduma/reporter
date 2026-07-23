@@ -572,6 +572,22 @@ class UsFinancialOut(BaseModel):
     roe: float | None  # %
 
 
+class UsFinancialOntologyItem(BaseModel):
+    """US 재무 컬럼의 온톨로지 정규화 결과(F1)."""
+
+    key: str
+    ontology_id: str
+    kind: str  # account | ratio
+    value: float | None
+    label: str
+    description: str | None = None
+
+
+class UsFinancialOntologyOut(BaseModel):
+    ticker: str
+    items: list[UsFinancialOntologyItem]
+
+
 class UsQuoteOut(BaseModel):
     ticker: str
     naver_symbol: str  # 차트 조회용(/api/chart?market=US)

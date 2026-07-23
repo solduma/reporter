@@ -23,7 +23,7 @@ from app.ports.financial_ontology import (
 )
 
 if TYPE_CHECKING:
-    from app.db.models import Financial
+    from app.db.models import Financial, UsFinancial
 
 
 # Financial ORM 컬럼 → 온톨로지 정준 ID 매핑 메타(A3).
@@ -46,6 +46,21 @@ FINANCIAL_COLUMN_ONTOLOGY: dict[str, tuple[str, str]] = {
     "psr": ("psr", "ratio"),
     "ev_ebitda": ("evebitda", "ratio"),
     "div_yield": ("dividend_yield", "ratio"),
+}
+
+# UsFinancial ORM 컬럼 → 온톨로지 정준 ID 매핑 메타(F1).
+# SEC EDGAR companyfacts 로부터 도출된 US-GAAP 기반 지표를 동일한 ontology ID 체계로 정규화.
+# 시가총액·주식수는 외부/주당 데이터로 ontology 계정에 직접 대응하지 않아 제외.
+US_FINANCIAL_COLUMN_ONTOLOGY: dict[str, tuple[str, str]] = {
+    "ttm_revenue": ("IS_REV_TOTAL", "account"),
+    "ttm_net_income": ("IS_NI_PARENT", "account"),
+    "ttm_operating_income": ("IS_OP_INCOME", "account"),
+    "ttm_eps": ("eps", "ratio"),
+    "equity": ("BS_EQ_PARENT", "account"),
+    "per": ("per", "ratio"),
+    "pbr": ("pbr", "ratio"),
+    "psr": ("psr", "ratio"),
+    "roe": ("roe", "ratio"),
 }
 
 
@@ -76,6 +91,40 @@ def financial_row_stored_ratios(row: Financial) -> dict[str, float]:
         if v is not None:
             values[ratio_id] = float(v)
     return values
+
+
+def us_financial_ontology(row: UsFinancial) -> list[dict[str, object]]:
+    """UsFinancial 행을 온톨로지 정준 ID/라벨/값으로 변환(F1).
+
+    반환 항목: {key, ontology_id, kind, value, label, description}. ontology_id 는
+    US-GAAP 계정명·비율과 동일한 KR/IFRS/US-GAAP 교차표준 ID. label·description 은
+    온톨로지 메타에서 조회하며, 결측 시 key 를 label 로 fallback 한다.
+    """
+    from app.db.models import UsFinancial
+
+    if not isinstance(row, UsFinancial):
+        return []
+
+    ont_ids = [ont_id for ont_id, _kind in US_FINANCIAL_COLUMN_ONTOLOGY.values()]
+    label_map, _ = metric_info(ont_ids)
+    info_by_id = {it["key"]: it for it in label_map}
+
+    out: list[dict[str, object]] = []
+    for col, (ont_id, kind) in US_FINANCIAL_COLUMN_ONTOLOGY.items():
+        raw = getattr(row, col, None)
+        value = float(raw) if raw is not None else None
+        info = info_by_id.get(ont_id, {})
+        out.append(
+            {
+                "key": col,
+                "ontology_id": ont_id,
+                "kind": kind,
+                "value": value,
+                "label": info.get("term") or col,
+                "description": info.get("description"),
+            }
+        )
+    return out
 
 
 def _port() -> OntologyPort:

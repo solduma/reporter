@@ -10,7 +10,14 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from sqlalchemy.orm import Session
 
 from app.db.session import get_session
-from app.schemas import UsDisclosureOut, UsFinancialOut, UsQuoteOut, UsScreenerResult
+from app.schemas import (
+    UsDisclosureOut,
+    UsFinancialOntologyOut,
+    UsFinancialOut,
+    UsQuoteOut,
+    UsScreenerResult,
+)
+from app.services import ontology as ontology_service
 from app.services import us_company_service, us_disclosure_ingest, us_screener_service
 
 router = APIRouter(prefix="/api/us/companies", tags=["us"])
@@ -68,6 +75,21 @@ def us_financials(
         ttm_operating_income=row.ttm_operating_income, ttm_eps=row.ttm_eps,
         equity=row.equity, shares=row.shares, market_cap=row.market_cap,
         per=row.per, pbr=row.pbr, psr=row.psr, roe=row.roe,
+    )
+
+
+@router.get("/{ticker}/financials/ontology", response_model=UsFinancialOntologyOut)
+def us_financials_ontology(
+    ticker: str = Path(..., pattern=r"^[A-Za-z.\-]{1,10}$"),
+    db: Session = Depends(get_session),
+) -> UsFinancialOntologyOut:
+    """US 종목 재무 지표를 온톨로지 정준 ID/라벨로 정규화(F1)."""
+    row = us_company_service.get_financials(db, ticker)
+    if row is None:
+        raise HTTPException(status_code=404, detail="US 종목 재무 없음(SEC 미등록)")
+    return UsFinancialOntologyOut(
+        ticker=row.ticker,
+        items=ontology_service.us_financial_ontology(row),
     )
 
 
