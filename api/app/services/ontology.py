@@ -126,3 +126,36 @@ def accounts(statement: str | None = None) -> list[AccountMeta]:
 
 def account(account_id: str) -> AccountMeta | None:
     return _port().account(account_id)
+
+
+def metric_info(keys: list[str]) -> tuple[list[dict[str, str | None]], float]:
+    """Financial 컬럼 key → 온톨로지 정준 라벨(term)·설명(description) 조회(B1 라벨 단일 출처).
+
+    key 가 FINANCIAL_COLUMN_ONTOLOGY 에 있으면 해당 account/ratio 메타에서 term·description
+    을 가져온다. 없거나 온톨로지에 미매칭이면 null. coverage = description 확보된 key 비율.
+    """
+    port = _port()
+    ratio_map: dict[str, RatioMeta] | None = None
+    out: list[dict[str, str | None]] = []
+    resolved = 0
+    for key in keys:
+        entry = FINANCIAL_COLUMN_ONTOLOGY.get(key)
+        if not entry:
+            out.append({"key": key, "ontology_id": None, "term": None, "description": None})
+            continue
+        ont_id, kind = entry
+        if kind == "account":
+            meta = port.account(ont_id)
+            term = meta.korean_name if meta else None
+            desc = meta.description if meta else None
+        else:  # ratio
+            if ratio_map is None:
+                ratio_map = {r.id: r for r in port.list_ratios()}
+            meta = ratio_map.get(ont_id)
+            term = meta.name if meta else None
+            desc = meta.description if meta else None
+        out.append({"key": key, "ontology_id": ont_id, "term": term, "description": desc})
+        if desc is not None:
+            resolved += 1
+    coverage = resolved / len(keys) if keys else 0.0
+    return out, coverage
