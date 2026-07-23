@@ -127,6 +127,76 @@ def us_financial_ontology(row: UsFinancial) -> list[dict[str, object]]:
     return out
 
 
+def us_financial_ratio_validation(row: UsFinancial) -> list[dict[str, object]]:
+    """UsFinancial 저장값과 온톨로지 RatioEngine 계산값을 교차 검증(F2).
+
+    US-GAAP TTM 값(USD)을 그대로 ontology 계정값으로 사용하고, market_cap/shares_outstanding
+    을 외부 입력으로 넘겨 per/pbr/psr/roe/eps 를 재계산한다. 저장된 비율값과 비교해
+    {ratio_id, stored, calculated, diff, ok, reason} 형태로 반환.
+    """
+    from app.db.models import UsFinancial
+
+    if not isinstance(row, UsFinancial):
+        return []
+
+    values: dict[str, object] = {}
+    for col, (ont_id, kind) in US_FINANCIAL_COLUMN_ONTOLOGY.items():
+        if kind != "account":
+            continue
+        raw = getattr(row, col, None)
+        if raw is not None:
+            values[ont_id] = float(raw)
+
+    if row.market_cap is not None:
+        values["market_cap"] = float(row.market_cap)
+    if row.shares is not None:
+        values["shares_outstanding"] = float(row.shares)
+
+    # 비교 대상이 되는 저장 비율 (eps/per/pbr/psr/roe).
+    stored_ratios = {
+        ratio_id: float(getattr(row, col, None))
+        for col, (ratio_id, kind) in US_FINANCIAL_COLUMN_ONTOLOGY.items()
+        if kind == "ratio" and getattr(row, col, None) is not None
+    }
+
+    ratio_ids = list(stored_ratios)
+    if not ratio_ids:
+        return []
+
+    calculated = calculate_ratios(ratio_ids, values)
+    results: list[dict[str, object]] = []
+    for r in calculated:
+        stored = stored_ratios.get(r.ratio_id)
+        calc_val = float(r.value) if r.value is not None else None
+        diff = None
+        ok = False
+        reason = r.reason
+        if stored is not None and calc_val is not None:
+            # 백분율(roe, eps 단위)과 배수(per/pbr/psr) 모두 허용 오차 0.5% 이내.
+            denom = abs(stored) if stored != 0 else 1.0
+            diff = round((calc_val - stored) / denom * 100, 2)
+            ok = abs(diff) <= 0.5
+            if not ok:
+                reason = f"diff={diff}%"
+        elif stored is None:
+            reason = "no_stored"
+            ok = True  # 저장값이 없으면 비교 불가, 계산 자체는 문제 없음.
+        elif calc_val is None:
+            reason = r.reason or "calc_missing"
+
+        results.append(
+            {
+                "ratio_id": r.ratio_id,
+                "stored": stored,
+                "calculated": calc_val,
+                "diff_pct": diff,
+                "ok": ok,
+                "reason": reason,
+            }
+        )
+    return results
+
+
 def _port() -> OntologyPort:
     return get_ontology_port()
 

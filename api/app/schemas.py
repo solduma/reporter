@@ -588,6 +588,22 @@ class UsFinancialOntologyOut(BaseModel):
     items: list[UsFinancialOntologyItem]
 
 
+class UsFinancialValidationItem(BaseModel):
+    """US 재무 저장 비율 vs 온톨로지 재계산 비교(F2)."""
+
+    ratio_id: str
+    stored: float | None
+    calculated: float | None
+    diff_pct: float | None  # %
+    ok: bool
+    reason: str = ""
+
+
+class UsFinancialValidationOut(BaseModel):
+    ticker: str
+    items: list[UsFinancialValidationItem]
+
+
 class UsQuoteOut(BaseModel):
     ticker: str
     naver_symbol: str  # 차트 조회용(/api/chart?market=US)

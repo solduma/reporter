@@ -9,11 +9,13 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from sqlalchemy.orm import Session
 
+from app import schemas
 from app.db.session import get_session
 from app.schemas import (
     UsDisclosureOut,
     UsFinancialOntologyOut,
     UsFinancialOut,
+    UsFinancialValidationOut,
     UsQuoteOut,
     UsScreenerResult,
 )
@@ -90,6 +92,24 @@ def us_financials_ontology(
     return UsFinancialOntologyOut(
         ticker=row.ticker,
         items=ontology_service.us_financial_ontology(row),
+    )
+
+
+@router.get("/{ticker}/financials/validation", response_model=UsFinancialValidationOut)
+def us_financials_validation(
+    ticker: str = Path(..., pattern=r"^[A-Za-z.\-]{1,10}$"),
+    db: Session = Depends(get_session),
+) -> UsFinancialValidationOut:
+    """US 종목 저장 비율 vs 온톨로지 RatioEngine 재계산 교차 검증(F2)."""
+    row = us_company_service.get_financials(db, ticker)
+    if row is None:
+        raise HTTPException(status_code=404, detail="US 종목 재무 없음(SEC 미등록)")
+    return UsFinancialValidationOut(
+        ticker=row.ticker,
+        items=[
+            schemas.UsFinancialValidationItem(**item)
+            for item in ontology_service.us_financial_ratio_validation(row)
+        ],
     )
 
 
