@@ -240,10 +240,6 @@ def _upsert_financial(db: Session, code: str, period: str, fs_div: str = "CFS", 
     db.execute(stmt)
 
 
-# ── 야간 점진 백필 (재개 가능) ─────────────────────────────────────────
-# 종목당 ~40분기 DART 콜 x dart_throttle(0.34s) ≈ 14s/종목. per_run=150 이면 하룻밤 ~35분,
-# 일일 콜 ~6.3k(2만 한도 내). 스로틀이 IP 밴을 막으므로 큰 per_run 으로 몰아치지 않는다.
-_PER_RUN = 150
 
 
 def _universe_codes(db: Session) -> list[str]:
@@ -316,6 +312,12 @@ def _reconcile_markers(db: Session, codes: list[str], done: set[str]) -> int:
     return len(restore)
 
 
+# ── 야간 점진 백필 (재개 가능) ─────────────────────────────────────────
+# 종목당 ~40분기 DART 콜 x dart_throttle(0.34s) ≈ 14s/종목. per_run=100 이면 하룻밤 ~25분,
+# 일일 콜 ~4k~6k(2만 한도 내). soft budget(14k)을 남겨 정기공시·온디맨드 조회를 보호한다.
+_PER_RUN = 100
+
+
 def run_backfill_progressive(
     db: Session, settings: Settings | None = None, per_run: int = _PER_RUN
 ) -> dict:
@@ -370,4 +372,110 @@ def run_backfill_progressive(
     return {
         "done": done, "failed": failed, "reconciled": reconciled,
         "remaining": remaining, "quota_hit": quota_hit, "budget_hit": budget_hit,
+    }
+
+
+_OFS_STATEMENTS_DOMAIN = "ofs_statements"
+
+
+def _ofs_done_codes(db: Session) -> set[str]:
+    return set(
+        db.scalars(select(SyncState.stock_code).where(SyncState.domain == _OFS_STATEMENTS_DOMAIN)).all()
+    )
+
+
+def _ofs_pending_codes(db: Session, codes: list[str]) -> list[str]:
+    """OFS FinancialStatement 가 이미 있는 종목은 제외."""
+    done = _ofs_done_codes(db)
+    has_ofs = set(
+        db.scalars(
+            select(FinancialStatement.stock_code)
+            .where(
+                FinancialStatement.stock_code.in_(codes),
+                FinancialStatement.fs_div == "OFS",
+            )
+            .distinct()
+        ).all()
+    )
+    return [c for c in codes if c not in done and c not in has_ofs]
+
+
+def backfill_ofs_stock(db: Session, settings: Settings, code: str) -> bool:
+    """한 종목의 10년 별도재무제표(FinancialStatement.fs_div='OFS')를 수집·저장한다."""
+    corp_code = db.scalar(select(CorpCodeMap.corp_code).where(CorpCodeMap.stock_code == code))
+    if not corp_code:
+        return True
+
+    today = datetime.now(UTC).date()
+    yqs = _target_year_quarters(today)
+    updated = 0
+    with requests.Session() as session:
+        for year, q in yqs:
+            full = dart.fetch_full_statements_ofs(settings.dart_api_key, corp_code, year, q, session)
+            if not full:
+                continue
+            ontology_service.enrich_with_ontology_id(full)
+            period = _period_str(year, q)
+            stmt_insert = insert(FinancialStatement).values(
+                stock_code=code, period=period, fs_div="OFS", data=full,
+            )
+            stmt_insert = stmt_insert.on_conflict_do_update(
+                constraint="uq_financial_statement",
+                set_={"data": stmt_insert.excluded.data, "updated_at": func.now()},
+            )
+            db.execute(stmt_insert)
+            updated += 1
+
+    if updated:
+        db.commit()
+        logger.info("ofs statements backfill %s: %d periods", code, updated)
+    return True
+
+
+def run_ofs_statements_backfill(
+    db: Session, settings: Settings | None = None, per_run: int = _PER_RUN
+) -> dict:
+    """유니버스 종목의 별도재무제표를 점진 백필한다(하룻밤 per_run 개, 재개 가능)."""
+    settings = settings or get_settings()
+    if not settings.dart_api_key:
+        logger.warning("no DART key; skip ofs statements backfill")
+        return {"done": 0, "failed": 0, "remaining": 0}
+    codes = _universe_codes(db)
+    if not codes:
+        return {"done": 0, "failed": 0, "remaining": 0}
+
+    pending = _ofs_pending_codes(db, codes)
+    batch = pending[:per_run]
+    done = failed = 0
+    quota_hit = budget_hit = False
+    for code in batch:
+        if dart_throttle.backfill_budget_exhausted():
+            budget_hit = True
+            logger.info("ofs statements backfill: 백필 예산 소진 — 조기 중단(%d 종목 처리 후)", done)
+            break
+        try:
+            if backfill_ofs_stock(db, settings, code):
+                sync_state.mark(db, _OFS_STATEMENTS_DOMAIN, code)
+                db.commit()
+                done += 1
+            else:
+                failed += 1
+        except dart.DartQuotaExceeded:
+            db.rollback()
+            quota_hit = True
+            logger.warning("ofs statements backfill: DART 한도초과 — 배치 중단(%d 종목 처리 후)", done)
+            break
+        except Exception as e:
+            db.rollback()
+            failed += 1
+            logger.warning("ofs statements backfill failed for %s: %s", code, e)
+
+    remaining = len(pending) - done
+    logger.info(
+        "ofs statements backfill: done=%d failed=%d remaining=%d quota_hit=%s budget_hit=%s",
+        done, failed, remaining, quota_hit, budget_hit,
+    )
+    return {
+        "done": done, "failed": failed, "remaining": remaining,
+        "quota_hit": quota_hit, "budget_hit": budget_hit,
     }

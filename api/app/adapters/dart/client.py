@@ -573,6 +573,33 @@ def parse_full_statements(rows: list[dict]) -> dict[str, list[dict]]:
     return {k: v for k, v in groups.items() if v}
 
 
+def _fetch_full_statements_for_fs_div(
+    api_key: str, corp_code: str, year: int, quarter: int, fs_div: str, session: requests.Session
+) -> dict[str, list[dict]] | None:
+    """특정 fs_div(CFS/OFS)의 전체재무제표를 조회해 sj_div별로 그룹화."""
+    reprt_code = DART_REPORT_CODES.get(quarter)
+    if not reprt_code:
+        return None
+    params = {
+        "crtfc_key": api_key,
+        "corp_code": corp_code,
+        "bsns_year": str(year),
+        "reprt_code": reprt_code,
+        "fs_div": fs_div,
+    }
+    try:
+        resp = dart_throttle.get(session, _FNLTT_URL, params=params, timeout=20)
+        resp.raise_for_status()
+        data = resp.json()
+    except (requests.RequestException, ValueError):
+        return None
+    _raise_if_quota(data)
+    if data.get("status") != "000":
+        return None
+    parsed = parse_full_statements(data.get("list", []))
+    return parsed if parsed else None
+
+
 def fetch_full_statements(
     api_key: str, corp_code: str, year: int, quarter: int, session: requests.Session
 ) -> dict[str, list[dict]] | None:
@@ -580,30 +607,18 @@ def fetch_full_statements(
 
     연결(CFS) 우선, 없으면 별도(OFS). 실패·데이터없음이면 None.
     """
-    reprt_code = DART_REPORT_CODES.get(quarter)
-    if not reprt_code:
-        return None
     for fs_div in ("CFS", "OFS"):
-        params = {
-            "crtfc_key": api_key,
-            "corp_code": corp_code,
-            "bsns_year": str(year),
-            "reprt_code": reprt_code,
-            "fs_div": fs_div,
-        }
-        try:
-            resp = dart_throttle.get(session, _FNLTT_URL, params=params, timeout=20)
-            resp.raise_for_status()
-            data = resp.json()
-        except (requests.RequestException, ValueError):
-            continue
-        _raise_if_quota(data)
-        if data.get("status") != "000":
-            continue
-        parsed = parse_full_statements(data.get("list", []))
+        parsed = _fetch_full_statements_for_fs_div(api_key, corp_code, year, quarter, fs_div, session)
         if parsed:
             return parsed
     return None
+
+
+def fetch_full_statements_ofs(
+    api_key: str, corp_code: str, year: int, quarter: int, session: requests.Session
+) -> dict[str, list[dict]] | None:
+    """별도재무제표(OFS)만 조회."""
+    return _fetch_full_statements_for_fs_div(api_key, corp_code, year, quarter, "OFS", session)
 
 
 @dataclass

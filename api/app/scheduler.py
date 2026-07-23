@@ -82,6 +82,9 @@ _FIN_BACKFILL_CRON = CronTrigger(hour=3, minute=30, timezone=_TZ)
 # 관계사(모/자회사) 수집: 매일 04:30. 종목당 DART 2콜이라 가벼워 재무 백필(03:30) 뒤. 웹서치
 # 관련성 판정 alias 원천. sync_state 로 재개 가능.
 _RELATED_BACKFILL_CRON = CronTrigger(hour=4, minute=30, timezone=_TZ)
+# 별도재무제표(OFS) 전체 라인아이템 점진 백필: 매일 04:45. 재무 백필(03:30)·관계사(04:30) 뒤.
+# CFS만 저장되던 FinancialStatement 누락분을 채운다. 종목당 40분기 DART 콜.
+_OFS_STATEMENTS_BACKFILL_CRON = CronTrigger(hour=4, minute=45, timezone=_TZ)
 # 보고서 원문 파싱 백필(정밀 감가상각·EV/EBITDA): 매일 05:00. 보고서당 document.xml(수MB)
 # 다운로드라 가장 무거워 재무 백필(03:30) 이후로 뺀다. sync_state 로 재개 가능.
 _REPORT_BACKFILL_CRON = CronTrigger(hour=5, minute=0, timezone=_TZ)
@@ -224,6 +227,17 @@ def run_related_company_backfill(settings: Settings | None = None) -> dict:
     session = SessionLocal()
     try:
         return related_company_ingest.run_backfill_progressive(session, settings)
+    finally:
+        session.close()
+
+
+def run_ofs_financial_statements_backfill(settings: Settings | None = None) -> dict:
+    """별도재무제표(OFS) 전체 라인아이템 1회분(미완 종목 per_run 개). 여러 밤에 걸쳐 전체 완성."""
+    from app.services import financials_backfill
+
+    session = SessionLocal()
+    try:
+        return financials_backfill.run_ofs_statements_backfill(session, settings)
     finally:
         session.close()
 
@@ -439,6 +453,7 @@ MANUAL_BATCHES: list[tuple[str, str, object]] = [
     ("news_events", "뉴스·종목이벤트", run_news_events),
     ("disclosure_batch", "공시 수집", run_disclosure_batch),
     ("financials_backfill", "재무 백필(10년)", run_financials_backfill),
+    ("ofs_statements", "별도재무제표 백필", run_ofs_financial_statements_backfill),
     ("related_company", "관계사 수집", run_related_company_backfill),
     ("report_backfill", "리포트 백필(10년)", run_report_backfill),
     ("report_fulltext", "리포트 원문 소급적재", run_report_fulltext_backfill),
@@ -518,6 +533,14 @@ def build_scheduler(settings: Settings | None = None) -> BlockingScheduler:
         _logged("related_company", run_related_company_backfill),
         trigger=_RELATED_BACKFILL_CRON,
         id="related_company",
+        max_instances=1,
+        coalesce=True,
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        _logged("ofs_statements", run_ofs_financial_statements_backfill),
+        trigger=_OFS_STATEMENTS_BACKFILL_CRON,
+        id="ofs_statements",
         max_instances=1,
         coalesce=True,
         replace_existing=True,
