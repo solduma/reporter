@@ -20,18 +20,37 @@ const STATEMENT_TABS: { key: StatementTab; label: string }[] = [
   { key: "equity", label: "자본변동표" },
 ];
 
-/** 금액 포맷: 자산 규모에 따라 억/만원 단위로 통일, 소수점 첫째 자리. */
-function formatAmount(amount: number | null): string {
+type AmountUnit = { divisor: number; suffix: string };
+
+const UNITS: AmountUnit[] = [
+  { divisor: 1e8, suffix: "억" },
+  { divisor: 1e4, suffix: "만 원" },
+];
+
+/** 금액 포맷: 테이블 단위(divisor)로 변환, 소수점 첫째 자리, 숫자-단위 사이 공백. */
+function formatAmount(amount: number | null, divisor: number, suffix: string): string {
   if (amount === null || amount === undefined) return "—";
   const abs = Math.abs(amount);
   const sign = amount >= 0 ? "" : "-";
-  if (abs >= 1e8) {
-    return `${sign}${(abs / 1e8).toFixed(1).replace(/\B(?=(\d{3})+(?!\d))/g, ",")}억`;
+  return `${sign}${(abs / divisor).toFixed(1).replace(/\B(?=(\d{3})+(?!\d))/g, ",")} ${suffix}`;
+}
+
+/** 테이블 전체 금액 중 최대 절대값을 보고 공통 단위 결정. */
+function resolveAmountUnit(maxAbs: number): AmountUnit {
+  for (const unit of UNITS) {
+    if (maxAbs >= unit.divisor) return unit;
   }
-  if (abs >= 1e4) {
-    return `${sign}${(abs / 1e4).toFixed(1).replace(/\B(?=(\d{3})+(?!\d))/g, ",")}만원`;
+  return { divisor: 1, suffix: "원" };
+}
+
+function collectAmounts(items: FSItem[]): number[] {
+  const amounts: number[] = [];
+  for (const item of items) {
+    if (item.amount !== null && item.amount !== undefined) amounts.push(Math.abs(item.amount));
+    if (item.prev_amount !== null && item.prev_amount !== undefined) amounts.push(Math.abs(item.prev_amount));
+    amounts.push(...collectAmounts(item.children));
   }
-  return `${amount.toLocaleString()}원`;
+  return amounts;
 }
 
 /** 변동률 포맷 */
@@ -55,7 +74,15 @@ function changeDirection(current: number | null, prev: number | null): number {
 }
 
 /** 재무제표 행: level에 따라 스타일·들여쓰기, children은 재귀 렌더링. */
-function ItemRow({ item, defaultOpen = false }: { item: FSItem; defaultOpen?: boolean }) {
+function ItemRow({
+  item,
+  unit,
+  defaultOpen = false,
+}: {
+  item: FSItem;
+  unit: AmountUnit;
+  defaultOpen?: boolean;
+}) {
   const [open, setOpen] = useState(defaultOpen);
   const hasChildren = item.children && item.children.length > 0;
   const op = changeOpacity(item.amount, item.prev_amount);
@@ -96,10 +123,10 @@ function ItemRow({ item, defaultOpen = false }: { item: FSItem; defaultOpen?: bo
           </span>
         </td>
         <td className={styles.tdRight}>
-          {formatAmount(item.amount)}
+          {formatAmount(item.amount, unit.divisor, unit.suffix)}
         </td>
         <td className={styles.tdRight}>
-          {formatAmount(item.prev_amount)}
+          {formatAmount(item.prev_amount, unit.divisor, unit.suffix)}
         </td>
         <td className={`${styles.tdRight} ${styles.changeCol}`} style={hlStyle}>
           {formatChange(
@@ -114,6 +141,7 @@ function ItemRow({ item, defaultOpen = false }: { item: FSItem; defaultOpen?: bo
             <ItemRow
               key={`${child.account_id}-${ci}`}
               item={child}
+              unit={unit}
               defaultOpen={defaultOpen}
             />
           ))
@@ -156,6 +184,12 @@ export default function FinancialStatements({ code }: Props) {
     if (!latestPeriod) return [];
     return latestPeriod[activeTab] ?? [];
   }, [latestPeriod, activeTab]);
+
+  const amountUnit = useMemo(() => {
+    const values = collectAmounts(items);
+    const maxAbs = values.length > 0 ? Math.max(...values) : 0;
+    return resolveAmountUnit(maxAbs);
+  }, [items]);
 
   if (loading) {
     return <div className={styles.sectionStatus}>재무제표 불러오는 중…</div>;
@@ -224,6 +258,7 @@ export default function FinancialStatements({ code }: Props) {
               <ItemRow
                 key={`${item.account_id}-${i}`}
                 item={item}
+                unit={amountUnit}
                 defaultOpen={activeTab === "bs"}
               />
             ))}
