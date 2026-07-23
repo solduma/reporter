@@ -31,6 +31,7 @@ import type {
   ReportCategory,
   ScreenerMarket,
   ScreenerOpGrowth,
+  ScreenerFilterMeta,
   ScreenerResult,
   ScreenerSort,
   ScreenerStrategy,
@@ -298,6 +299,11 @@ export function fetchScreener(query: ScreenerQuery): Promise<ScreenerResult> {
 // 섹터 필터용 섹터명 목록(국내 섹터 ETF 기준).
 export function fetchScreenerSectors(): Promise<string[]> {
   return getJson<string[]>("/api/screener/sectors");
+}
+
+// 스크리너 필터 메타데이터 — 온톨로지 정준 ID 기준 라벨/설명(D1).
+export function fetchScreenerFilters(): Promise<ScreenerFilterMeta[]> {
+  return getJson<ScreenerFilterMeta[]>("/api/screener/filters");
 }
 
 export function fetchCompanySummary(code: string): Promise<CompanySummary> {

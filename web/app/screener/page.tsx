@@ -1,15 +1,16 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 
 import InfoDot from "@/components/InfoDot";
 import StockSearch from "@/components/StockSearch";
-import { fetchScreener, fetchScreenerSectors } from "@/lib/api";
+import { fetchScreener, fetchScreenerFilters, fetchScreenerSectors } from "@/lib/api";
 import { GLOSSARY } from "@/lib/glossary";
 import { useAutoTour } from "@/lib/useAutoTour";
 import { usePersistentState } from "@/lib/usePersistentState";
 import type {
+  ScreenerFilterMeta,
   ScreenerMarket,
   ScreenerOpGrowth,
   ScreenerResult,
@@ -360,6 +361,7 @@ function ScreenerContent() {
   const [result, setResult] = useState<ScreenerResult | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [filterMeta, setFilterMeta] = useState<ScreenerFilterMeta[]>([]);
 
   useEffect(() => {
     let active = true;
@@ -371,6 +373,15 @@ function ScreenerContent() {
       })
       .catch(() => {
         // 섹터 목록 로드 실패는 무시 — 스크리너 본체는 계속 동작.
+      });
+    fetchScreenerFilters()
+      .then((list) => {
+        if (active) {
+          setFilterMeta(list);
+        }
+      })
+      .catch(() => {
+        // 필터 메타 로드 실패 시 기존 하드코딩 레이블 유지.
       });
     return () => {
       active = false;
@@ -518,6 +529,19 @@ function ScreenerContent() {
   const hasPrev = offset > 0;
   const hasNext = offset + PAGE_SIZE < total;
 
+  const metaByKey = useMemo(() => {
+    const map = new Map<string, ScreenerFilterMeta>();
+    for (const m of filterMeta) {
+      map.set(m.key, m);
+    }
+    return map;
+  }, [filterMeta]);
+
+  function filterLabel(key: string, fallback: string): { label: string; description?: string } {
+    const m = metaByKey.get(key);
+    return { label: m?.label ?? fallback, description: m?.description ?? undefined };
+  }
+
   function renderChips<T>(presets: Preset<T>[], selected: T, onSelect: (value: T) => void) {
     return (
       <div className={styles.chips} role="group">
@@ -631,19 +655,59 @@ function ScreenerContent() {
         {strategy === "value" ? (
           <>
             <div className={styles.filterGroup}>
-              <span className={styles.filterLabel}>PER 상한</span>
+              <span className={styles.filterLabel}>
+                {(() => {
+                  const { label, description } = filterLabel("per_max", "PER 상한");
+                  return (
+                    <>
+                      {label}
+                      {description ? <InfoDot what={description} /> : null}
+                    </>
+                  );
+                })()}
+              </span>
               {renderChips(PER_MAX_PRESETS, perMax, setPerMax)}
             </div>
             <div className={styles.filterGroup}>
-              <span className={styles.filterLabel}>PBR 상한</span>
+              <span className={styles.filterLabel}>
+                {(() => {
+                  const { label, description } = filterLabel("pbr_max", "PBR 상한");
+                  return (
+                    <>
+                      {label}
+                      {description ? <InfoDot what={description} /> : null}
+                    </>
+                  );
+                })()}
+              </span>
               {renderChips(PBR_MAX_PRESETS, pbrMax, setPbrMax)}
             </div>
             <div className={styles.filterGroup}>
-              <span className={styles.filterLabel}>ROE 하한</span>
+              <span className={styles.filterLabel}>
+                {(() => {
+                  const { label, description } = filterLabel("roe_min", "ROE 하한");
+                  return (
+                    <>
+                      {label}
+                      {description ? <InfoDot what={description} /> : null}
+                    </>
+                  );
+                })()}
+              </span>
               {renderChips(ROE_MIN_PRESETS, roeMin, setRoeMin)}
             </div>
             <div className={styles.filterGroup}>
-              <span className={styles.filterLabel}>시가배당률 하한</span>
+              <span className={styles.filterLabel}>
+                {(() => {
+                  const { label, description } = filterLabel("div_min", "시가배당률 하한");
+                  return (
+                    <>
+                      {label}
+                      {description ? <InfoDot what={description} /> : null}
+                    </>
+                  );
+                })()}
+              </span>
               {renderChips(DIV_MIN_PRESETS, divMin, setDivMin)}
             </div>
           </>

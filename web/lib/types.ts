@@ -457,6 +457,17 @@ export interface ScreenerResult {
   items: ScreenerRow[];
 }
 
+export interface ScreenerFilterMeta {
+  key: string;
+  ontology_id: string | null;
+  column: string | null;
+  category: string;
+  label: string;
+  description: string | null;
+  param_type: string;
+  choices: string[] | null;
+}
+
 export type TimelineItemType = "report" | "disclosure" | "broadcast";
 
 export interface TimelineItem {
