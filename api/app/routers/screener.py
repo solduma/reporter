@@ -41,6 +41,10 @@ def screen(
     sort: str = Query(default="score", description="score|market_cap|momentum|rev_yoy|trading_value|change|coverage"),
     limit: int = Query(default=50, le=200),
     offset: int = Query(default=0, ge=0),
+    ratio_filters: str | None = Query(
+        default=None,
+        description='동적 비율 필터 JSON — 예: [{"ontology_id":"psr","op":"lte","value":1.5}]',
+    ),
     db: Session = Depends(get_session),
 ) -> ScreenerResult:
     return screener_service.screen(
@@ -65,6 +69,7 @@ def screen(
         sort=sort,
         limit=limit,
         offset=offset,
+        ratio_filters=ratio_filters,
     )
 
 
@@ -72,6 +77,12 @@ def screen(
 def screener_filters() -> list[schemas.ScreenerFilterMeta]:
     """스크리너 필터 메타데이터 — 온톨로지 정준 ID 기준 라벨·설명 단일 출처(D1)."""
     return screener_service.filter_meta()
+
+
+@router.get("/filters/dynamic", response_model=list[schemas.ScreenerDynamicFilterMeta])
+def screener_dynamic_filters() -> list[schemas.ScreenerDynamicFilterMeta]:
+    """동적 비율 필터 후보 — Financial 컬럼에 매핑된 온톨로지 ratio ID 목록(D2)."""
+    return screener_service.dynamic_filter_meta()
 
 
 @router.get("/sectors", response_model=list[str])

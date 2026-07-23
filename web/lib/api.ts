@@ -31,7 +31,9 @@ import type {
   ReportCategory,
   ScreenerMarket,
   ScreenerOpGrowth,
+  ScreenerDynamicFilterMeta,
   ScreenerFilterMeta,
+  ScreenerRatioFilter,
   ScreenerResult,
   ScreenerSort,
   ScreenerStrategy,
@@ -252,6 +254,7 @@ export interface ScreenerQuery {
   pbrMax?: number;
   roeMin?: number;
   divMin?: number;
+  ratioFilters?: ScreenerRatioFilter[];
   market?: ScreenerMarket | "";
   sector?: string;
   coverage?: "has" | "none";
@@ -281,6 +284,9 @@ export function fetchScreener(query: ScreenerQuery): Promise<ScreenerResult> {
   set("pbr_max", query.pbrMax);
   set("roe_min", query.roeMin);
   set("div_min", query.divMin);
+  if (query.ratioFilters && query.ratioFilters.length > 0) {
+    params.set("ratio_filters", JSON.stringify(query.ratioFilters));
+  }
   set("market", query.market);
   set("sector", query.sector);
   set("coverage", query.coverage);
@@ -304,6 +310,11 @@ export function fetchScreenerSectors(): Promise<string[]> {
 // 스크리너 필터 메타데이터 — 온톨로지 정준 ID 기준 라벨/설명(D1).
 export function fetchScreenerFilters(): Promise<ScreenerFilterMeta[]> {
   return getJson<ScreenerFilterMeta[]>("/api/screener/filters");
+}
+
+// 동적 비율 필터 후보 — Financial 컬럼에 매핑된 온톨로지 ratio ID 목록(D2).
+export function fetchScreenerDynamicFilters(): Promise<ScreenerDynamicFilterMeta[]> {
+  return getJson<ScreenerDynamicFilterMeta[]>("/api/screener/filters/dynamic");
 }
 
 export function fetchCompanySummary(code: string): Promise<CompanySummary> {

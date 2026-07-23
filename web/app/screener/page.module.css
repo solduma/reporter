@@ -523,3 +523,49 @@
     padding: 18px 12px 48px;
   }
 }
+
+.ratioFilterRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ratioFilterSelect,
+.ratioFilterOp,
+.ratioFilterInput {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  padding: 6px 10px;
+  font-size: 0.88rem;
+}
+
+.ratioFilterSelect {
+  min-width: 140px;
+}
+
+.ratioFilterOp {
+  min-width: 56px;
+}
+
+.ratioFilterInput {
+  width: 90px;
+}
+
+.ratioFilterAdd,
+.ratioFilterRemove {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.ratioFilterAdd:hover,
+.ratioFilterRemove:hover {
+  border-color: var(--accent);
+}

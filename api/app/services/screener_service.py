@@ -13,6 +13,7 @@ analysis_scoring, 결과는 ScreenerResult 읽기모델(read-model)로 반환한
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 from datetime import date, datetime, timedelta
@@ -73,6 +74,74 @@ def filter_meta() -> list[dict[str, object]]:
         label = info.get("term") if info else None
         description = info.get("description") if info else None
         out.append({**f, "label": label or f["key"], "description": description})
+    return out
+
+
+# 동적 비율 필터 — Financial 컬럼에 직접 매핑된 온톨로지 ratio ID 만 허용(D2).
+# 계정(account) 컬럼은 단위·정규화가 복잡하므로 비율 필터로 한정한다.
+_DYNAMIC_RATIO_COLUMNS: tuple[str, ...] = tuple(
+    col
+    for col, (ont_id, kind) in ontology_service.FINANCIAL_COLUMN_ONTOLOGY.items()
+    if kind == "ratio"
+)
+_ONT_ID_TO_FINANCIAL_COLUMN: dict[str, str] = {
+    ont_id: col
+    for col, (ont_id, kind) in ontology_service.FINANCIAL_COLUMN_ONTOLOGY.items()
+    if kind == "ratio"
+}
+_DYNAMIC_FILTER_OPS: dict[str, str] = {
+    "gte": ">=",
+    "lte": "<=",
+    "gt": ">",
+    "lt": "<",
+    "eq": "==",
+}
+
+
+def dynamic_filter_meta() -> list[dict[str, object]]:
+    """동적 비율 필터 후보 목록 — Financial 에 저장된 비율 컬럼 기준 온톨로지 메타(D2)."""
+    ont_ids = list(_ONT_ID_TO_FINANCIAL_COLUMN.keys())
+    info_map = {it["key"]: it for it in ontology_service.metric_info(ont_ids)[0]}
+    out: list[dict[str, object]] = []
+    for ont_id, col in _ONT_ID_TO_FINANCIAL_COLUMN.items():
+        info = info_map.get(ont_id)
+        out.append(
+            {
+                "ontology_id": ont_id,
+                "column": f"Financial.{col}",
+                "label": info.get("term") or ont_id,
+                "description": info.get("description"),
+            }
+        )
+    return out
+
+
+def _parse_ratio_filters(raw: str | None) -> list[tuple[str, str, float]]:
+    """ratio_filters JSON 문자열을 검증된 (ontology_id, op, value) 튜플로 변환(D2)."""
+    if not raw:
+        return []
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError("ratio_filters 는 JSON 배열이어야 합니다") from exc
+    if not isinstance(payload, list):
+        raise ValueError("ratio_filters 는 JSON 배열이어야 합니다")
+    out: list[tuple[str, str, float]] = []
+    for item in payload:
+        if not isinstance(item, dict):
+            raise ValueError("ratio_filters 항목은 객체여야 합니다")
+        ont_id = item.get("ontology_id")
+        op = item.get("op")
+        value = item.get("value")
+        if ont_id not in _ONT_ID_TO_FINANCIAL_COLUMN:
+            raise ValueError(f"지원하지 않는 ontology_id: {ont_id}")
+        if op not in _DYNAMIC_FILTER_OPS:
+            raise ValueError(f"지원하지 않는 연산자: {op}")
+        try:
+            value_f = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"비교 값은 숫자여야 합니다: {value}") from exc
+        out.append((ont_id, op, value_f))
     return out
 
 
@@ -159,8 +228,11 @@ def screen(
     sort: str,
     limit: int,
     offset: int,
+    ratio_filters: str | None = None,
 ) -> ScreenerResult:
     """공통 유니버스 필터 + 전략 디스패치. 결과 ScreenerResult(read-model)."""
+    dynamic_filters = _parse_ratio_filters(ratio_filters)
+
     as_of = _latest_date(db)
     if not as_of:
         return ScreenerResult(as_of=None, total=0, items=[])
@@ -220,7 +292,9 @@ def screen(
     )
 
     if strategy == "value":
-        return _screen_value(db, base, as_of, per_max, pbr_max, roe_min, div_min, sort, limit, offset)
+        return _screen_value(
+            db, base, as_of, per_max, pbr_max, roe_min, div_min, dynamic_filters, sort, limit, offset
+        )
     if strategy == "trend":
         return _screen_trend(db, base, as_of, sort, limit, offset)
     if strategy == "topdown":
@@ -266,14 +340,15 @@ def _screen_growth(db, base, as_of, sort, limit, offset) -> ScreenerResult:
 
 # ── 가치 전략 ──────────────────────────────────────────────────────────
 def _latest_financials(db, codes: list[str]) -> dict[str, Financial]:
-    """종목별, 밸류 지표(per/pbr)가 있는 최신 비추정 분기 Financial.
+    """종목별, 저장된 비율 컬럼 중 하나라도 있는 최신 비추정 분기 Financial.
 
-    DISTINCT ON (stock_code) 로 종목당 1행만 DB 에서 뽑는다. per/pbr 있는 행 먼저 → period 최신
-    정렬로, ev_ebitda 만 있는 반쪽 연간행이 최신으로 잡혀 종목이 통째로 누락되는 것을 막는다.
+    DISTINCT ON (stock_code) 로 종목당 1행만 DB 에서 뽑는다. 비율 값이 있는 행 먼저 → period 최신
+    정렬로, 일부 비율만 있는 반쪽 연간행이 최신으로 잡혀 종목이 통째로 누락되는 것을 막는다(D2).
     """
     if not codes:
         return {}
-    has_value = case((or_(Financial.per.is_not(None), Financial.pbr.is_not(None)), 0), else_=1)
+    value_cols = [getattr(Financial, col) for col in _DYNAMIC_RATIO_COLUMNS]
+    has_value = case((or_(*(c.is_not(None) for c in value_cols)), 0), else_=1)
     rows = db.scalars(
         select(Financial)
         .where(Financial.stock_code.in_(codes), Financial.is_estimate.is_(False))
@@ -305,7 +380,7 @@ def _latest_dividends(db, codes: list[str]) -> dict[str, float]:
 
 
 def _screen_value(
-    db, base, as_of, per_max, pbr_max, roe_min, div_min, sort, limit, offset
+    db, base, as_of, per_max, pbr_max, roe_min, div_min, dynamic_filters, sort, limit, offset
 ) -> ScreenerResult:
     rows = list(db.execute(base).all())
     codes = [r[0].stock_code for r in rows]
@@ -316,8 +391,40 @@ def _screen_value(
         if dy is not None:
             fin.div_yield = dy  # 세션 객체 in-memory 보정(커밋 안 함, 읽기 전용)
 
+    def _passes_dynamic(fin: Financial, filters: list[tuple[str, str, float]]) -> bool:
+        if not filters:
+            return True
+        for ont_id, op, value in filters:
+            col = _ONT_ID_TO_FINANCIAL_COLUMN[ont_id]
+            v = getattr(fin, col, None)
+            if v is None:
+                return False
+            v = float(v)
+            if op == "gte" and not (v >= value):
+                return False
+            if op == "lte" and not (v <= value):
+                return False
+            if op == "gt" and not (v > value):
+                return False
+            if op == "lt" and not (v < value):
+                return False
+            if op == "eq" and v != value:
+                return False
+        return True
+
+    has_static_filter = any(v is not None for v in (per_max, pbr_max, roe_min, div_min))
+
     def _passes(fin: Financial | None) -> bool:
-        if fin is None or (fin.per is None and fin.pbr is None and fin.div_yield is None):
+        if fin is None:
+            return False
+        if (
+            not dynamic_filters
+            and not has_static_filter
+            and fin.per is None
+            and fin.pbr is None
+            and fin.div_yield is None
+        ):
+            # 아무 조건 없을 땐 기존 가치 전략처럼 최소한의 밸류 데이터가 있어야 포함.
             return False
         if per_max is not None and not (fin.per is not None and 0 < fin.per <= per_max):
             return False
@@ -325,7 +432,9 @@ def _screen_value(
             return False
         if roe_min is not None and not (fin.roe is not None and fin.roe >= roe_min):
             return False
-        return not (div_min is not None and not (fin.div_yield is not None and fin.div_yield >= div_min))
+        if div_min is not None and not (fin.div_yield is not None and fin.div_yield >= div_min):
+            return False
+        return _passes_dynamic(fin, dynamic_filters)
 
     kept = [(r, fin_map.get(r[0].stock_code)) for r in rows]
     kept = [(r, f) for r, f in kept if _passes(f)]
