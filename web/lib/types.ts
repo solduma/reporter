@@ -468,6 +468,19 @@ export interface ScreenerFilterMeta {
   choices: string[] | null;
 }
 
+export interface ScreenerDynamicFilterMeta {
+  ontology_id: string;
+  column: string;
+  label: string;
+  description: string | null;
+}
+
+export interface ScreenerRatioFilter {
+  ontology_id: string;
+  op: "gte" | "lte" | "gt" | "lt" | "eq";
+  value: number;
+}
+
 export type TimelineItemType = "report" | "disclosure" | "broadcast";
 
 export interface TimelineItem {

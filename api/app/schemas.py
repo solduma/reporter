@@ -110,6 +110,23 @@ class ScreenerFilterMeta(BaseModel):
     choices: list[str] | None = None
 
 
+class ScreenerRatioFilter(BaseModel):
+    """동적 비율 필터 — 온톨로지 ratio ID 와 비교 연산으로 임의 재무 비율 조건 추가(D2)."""
+
+    ontology_id: str  # 온톨로지 ratio ID (e.g. psr, ev_ebitda)
+    op: str  # gte | lte | gt | lt | eq
+    value: float
+
+
+class ScreenerDynamicFilterMeta(BaseModel):
+    """동적 비율 필터 후보 메타 — Financial 컬럼에 매핑된 온톨로지 ratio ID 목록(D2)."""
+
+    ontology_id: str
+    column: str
+    label: str
+    description: str | None = None
+
+
 class CandlePoint(BaseModel):
     t: str  # ISO 시각 (일/주/월봉은 YYYY-MM-DD, 30분봉은 ISO datetime)
     o: float

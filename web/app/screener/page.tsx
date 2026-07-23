@@ -5,14 +5,21 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 
 import InfoDot from "@/components/InfoDot";
 import StockSearch from "@/components/StockSearch";
-import { fetchScreener, fetchScreenerFilters, fetchScreenerSectors } from "@/lib/api";
+import {
+  fetchScreener,
+  fetchScreenerDynamicFilters,
+  fetchScreenerFilters,
+  fetchScreenerSectors,
+} from "@/lib/api";
 import { GLOSSARY } from "@/lib/glossary";
 import { useAutoTour } from "@/lib/useAutoTour";
 import { usePersistentState } from "@/lib/usePersistentState";
 import type {
+  ScreenerDynamicFilterMeta,
   ScreenerFilterMeta,
   ScreenerMarket,
   ScreenerOpGrowth,
+  ScreenerRatioFilter,
   ScreenerResult,
   ScreenerSort,
   ScreenerStrategy,
@@ -136,6 +143,23 @@ const MARKET_PRESETS: Preset<ScreenerMarket | "">[] = [
   { label: "KOSDAQ", value: "KOSDAQ" },
   { label: "KOSPI", value: "KOSPI" },
 ];
+
+// 동적 비율 필터 연산자(D2)
+type RatioOp = ScreenerRatioFilter["op"];
+
+const RATIO_OP_PRESETS: Preset<RatioOp>[] = [
+  { label: "≥", value: "gte" },
+  { label: "≤", value: "lte" },
+  { label: ">", value: "gt" },
+  { label: "<", value: "lt" },
+  { label: "=", value: "eq" },
+];
+
+const EMPTY_RATIO_FILTER = (): ScreenerRatioFilter => ({
+  ontology_id: "",
+  op: "lte",
+  value: 0,
+});
 
 // 리포트 커버리지 프리셋: 단일 선택 키를 coverage/recent_buy 쿼리로 환산한다.
 type CoverageKey = "none" | "has" | "recent_buy";
@@ -362,6 +386,11 @@ function ScreenerContent() {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [filterMeta, setFilterMeta] = useState<ScreenerFilterMeta[]>([]);
+  const [dynamicMeta, setDynamicMeta] = useState<ScreenerDynamicFilterMeta[]>([]);
+  const [ratioFilters, setRatioFilters] = usePersistentState<ScreenerRatioFilter[]>(
+    "screener.ratioFilters",
+    []
+  );
 
   useEffect(() => {
     let active = true;
@@ -382,6 +411,15 @@ function ScreenerContent() {
       })
       .catch(() => {
         // 필터 메타 로드 실패 시 기존 하드코딩 레이블 유지.
+      });
+    fetchScreenerDynamicFilters()
+      .then((list) => {
+        if (active) {
+          setDynamicMeta(list);
+        }
+      })
+      .catch(() => {
+        // 동적 필터 메타 로드 실패 시 UI 를 숨긴다.
       });
     return () => {
       active = false;
@@ -409,6 +447,7 @@ function ScreenerContent() {
           pbrMax,
           roeMin,
           divMin,
+          ratioFilters: ratioFilters.filter((f) => f.ontology_id && f.op && !Number.isNaN(f.value)),
           market,
           sector: sector || undefined,
           coverage: coverageParam,
@@ -435,7 +474,7 @@ function ScreenerContent() {
     return () => {
       active = false;
     };
-  }, [strategy, market, sector, mktcapMax, mktcapMin, liqMin, revYoyMin, opGrowth, mom, coverage, perMax, pbrMax, roeMin, divMin, sort, offset]);
+  }, [strategy, market, sector, mktcapMax, mktcapMin, liqMin, revYoyMin, opGrowth, mom, coverage, perMax, pbrMax, roeMin, divMin, ratioFilters, sort, offset]);
 
   // 필터 변경 시 첫 페이지로 되돌린다.
   function resetPaging() {
@@ -458,6 +497,8 @@ function ScreenerContent() {
     setPbrMax(undefined);
     setRoeMin(undefined);
     setDivMin(undefined);
+    // 동적 비율 필터도 전략 전환 시 초기화(가치 전략 밖에선 미적용이므로).
+    setRatioFilters([]);
   }
 
   const columns = COLUMNS_BY_STRATEGY[strategy];
@@ -478,6 +519,7 @@ function ScreenerContent() {
     pbrMax !== undefined,
     roeMin !== undefined,
     divMin !== undefined,
+    ratioFilters.length > 0,
   ].filter(Boolean).length;
 
   // 스코어 셀(성장·가치 공용): 숫자 + 컬러 바.
@@ -709,6 +751,87 @@ function ScreenerContent() {
                 })()}
               </span>
               {renderChips(DIV_MIN_PRESETS, divMin, setDivMin)}
+            </div>
+
+            {/* 동적 비율 필터(D2) */}
+            <div className={styles.filterGroup}>
+              <span className={styles.filterLabel}>추가 비율 필터</span>
+              {dynamicMeta.length === 0 ? (
+                <span className={styles.muted}>불러오는 중…</span>
+              ) : (
+                <div className={styles.ratioFilterRow}>
+                  {ratioFilters.map((f, idx) => (
+                    <div key={idx} className={styles.ratioFilterRow}>
+                      <select
+                        className={styles.ratioFilterSelect}
+                        value={f.ontology_id}
+                        onChange={(e) => {
+                          const next = [...ratioFilters];
+                          next[idx] = { ...f, ontology_id: e.target.value };
+                          setRatioFilters(next);
+                          resetPaging();
+                        }}
+                      >
+                        <option value="">지표 선택</option>
+                        {dynamicMeta.map((m) => (
+                          <option key={m.ontology_id} value={m.ontology_id}>
+                            {m.label}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        className={styles.ratioFilterOp}
+                        value={f.op}
+                        onChange={(e) => {
+                          const next = [...ratioFilters];
+                          next[idx] = { ...f, op: e.target.value as RatioOp };
+                          setRatioFilters(next);
+                          resetPaging();
+                        }}
+                      >
+                        {RATIO_OP_PRESETS.map((p) => (
+                          <option key={p.value} value={p.value}>
+                            {p.label}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        className={styles.ratioFilterInput}
+                        type="number"
+                        step="any"
+                        value={f.value}
+                        onChange={(e) => {
+                          const next = [...ratioFilters];
+                          next[idx] = { ...f, value: parseFloat(e.target.value) };
+                          setRatioFilters(next);
+                          resetPaging();
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className={styles.ratioFilterRemove}
+                        onClick={() => {
+                          const next = ratioFilters.filter((_, i) => i !== idx);
+                          setRatioFilters(next);
+                          resetPaging();
+                        }}
+                      >
+                        삭제
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    className={styles.ratioFilterAdd}
+                    onClick={() => {
+                      setRatioFilters([...ratioFilters, EMPTY_RATIO_FILTER()]);
+                      resetPaging();
+                    }}
+                  >
+                    + 추가
+                  </button>
+                </div>
+              )}
             </div>
           </>
         ) : null}
