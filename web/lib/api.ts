@@ -15,6 +15,7 @@ import type {
   CompanyTrend,
   FinancialPeriod,
   FinancialStatementsResponse,
+  OntologyMetricInfoResponse,
   FinancialsStatus,
   FlowMarket,
   IrInterviewListItem,
@@ -63,6 +64,19 @@ export function apiUrl(path: string): string {
 
 async function getJson<T>(path: string): Promise<T> {
   const res = await fetch(apiUrl(path), { cache: "no-store" });
+  if (!res.ok) {
+    throw new Error(`API ${path} 실패 (${res.status})`);
+  }
+  return (await res.json()) as T;
+}
+
+async function postJson<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(apiUrl(path), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
   if (!res.ok) {
     throw new Error(`API ${path} 실패 (${res.status})`);
   }
@@ -325,6 +339,14 @@ export function fetchFinancialStatements(
   return getJson<FinancialStatementsResponse>(
     `/api/companies/${encodeURIComponent(code)}/financial-statements?fs_div=${fsDiv}`,
   );
+}
+
+// 온톨로지 재무 지표 라벨·설명 단일 출처(B1). keys 는 Financial 컬럼명.
+// 미매칭 key 는 description=null → 호출측 fallback 라벨/설명 사용(회귀 방지).
+export function fetchOntologyMetricInfo(
+  keys: string[],
+): Promise<OntologyMetricInfoResponse> {
+  return postJson<OntologyMetricInfoResponse>("/api/ontology/metric-info", { keys });
 }
 
 export function fetchPeers(code: string): Promise<Peer[]> {

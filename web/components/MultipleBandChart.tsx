@@ -5,8 +5,10 @@ import type { IChartApi, LineData, Time } from "lightweight-charts";
 import { useEffect, useMemo, useRef } from "react";
 
 import type { ChartRange } from "@/components/CandleChart";
+import InfoDot from "@/components/InfoDot";
 import { useChartRangeSync } from "@/lib/useChartRangeSync";
 import type { FinancialPeriod } from "@/lib/types";
+import { useMetricInfo } from "@/lib/useMetricInfo";
 
 import styles from "./MultipleBandChart.module.css";
 
@@ -53,12 +55,14 @@ function BandChart({
   range,
   height,
   onRangeChange,
+  description,
 }: {
   data: FinancialPeriod[];
   metric: MetricKey;
   range: ChartRange | null;
   height: number;
   onRangeChange?: (from: string, to: string) => void;
+  description?: string | null;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   // 차트 인스턴스를 ref 로 보관해 range 변경 시 재생성 없이 재사용(연동 동기화는 useChartRangeSync).
@@ -183,6 +187,7 @@ function BandChart({
     <figure className={styles.figure}>
       <figcaption className={styles.caption}>
         {METRICS.find((m) => m.key === metric)?.label} (배)
+        {description ? <InfoDot what={description} /> : null}
         {bands ? (
           <span className={styles.bandInfo}>
             <span className={styles.cheapSwatch} aria-hidden />
@@ -211,6 +216,7 @@ interface Props {
 // PER·PBR·PSR 3분할 밴드 차트. 각 멀티플의 25/50/75% 분위수 밴드로 역사적 위치 비교.
 // 셋이 같은 range 를 공유하고, 하나를 스크롤·드래그하면 onRangeChange 로 나머지도 함께 움직인다.
 export default function MultipleBandChart({ data, range = null, height = 220, onRangeChange }: Props) {
+  const { info } = useMetricInfo(METRICS.map((m) => m.key));
   return (
     <div className={styles.row}>
       {METRICS.map((m) => (
@@ -221,6 +227,7 @@ export default function MultipleBandChart({ data, range = null, height = 220, on
           range={range}
           height={height}
           onRangeChange={onRangeChange}
+          description={info[m.key]?.description}
         />
       ))}
     </div>
