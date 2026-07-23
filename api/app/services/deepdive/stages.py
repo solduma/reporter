@@ -26,10 +26,22 @@ def _with_feedback(goal: str, feedback: str | None) -> str:
     return goal + _FEEDBACK_HEADER + feedback if feedback else goal
 
 
-def _fin_series(ctx: ToolContext) -> list[dict]:
-    """실적(비추정) 재무 시계열 — 여러 단계가 공유하는 기본 컨텍스트."""
+class _FinSeries(list[dict]):
+    """재무 시계열(list) + 온톨로지 메타(.meta). 스테이지 내부에선 list 그대로 사용."""
+
+    meta: dict[str, dict[str, object]]
+
+
+def _fin_series(ctx: ToolContext) -> _FinSeries:
+    """실적(비추정) 재무 시계열 — 여러 단계가 공유하는 기본 컨텍스트.
+
+    metrics_meta 를 같이 담아 LLM 이 각 수치의 온톨로지 정준명·설명·파생 지표를 볼 수 있게 한다(E1).
+    """
     fin = dispatch("financials", ctx, {})
-    return [p for p in fin.get("periods", []) if not p.get("is_estimate")]
+    periods = [p for p in fin.get("periods", []) if not p.get("is_estimate")]
+    result = _FinSeries(periods)
+    result.meta = dict(fin.get("metrics_meta", {}))
+    return result
 
 
 # ── 단계별 Process-Reviewer 프롬프트(절차 감사 체크리스트) ─────────────────
@@ -68,9 +80,10 @@ _REVIEW_SYSTEM = {
 
 # ── 1단계 Overview ────────────────────────────────────────────────────
 def stage_overview(llm: LLMPort, model: str, ctx: ToolContext, prior: dict) -> dict:
+    series = _fin_series(ctx)
     context = {
         "price": dispatch("price_context", ctx, {}),
-        "financials_recent": _fin_series(ctx)[-8:],
+        "financials_recent": {"periods": series[-8:], "metrics_meta": getattr(series, "meta", {})},
         "periodic_report": dispatch("recent_periodic_report", ctx, {}),
         "ownership": dispatch("ownership", ctx, {}),
     }
@@ -122,7 +135,7 @@ def stage_redflags(llm: LLMPort, model: str, ctx: ToolContext, prior: dict) -> d
         intangibles=latest.get("intangibles"), total_assets=latest.get("total_assets"),
     )
     context = {
-        "financials_series": series[-12:],
+        "financials_series": {"periods": series[-12:], "metrics_meta": getattr(series, "meta", {})},
         "auto_flags": [{"code": f.code, "label": f.label, "severity": f.severity, "detail": f.detail} for f in flags],
         "auto_severity": deepdive_rules.summarize_severity(flags),
     }
@@ -175,13 +188,14 @@ def stage_thesis(llm: LLMPort, model: str, ctx: ToolContext, prior: dict) -> dic
     # 이벤트 탐색을 컨텍스트로 선주입 — 섹터별 촉매(수주·계약·증설)·리스크(소송·유증·우발부채)
     # 뉴스 본문 + DART 공시. LLM 이 놓치지 않게 코드가 먼저 수집해 넣는다.
     today = datetime.now(UTC).date().isoformat()
+    series = _fin_series(ctx)
     context = {
         "as_of_date": today,  # 분석 기준일 — 미래 유효 이벤트만 판정하도록.
         "overview": prior.get("overview", {}),
         "redflags": prior.get("redflags", {}),
         "business": prior.get("business", {}),
         "events": dispatch("event_search", ctx, {"side": "both"}),
-        "financials_series": _fin_series(ctx)[-12:],
+        "financials_series": {"periods": series[-12:], "metrics_meta": getattr(series, "meta", {})},
     }
     goal = (
         f"오늘({today}) 시점 기준으로 실적 기반의 명확한 인과관계로 투자 아이디어를 세운다. 막연한 기대가 "
