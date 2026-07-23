@@ -182,15 +182,16 @@ def company_analysis(
         ),
     )
 
-    # 가치 축 — 최신 밸류에이션 (DB only, 항상 빠름). 연결(CFS) 우선, 없으면 별도(OFS).
-    fin = company_service.latest_valuation(
-        db, code, fs_div="CFS"
-    ) or company_service.latest_valuation(db, code, fs_div="OFS")
-    per = fin.per if fin else None
-    pbr = fin.pbr if fin else None
-    ev = fin.ev_ebitda if fin else None
-    roe = fin.roe if fin else None
-    dy = fin.div_yield if fin else None
+    # 가치 축 — 온톨로지 비율값 기준(C1). company_ratios() 가 CFS→OFS 폴백.
+    ratio_values = {
+        r.ratio_id: float(r.value) if r.value is not None else None
+        for r in ontology_service.company_ratios(db, code, fs_div="CFS")
+    }
+    per = ratio_values.get("per")
+    pbr = ratio_values.get("pbr")
+    ev = ratio_values.get("evebitda")
+    roe = ratio_values.get("roe")
+    dy = ratio_values.get("dividend_yield")
     eps_yoy = g.eps_yoy if g else None
     net_status = g.net_status if g else None
     net_margin_delta = g.net_margin_delta if g else None

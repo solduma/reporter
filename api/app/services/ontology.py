@@ -227,6 +227,9 @@ def company_ratios(db: Session, code: str, fs_div: str = "CFS") -> list[RatioRes
     port = _port()
     ratio_ids = [r.id for r in port.list_ratios()]
     values, stored = build_ratio_values(db, code, fs_div=fs_div)
+    if not values and fs_div == "CFS":
+        # 연결 재무제표가 없으면 별도 재무제표로 폴백(기존 latest_valuation 동작과 동일).
+        values, stored = build_ratio_values(db, code, fs_div="OFS")
     results = port.calculate_many(ratio_ids, values)
     return [
         (
