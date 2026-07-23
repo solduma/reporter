@@ -139,7 +139,7 @@ def financials_rows(db: Session, code: str, fs_div: str | None = None) -> list[F
     q = select(Financial).where(Financial.stock_code == code)
     if fs_div:
         q = q.where(Financial.fs_div == fs_div)
-    return list(q.order_by(Financial.period).all())
+    return list(db.execute(q.order_by(Financial.period)).scalars().all())
 
 
 def financial_statement_rows(
