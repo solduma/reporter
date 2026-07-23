@@ -12,6 +12,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from app.adapters.financial_ontology import get_ontology_port
 from app.routers import ontology
 from app.services import ontology as ontology_service
 
@@ -35,6 +36,43 @@ def test_service_normalize_dart_taxonomy():
     results = ontology_service.normalize(["ifrs-full_CashAndCashEquivalents"], standard="dart")
     assert results[0].id == "BS_CA_CASH"
     assert results[0].matched_via == "taxonomy"
+
+
+def test_financial_column_ontology_mapping_is_valid():
+    """A3 매핑 메타의 모든 account ID 는 실제 온톨로지 계정, ratio ID 는 실제 비율이어야 한다."""
+    port = get_ontology_port()
+    account_ids = {oid for oid, kind in ontology_service.FINANCIAL_COLUMN_ONTOLOGY.values() if kind == "account"}
+    for aid in account_ids:
+        assert port.account(aid) is not None, f"매핑 account ID 가 온톨로지에 없음: {aid}"
+    ratio_ids = {rid for rid, kind in ontology_service.FINANCIAL_COLUMN_ONTOLOGY.values() if kind == "ratio"}
+    all_ratio_ids = {r.id for r in port.list_ratios()}
+    for rid in ratio_ids:
+        assert rid in all_ratio_ids, f"매핑 ratio ID 가 온톨로지에 없음: {rid}"
+
+
+def test_financial_row_to_ontology_values_and_stored_ratios():
+    """계정 종류 컬럼은 RatioEngine 입력 dict 로, 비율 종류 컬럼은 stored-ratio dict 로."""
+    from types import SimpleNamespace
+
+    row = SimpleNamespace(
+        revenue=1000.0, operating_income=200.0, net_income=150.0, depreciation=30.0, capex=80.0,
+        eps=1.5, bps=50000.0, per=10.0, pbr=0.8, roe=12.0, psr=1.2, ev_ebitda=5.0, div_yield=2.0,
+    )
+    values = ontology_service.financial_row_to_ontology_values(row)
+    assert values == {
+        "IS_REV_TOTAL": 1000.0, "IS_OP_INCOME": 200.0, "IS_NI_PARENT": 150.0,
+        "CF_OP_DEPR": 30.0, "CF_INV_PPE": 80.0,
+    }
+    stored = ontology_service.financial_row_stored_ratios(row)
+    assert stored == {
+        "eps": 1.5, "bvps": 50000.0, "per": 10.0, "pbr": 0.8,
+        "roe": 12.0, "psr": 1.2, "evebitda": 5.0, "dividend_yield": 2.0,
+    }
+    # None 컬럼은 스킵
+    partial = SimpleNamespace(revenue=None, operating_income=50.0, net_income=None,
+                              depreciation=None, capex=None, eps=None, bps=None, per=None,
+                              pbr=None, roe=None, psr=None, ev_ebitda=None, div_yield=None)
+    assert ontology_service.financial_row_to_ontology_values(partial) == {"IS_OP_INCOME": 50.0}
 
 
 def test_service_enrich_with_ontology_id():
