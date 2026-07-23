@@ -897,7 +897,7 @@ ontology:
       mappings:
         dart: ["ifrs-full_CostOfSales"]
         ifrs: ["CostOfSales"]
-        usgaap: ["CostOfGoodsAndServicesSold"]
+        usgaap: ["CostOfGoodsAndServicesSold", "CostOfRevenue"]
       description: "매출에 대응되는 상품·제품의 원가."
 
     IS_GP_TOTAL:
@@ -913,6 +913,8 @@ ontology:
       ratios: [gross_margin]
       affects: [GrossProfit]
       aliases: ["매출총이익(그로스마진)"]
+      mappings:
+        usgaap: ["GrossProfit"]
       description: "매출액에서 매출원가를 차감한 이익."
 
     IS_OPEX_TOTAL:
@@ -926,6 +928,8 @@ ontology:
       children: [IS_OPEX_SELLING, IS_OPEX_ADMIN, IS_OPEX_RD, IS_OPEX_DEPR]
       formula: "IS_OPEX_SELLING + IS_OPEX_ADMIN + IS_OPEX_RD + IS_OPEX_DEPR"
       aliases: ["판관비", "SG&A"]
+      mappings:
+        usgaap: ["SellingGeneralAndAdministrativeExpense"]
       description: "영업활동에 소요되는 판매비·관리비·연구개발비·감가상각비."
 
     IS_OPEX_SELLING:
@@ -938,6 +942,8 @@ ontology:
       sign: positive
       parent: IS_OPEX_TOTAL
       aliases: ["판매비용"]
+      mappings:
+        usgaap: ["SellingAndMarketingExpense"]
 
     IS_OPEX_ADMIN:
       id: IS_OPEX_ADMIN
@@ -949,6 +955,8 @@ ontology:
       sign: positive
       parent: IS_OPEX_TOTAL
       aliases: ["관리비용", "G&A"]
+      mappings:
+        usgaap: ["GeneralAndAdministrativeExpense"]
 
     IS_OPEX_RD:
       id: IS_OPEX_RD
@@ -997,6 +1005,7 @@ ontology:
       mappings:
         dart: ["ifrs-full_OperatingProfit", "dart_OperatingIncomeLoss", "ifrs-full_ProfitLossFromOperatingActivities"]
         ifrs: ["OperatingProfit"]
+        usgaap: ["OperatingIncomeLoss"]
       description: "주영업 활동에서 발생한 이익. 영업외손익 전."
 
     IS_NONOP_REV_TOTAL:
