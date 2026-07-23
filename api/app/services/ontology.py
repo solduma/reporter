@@ -93,6 +93,20 @@ def financial_row_stored_ratios(row: Financial) -> dict[str, float]:
     return values
 
 
+def us_financial_raw_ontology(row: UsFinancial) -> list[dict[str, object]]:
+    """UsFinancial.raw_ontology JSONB 를 정규화된 원시 항목 리스트로 반환(F3b).
+
+    DB 에 영속된 값을 그대로 반환하며, None 이면 빈 리스트. 항목은
+    {ontology_id, label, taxonomy_concept, namespace, unit, period_end,
+    period_start, value} 형태.
+    """
+    from app.db.models import UsFinancial
+
+    if not isinstance(row, UsFinancial):
+        return []
+    return row.raw_ontology or []
+
+
 def us_financial_ontology(row: UsFinancial) -> list[dict[str, object]]:
     """UsFinancial 행을 온톨로지 정준 ID/라벨/값으로 변환(F1).
 

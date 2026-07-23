@@ -6,6 +6,7 @@ import enum
 from datetime import date, datetime
 
 from sqlalchemy import (
+    JSON,
     BigInteger,
     Date,
     DateTime,
@@ -699,6 +700,10 @@ class UsFinancial(Base):
     pbr: Mapped[float | None] = mapped_column(Float)
     psr: Mapped[float | None] = mapped_column(Float)
     roe: Mapped[float | None] = mapped_column(Float)  # %
+    # raw_ontology 는 읽기 전용 스냅샷이고 SQLite 단위 테스트도 지원해야 하므로 JSON (portable) 사용.
+    raw_ontology: Mapped[list[dict] | None] = mapped_column(
+        JSON, default=None, doc="SEC companyfacts XBRL 계정 ontology 정규화 원시 데이터"
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

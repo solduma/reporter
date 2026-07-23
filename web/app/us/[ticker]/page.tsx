@@ -8,6 +8,7 @@ import {
   fetchUsDisclosures,
   fetchUsFinancials,
   fetchUsFinancialsOntology,
+  fetchUsFinancialsRawOntology,
   fetchUsQuote,
 } from "@/lib/api";
 import type {
@@ -16,6 +17,7 @@ import type {
   UsDisclosure,
   UsFinancial,
   UsFinancialOntologyItem,
+  UsFinancialRawOntologyItem,
   UsQuote,
 } from "@/lib/types";
 
@@ -47,6 +49,23 @@ function num(v: number | null, suffix = ""): string {
   return v === null ? "—" : `${v}${suffix}`;
 }
 
+function fmtRawValue(item: UsFinancialRawOntologyItem): string {
+  const v = item.value;
+  if (item.unit === "USD") return usdShort(v);
+  if (item.unit === "USD/shares") return `$${v.toFixed(2)}`;
+  if (item.unit === "shares") return v.toLocaleString("en-US");
+  return num(v);
+}
+
+function fmtRawPeriod(item: UsFinancialRawOntologyItem): string {
+  if (item.period_start && item.period_start !== item.period_end) {
+    return `${item.period_start} ~ ${item.period_end} · ${item.unit}`;
+  }
+  return `${item.period_end} · ${item.unit}`;
+}
+
+const RAW_ONTOLOGY_CAP = 500;
+
 function fmtOntologyValue(item: UsFinancialOntologyItem): string {
   const v = item.value;
   if (v === null) return "—";
@@ -74,6 +93,11 @@ export default function UsCompanyPage({ params }: { params: { ticker: string } }
   const [disclosures, setDisclosures] = useState<UsDisclosure[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [ontologyItems, setOntologyItems] = useState<UsFinancialOntologyItem[]>([]);
+  const [rawOntologyItems, setRawOntologyItems] = useState<UsFinancialRawOntologyItem[]>([]);
+  const visibleRawItems = useMemo(() => {
+    const sorted = [...rawOntologyItems].sort((a, b) => b.period_end.localeCompare(a.period_end));
+    return sorted.slice(0, RAW_ONTOLOGY_CAP);
+  }, [rawOntologyItems]);
 
   // 시세 + 재무(각자 독립 로드). 재무는 SEC 첫 계산이 느릴 수 있어 시세를 먼저 보여준다.
   useEffect(() => {
@@ -91,6 +115,11 @@ export default function UsCompanyPage({ params }: { params: { ticker: string } }
       .then((o) => active && setOntologyItems(o.items))
       .catch(() => {
         /* 온톨로지 매핑 실패 시 기존 재무 카드로만 표시 */
+      });
+    void fetchUsFinancialsRawOntology(ticker)
+      .then((o) => active && setRawOntologyItems(o.items))
+      .catch(() => {
+        /* 원시 ontology 미수집/미매핑은 무해 */
       });
     void fetchUsDisclosures(ticker)
       .then((d) => active && setDisclosures(d))
@@ -176,6 +205,27 @@ export default function UsCompanyPage({ params }: { params: { ticker: string } }
                 {item.description ? (
                   <span className={styles.ontologyDescription}>{item.description}</span>
                 ) : null}
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {rawOntologyItems.length > 0 ? (
+        <section className={styles.card}>
+          <div className={styles.cardHead}>
+            <h2 className={styles.sectionTitle}>
+              원시 XBRL 온톨로지 ({rawOntologyItems.length}
+              {rawOntologyItems.length > RAW_ONTOLOGY_CAP ? ` / 표시 ${RAW_ONTOLOGY_CAP}` : ""})
+            </h2>
+          </div>
+          <div className={styles.ontologyTable}>
+            {visibleRawItems.map((item, idx) => (
+              <div key={`${item.taxonomy_concept}-${item.period_end}-${idx}`} className={styles.ontologyRow}>
+                <span className={styles.ontologyKey}>{item.taxonomy_concept}</span>
+                <span className={styles.ontologyLabel}>{item.ontology_id}</span>
+                <span className={styles.ontologyValue}>{fmtRawValue(item)}</span>
+                <span className={styles.ontologyDescription}>{fmtRawPeriod(item)}</span>
               </div>
             ))}
           </div>

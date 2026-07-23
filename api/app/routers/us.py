@@ -15,6 +15,7 @@ from app.schemas import (
     UsDisclosureOut,
     UsFinancialOntologyOut,
     UsFinancialOut,
+    UsFinancialRawOntologyOut,
     UsFinancialValidationOut,
     UsQuoteOut,
     UsScreenerResult,
@@ -110,6 +111,23 @@ def us_financials_validation(
             schemas.UsFinancialValidationItem(**item)
             for item in ontology_service.us_financial_ratio_validation(row)
         ],
+    )
+
+
+@router.get("/{ticker}/financials/raw-ontology", response_model=UsFinancialRawOntologyOut)
+def us_financials_raw_ontology(
+    ticker: str = Path(..., pattern=r"^[A-Za-z.\-]{1,10}$"),
+    db: Session = Depends(get_session),
+) -> UsFinancialRawOntologyOut:
+    """US 종목 SEC companyfacts XBRL 계정의 ontology 정규화 원시 데이터(F3b)."""
+    row = us_company_service.get_financials(db, ticker)
+    if row is None:
+        raise HTTPException(status_code=404, detail="US 종목 재무 없음(SEC 미등록)")
+    items = ontology_service.us_financial_raw_ontology(row)
+    return UsFinancialRawOntologyOut(
+        ticker=row.ticker,
+        count=len(items),
+        items=[schemas.UsFinancialRawOntologyItem(**item) for item in items],
     )
 
 

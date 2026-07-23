@@ -604,6 +604,25 @@ class UsFinancialValidationOut(BaseModel):
     items: list[UsFinancialValidationItem]
 
 
+class UsFinancialRawOntologyItem(BaseModel):
+    """SEC companyfacts XBRL 계정의 ontology 정규화 원시 항목(F3b)."""
+
+    ontology_id: str
+    label: str
+    taxonomy_concept: str
+    namespace: str
+    unit: str
+    period_end: str
+    period_start: str | None = None
+    value: float
+
+
+class UsFinancialRawOntologyOut(BaseModel):
+    ticker: str
+    count: int
+    items: list[UsFinancialRawOntologyItem]
+
+
 class UsQuoteOut(BaseModel):
     ticker: str
     naver_symbol: str  # 차트 조회용(/api/chart?market=US)

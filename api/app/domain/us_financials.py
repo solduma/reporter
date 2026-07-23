@@ -151,6 +151,43 @@ def _latest_shares(facts: dict) -> float | None:
     return None
 
 
+def extract_ontology_facts(
+    facts: dict, normalized: dict[str, str | None]
+) -> list[dict[str, object]]:
+    """companyfacts 원시 XBRL 계정을 온톨로지 정규화 결과와 결합해 반환.
+
+    `normalized` 는 {taxonomy_concept: ontology_id} 형태의 Normalizer.resolve_many 결과.
+    ontology_id 가 None 이면 제외. 반환 항목은 ontology_id/label/taxonomy_concept/namespace/
+    unit/period_start/period_end/value 를 포함한다.
+    """
+    out: list[dict[str, object]] = []
+    for namespace in ("us-gaap", "dei"):
+        for concept, acct in facts.get("facts", {}).get(namespace, {}).items():
+            ont_id = normalized.get(concept)
+            if ont_id is None:
+                continue
+            label = acct.get("label") or concept
+            for unit_key, rows in acct.get("units", {}).items():
+                for row in rows:
+                    end = row.get("end")
+                    val = row.get("val")
+                    if end is None or val is None:
+                        continue
+                    out.append(
+                        {
+                            "ontology_id": ont_id,
+                            "label": label,
+                            "taxonomy_concept": concept,
+                            "namespace": namespace,
+                            "unit": unit_key,
+                            "period_end": end,
+                            "period_start": row.get("start"),
+                            "value": float(val),
+                        }
+                    )
+    return out
+
+
 def compute(facts: dict, market_cap: float | None) -> UsFinancials:
     """companyfacts + 시가총액(USD) → US 밸류에이션 지표.
 
