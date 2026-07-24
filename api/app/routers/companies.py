@@ -584,6 +584,11 @@ def company_financial_statements(
     if not rows:
         bg.add_task(company_service.fetch_financial_statements_bg, code, fs_div)
 
+    # 해당 종목이 실제로 보유한 fs_div 목록. 둘 중 하나만 있으면 연결/별도 탭을 숨긴다.
+    available_fs_divs = [
+        d for d in ("CFS", "OFS") if company_service.financial_statement_rows(db, code, d)
+    ]
+
     # level 재계산용 IFRS 표준 계정 prefix — 저장된 데이터의 level이 오래된
     # 버전일 수 있어 응답 시점에 다시 판정한다.
     # level 0(대분류) — 재무제표의 최상위 계정과목만.
@@ -956,7 +961,11 @@ def company_financial_statements(
                 equity=_sort_items(_group_items(equity_items), _BS_ORDER),
             )
         )
-    return FinancialStatementsOut(stock_code=code, periods=periods)
+    return FinancialStatementsOut(
+        stock_code=code,
+        periods=periods,
+        available_fs_divs=available_fs_divs,
+    )
 
 
 @router.get("/{code}/peers", response_model=list[PeerOut])

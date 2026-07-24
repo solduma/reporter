@@ -177,6 +177,13 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
   });
   // 재무 백필 진행상태(가용분은 위 financials 로 즉시 표시, 이 값으로 '백필 중' 배지). 미완이면 폴링.
   const [finStatus, setFinStatus] = useState<FinancialsStatus | null>(null);
+  // 재무제표 섹션 헤더 태그(연결·별도 / 연결 / 별도)용 상태.
+  const [fsDivInfo, setFsDivInfo] = useState<{ available: ("CFS" | "OFS")[]; active: "CFS" | "OFS" } | null>(null);
+  const fsDivTag = useMemo(() => {
+    if (!fsDivInfo) return "연결 · 별도";
+    if (fsDivInfo.available.length > 1) return "연결 · 별도";
+    return fsDivInfo.active === "OFS" ? "별도" : "연결";
+  }, [fsDivInfo]);
   const [peers, setPeers] = useState<SectionState<Peer[]>>({ status: "loading", data: [] });
   const [expandedAxis, setExpandedAxis] = useState<Set<string>>(new Set());
   const toggleAxis = useCallback((axisKey: string) => {
@@ -711,9 +718,9 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
       <section className={styles.chartCard}>
         <div className={styles.growthHead}>
           <h2 className={styles.sectionTitle}>재무제표</h2>
-          <span className={styles.growthTag}>연결 · 별도</span>
+          <span className={styles.growthTag}>{fsDivTag}</span>
         </div>
-        <FinancialStatements code={code} />
+        <FinancialStatements code={code} onFsDivInfo={setFsDivInfo} />
       </section>
 
       {/* 종목 딥다이브 — 온디맨드 5단계 심층 분석(worker 큐 실행·상태폴링). 종목 정보 다음, 가장 깊은 분석. */}

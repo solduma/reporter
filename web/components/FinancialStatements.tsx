@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { fetchFinancialStatements } from "@/lib/api";
 import type { FinancialStatementItem as FSItem, FinancialStatementsResponse } from "@/lib/types";
@@ -9,6 +9,8 @@ import styles from "./FinancialStatements.module.css";
 
 interface Props {
   code: string;
+  /** 데이터 로드 후 사용 가능한 fs_div 정보를 상위(예: 페이지 태그)로 전달. */
+  onFsDivInfo?: (info: { available: ("CFS" | "OFS")[]; active: "CFS" | "OFS" }) => void;
 }
 
 type StatementTab = "bs" | "is" | "cf" | "equity";
@@ -150,12 +152,31 @@ function ItemRow({
   );
 }
 
-export default function FinancialStatements({ code }: Props) {
+export default function FinancialStatements({ code, onFsDivInfo }: Props) {
   const [fsDiv, setFsDiv] = useState<"CFS" | "OFS">("CFS");
   const [activeTab, setActiveTab] = useState<StatementTab>("bs");
   const [data, setData] = useState<FinancialStatementsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const onFsDivInfoRef = useRef(onFsDivInfo);
+  onFsDivInfoRef.current = onFsDivInfo;
+
+  // fsDiv 가 응답에 포함되지 않은 경우(예: URL 직접 진입) 자동으로 사용 가능한 값으로 보정.
+  useEffect(() => {
+    if (!data?.available_fs_divs?.length) return;
+    if (!data.available_fs_divs.includes(fsDiv)) {
+      setFsDiv(data.available_fs_divs[0] as "CFS" | "OFS");
+    }
+  }, [data, fsDiv]);
+
+  // 상위 컴포넌트에 현재 fs_div 상태를 알린다(페이지 헤더 태그 동기화용).
+  useEffect(() => {
+    if (!data?.available_fs_divs?.length || !onFsDivInfoRef.current) return;
+    onFsDivInfoRef.current({
+      available: data.available_fs_divs as ("CFS" | "OFS")[],
+      active: fsDiv,
+    });
+  }, [data, fsDiv]);
 
   useEffect(() => {
     let active = true;
@@ -204,23 +225,27 @@ export default function FinancialStatements({ code }: Props) {
   const periodLabel = latestPeriod?.period ?? "";
   const prevPeriodLabel = latestPeriod?.prev_period ?? null;
 
+  const showFsDivTabs = (data?.available_fs_divs?.length ?? 0) > 1;
+
   return (
     <div className={styles.container}>
-      {/* CFS/OFS 탭 */}
-      <div className={styles.fsDivTabs} role="tablist" aria-label="연결/별도 선택">
-        {(["CFS", "OFS"] as const).map((div) => (
-          <button
-            key={div}
-            type="button"
-            role="tab"
-            aria-selected={fsDiv === div}
-            className={fsDiv === div ? `${styles.fsDivTab} ${styles.fsDivTabActive}` : styles.fsDivTab}
-            onClick={() => setFsDiv(div)}
-          >
-            {div === "CFS" ? "연결" : "별도"}
-          </button>
-        ))}
-      </div>
+      {/* CFS/OFS 탭: 둘 다 있을 때만 표시 */}
+      {showFsDivTabs && (
+        <div className={styles.fsDivTabs} role="tablist" aria-label="연결/별도 선택">
+          {(["CFS", "OFS"] as const).map((div) => (
+            <button
+              key={div}
+              type="button"
+              role="tab"
+              aria-selected={fsDiv === div}
+              className={fsDiv === div ? `${styles.fsDivTab} ${styles.fsDivTabActive}` : styles.fsDivTab}
+              onClick={() => setFsDiv(div)}
+            >
+              {div === "CFS" ? "연결" : "별도"}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* 재무제표 탭 */}
       <div className={styles.statementTabs} role="tablist" aria-label="재무제표 종류">
