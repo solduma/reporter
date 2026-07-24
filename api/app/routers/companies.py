@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, date, datetime, timedelta
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query, Response
@@ -31,6 +32,7 @@ from app.schemas import (
     PeerOut,
     RatioOut,
     ReportCard,
+    SCEMatrix,
     ScoreFactor,
     StockSearchHit,
     TimelineCacheResponse,
@@ -684,16 +686,6 @@ def company_financial_statements(
         "dart_CashAndCashEquivalentsAtBeginningOfPeriodCf",
         "dart_CashAndCashEquivalentsAtEndOfPeriodCf",
     )
-    _EQUITY_KEYWORDS = (
-        "자본",
-        "자본금",
-        "이익잉여금",
-        "자본잉여금",
-        "기타자본",
-        "자본조정",
-        "자본총계",
-    )
-
     def _is_level0(name: str, account_id: str = "") -> bool:
         # CF 대분류는 DART 계정명에 공백·"분기말" 등 변형이 있어 account_id 우선 판정.
         if account_id and any(account_id.startswith(p) for p in _CF_LEVEL0_ACCOUNT_PREFIXES):
@@ -721,6 +713,88 @@ def company_financial_statements(
             )
             for i in raw
         ]
+
+    def _build_sce_matrix(sce_raw: list[dict]) -> SCEMatrix | None:
+        """자본변동표(SCE)를 account_nm × account_detail matrix 로 변환.
+
+        DART fnlttSinglAcntAll 의 SCE 는 account_nm 이 행(기간흐름), account_detail 의
+        leaf 가 열(자본구성요소)이다. 파이프 구분자와 '[구성요소]' 같은 XBRL role 접미사를
+        정규화해 사용자 이미지와 같은 표준 matrix 로 만든다.
+        """
+        if not sce_raw:
+            return None
+
+        def _clean_leaf(detail: str) -> str | None:
+            if not detail:
+                return None
+            leaf = detail.split("|")[-1].strip()
+            # XBRL axis/member role 접미사(예: ' [구성요소]') 제거
+            leaf = re.sub(r"\s*\[[^]]+\]\s*$", "", leaf)
+            # "연결재무제표" / "별도재무제표"는 전체 자본총계를 의미한다.
+            if leaf in ("연결재무제표", "별도재무제표"):
+                return "자본총계"
+            # 중간 집계 노드 "자본"은 자본총계로 매핑(하위 구성요소와 중복되지 않도록).
+            if leaf == "자본":
+                return "자본총계"
+            return leaf
+
+        rows: list[str] = []
+        cols: list[str] = []
+        row_seen: set[str] = set()
+        col_seen: set[str] = set()
+        cells: list[tuple[str, str, float | None]] = []
+        for item in sce_raw:
+            row = (item.get("name") or "").strip()
+            col = _clean_leaf(item.get("detail") or "")
+            if not row or not col:
+                continue
+            cells.append((row, col, item.get("amount")))
+            if row not in row_seen:
+                row_seen.add(row)
+                rows.append(row)
+            if col not in col_seen:
+                col_seen.add(col)
+                cols.append(col)
+
+        if not rows or not cols:
+            return None
+
+        # 행 정렬: 기초/분기초 먼저, 기말/분기말 마지막, 나머지는 원본 순서
+        row_order = {r: i for i, r in enumerate(rows)}
+
+        def _row_sort_key(r: str) -> tuple[int, int, int]:
+            if "기초" in r or "초" in r:
+                return (0, 0, row_order[r])
+            if "기말" in r or "말" in r:
+                return (2, 0, row_order[r])
+            return (1, 0, row_order[r])
+
+        rows = sorted(rows, key=_row_sort_key)
+
+        # 열 정렬: 사용자 이미지 기준 자본구성요소 순서
+        _COL_ORDER = {
+            "자본금": 0,
+            "자본잉여금": 1,
+            "자본조정": 2,
+            "기타자본": 2,
+            "기타포괄손익누계": 3,
+            "기타포괄손익누계액": 3,
+            "이익잉여금": 4,
+            "비지배지분": 5,
+            "자본총계": 6,
+        }
+        col_order = {c: i for i, c in enumerate(cols)}
+
+        def _col_sort_key(c: str) -> tuple[int, int]:
+            return (_COL_ORDER.get(c, 99), col_order[c])
+
+        cols = sorted(cols, key=_col_sort_key)
+
+        value_map: dict[str, dict[str, float | None]] = {r: {} for r in rows}
+        for row, col, amount in cells:
+            value_map[row][col] = amount
+        values = [[value_map[row].get(col) for col in cols] for row in rows]
+        return SCEMatrix(rows=rows, cols=cols, values=values)
 
     def _sort_key(name: str, account_id: str = "", order: dict[str, int] | None = None) -> int:
         """공시 순서 정렬 키. 부분일치로 매칭(괄호 접미사 대응).
@@ -972,8 +1046,8 @@ def company_financial_statements(
         is_items = _build_items(is_raw)
         cf_items = _build_items(data.get("CF", []))
         cis_items = _build_items(data.get("CIS", []))
-        # 자본변동표: BS에서 자본 관련 항목만 추출
-        equity_items = [i for i in bs_items if any(kw in i.name for kw in _EQUITY_KEYWORDS)]
+        # 자본변동표: BS에서 추출하지 않고 DART sj_div=SCE matrix 를 직접 사용.
+        equity_matrix = _build_sce_matrix(data.get("SCE", []))
         # 전년 동기 데이터 매칭 (계산된 합계 전에 실행 — 합계는 children prev 합으로 계산)
         yoy_period, yoy_data = _find_yoy_period(r.period, rows)
         if yoy_data:
@@ -982,7 +1056,6 @@ def company_financial_statements(
             _apply_prev(is_items, pm)
             _apply_prev(cf_items, pm)
             _apply_prev(cis_items, pm)
-            _apply_prev(equity_items, pm)
         # BS: 먼저 그룹핑(유동자산→하위항목) → 계산 합계가 기존 lv0을 children 으로 흡수
         bs_grouped = _group_items(bs_items)
         _add_calculated_totals(bs_grouped, "총자산", ("유동자산", "비유동자산"))
@@ -1000,7 +1073,7 @@ def company_financial_statements(
                 **{"is": _sort_items(_group_is_items(is_items), _IS_ORDER)},
                 cis=_sort_items(_group_is_items(cis_items), _IS_ORDER),
                 cf=_sort_items(_group_items(cf_items), _CF_ORDER),
-                equity=_sort_items(_group_items(equity_items), _BS_ORDER),
+                equity=equity_matrix,
             )
         )
     out = FinancialStatementsOut(

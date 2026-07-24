@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { fetchFinancialStatements } from "@/lib/api";
-import type { FinancialStatementItem as FSItem } from "@/lib/types";
+import type { FinancialStatementItem as FSItem, SCEMatrix } from "@/lib/types";
 
 import styles from "./FinancialStatements.module.css";
 
@@ -154,6 +154,47 @@ function ItemRow({
   );
 }
 
+/** 자본변동표(SCE)를 account_nm × account_detail matrix 로 렌더링. */
+function EquityMatrix({ matrix }: { matrix: SCEMatrix }) {
+  const allValues = useMemo(
+    () => matrix.values.flat().filter((v): v is number => v !== null),
+    [matrix],
+  );
+  const unit = useMemo(
+    () => resolveAmountUnit(allValues.length > 0 ? Math.max(...allValues.map(Math.abs)) : 0),
+    [allValues],
+  );
+
+  return (
+    <div className={styles.tableWrap}>
+      <table className={styles.table}>
+        <thead>
+          <tr>
+            <th className={styles.thLeft}>구분</th>
+            {matrix.cols.map((col) => (
+              <th key={col} className={styles.thRight}>
+                {col}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {matrix.rows.map((row, ri) => (
+            <tr key={row} className={styles.rowLevel0}>
+              <td className={styles.tdLeft}>{row}</td>
+              {matrix.values[ri].map((val, ci) => (
+                <td key={`${row}-${ci}`} className={styles.tdRight}>
+                  {formatAmount(val, unit.divisor, unit.suffix, unit.decimals)}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function FinancialStatements({ code, onFsDivInfo }: Props) {
   const [fsDiv, setFsDiv] = useState<"CFS" | "OFS">("CFS");
   const [activeTab, setActiveTab] = useState<StatementTab>("bs");
@@ -190,7 +231,7 @@ export default function FinancialStatements({ code, onFsDivInfo }: Props) {
   }, [data]);
 
   const items = useMemo(() => {
-    if (!latestPeriod) return [];
+    if (!latestPeriod || activeTab === "equity") return [];
     return latestPeriod[activeTab] ?? [];
   }, [latestPeriod, activeTab]);
 
@@ -199,6 +240,8 @@ export default function FinancialStatements({ code, onFsDivInfo }: Props) {
     const maxAbs = values.length > 0 ? Math.max(...values) : 0;
     return resolveAmountUnit(maxAbs);
   }, [items]);
+
+  const equityMatrix = latestPeriod?.equity ?? null;
 
   if (isPending) {
     return <div className={styles.sectionStatus}>재무제표 불러오는 중…</div>;
@@ -256,29 +299,37 @@ export default function FinancialStatements({ code, onFsDivInfo }: Props) {
       </div>
 
       {/* 테이블 */}
-      <div className={styles.tableWrap}>
-        <table className={styles.table}>
-          <thead>
-            <tr>
-              <th className={styles.thLeft}>항목</th>
-              <th className={styles.thRight}>{periodLabel}</th>
-              <th className={styles.thRight}>{prevPeriodLabel ?? "전기"}</th>
-              <th className={styles.thRight}>변동률</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((item, i) => (
-              <ItemRow
-                key={`${item.account_id}-${i}`}
-                item={item}
-                unit={amountUnit}
-                // BS 탭에서는 Lv0·Lv1 만 기본 펼침, Lv2+ 와 다른 탭은 접힘.
-                defaultOpen={activeTab === "bs" && item.level < 2}
-              />
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {activeTab === "equity" ? (
+        equityMatrix ? (
+          <EquityMatrix matrix={equityMatrix} />
+        ) : (
+          <div className={styles.sectionStatus}>자본변동표 데이터가 없습니다</div>
+        )
+      ) : (
+        <div className={styles.tableWrap}>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th className={styles.thLeft}>항목</th>
+                <th className={styles.thRight}>{periodLabel}</th>
+                <th className={styles.thRight}>{prevPeriodLabel ?? "전기"}</th>
+                <th className={styles.thRight}>변동률</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((item, i) => (
+                <ItemRow
+                  key={`${item.account_id}-${i}`}
+                  item={item}
+                  unit={amountUnit}
+                  // BS 탭에서는 Lv0·Lv1 만 기본 펼침, Lv2+ 와 다른 탭은 접힘.
+                  defaultOpen={activeTab === "bs" && item.level < 2}
+                />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

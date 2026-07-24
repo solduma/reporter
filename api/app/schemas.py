@@ -338,6 +338,14 @@ class FinancialStatementItem(BaseModel):
     children: list[FinancialStatementItem] = []  # 하위 항목(level 0일 때)
 
 
+class SCEMatrix(BaseModel):
+    """자본변동표(SCE)를 account_nm × account_detail matrix 로 표현."""
+
+    rows: list[str]  # 행 레이블 (분기초자본, 분기순이익, ...)
+    cols: list[str]  # 열 레이블 (자본금, 자본잉여금, ...)
+    values: list[list[float | None]] = []  # rows × cols
+
+
 class FinancialStatementPeriod(BaseModel):
     """한 기간의 재무제표 전체."""
 
@@ -348,7 +356,7 @@ class FinancialStatementPeriod(BaseModel):
     is_: list[FinancialStatementItem] = Field(default=[], alias="is")
     cis: list[FinancialStatementItem] = []
     cf: list[FinancialStatementItem] = []
-    equity: list[FinancialStatementItem] = []  # 자본변동표(BS 자본항목에서 추출)
+    equity: SCEMatrix | None = None  # 자본변동표(SCE)
 
 
 class FinancialStatementsOut(BaseModel):

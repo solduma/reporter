@@ -527,7 +527,7 @@ def parse_full_statements(rows: list[dict]) -> dict[str, list[dict]]:
     level: 0=대분류(합계·총계·소계), 1=중분류, 2=세부항목.
     소계·합계 행은 제외(중복 합계 방지). amount 가 없는 항목도 제외.
     """
-    groups: dict[str, list[dict]] = {"BS": [], "IS": [], "CIS": [], "CF": []}
+    groups: dict[str, list[dict]] = {"BS": [], "IS": [], "CIS": [], "CF": [], "SCE": []}
     _TOTAL_KEYWORDS = ("합계", "총계", "소계", "계")
     for row in rows:
         sj = row.get("sj_div") or ""
@@ -541,6 +541,18 @@ def parse_full_statements(rows: list[dict]) -> dict[str, list[dict]]:
             continue
         # 소계·합계 행 제외(account_nm 끝에 '합계'/'총계'/'소계'/'계').
         if any(nm.endswith(kw) for kw in _TOTAL_KEYWORDS):
+            continue
+        item: dict = {
+            "account_id": row.get("account_id") or "",
+            "name": nm,
+            "amount": amt,
+            "sj_div": sj,
+        }
+        # 자본변동표(SCE)는 account_nm × account_detail matrix 로 쓰인다.
+        # account_detail 을 보존하고 level 은 사용하지 않는다.
+        if sj == "SCE":
+            item["detail"] = (row.get("account_detail") or "").strip()
+            groups[sj].append(item)
             continue
         # level 판정: 주요 계정명(대분류)은 level=0, 나머지는 level=1.
         # IFRS 재무제표 표준 계정과목 기준. 정확한 시작일치로 오탐(기타유동자산→유동자산) 방지.
@@ -563,13 +575,8 @@ def parse_full_statements(rows: list[dict]) -> dict[str, list[dict]]:
             "기초현금및현금성자산", "기말현금및현금성자산",
         )
         level = 0 if any(nm.startswith(p) for p in _MAJOR_PREFIXES) or any(kw in nm for kw in ("합계", "총계")) else 1
-        groups[sj].append({
-            "account_id": row.get("account_id") or "",
-            "name": nm,
-            "amount": amt,
-            "sj_div": sj,
-            "level": level,
-        })
+        item["level"] = level
+        groups[sj].append(item)
     return {k: v for k, v in groups.items() if v}
 
 
