@@ -30,6 +30,7 @@ from app.db.models import (
     CorpCodeMap,
     Financial,
     FinancialStatement,
+    FinancialStatementCache,
     PriceCandle,
     SyncState,
     Timeframe,
@@ -217,6 +218,12 @@ def backfill_stock(db: Session, settings: Settings, code: str) -> bool:
         )
         db.execute(stmt_insert)
 
+    # API 캐시를 날려 새 데이터가 즉시 반영되게 한다(트랜잭션 마지막에 한 번 commit).
+    db.execute(
+        FinancialStatementCache.__table__.delete().where(
+            FinancialStatementCache.stock_code == code
+        )
+    )
     db.commit()
     logger.info("financials 10y backfill %s: %d periods (shares=%s)", code, updated, shares)
     return True
@@ -427,6 +434,12 @@ def backfill_ofs_stock(db: Session, settings: Settings, code: str) -> bool:
             updated += 1
 
     if updated:
+        # API 캐시를 날려 새 데이터가 즉시 반영되게 한다(트랜잭션 마지막에 한 번 commit).
+        db.execute(
+            FinancialStatementCache.__table__.delete().where(
+                FinancialStatementCache.stock_code == code
+            )
+        )
         db.commit()
         logger.info("ofs statements backfill %s: %d periods", code, updated)
     return True
