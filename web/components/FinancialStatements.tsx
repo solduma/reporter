@@ -145,7 +145,8 @@ function ItemRow({
               key={`${child.account_id}-${ci}`}
               item={child}
               unit={unit}
-              defaultOpen={defaultOpen}
+              // BS 탭에서 부모가 펼쳐져 있을 때만 Lv0·Lv1 까지 펼치고 Lv2+ 는 기본 접힘.
+              defaultOpen={defaultOpen && child.level < 2}
             />
           ))
         : null}
@@ -271,7 +272,8 @@ export default function FinancialStatements({ code, onFsDivInfo }: Props) {
                 key={`${item.account_id}-${i}`}
                 item={item}
                 unit={amountUnit}
-                defaultOpen={activeTab === "bs"}
+                // BS 탭에서는 Lv0·Lv1 만 기본 펼침, Lv2+ 와 다른 탭은 접힘.
+                defaultOpen={activeTab === "bs" && item.level < 2}
               />
             ))}
           </tbody>
