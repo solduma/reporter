@@ -909,6 +909,12 @@ export interface CompanyRatiosResponse {
   items: RatioItem[];
 }
 
+export interface SCEMatrix {
+  rows: string[];
+  cols: string[];
+  values: (number | null)[][];
+}
+
 export interface FinancialStatementPeriod {
   period: string;
   prev_period: string | null;
@@ -917,7 +923,7 @@ export interface FinancialStatementPeriod {
   is: FinancialStatementItem[];
   cis: FinancialStatementItem[];
   cf: FinancialStatementItem[];
-  equity: FinancialStatementItem[];
+  equity: SCEMatrix | null;
 }
 
 export interface FinancialStatementsResponse {
