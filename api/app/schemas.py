@@ -356,6 +356,7 @@ class FinancialStatementsOut(BaseModel):
 
     stock_code: str
     periods: list[FinancialStatementPeriod]
+    available_fs_divs: list[str] = []  # 종목이 보유한 fs_div(CFS/OFS). 1개면 탭 노출 불필요.
 
 
 class PeerOut(BaseModel):

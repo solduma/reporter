@@ -923,4 +923,5 @@ export interface FinancialStatementPeriod {
 export interface FinancialStatementsResponse {
   stock_code: string;
   periods: FinancialStatementPeriod[];
+  available_fs_divs?: string[];
 }
