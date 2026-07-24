@@ -77,6 +77,17 @@ async function getJson<T>(path: string): Promise<T> {
   return (await res.json()) as T;
 }
 
+// 브라우저 HTTP 캐시·304 조건부 요청을 허용하는 GET. react-query 가 in-memory 캐시를
+// 쥐고 있더라도 staleTime 경과 후 재검증 시 304/Cache-Control hit 으로 페이로드를 0으로
+// 줄이기 위해 no-store 를 끊는다. 실시간성이 중요한 엔드포인트(시세 등)는 getJson 유지.
+async function getJsonCached<T>(path: string): Promise<T> {
+  const res = await fetch(apiUrl(path));
+  if (!res.ok) {
+    throw new Error(`API ${path} 실패 (${res.status})`);
+  }
+  return (await res.json()) as T;
+}
+
 async function postJson<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(apiUrl(path), {
     method: "POST",
@@ -371,7 +382,8 @@ export function fetchFinancialStatements(
   code: string,
   fsDiv: string = "CFS",
 ): Promise<FinancialStatementsResponse> {
-  return getJson<FinancialStatementsResponse>(
+  // no-store 해제 — 백엔드 Cache-Control + react-query staleTime 으로 브라우저·304 캐시.
+  return getJsonCached<FinancialStatementsResponse>(
     `/api/companies/${encodeURIComponent(code)}/financial-statements?fs_div=${fsDiv}`,
   );
 }
