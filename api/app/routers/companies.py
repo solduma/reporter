@@ -674,6 +674,16 @@ def company_financial_statements(
         "기초현금및현금성자산": 3,
         "기말현금및현금성자산": 4,
     }
+    # 현금흐름표 대분류 — 이름에 공백이 들어가거나 "분기말" vs "기말" 변형이 있는 경우
+    # (예: SK하이닉스 "영업활동 현금흐름", "분기말 현금및현금성자산")에 robust 하게
+    # account_id 로 먼저 판정한다. name 기반 prefix 는 fallback 으로 유지.
+    _CF_LEVEL0_ACCOUNT_PREFIXES = (
+        "ifrs-full_CashFlowsFromUsedInOperatingActivities",
+        "ifrs-full_CashFlowsFromUsedInInvestingActivities",
+        "ifrs-full_CashFlowsFromUsedInFinancingActivities",
+        "dart_CashAndCashEquivalentsAtBeginningOfPeriodCf",
+        "dart_CashAndCashEquivalentsAtEndOfPeriodCf",
+    )
     _EQUITY_KEYWORDS = (
         "자본",
         "자본금",
@@ -684,7 +694,10 @@ def company_financial_statements(
         "자본총계",
     )
 
-    def _is_level0(name: str) -> bool:
+    def _is_level0(name: str, account_id: str = "") -> bool:
+        # CF 대분류는 DART 계정명에 공백·"분기말" 등 변형이 있어 account_id 우선 판정.
+        if account_id and any(account_id.startswith(p) for p in _CF_LEVEL0_ACCOUNT_PREFIXES):
+            return True
         return any(name.startswith(p) for p in _LEVEL0_PREFIXES) or any(
             kw in name for kw in ("합계", "총계")
         )
@@ -693,7 +706,8 @@ def company_financial_statements(
         """원본 DART 순서 유지 + level 판정 + 온톨로지 ID 부여.
 
         영속화된 ontology_id 를 우선 사용(수집 단계에서 enrich_with_ontology_id 로 주입).
-        구버전 행(미보관)만 name 정규화 fallback. 정규화는 인메모리 색인 조회라 호출 비용이 작다."""
+        구버전 행(미보관)만 name 정규화 fallback. 정규화는 인메모리 색인 조회라 호출 비용이 작다.
+        CF 는 account_id 기반으로 level 0 을 판정해 name 변형(공백·분기말 등)에 대응한다."""
         for i in raw:
             if i.get("ontology_id") is None and i.get("name", ""):
                 i["ontology_id"] = ontology_service.normalize([i["name"]])[0].id
@@ -702,14 +716,30 @@ def company_financial_statements(
                 account_id=i.get("account_id", ""),
                 name=i.get("name", ""),
                 amount=i.get("amount"),
-                level=0 if _is_level0(i.get("name", "")) else 1,
+                level=0 if _is_level0(i.get("name", ""), i.get("account_id", "")) else 1,
                 ontology_id=i.get("ontology_id"),
             )
             for i in raw
         ]
 
-    def _sort_key(name: str, order: dict[str, int]) -> int:
-        """공시 순서 정렬 키. 부분일치로 매칭(괄호 접미사 대응)."""
+    def _sort_key(name: str, account_id: str = "", order: dict[str, int] | None = None) -> int:
+        """공시 순서 정렬 키. 부분일치로 매칭(괄호 접미사 대응).
+
+        CF 는 name 변형에 robust 하게 account_id 우선으로 매칭한다."""
+        if order is None:
+            return 9999
+        # CF account_id 기반 매칭 (name 변형에 robust)
+        if account_id and order is _CF_ORDER:
+            account_to_idx = {
+                "ifrs-full_CashFlowsFromUsedInOperatingActivities": 0,
+                "ifrs-full_CashFlowsFromUsedInInvestingActivities": 1,
+                "ifrs-full_CashFlowsFromUsedInFinancingActivities": 2,
+                "dart_CashAndCashEquivalentsAtBeginningOfPeriodCf": 3,
+                "dart_CashAndCashEquivalentsAtEndOfPeriodCf": 4,
+            }
+            for prefix, idx in account_to_idx.items():
+                if account_id.startswith(prefix):
+                    return idx
         for key, idx in order.items():
             if name.startswith(key):
                 return idx
@@ -722,7 +752,9 @@ def company_financial_statements(
         for item in items:
             if item.children:
                 item.children = _sort_items(item.children, order)
-        return sorted(items, key=lambda i: (_sort_key(i.name, order), i.name))
+        return sorted(
+            items, key=lambda i: (_sort_key(i.name, i.account_id, order), i.name)
+        )
 
     def _group_is_items(items: list[FinancialStatementItem]) -> list[FinancialStatementItem]:
         """account_id 기반으로 IS/CIS 항목을 표준 그룹에 재분류.
