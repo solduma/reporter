@@ -12,6 +12,7 @@ from app.db.models import (
     DailyMarketInfo,
     Disclosure,
     Financial,
+    FinancialStatement,
     GrowthMetric,
     MarketQuote,
     Peer,
@@ -165,7 +166,6 @@ def all_backfill_progress(db: Session) -> list[BackfillStatus]:
     ))
 
     # 재무제표(FinancialStatement) 현황: CFS 보유 종목 대비 적재된 종목 수
-    from app.db.models import FinancialStatement
     fs_cnt = len(db.execute(
         select(FinancialStatement.stock_code).where(FinancialStatement.fs_div == "CFS").distinct()
     ).all())
@@ -179,6 +179,63 @@ def all_backfill_progress(db: Session) -> list[BackfillStatus]:
     ))
 
     return out
+
+
+@dataclass
+class SCEBackfillStatus:
+    """SCE 마이그레이션 현황 한 종목."""
+
+    stock_code: str
+    stock_name: str | None
+    periods_total: int  # 전체 FinancialStatement CFS 기간 수
+    periods_missing: int  # data에 SCE 키가 없는 기간 수
+
+
+def sce_backfill_status(db: Session, limit: int = 200) -> list[SCEBackfillStatus]:
+    """SCE 누락 종목 현황 — CFS 재무제표가 있는 종목 중 SCE가 채워지지 않은 종목 우선.
+
+    반환: 누락 기간이 많은 종목 순. limit=200 기본(너무 많으면 TUI 느려짐).
+    """
+    latest = universe_ingest.latest_snapshot_date(db)
+    name_map = {}
+    if latest:
+        name_map = {
+            r.stock_code: r.stock_name
+            for r in db.execute(
+                select(UniverseSnapshot.stock_code, UniverseSnapshot.stock_name).where(
+                    UniverseSnapshot.snapshot_date == latest,
+                    UniverseSnapshot.stock_type == "stock",
+                )
+            ).all()
+        }
+
+    # CFS FinancialStatement 행 단위로 SCE 키 존재 여부 조회.
+    rows = db.execute(
+        select(
+            FinancialStatement.stock_code,
+            func.count().label("total"),
+            func.sum(
+                func.cast(FinancialStatement.data.has_key("SCE").is_(False), int)
+            ).label("missing"),
+        )
+        .where(FinancialStatement.fs_div == "CFS")
+        .group_by(FinancialStatement.stock_code)
+    ).all()
+
+    results: list[SCEBackfillStatus] = []
+    for code, total, missing in rows:
+        missing_int = missing or 0
+        if missing_int == 0:
+            continue
+        results.append(SCEBackfillStatus(
+            stock_code=code,
+            stock_name=name_map.get(code),
+            periods_total=total,
+            periods_missing=missing_int,
+        ))
+
+    results.sort(key=lambda r: r.periods_missing, reverse=True)
+    return results[:limit]
 
 
 @dataclass

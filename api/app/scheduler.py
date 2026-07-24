@@ -443,6 +443,17 @@ def run_market_premium_batch(settings: Settings | None = None) -> dict:
         session.close()
 
 
+def run_sce_migration_batch(settings: Settings | None = None) -> dict:
+    """SCE 누락 종목을 점진 마이그레이션(1회 per_run 개 기간). DART 한도 내에서 안전하게."""
+    from app.services import financials_backfill
+
+    session = SessionLocal()
+    try:
+        return financials_backfill.run_sce_migration(session, settings or get_settings())
+    finally:
+        session.close()
+
+
 # 수동 실행 가능한 배치 레지스트리 — (key, 표시명, 함수). TUI '운영' 탭이 이 목록으로 버튼을 만든다.
 # 함수는 (settings) → dict 시그니처로 통일돼 있어 TUI 가 일괄 실행·이력 기록한다.
 MANUAL_BATCHES: list[tuple[str, str, object]] = [
@@ -466,6 +477,7 @@ MANUAL_BATCHES: list[tuple[str, str, object]] = [
     ("risk_free", "무위험금리(국고채)", run_risk_free_batch),
     ("capex_backfill", "CAPEX 백필(FCFF)", run_capex_backfill),
     ("market_premium", "시장 ERP(Damodaran)", run_market_premium_batch),
+    ("sce_migrate", "SCE 마이그레이션", run_sce_migration_batch),
 ]
 
 

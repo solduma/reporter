@@ -94,6 +94,12 @@ def _stub_services(monkeypatch):
         ],
     )
     monkeypatch.setattr(tui.ingest_log, "recent_failure_count", lambda db, since_hours=24: 0)
+    monkeypatch.setattr(
+        tui.admin_status, "sce_backfill_status",
+        lambda db, limit=100: [
+            admin_status.SCEBackfillStatus(stock_code="000660", stock_name="SK하이닉스", periods_total=40, periods_missing=1),
+        ],
+    )
 
 
 async def test_tui_mounts_and_shows_status():

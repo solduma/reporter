@@ -445,6 +445,115 @@ def backfill_ofs_stock(db: Session, settings: Settings, code: str) -> bool:
     return True
 
 
+def _sce_pending_rows(db: Session) -> list[tuple[str, str]]:
+    """SCE 키가 없는 (stock_code, period) 목록. CFS 한정."""
+    rows = db.execute(
+        select(FinancialStatement.stock_code, FinancialStatement.period)
+        .where(
+            FinancialStatement.fs_div == "CFS",
+            ~FinancialStatement.data.has_key("SCE"),
+        )
+        .order_by(FinancialStatement.stock_code, FinancialStatement.period)
+    ).all()
+    return list(rows)
+
+
+def _run_sce_migration_for_code(
+    db: Session, settings: Settings, code: str, periods: list[str], session: requests.Session
+) -> int:
+    """한 종목의 지정된 기간들에 대해 SCE를 채우고 캐시를 날린다. 갱신된 기간 수 반환."""
+    corp_code = db.scalar(select(CorpCodeMap.corp_code).where(CorpCodeMap.stock_code == code))
+    if not corp_code:
+        return 0
+
+    updated = 0
+    for period in periods:
+        year, month = period.split(".")
+        quarter = {"03": 1, "06": 2, "09": 3, "12": 4}[month]
+        full = dart._fetch_full_statements_for_fs_div(
+            settings.dart_api_key, corp_code, int(year), quarter, "CFS", session
+        )
+        sce = full.get("SCE") if full else None
+        if not sce:
+            continue
+        # FinancialStatement upsert via SQL.
+        stmt = select(FinancialStatement).where(
+            FinancialStatement.stock_code == code,
+            FinancialStatement.period == period,
+            FinancialStatement.fs_div == "CFS",
+        )
+        row = db.scalars(stmt).first()
+        if row:
+            row.data = {**row.data, "SCE": sce}
+            updated += 1
+            logger.info("%s %s SCE 채움: %d rows", code, period, len(sce))
+
+    if updated:
+        db.execute(
+            FinancialStatementCache.__table__.delete().where(
+                FinancialStatementCache.stock_code == code
+            )
+        )
+        db.commit()
+    return updated
+
+
+def run_sce_migration(
+    db: Session, settings: Settings | None = None, per_run: int = 200
+) -> dict:
+    """SCE 누락 기간을 점진 마이그레이션. per_run 은 처리할 기간(row) 수.
+
+    종목별로 모아 한 세션으로 DART 를 호출해 효율을 높인다. DART 예산/한도 감시.
+    """
+    settings = settings or get_settings()
+    if not settings.dart_api_key:
+        logger.warning("no DART key; skip SCE migration")
+        return {"done": 0, "failed": 0, "remaining": 0}
+
+    pending_rows = _sce_pending_rows(db)
+    if not pending_rows:
+        return {"done": 0, "failed": 0, "remaining": 0}
+
+    # per_run 기간 수만큼 잘라 종목별 그룹화.
+    batch = pending_rows[:per_run]
+    by_code: dict[str, list[str]] = {}
+    for code, period in batch:
+        by_code.setdefault(code, []).append(period)
+
+    done_periods = failed = 0
+    quota_hit = budget_hit = False
+    with requests.Session() as session:
+        for code, periods in by_code.items():
+            if dart_throttle.backfill_budget_exhausted():
+                budget_hit = True
+                logger.info("SCE migration: 백필 예산 소진 — 조기 중단")
+                break
+            try:
+                done_periods += _run_sce_migration_for_code(db, settings, code, periods, session)
+            except dart.DartQuotaExceeded:
+                db.rollback()
+                quota_hit = True
+                logger.warning("SCE migration: DART 한도초과 — 배치 중단")
+                break
+            except Exception as e:
+                db.rollback()
+                failed += len(periods)
+                logger.warning("SCE migration failed for %s: %s", code, e)
+
+    remaining = len(pending_rows) - done_periods
+    logger.info(
+        "SCE migration: done=%d failed=%d remaining=%d quota_hit=%s budget_hit=%s",
+        done_periods, failed, remaining, quota_hit, budget_hit,
+    )
+    return {
+        "done": done_periods,
+        "failed": failed,
+        "remaining": remaining,
+        "quota_hit": quota_hit,
+        "budget_hit": budget_hit,
+    }
+
+
 def run_ofs_statements_backfill(
     db: Session, settings: Settings | None = None, per_run: int = _PER_RUN
 ) -> dict:

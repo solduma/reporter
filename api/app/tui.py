@@ -18,6 +18,8 @@ import time
 from datetime import datetime
 from typing import ClassVar
 
+import requests
+from sqlalchemy import func, select
 from textual import work
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
@@ -34,6 +36,7 @@ from textual.widgets import (
     TabPane,
 )
 
+from app.db.models import FinancialStatement
 from app.db.session import SessionLocal, init_db
 from app.scheduler import MANUAL_BATCHES
 from app.services import (
@@ -195,6 +198,7 @@ class AdminTUI(App):
         ("3", "show_tab('tab_deploy')", "서버/배포"),
         ("4", "show_tab('tab_schedule')", "스케줄"),
         ("5", "show_tab('tab_stocks')", "종목"),
+        ("6", "show_tab('tab_sce')", "SCE"),
         ("r", "refresh", "새로고침"),
         ("t", "toggle_job", "발송 on/off"),
         ("e", "edit_job", "시각 편집"),
@@ -231,6 +235,18 @@ class AdminTUI(App):
                 yield DataTable(id="ingest_history", classes="tbl")
                 yield Static(id="fallback_title", classes="panel-title")
                 yield DataTable(id="fallback", classes="tbl-warn")
+            with TabPane("SCE", id="tab_sce"), VerticalScroll():
+                yield Static("[b]자본변동표(SCE) 마이그레이션 현황[/b]", classes="panel-title")
+                yield Static(
+                    "종목코드 입력 후 Enter 로 개별 마이그레이션, 또는 '전체 점진 마이그레이션' 버튼으로 배치 실행.",
+                    classes="panel-title",
+                )
+                yield Input(placeholder="예: 000660", id="sce_code_input")
+                with Horizontal(classes="bar"):
+                    yield Button("개별 실행", id="sce_one", variant="primary")
+                    yield Button("전체 점진 마이그레이션", id="sce_batch", variant="warning")
+                yield Static(id="sce_summary", classes="panel-title")
+                yield DataTable(id="sce_table", classes="tbl")
             with TabPane("서버/배포", id="tab_deploy"), VerticalScroll():
                 yield Static(id="server_status", classes="panel-title")
                 with Horizontal(classes="bar"):
@@ -288,6 +304,7 @@ class AdminTUI(App):
         self.query_one("#fallback", DataTable).add_columns("시각", "종류", "사유", "대상")
         self.query_one("#db_status", DataTable).add_columns("테이블", "행수", "최신 업데이트")
         self.query_one("#ingest_history", DataTable).add_columns("시각", "작업", "결과", "건수", "소요")
+        self.query_one("#sce_table", DataTable).add_columns("종목", "이름", "누락기간", "전체기간")
 
         self.action_refresh()
         self.set_interval(3.0, self._refresh_server_status)
@@ -310,7 +327,7 @@ class AdminTUI(App):
         finally:
             db.close()
         lines = [
-            "[b]시스템 상태[/b]  (1~5=탭, r=새로고침, q=종료)",
+            "[b]시스템 상태[/b]  (1~6=탭, r=새로고침, q=종료)",
             "테이블 행수: " + "  ".join(f"{k}={v:,}" for k, v in counts.items()),
             f"최신 리포트: {fresh['latest_report_date']}   "
             f"유니버스 스냅샷: {fresh['latest_universe_date']} "
@@ -323,6 +340,7 @@ class AdminTUI(App):
         self._load_ingest_history()
         self._load_fallbacks()
         self._load_preview()
+        self._load_sce_status()
 
     def _refresh_server_status(self) -> None:
         lines = ["[b]로컬(dev) 서버[/b] (launchd 관리)"]
@@ -466,6 +484,27 @@ class AdminTUI(App):
         self.query_one("#prev", Button).disabled = self._page <= 0
         self.query_one("#next", Button).disabled = (self._page + 1) >= total_pages
 
+    def _load_sce_status(self) -> None:
+        db = SessionLocal()
+        try:
+            rows = admin_status.sce_backfill_status(db, limit=100)
+            total = db.scalar(
+                select(func.count()).select_from(FinancialStatement).where(
+                    FinancialStatement.fs_div == "CFS",
+                    ~FinancialStatement.data.has_key("SCE"),
+                )
+            ) or 0
+        finally:
+            db.close()
+        table = self.query_one("#sce_table", DataTable)
+        table.clear()
+        for r in rows:
+            name = r.stock_name or "—"
+            table.add_row(r.stock_code, name, str(r.periods_missing), str(r.periods_total))
+        self.query_one("#sce_summary", Static).update(
+            f"[b]SCE 누락 현황[/b]  총 {total}개 기간, 상위 {len(rows)}개 종목 (100개 표시)"
+        )
+
     # ── 발송 스케줄 ──────────────────────────────────────────────────────
     def _selected_job(self):
         table = self.query_one("#schedule", DataTable)
@@ -522,6 +561,8 @@ class AdminTUI(App):
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id == "search_input":
             self._run_stock_search(event.value.strip())
+        elif event.input.id == "sce_code_input":
+            self._run_sce_one(event.value.strip())
 
     @work(thread=True, exclusive=True, group="search")
     def _run_stock_search(self, q: str) -> None:
@@ -595,6 +636,12 @@ class AdminTUI(App):
             self.action_prev_page()
         elif bid.startswith("batch_"):
             self._guarded(lambda: self._run_batch(bid[len("batch_"):]))
+        elif bid == "sce_one":
+            code = self.query_one("#sce_code_input", Input).value.strip()
+            if code:
+                self._guarded(lambda: self._run_sce_one(code))
+        elif bid == "sce_batch":
+            self._confirm_sce_batch()
 
     def _guarded(self, fn) -> None:
         """배치/빌드/배포는 서로 배타 실행 — 이중 크롤/GLM/빌드 방지."""
@@ -720,6 +767,79 @@ class AdminTUI(App):
             self.call_from_thread(self._log_line, status)
             if "[진행중" not in status:
                 break
+
+    @work(thread=True, exclusive=True, group="sce")
+    def _run_sce_one(self, code: str) -> None:
+        if not code:
+            return
+        self.call_from_thread(self._log_line, f"▶ SCE 마이그레이션 시작: {code}")
+        db = SessionLocal()
+        try:
+            from app.config import get_settings
+            from app.services import financials_backfill
+
+            updated = financials_backfill._run_sce_migration_for_code(
+                db, get_settings(), code,
+                [p for _, p in financials_backfill._sce_pending_rows(db) if _ == code],
+                requests.Session(),
+            )
+            self.call_from_thread(self._log_line, f"✔ {code}: {updated}개 기간 SCE 채움")
+        except Exception as e:
+            self.call_from_thread(self._log_line, f"✖ {code} 마이그레이션 실패: {e}")
+        finally:
+            db.close()
+        self.call_from_thread(self._load_sce_status)
+
+    def _confirm_sce_batch(self) -> None:
+        if self._busy:
+            self._log_line("⚠ 다른 작업이 실행 중입니다.")
+            return
+
+        def _on_confirm(ok: bool | None) -> None:
+            if ok:
+                self._guarded(self._run_sce_batch)
+
+        self.push_screen(
+            ConfirmScreen(
+                "SCE 점진 마이그레이션",
+                "재무제표가 있지만 SCE가 없는 기간을 DART 재조회로 채웁니다.\n"
+                "1회 200개 기간씩 처리하며, DART 한도/예산에 도달하면 중단됩니다.",
+                ok_label="실행",
+            ),
+            _on_confirm,
+        )
+
+    @work(thread=True, exclusive=True, group="busy")
+    def _run_sce_batch(self) -> None:
+        from app.config import get_settings
+        from app.services import financials_backfill
+
+        self.call_from_thread(self._set_busy, True)
+        self.call_from_thread(self._log_line, "▶ SCE 점진 마이그레이션 배치 시작…")
+        start = time.monotonic()
+        try:
+            db = SessionLocal()
+            try:
+                result = financials_backfill.run_sce_migration(db, get_settings())
+            finally:
+                db.close()
+            msg = (
+                f"✔ SCE 마이그레이션: {result.get('done', 0)}개 기간 완료, "
+                f"실패 {result.get('failed', 0)}, 남은 기간 {result.get('remaining', 0)}"
+            )
+            self.call_from_thread(self._log_line, msg)
+            ingest_log.record(
+                None, "sce_migration_batch", detail=str(result)[:200],
+                duration_ms=int((time.monotonic() - start) * 1000),
+            )
+        except Exception as e:
+            self.call_from_thread(self._log_line, f"✖ SCE 마이그레이션 배치 실패: {e}")
+            ingest_log.record(
+                None, "sce_migration_batch", status="fail", detail=str(e)[:200],
+                duration_ms=int((time.monotonic() - start) * 1000),
+            )
+        self.call_from_thread(self._load_sce_status)
+        self.call_from_thread(self._set_busy, False)
 
     def _log_line(self, msg: str) -> None:
         self.query_one("#log", Log).write_line(f"[{datetime.now():%H:%M:%S}] {msg}")
