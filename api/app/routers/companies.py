@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, Response
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -572,22 +572,32 @@ def company_ratios(
 
 @router.get("/{code}/financial-statements", response_model=FinancialStatementsOut)
 def company_financial_statements(
-    code: str, bg: BackgroundTasks, db: Session = Depends(get_session), fs_div: str = "CFS"
+    code: str,
+    bg: BackgroundTasks,
+    response: Response,
+    db: Session = Depends(get_session),
+    fs_div: str = "CFS",
 ) -> FinancialStatementsOut:
     """종목의 전체 재무제표(재무상태표·손익계산서·현금흐름표·자본변동표) 시계열.
 
     데이터 흐름: DART(원천) → DB → Cache(응답).
     DB 에 없으면 빈 응답을 즉시 반환하고 백그라운드에서 DART 조회·저장한다.
     백그라운드는 자체 DB 세션을 사용해 요청 세션과 lock 경합을 피한다.
+    응답 캐시(FinancialStatementCache, 12h TTL) hit 시 280줄 조립을 생략하고 즉시 반환한다.
     """
+    # 1) 응답 캐시 조회 — hit 시 JSONB 파싱·계층 재조립을 생략한다.
+    cached = company_service.get_financial_statements_cache(db, code, fs_div)
+    if cached is not None:
+        response.headers["Cache-Control"] = "public, max-age=300"
+        return FinancialStatementsOut.model_validate(cached)
+
     rows = company_service.financial_statement_rows(db, code, fs_div)
     if not rows:
         bg.add_task(company_service.fetch_financial_statements_bg, code, fs_div)
 
     # 해당 종목이 실제로 보유한 fs_div 목록. 둘 중 하나만 있으면 연결/별도 탭을 숨긴다.
-    available_fs_divs = [
-        d for d in ("CFS", "OFS") if company_service.financial_statement_rows(db, code, d)
-    ]
+    # 단일 distinct 쿼리로 CFS·OFS 존재 여부를 한 번에 확인(요청당 쿼리 3→2).
+    available_fs_divs = company_service.available_fs_divs(db, code)
 
     # level 재계산용 IFRS 표준 계정 prefix — 저장된 데이터의 level이 오래된
     # 버전일 수 있어 응답 시점에 다시 판정한다.
@@ -961,11 +971,19 @@ def company_financial_statements(
                 equity=_sort_items(_group_items(equity_items), _BS_ORDER),
             )
         )
-    return FinancialStatementsOut(
+    out = FinancialStatementsOut(
         stock_code=code,
         periods=periods,
         available_fs_divs=available_fs_divs,
     )
+    # 데이터가 있을 때만 캐시한다. 빈 응답을 캐시하면 백그라운드 fetch 가 완료되기 전까지
+    # 이후 요청이 캐시 hit 로 빈 응답만 받게 되므로, 빈 경우는 매번 DB 를 다시 확인한다.
+    if rows:
+        company_service.store_financial_statements_cache(
+            db, code, fs_div, out.model_dump(mode="json", by_alias=True)
+        )
+    response.headers["Cache-Control"] = "public, max-age=300"
+    return out
 
 
 @router.get("/{code}/peers", response_model=list[PeerOut])

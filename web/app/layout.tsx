@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 
 import NavBar from "@/components/NavBar";
+import QueryProvider from "@/lib/query-client";
 
 import "./globals.css";
 
@@ -20,8 +21,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="ko">
       <body>
-        <NavBar />
-        <main>{children}</main>
+        <QueryProvider>
+          <NavBar />
+          <main>{children}</main>
+        </QueryProvider>
       </body>
     </html>
   );

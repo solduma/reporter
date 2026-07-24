@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 import { fetchFinancialStatements } from "@/lib/api";
-import type { FinancialStatementItem as FSItem, FinancialStatementsResponse } from "@/lib/types";
+import type { FinancialStatementItem as FSItem } from "@/lib/types";
 
 import styles from "./FinancialStatements.module.css";
 
@@ -155,11 +156,15 @@ function ItemRow({
 export default function FinancialStatements({ code, onFsDivInfo }: Props) {
   const [fsDiv, setFsDiv] = useState<"CFS" | "OFS">("CFS");
   const [activeTab, setActiveTab] = useState<StatementTab>("bs");
-  const [data, setData] = useState<FinancialStatementsResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const onFsDivInfoRef = useRef(onFsDivInfo);
   onFsDivInfoRef.current = onFsDivInfo;
+
+  // useQuery 가 (code, fsDiv) 별로 in-memory 캐시를 쥐어 CFS↔OFS 탭 전환·재방문 시
+  // 캐시 hit 로 즉시 렌더하고, staleTime(5분) 경과 후에만 백그라운드 재검증한다.
+  const { data, isPending, error } = useQuery({
+    queryKey: ["financial-statements", code, fsDiv],
+    queryFn: () => fetchFinancialStatements(code, fsDiv),
+  });
 
   // fsDiv 가 응답에 포함되지 않은 경우(예: URL 직접 진입) 자동으로 사용 가능한 값으로 보정.
   useEffect(() => {
@@ -178,24 +183,6 @@ export default function FinancialStatements({ code, onFsDivInfo }: Props) {
     });
   }, [data, fsDiv]);
 
-  useEffect(() => {
-    let active = true;
-    async function load() {
-      setLoading(true);
-      setError(null);
-      try {
-        const res = await fetchFinancialStatements(code, fsDiv);
-        if (active) setData(res);
-      } catch (e) {
-        if (active) setError(e instanceof Error ? e.message : "재무제표 로드 실패");
-      } finally {
-        if (active) setLoading(false);
-      }
-    }
-    void load();
-    return () => { active = false; };
-  }, [code, fsDiv]);
-
   const latestPeriod = useMemo(() => {
     if (!data?.periods || data.periods.length === 0) return null;
     return data.periods[data.periods.length - 1];
@@ -212,11 +199,11 @@ export default function FinancialStatements({ code, onFsDivInfo }: Props) {
     return resolveAmountUnit(maxAbs);
   }, [items]);
 
-  if (loading) {
+  if (isPending) {
     return <div className={styles.sectionStatus}>재무제표 불러오는 중…</div>;
   }
   if (error) {
-    return <div className={styles.sectionStatus}>{error}</div>;
+    return <div className={styles.sectionStatus}>{error.message}</div>;
   }
   if (!data || data.periods.length === 0) {
     return <div className={styles.sectionStatus}>재무제표 데이터가 없습니다</div>;

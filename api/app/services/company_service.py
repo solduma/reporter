@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
@@ -22,6 +22,7 @@ from app.db.models import (
     Disclosure,
     Financial,
     FinancialStatement,
+    FinancialStatementCache,
     GrowthMetric,
     Peer,
     Report,
@@ -61,6 +62,8 @@ _PEER_FIELDS = {
 # 재무·peers 스크랩 캐시 TTL — 분기 재무는 하루 1회면 충분(장중 잦은 갱신 불필요).
 _FINANCIALS_TTL = timedelta(hours=12)
 _PEERS_TTL = timedelta(hours=12)
+# 재무제표 응답 캐시 TTL — 분기 재무는 12시간 주기로 갱신되므로 그 이상 캐시는 의미 없다.
+_FINANCIAL_STATEMENTS_CACHE_TTL = timedelta(hours=12)
 
 
 # ── 종목명·검색 ────────────────────────────────────────────────────────
@@ -158,6 +161,63 @@ def financial_statement_rows(
     )
 
 
+def available_fs_divs(db: Session, code: str) -> list[str]:
+    """종목이 보유한 fs_div 목록 — 단일 distinct 쿼리로 CFS/OFS 존재 여부를 한 번에 확인.
+
+    라우터가 available_fs_divs 를 위해 CFS·OFS 각각 financial_statement_rows 를 추가 호출하면
+    요청당 쿼리가 3회로 늘어난다. distinct fs_div 한 번으로 1회로 줄인다.
+    """
+    rows = db.execute(
+        select(FinancialStatement.fs_div)
+        .where(FinancialStatement.stock_code == code)
+        .distinct()
+    ).all()
+    present = {r[0] for r in rows}
+    return [d for d in ("CFS", "OFS") if d in present]
+
+
+def get_financial_statements_cache(
+    db: Session, code: str, fs_div: str
+) -> dict | None:
+    """FinancialStatementCache 에서 (code, fs_div) 조회. TTL 만료 또는 없으면 None."""
+    row = db.scalar(
+        select(FinancialStatementCache).where(
+            FinancialStatementCache.stock_code == code,
+            FinancialStatementCache.fs_div == fs_div,
+        )
+    )
+    if row is None or row.cached_at is None:
+        return None
+    if datetime.now(UTC) - row.cached_at >= _FINANCIAL_STATEMENTS_CACHE_TTL:
+        return None
+    return row.payload
+
+
+def store_financial_statements_cache(
+    db: Session, code: str, fs_div: str, payload: dict
+) -> None:
+    """FinancialStatementCache upsert. on_conflict_do_update 로 (code, fs_div) 당 1행 유지."""
+    stmt = insert(FinancialStatementCache).values(
+        stock_code=code, fs_div=fs_div, payload=payload
+    )
+    stmt = stmt.on_conflict_do_update(
+        constraint="uq_fs_cache_code_div",
+        set_={"payload": payload, "cached_at": func.now()},
+    )
+    db.execute(stmt)
+    db.commit()
+
+
+def invalidate_financial_statements_cache(db: Session, code: str) -> None:
+    """백필 후 캐시 무효화 — code 의 모든 fs_div 행을 지운다(available_fs_divs 도 바뀔 수 있으므로 전체)."""
+    db.execute(
+        FinancialStatementCache.__table__.delete().where(
+            FinancialStatementCache.stock_code == code
+        )
+    )
+    db.commit()
+
+
 def fetch_and_store_financial_statements(
     db: Session, code: str, fs_div: str = "CFS"
 ) -> None:
@@ -198,6 +258,9 @@ def fetch_and_store_financial_statements(
             )
             db.execute(stmt)
     db.commit()
+    # 원천 데이터가 갱신됐으므로 응답 캐시를 무효화한다. available_fs_divs 도 바뀔 수 있어
+    # fs_div 무관하게 code 의 캐시 행 전체를 지운다.
+    invalidate_financial_statements_cache(db, code)
 
 
 def fetch_financial_statements_bg(code: str, fs_div: str = "CFS") -> None:

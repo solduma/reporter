@@ -527,6 +527,29 @@ class TimelineCache(Base):
     )
 
 
+class FinancialStatementCache(Base):
+    """재무제표 응답 캐시.
+
+    GET /companies/{code}/financial-statements 는 매 요청 모든 기간의 JSONB 를 파싱해
+    Python 에서 계층 구조를 재조립(280줄)한다. 이 조립 결과를 (stock_code, fs_div) 당 1행
+    JSONB 로 캐시해 cache hit 시 조립을 생략하고 즉시 반환한다. 백필(FinancialStatement
+    upsert) 시 invalidate_financial_statements_cache 가 해당 종목 행을 지운다.
+    """
+
+    __tablename__ = "financial_statement_cache"
+    __table_args__ = (
+        UniqueConstraint("stock_code", "fs_div", name="uq_fs_cache_code_div"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    stock_code: Mapped[str] = mapped_column(String(6), index=True)
+    fs_div: Mapped[str] = mapped_column(String(3))
+    payload: Mapped[dict] = mapped_column(JSONB, default=dict)  # FinancialStatementsOut 직렬화
+    cached_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class FallbackEvent(Base):
     """폴백(1차 소스/방법 실패 → 2차 대안 전환) 발생 이력.
 
