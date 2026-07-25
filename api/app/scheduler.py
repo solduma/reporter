@@ -454,7 +454,7 @@ def run_sce_migration_batch(settings: Settings | None = None) -> dict:
         session.close()
 
 
-# 수동 실행 가능한 배치 레지스트리 — (key, 표시명, 함수). TUI '운영' 탭이 이 목록으로 버튼을 만든다.
+# 수동 실행 가능한 배치 레지스트리 — (key, 표시명, 함수). TUI '배치' 탭이 이 목록으로 버튼을 만든다.
 # 함수는 (settings) → dict 시그니처로 통일돼 있어 TUI 가 일괄 실행·이력 기록한다.
 MANUAL_BATCHES: list[tuple[str, str, object]] = [
     ("ingest_cycle", "리포트·시황 수집", run_ingest_cycle),
@@ -479,6 +479,36 @@ MANUAL_BATCHES: list[tuple[str, str, object]] = [
     ("market_premium", "시장 ERP(Damodaran)", run_market_premium_batch),
     ("sce_migrate", "SCE 마이그레이션", run_sce_migration_batch),
 ]
+
+
+# 배치 실행 메타데이터 — heartbeat timeout 등 TUI batch_runner 와 공유한다.
+# label 은 MANUAL_BATCHES 와 동일하지만, release_deploy 는 서버 제어 영역이라 별도 등록.
+_DEFAULT_TIMEOUT_SECONDS = 600
+BATCH_META: dict[str, dict[str, object]] = {
+    key: {"label": label, "heartbeat_timeout_seconds": _DEFAULT_TIMEOUT_SECONDS}
+    for key, label, _ in MANUAL_BATCHES
+}
+# 무거운 백필/배포는 heartbeat timeout을 늘린다.
+BATCH_META["release_deploy"] = {"label": "release 배포", "heartbeat_timeout_seconds": 1800}
+BATCH_META["ofs_statements"]["heartbeat_timeout_seconds"] = 1800
+BATCH_META["financials_backfill"]["heartbeat_timeout_seconds"] = 1800
+BATCH_META["report_backfill"]["heartbeat_timeout_seconds"] = 1800
+BATCH_META["report_fulltext"]["heartbeat_timeout_seconds"] = 1800
+BATCH_META["us_financials"]["heartbeat_timeout_seconds"] = 1800
+
+
+def _release_deploy_fn(settings: Settings | None = None) -> dict:
+    """release 브랜치 push 로 CD 를 트리거한다 — TUI batch_runner 에서 실행."""
+    from app.services.server_control import ProdDeploy
+
+    return {"result": ProdDeploy().deploy()}
+
+
+# batch_runner 가 key 로 함수를 찾는 레지스트리.
+BATCH_FUNCTIONS: dict[str, object] = {
+    key: fn for key, _, fn in MANUAL_BATCHES
+}
+BATCH_FUNCTIONS["release_deploy"] = _release_deploy_fn
 
 
 def build_scheduler(settings: Settings | None = None) -> BlockingScheduler:

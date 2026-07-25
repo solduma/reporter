@@ -8,12 +8,24 @@ RunAtLoad+KeepAlive 로 부팅 후 자동 실행·유지된다(설치: launchd/i
 
 from __future__ import annotations
 
+import contextlib
+import json
 import os
 import re
 import shutil
 import subprocess
+import time
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
+
+from app.admin_paths import (
+    LAST_DEPLOY_BRANCH_FILE,
+    LAST_DEPLOY_TAG_FILE,
+    RUN_DIR,
+)
 
 _HOST = "127.0.0.1"
 _LABEL_PREFIX = "com.reporter.server"
@@ -90,8 +102,22 @@ def _service_target(label: str) -> str:
 _PID_RE = re.compile(r"^\s*pid\s*=\s*(\d+)", re.MULTILINE)
 
 
+def _git(*args: str, timeout: int = 60) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", *args], cwd=_PROJECT_DIR,
+        capture_output=True, text=True, timeout=timeout, check=False,
+    )
+
+
+_KICKSTART_COOLDOWN_SECONDS = 10
+
+
+def _kickstart_record_path(key: str) -> Path:
+    return RUN_DIR / f"last_kickstart_{key}.ts"
+
+
 class ServerControl:
-    """launchd 서비스(com.reporter.server.*)의 상태 조회·재기동."""
+    """launchd 서비스(com.reporter.server.*)의 상태 조회·재기동·헬스체크."""
 
     def _print(self, label: str) -> str | None:
         """launchctl print 출력. 서비스가 미등록이면 None."""
@@ -155,12 +181,48 @@ class ServerControl:
             return f"WEB 빌드 실패:\n{tail}"
         return "WEB 빌드 완료 — 'WEB 재기동'을 눌러 반영하세요."
 
+    def kickstart(self, key: str, cooldown_seconds: int = _KICKSTART_COOLDOWN_SECONDS) -> str:
+        """cooldown 파일을 확인해 연속 재기동을 방지하고 restart()를 호출한다."""
+        spec = SERVERS[key]
+        RUN_DIR.mkdir(parents=True, exist_ok=True)
+        path = _kickstart_record_path(key)
+        now = time.time()
+        if path.exists():
+            try:
+                last = float(path.read_text(encoding="utf-8").strip() or 0)
+            except ValueError:
+                last = 0
+            remaining = cooldown_seconds - (now - last)
+            if remaining > 0:
+                return f"{spec.label} 재기동 쿨다운 {remaining:.0f}초 남음 — {spec.url}"
+        path.write_text(str(now), encoding="utf-8")
+        return self.restart(key)
 
-def _git(*args: str, timeout: int = 60) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["git", *args], cwd=_PROJECT_DIR,
-        capture_output=True, text=True, timeout=timeout, check=False,
-    )
+    def health(self, key: str, timeout: float = 2.0, retries: int = 3) -> dict:
+        """HTTP 헬스체크 — API /health, WEB / ping. retries 간 0.5초 간격."""
+        spec = SERVERS[key]
+        url = spec.url
+        if key == "api":
+            url = f"{spec.url}/health"
+        for attempt in range(retries):
+            start = time.monotonic()
+            try:
+                with urllib.request.urlopen(url, timeout=timeout) as resp:
+                    _ = resp.read(1)
+                    return {
+                        "ok": True,
+                        "status": resp.status,
+                        "latency_ms": int((time.monotonic() - start) * 1000),
+                    }
+            except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as e:
+                if attempt == retries - 1:
+                    return {"ok": False, "error": str(e), "latency_ms": None}
+                time.sleep(0.5)
+        return {"ok": False, "error": "unknown", "latency_ms": None}
+
+    def kill(self, key: str) -> str:
+        """강제 종료 — launchctl kickstart -k 로 kill+restart. 비상 정지용."""
+        return self.restart(key)
 
 
 class ProdDeploy:
@@ -179,6 +241,46 @@ class ProdDeploy:
         if not pending:
             return "배포할 새 커밋 없음 — release 가 main 과 동일합니다."
         return f"release 로 올릴 커밋(main 대비):\n{pending}"
+
+    def cd_status(self) -> str:
+        """최근 CD(release 배포) run 상태를 gh CLI 로 조회한다(진행중/성공/실패 + 소요).
+
+        gh 미설치·미인증이면 안내 문자열. TUI 가 이걸 폴링해 '배포 완료됐는지' 를 바로 보여준다.
+        """
+        gh = shutil.which("gh")
+        if not gh:
+            return "gh CLI 미설치 — CD 상태 조회 불가(brew install gh)."
+        result = subprocess.run(
+            [gh, "run", "list", "--workflow=cd.yml", "--limit", "1",
+             "--json", "status,conclusion,displayTitle,createdAt,databaseId"],
+            cwd=_PROJECT_DIR, capture_output=True, text=True, timeout=20, check=False,
+        )
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout).strip().splitlines()
+            return "CD 상태 조회 실패: " + (detail[-1] if detail else "gh 인증 확인")
+        runs = json.loads(result.stdout or "[]")
+        if not runs:
+            return "CD run 없음 — 아직 release 배포 이력이 없습니다."
+        r = runs[0]
+        status, concl = r.get("status"), r.get("conclusion")
+        title = (r.get("displayTitle") or "")[:48]
+        rid = r.get("databaseId")
+        if status != "completed":
+            return f"CD #{rid} [진행중 ● {status}] {title}"
+        mark = "✔ 성공" if concl == "success" else f"✖ {concl}"
+        return f"CD #{rid} [{mark}] {title}"
+
+    def _write_last_deploy_meta(self, n: int) -> None:
+        """배포 시점의 브랜치·태그(commit)를 기록한다."""
+        try:
+            rev = _git("rev-parse", "--short", f"origin/{_PROD_BRANCH}").stdout.strip()
+            tag = rev or datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+            LAST_DEPLOY_BRANCH_FILE.write_text("release", encoding="utf-8")
+            LAST_DEPLOY_TAG_FILE.write_text(
+                f"{tag}\n{datetime.now(UTC).isoformat()}\n{n}", encoding="utf-8"
+            )
+        except Exception:
+            pass
 
     def deploy(self) -> str:
         """origin/main 을 release 로 fast-forward 하고 push 해 CD 를 트리거한다.
@@ -204,40 +306,72 @@ class ProdDeploy:
             detail = (push.stderr or push.stdout).strip().splitlines()
             return "release push 실패:\n" + "\n".join(detail[-4:])
         n = len(pending.splitlines())
+        self._write_last_deploy_meta(n)
         return (
             f"release 배포 트리거됨 ({n}개 커밋 push) — GitHub Actions CD 가 self-hosted "
             f"runner 에서 배포합니다. 진행 상황: repo → Actions → CD."
         )
 
-    def cd_status(self) -> str:
-        """최근 CD(release 배포) run 상태를 gh CLI 로 조회한다(진행중/성공/실패 + 소요).
+    def rollback(self) -> str:
+        """release 를 바로 직전 커밋으로 강제 이동(rollback)해 CD 를 다시 트리거한다.
 
-        gh 미설치·미인증이면 안내 문자열. TUI 가 이걸 폴링해 '배포 완료됐는지' 를 바로 보여준다.
+        origin/release~1 이 origin/release 의 조상인지 확인 후 push 한다.
         """
-        gh = shutil.which("gh")
-        if not gh:
-            return "gh CLI 미설치 — CD 상태 조회 불가(brew install gh)."
-        result = subprocess.run(
-            [gh, "run", "list", "--workflow=cd.yml", "--limit", "1",
-             "--json", "status,conclusion,displayTitle,createdAt,databaseId"],
-            cwd=_PROJECT_DIR, capture_output=True, text=True, timeout=20, check=False,
+        if _git("fetch", "origin", _PROD_BRANCH).returncode != 0:
+            return "git fetch 실패 — 네트워크/원격을 확인하세요."
+        anc = _git(
+            "merge-base", "--is-ancestor", f"origin/{_PROD_BRANCH}~1", f"origin/{_PROD_BRANCH}"
         )
-        if result.returncode != 0:
-            detail = (result.stderr or result.stdout).strip().splitlines()
-            return "CD 상태 조회 실패: " + (detail[-1] if detail else "gh 인증 확인")
-        import json
+        if anc.returncode != 0:
+            return "rollback 불가 — release 의 직전 커밋이 존재하지 않습니다."
+        old = _git("rev-parse", "--short", f"origin/{_PROD_BRANCH}").stdout.strip()
+        new = _git("rev-parse", "--short", f"origin/{_PROD_BRANCH}~1").stdout.strip()
+        push = _git(
+            "push", "origin", f"origin/{_PROD_BRANCH}~1:refs/heads/{_PROD_BRANCH}",
+            "--force-with-lease",
+            timeout=120,
+        )
+        if push.returncode != 0:
+            detail = (push.stderr or push.stdout).strip().splitlines()
+            return "release rollback 실패:\n" + "\n".join(detail[-4:])
+        self._write_last_deploy_meta(0)
+        return f"release rollback 완료: {old} → {new}. CD 가 다시 실행됩니다."
 
-        runs = json.loads(result.stdout or "[]")
-        if not runs:
-            return "CD run 없음 — 아직 release 배포 이력이 없습니다."
-        r = runs[0]
-        status, concl = r.get("status"), r.get("conclusion")
-        title = (r.get("displayTitle") or "")[:48]
-        rid = r.get("databaseId")
-        if status != "completed":
-            return f"CD #{rid} [진행중 ● {status}] {title}"
-        mark = "✔ 성공" if concl == "success" else f"✖ {concl}"
-        return f"CD #{rid} [{mark}] {title}"
+
+def last_deploy_info() -> dict:
+    """마지막 배포 브랜치·태그(commit)·시각·커밋 수를 읽어 반환한다."""
+    out = {"branch": None, "tag": None, "ts": None, "n_commits": None}
+    if LAST_DEPLOY_BRANCH_FILE.exists():
+        out["branch"] = LAST_DEPLOY_BRANCH_FILE.read_text(encoding="utf-8").splitlines()[0].strip()
+    if LAST_DEPLOY_TAG_FILE.exists():
+        lines = LAST_DEPLOY_TAG_FILE.read_text(encoding="utf-8").splitlines()
+        if lines:
+            out["tag"] = lines[0].strip()
+        if len(lines) > 1:
+            out["ts"] = lines[1].strip()
+        if len(lines) > 2:
+            with contextlib.suppress(ValueError):
+                out["n_commits"] = int(lines[2].strip())
+    return out
+
+
+def git_info() -> dict:
+    """로컬 워킹트리의 현재 브랜치·마지막 커밋·origin/main 대비 상태."""
+    info = {"branch": None, "commit": None, "behind": None, "ahead": None}
+    branch_res = _git("branch", "--show-current")
+    if branch_res.returncode == 0:
+        info["branch"] = branch_res.stdout.strip() or None
+    log_res = _git("log", "-1", "--oneline")
+    if log_res.returncode == 0:
+        info["commit"] = log_res.stdout.strip() or None
+    count_res = _git("rev-list", "--left-right", "--count", "origin/main...HEAD")
+    if count_res.returncode == 0:
+        parts = count_res.stdout.strip().split()
+        if len(parts) == 2:
+            with contextlib.suppress(ValueError):
+                info["behind"] = int(parts[0])
+                info["ahead"] = int(parts[1])
+    return info
 
 
 def tail_service_log(key: str, lines: int = 40) -> str:
