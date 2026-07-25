@@ -488,6 +488,53 @@ def invalidate_cache(db: Session, code: str) -> None:
     db.commit()
 
 
+def _merge_research_into_cache(db: Session, code: str, research_summary: dict) -> None:
+    """리서치 결과를 BusinessOverviewCache.payload["research_summary"]에 병합.
+
+    기존 overview가 있으면 그 payload의 research_summary만 갱신(sections/source_reports/inputs_hash
+    보존). 없으면 빈 overview 스텁을 생성(빈 sections는 프론트가 숨김 → 리서치만 표시).
+
+    이 함수는 assemble_overview를 경유하지 않아야 함 — assemble_overview는 research_summary를
+    None으로 리셋하므로, 경유하면 리서치가 사라짐.
+    """
+    row = db.scalar(select(BusinessOverviewCache).where(BusinessOverviewCache.stock_code == code))
+    if row is None:
+        # 스텁 생성: 빈 sections/source_reports, stock_name은 추후 채워짐.
+        stub_payload = {
+            "stock_code": code,
+            "stock_name": "",
+            "as_of_annual_rcept": "",
+            "source_reports": [],
+            "sections": [],
+            "research_summary": research_summary,
+        }
+        _store_cache(
+            db,
+            code,
+            "",  # stock_name (비어도 OK)
+            "",  # as_of_annual_rcept
+            [],  # source_reports
+            "",  # inputs_hash (없음)
+            stub_payload,
+        )
+        return
+
+    # 기존 payload에 research_summary만 덮어쓰기.
+    payload = row.payload or {}
+    payload["research_summary"] = research_summary
+
+    # 기존 inputs_hash/source_reports/as_of_annual_rcept를 보존한 upsert (refresh_if_new_report 오트리거 방지).
+    _store_cache(
+        db,
+        code,
+        row.stock_name or "",
+        row.as_of_annual_rcept or "",
+        row.source_reports or [],
+        row.inputs_hash or "",
+        payload,
+    )
+
+
 # ── 백필 ─────────────────────────────────────────────────────────────────
 def _universe_codes(db: Session) -> list[str]:
     """유니버스 최신 스냅샷의 보통주 종목코드(우선주 제외). report_ingest._universe_codes 와 동일."""

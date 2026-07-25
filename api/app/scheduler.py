@@ -402,6 +402,54 @@ def run_ir_interview_queue(settings: Settings | None = None) -> dict:
         session.close()
 
 
+_business_research_executor: concurrent.futures.ThreadPoolExecutor | None = None
+
+
+def _run_business_research_in_thread(session_factory, job_id: int, code: str, settings: Settings) -> None:
+    """백그라운드 스레드에서 사업 리서치 실행."""
+    session = session_factory()
+    try:
+        from app.db.models import BusinessResearchJob
+        from app.services import business_research
+
+        job = session.get(BusinessResearchJob, job_id)
+        if job is None:
+            logger.warning("business research job %d not found in background thread", job_id)
+            return
+        business_research.run_job(session, job, settings)
+    except Exception:
+        logger.exception("business research background job failed %s", code)
+    finally:
+        session.close()
+
+
+def run_business_research_queue(settings: Settings | None = None) -> dict:
+    """사업 리서치 DB 폴링 큐 — pending job 1건을 잡아 백그라운드 스레드 실행.
+
+    딥다이브 큐와 독립된 전용 executor 사용(직렬화 방지). 짧은 interval 폴링, max_instances=1.
+    """
+    global _business_research_executor
+    from app.services import business_research
+
+    settings = settings or get_settings()
+    session = SessionLocal()
+    try:
+        job = business_research.claim_next(session)
+        if job is None:
+            return {"claimed": 0}
+        if _business_research_executor is None:
+            _business_research_executor = concurrent.futures.ThreadPoolExecutor(
+                max_workers=1, thread_name_prefix="bresearch-"
+            )
+        _business_research_executor.submit(
+            _run_business_research_in_thread, SessionLocal, job.id, job.stock_code, settings
+        )
+        return {"claimed": 1, "job_id": job.id, "code": job.stock_code, "status": "running"}
+    finally:
+        session.close()
+
+
+
 def run_us_disclosure_batch(settings: Settings | None = None) -> dict:
     """US 유니버스 종목의 최근 SEC 8-K 수집."""
     from app.services import us_disclosure_ingest
@@ -509,6 +557,7 @@ MANUAL_BATCHES: list[tuple[str, str, object]] = [
     ("market_premium", "시장 ERP(Damodaran)", run_market_premium_batch),
     ("sce_migrate", "SCE 마이그레이션", run_sce_migration_batch),
     ("business_overview_refresh", "사업개요 갱신(새보고서)", run_business_overview_refresh),
+    ("business_research_queue", "사업 리서치 큐", run_business_research_queue),
 ]
 
 
@@ -738,6 +787,15 @@ def build_scheduler(settings: Settings | None = None) -> BlockingScheduler:
         _logged("ir_interview_queue", run_ir_interview_queue),
         trigger=IntervalTrigger(seconds=15, timezone=_TZ),
         id="ir_interview_queue",
+        max_instances=1,
+        coalesce=True,
+        replace_existing=True,
+    )
+    # 사업 리서치 큐 — 전용 executor로 딥다이브/IR과 독립.
+    scheduler.add_job(
+        _logged("business_research_queue", run_business_research_queue),
+        trigger=IntervalTrigger(seconds=15, timezone=_TZ),
+        id="business_research_queue",
         max_instances=1,
         coalesce=True,
         replace_existing=True,

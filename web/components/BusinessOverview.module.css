@@ -158,3 +158,92 @@
   color: var(--text);
   white-space: nowrap;
 }
+
+/* Research+ 패널 */
+.researchBox {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  background: var(--surface);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.researchHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.researchInput {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.guidelineInput {
+  width: 100%;
+  padding: 10px;
+  font-size: 0.9rem;
+  font-family: inherit;
+  line-height: 1.4;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  resize: vertical;
+  min-height: 60px;
+}
+
+.guidelineInput:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(130, 160, 255, 0.15);
+}
+
+.guidelineInput:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.researchProgress {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--accent);
+  font-style: italic;
+}
+
+.researchResult {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 4px;
+}
+
+.researchSection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.researchSection h4 {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.researchSection h5 {
+  margin: 8px 0 4px 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.entityBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+}

@@ -955,12 +955,45 @@ export interface BusinessSourceReport {
   is_base: boolean;
 }
 
+// Phase 3a: Research+ interfaces
+export interface ResearchEntity {
+  name: string;
+  role: string;
+  note: string;
+}
+
+export interface ValueChainLink {
+  stage: string;
+  direction: "upstream" | "downstream";
+  entity: string;
+  note: string;
+}
+
+export interface ResearchSummary {
+  guideline: string;
+  vendors: ResearchEntity[];
+  customers: ResearchEntity[];
+  competitors: ResearchEntity[];
+  value_chain: ValueChainLink[];
+  narrative_md: string;
+  generated_at: string;
+  model: string;
+}
+
+export interface ResearchStatus {
+  stock_code: string;
+  status: "none" | "pending" | "running" | "done" | "failed";
+  progress: number;
+  error: string | null;
+  has_summary: boolean;
+}
+
 export interface BusinessOverview {
   stock_code: string;
   stock_name: string;
   as_of_annual_rcept: string;
   source_reports: BusinessSourceReport[];
   sections: BusinessSection[];
-  research_summary?: Record<string, unknown> | null;
+  research_summary?: ResearchSummary | null;
   cached_at?: string | null;
 }
