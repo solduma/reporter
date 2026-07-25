@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AnalysisPanel from "@/components/AnalysisPanel";
 import { MA_DEFS } from "@/components/CandleChart";
 import type { ChartRange } from "@/components/CandleChart";
+import BusinessOverview from "@/components/BusinessOverview";
 import CompanySnapshot from "@/components/CompanySnapshot";
 import CompanyTimeline from "@/components/CompanyTimeline";
 import DateRangeSlider from "@/components/DateRangeSlider";
@@ -712,6 +713,15 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
           <span className={styles.growthTag}>시세 · 커버리지</span>
         </div>
         <CompanySnapshot code={code} />
+      </section>
+
+      {/* 사업 개요 — 종목 정보 아래, 재무제표 위. 사업보고서+반기/분기 정리(테이블 중심). */}
+      <section className={styles.chartCard}>
+        <div className={styles.growthHead}>
+          <h2 className={styles.sectionTitle}>사업 개요</h2>
+          <span className={styles.growthTag}>사업보고서 · 반기/분기</span>
+        </div>
+        <BusinessOverview code={code} />
       </section>
 
       {/* 재무제표 — 종목 정보 아래, 딥다이브 위. 연결/별도 탭 + 4개 재무제표. */}

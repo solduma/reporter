@@ -1,0 +1,160 @@
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.status {
+  color: var(--muted);
+  padding: 12px 0;
+}
+
+.error {
+  color: var(--sell);
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 4px 0;
+}
+
+.emptyText {
+  color: var(--muted);
+  margin: 0;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.sources {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 0.8rem;
+}
+
+.sourceBase {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.sourceUpdates {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.refreshBtn {
+  padding: 6px 14px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.refreshBtn:hover:not(:disabled) {
+  filter: brightness(0.97);
+}
+
+.refreshBtn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.sections {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sectionHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.updatedTag {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-soft);
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.tableWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tableTitle {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.scroll {
+  overflow-x: auto;
+  min-width: 0;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.table th,
+.table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+  white-space: normal;
+  word-break: keep-all;
+}
+
+.table thead th {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  background: var(--surface);
+}
+
+.table tbody tr:hover {
+  background: var(--accent-soft);
+}
+
+.table td:first-child,
+.table th:first-child {
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}

@@ -931,3 +931,36 @@ export interface FinancialStatementsResponse {
   periods: FinancialStatementPeriod[];
   available_fs_divs?: string[];
 }
+
+// ── 사업 개요(business overview) ──────────────────────────────────────────
+export interface BusinessTable {
+  title?: string;
+  headers: string[];
+  rows: string[][];
+}
+
+export interface BusinessSection {
+  id: string;
+  title: string;
+  narrative: string;
+  tables: BusinessTable[];
+  updated_by_rcept: string | null;
+  updated_by_kind: string | null;
+}
+
+export interface BusinessSourceReport {
+  rcept_no: string;
+  kind: string; // annual | half | quarter
+  period: string;
+  is_base: boolean;
+}
+
+export interface BusinessOverview {
+  stock_code: string;
+  stock_name: string;
+  as_of_annual_rcept: string;
+  source_reports: BusinessSourceReport[];
+  sections: BusinessSection[];
+  research_summary?: Record<string, unknown> | null;
+  cached_at?: string | null;
+}
