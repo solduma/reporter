@@ -29,6 +29,9 @@ import type {
   MarketOverview,
   Peer,
   Report,
+  ResearchEntity,
+  ResearchStatus,
+  ResearchSummary,
   ReportCategory,
   ScreenerMarket,
   ScreenerOpGrowth,
@@ -390,6 +393,24 @@ export async function refreshBusinessOverview(code: string): Promise<BusinessOve
     throw new Error(`사업 개요 갱신 실패 (${res.status})`);
   }
   return (await res.json()) as BusinessOverview | null;
+}
+
+// 사업 리서치(Research+) — 비동기 큐 + 상태 폴링.
+export async function requestBusinessResearch(code: string, guideline: string): Promise<ResearchStatus> {
+  const res = await fetch(apiUrl(`/api/companies/${encodeURIComponent(code)}/business/research`), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ guideline }),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new Error(`사업 리서치 요청 실패 (${res.status})`);
+  }
+  return (await res.json()) as ResearchStatus;
+}
+
+export function fetchBusinessResearchStatus(code: string): Promise<ResearchStatus> {
+  return getJson<ResearchStatus>(`/api/companies/${encodeURIComponent(code)}/business/research/status`);
 }
 
 export function fetchFinancialsStatus(code: string): Promise<FinancialsStatus> {

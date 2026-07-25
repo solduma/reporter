@@ -920,3 +920,19 @@ class BusinessOverviewOut(BaseModel):
     sections: list[BusinessSectionOut] = Field(default_factory=list)
     research_summary: dict | None = None  # 리서치+ 결과(Phase 3)
     cached_at: datetime | None = None
+
+
+class ResearchStatus(BaseModel):
+    """사업 리서치 job 상태(폴링용)."""
+    stock_code: str
+    # none(해당 없음) | pending(큐) | running(실행 중) | done(성공, research_summary 저장됨) | failed
+    status: str = "none"
+    progress: int = 0  # 0-100
+    error: str | None = None
+    has_summary: bool = False  # BusinessOverviewCache.payload["research_summary"] 존재 여부
+
+
+class ResearchGuidelineInput(BaseModel):
+    """리서치 요청 바디."""
+    guideline: str = ""
+

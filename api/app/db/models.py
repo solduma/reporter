@@ -13,6 +13,7 @@ from sqlalchemy import (
     Enum,
     Float,
     ForeignKey,
+    Index,
     Integer,
     SmallInteger,
     String,
@@ -1005,4 +1006,38 @@ class BusinessOverviewCache(Base):
     inputs_hash: Mapped[str | None] = mapped_column(String(16), nullable=True)
     cached_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class BusinessResearchJob(Base):
+    """사업 리서치 비동기 큐(Job). Phase 3a.
+
+    리서치 결과는 별도 테이블이 아니라 BusinessOverviewCache.payload["research_summary"]에
+    직접 저장(다음 방문 시 GET /business 로 자동 노출). 이 행은 lifecycle만 관리.
+    """
+    __tablename__ = "business_research_job"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    stock_code: Mapped[str] = mapped_column(String(6), index=True)
+    # 상태: pending(큐 대기), running(실행 중), done(성공, research_summary 저장됨), failed(실패)
+    status: Mapped[str] = mapped_column(String(12), default="pending", index=True)
+    # 사용자 가이드라인 입력(자유형 질문/관심사).
+    guideline: Mapped[str] = mapped_column(Text, default="")
+    # 진행률(0-100). 스케줄러 폴링/상태폴링용.
+    progress: Mapped[int] = mapped_column(default=0)
+    # 사용한 LLM 모델.
+    model: Mapped[str] = mapped_column(String(120), default="")
+    # 실패 원인(실패 시에만).
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 요청 시각.
+    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # 실행 시작 시각(running 전환 시).
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # 완료 시각(done/failed).
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        # 같은 종목의 동시 진행 중 job을 방지(dedup 위해 enqueue 사용).
+        # 인덱스는 상태폴링 효율성.
+        Index("ix_business_research_stock_status", "stock_code", "status"),
     )

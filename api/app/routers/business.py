@@ -8,12 +8,13 @@ miss 시 동기 조립 후 저장·반환(cache-aside). POST /refresh 는 단건
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Response
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db.session import get_session
-from app.schemas import BusinessOverviewOut
-from app.services import business_ingest
+from app.schemas import BusinessOverviewOut, ResearchGuidelineInput, ResearchStatus
+from app.services import business_ingest, business_research
 
 router = APIRouter(prefix="/api/companies", tags=["business"])
 
@@ -66,3 +67,56 @@ def refresh_business_overview(
     if payload is None:
         return None
     return _to_out(payload)
+
+
+@router.post("/{code}/business/research", response_model=ResearchStatus)
+def request_business_research(
+    code: str,
+    input: ResearchGuidelineInput,
+    db: Session = Depends(get_session),
+) -> ResearchStatus:
+    """사업 리서치 요청(비동기 큐). 가이드라인을 받아 enqueue → 결과는 research_summary에 병합.
+
+    이미 진행 중(pending|running) job이 있으면 그것을 반환(dedup). 완료 후 GET /business에서
+    research_summary 확인 가능.
+    """
+    job = business_research.enqueue(db, code, input.guideline)
+    # research_summary 존재 여부 확인.
+    cached = db.scalar(
+        select(business_ingest.BusinessOverviewCache).where(
+            business_ingest.BusinessOverviewCache.stock_code == code
+        )
+    )
+    has_summary = bool(cached and cached.payload and cached.payload.get("research_summary"))
+    return ResearchStatus(
+        stock_code=code,
+        status=job.status,
+        progress=job.progress,
+        error=job.error,
+        has_summary=has_summary,
+    )
+
+
+@router.get("/{code}/business/research/status", response_model=ResearchStatus)
+def get_business_research_status(
+    code: str,
+    db: Session = Depends(get_session),
+) -> ResearchStatus:
+    """사업 리서치 상태 폴링(진행률/완료/실패)."""
+    job = business_research.latest_job(db, code)
+    if job is None:
+        return ResearchStatus(stock_code=code, status="none", progress=0, has_summary=False)
+    cached = db.scalar(
+        select(business_ingest.BusinessOverviewCache).where(
+            business_ingest.BusinessOverviewCache.stock_code == code
+        )
+    )
+    has_summary = bool(cached and cached.payload and cached.payload.get("research_summary"))
+    return ResearchStatus(
+        stock_code=code,
+        status=job.status,
+        progress=job.progress,
+        error=job.error,
+        has_summary=has_summary,
+    )
+

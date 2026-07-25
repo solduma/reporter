@@ -1,12 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import Markdown from "@/components/Markdown";
-import { fetchBusinessOverview, refreshBusinessOverview } from "@/lib/api";
-import type { BusinessOverview as BusinessOverviewType, BusinessTable } from "@/lib/types";
+import {
+  fetchBusinessOverview,
+  refreshBusinessOverview,
+  requestBusinessResearch,
+  fetchBusinessResearchStatus,
+} from "@/lib/api";
+import type { BusinessOverview as BusinessOverviewType, BusinessTable, ResearchStatus, ResearchSummary } from "@/lib/types";
 
 import styles from "./BusinessOverview.module.css";
+
+const POLL_MS = 3000;
 
 // 섹션 id → 표시 라벨(LLM 이 title 을 비워도 표시용 확보).
 const SECTION_LABELS: Record<string, string> = {
@@ -69,6 +76,12 @@ export default function BusinessOverview({ code }: { code: string }) {
   >({ status: "loading", data: null });
   const [refreshing, setRefreshing] = useState(false);
 
+  // Research+ 상태
+  const [researchStatus, setResearchStatus] = useState<ResearchStatus | null>(null);
+  const [guidelineInput, setGuidelineInput] = useState("");
+  const [requesting, setRequesting] = useState(false);
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const load = useCallback(async () => {
     setState({ status: "loading", data: null });
     try {
@@ -102,6 +115,63 @@ export default function BusinessOverview({ code }: { code: string }) {
       setRefreshing(false);
     }
   };
+
+  // Research+ 요청
+  const onRequestResearch = async () => {
+    setRequesting(true);
+    try {
+      const status = await requestBusinessResearch(code, guidelineInput);
+      setResearchStatus(status);
+    } catch (e) {
+      console.error("Research request failed:", e);
+    } finally {
+      setRequesting(false);
+    }
+  };
+
+  // Research+ 상태 폴링
+  const pollResearch = useCallback(async () => {
+    try {
+      const status = await fetchBusinessResearchStatus(code);
+      setResearchStatus(status);
+      // 완료되면 overview 재로드 (research_summary 반영)
+      if (status.status === "done" && state.status === "ready") {
+        await load();
+      }
+      // pending|running이면 계속 폴링
+      if (status.status === "pending" || status.status === "running") {
+        pollTimerRef.current = setTimeout(pollResearch, POLL_MS);
+      }
+    } catch (e) {
+      console.error("Research status poll failed:", e);
+    }
+  }, [code, load, state.status]);
+
+  // researchStatus.status 변화 시 폴링 시작/정지
+  useEffect(() => {
+    if (researchStatus?.status === "pending" || researchStatus?.status === "running") {
+      pollTimerRef.current = setTimeout(pollResearch, POLL_MS);
+    }
+    return () => {
+      if (pollTimerRef.current) {
+        clearTimeout(pollTimerRef.current);
+        pollTimerRef.current = null;
+      }
+    };
+  }, [researchStatus?.status, pollResearch]);
+
+  // 초기 로드 시 research summary 있으면 상태도 가져옴
+  useEffect(() => {
+    if (state.status === "ready" && state.data?.research_summary) {
+      setResearchStatus({
+        stock_code: code,
+        status: "done",
+        progress: 100,
+        error: null,
+        has_summary: true,
+      });
+    }
+  }, [state.status, state.data, code]);
 
   if (state.status === "loading") {
     return <div className={styles.status}>불러오는 중…</div>;
@@ -179,6 +249,171 @@ export default function BusinessOverview({ code }: { code: string }) {
           );
         })}
       </div>
+
+      {/* Research+ 패널 */}
+      <div className={styles.researchBox}>
+        <div className={styles.researchHead}>
+          <h3 className={styles.sectionTitle}>Research+</h3>
+          {researchStatus?.status === "done" && researchStatus.has_summary ? (
+            <span className={styles.updatedTag}>완료</span>
+          ) : null}
+        </div>
+
+        {/* 가이드라인 입력 + 요청 버튼 */}
+        <div className={styles.researchInput}>
+          <textarea
+            className={styles.guidelineInput}
+            placeholder="리서치 방향(선택): 공급망, 고객사, 경쟁환경, 밸류체인 등 중점 분석 항목을 지시하세요."
+            value={guidelineInput}
+            onChange={(e) => setGuidelineInput(e.target.value)}
+            rows={2}
+            disabled={requesting || researchStatus?.status === "running"}
+          />
+          <button
+            type="button"
+            className={styles.refreshBtn}
+            onClick={onRequestResearch}
+            disabled={requesting || !guidelineInput.trim() || researchStatus?.status === "running"}
+          >
+            {requesting || researchStatus?.status === "running" ? "분석 중…" : "리서치+"}
+          </button>
+        </div>
+
+        {/* 상태 메시지 */}
+        {researchStatus?.status === "failed" && researchStatus.error ? (
+          <p className={styles.error}>{researchStatus.error}</p>
+        ) : null}
+        {researchStatus?.status === "running" ? (
+          <p className={styles.researchProgress}>
+            진행률 {researchStatus.progress}% — LLM이 공시·웹 자료를 분석 중입니다…
+          </p>
+        ) : null}
+
+        {/* 결과 렌더 */}
+        {researchStatus?.status === "done" && ov.research_summary ? (
+          <div className={styles.researchResult}>
+            <ResearchResultView summary={ov.research_summary} />
+          </div>
+        ) : null}
+      </div>
     </div>
+  );
+}
+
+// Research+ 결과 렌더 컴포넌트
+function ResearchResultView({ summary }: { summary: ResearchSummary }) {
+  return (
+    <>
+      {/* 엔티티 테이블 */}
+      {(summary.vendors.length > 0 || summary.customers.length > 0 || summary.competitors.length > 0) && (
+        <div className={styles.researchSection}>
+          <h4>공급망·고객·경쟁</h4>
+          {summary.vendors.length > 0 ? (
+            <div className={styles.entityBlock}>
+              <h5>주요 공급자</h5>
+              <table className={styles.table}>
+                <thead>
+                  <tr>
+                    <th>공급자</th>
+                    <th>역할</th>
+                    <th>비고</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {summary.vendors.map((v, i) => (
+                    <tr key={i}>
+                      <td>{v.name}</td>
+                      <td>{v.role}</td>
+                      <td>{v.note}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+          {summary.customers.length > 0 ? (
+            <div className={styles.entityBlock}>
+              <h5>주요 고객</h5>
+              <table className={styles.table}>
+                <thead>
+                  <tr>
+                    <th>고객</th>
+                    <th>역할</th>
+                    <th>비고</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {summary.customers.map((c, i) => (
+                    <tr key={i}>
+                      <td>{c.name}</td>
+                      <td>{c.role}</td>
+                      <td>{c.note}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+          {summary.competitors.length > 0 ? (
+            <div className={styles.entityBlock}>
+              <h5>경쟁사</h5>
+              <table className={styles.table}>
+                <thead>
+                  <tr>
+                    <th>경쟁사</th>
+                    <th>경쟁 양상</th>
+                    <th>비고</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {summary.competitors.map((c, i) => (
+                    <tr key={i}>
+                      <td>{c.name}</td>
+                      <td>{c.role}</td>
+                      <td>{c.note}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+        </div>
+      )}
+
+      {/* 밸류체인 */}
+      {summary.value_chain.length > 0 && (
+        <div className={styles.researchSection}>
+          <h4>밸류체인</h4>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th>단계</th>
+                <th>방향</th>
+                <th>관계 대상</th>
+                <th>비고</th>
+              </tr>
+            </thead>
+            <tbody>
+              {summary.value_chain.map((link, i) => (
+                <tr key={i}>
+                  <td>{link.stage}</td>
+                  <td>{link.direction === "upstream" ? "업스트림" : "다운스트림"}</td>
+                  <td>{link.entity}</td>
+                  <td>{link.note}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* 서술 */}
+      {summary.narrative_md ? (
+        <div className={styles.researchSection}>
+          <h4>종합 분석</h4>
+          <Markdown content={summary.narrative_md} />
+        </div>
+      ) : null}
+    </>
   );
 }
