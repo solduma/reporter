@@ -955,3 +955,54 @@ class DeepDiveShare(Base):
     payload_json: Mapped[dict] = mapped_column(JSONB)  # DeepDiveReportOut 스냅샷
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class BusinessReportRaw(Base):
+    """정기보고서(사업/반기/분기)에서 추출한 사업 내용 원문 — 접수번호·섹션별 캐시.
+
+    DART document.xml 을 매번 재다운로드(수MB)하지 않도록 추출 결과를 보존한다. annual 은
+    '사업의 내용' 전체(business_content), half/quarter 는 '회사의 개황'(company_overview)을 담는다.
+    assemble_overview 가 이 원문을 읽어 투자자 관점으로 조립한다.
+    """
+
+    __tablename__ = "business_report_raw"
+    __table_args__ = (
+        UniqueConstraint("stock_code", "rcept_no", "section_id", name="uq_business_raw"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    stock_code: Mapped[str] = mapped_column(String(6), index=True)
+    rcept_no: Mapped[str] = mapped_column(String(14), index=True)  # 출처 접수번호
+    report_kind: Mapped[str] = mapped_column(String(8))  # annual | half | quarter
+    period: Mapped[str] = mapped_column(String(16))  # '2024.12' | '2025.03' ...
+    section_id: Mapped[str] = mapped_column(String(24))  # business_content | company_overview
+    text: Mapped[str] = mapped_column(Text, default="")  # 태그 제거한 본문
+    fetched_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class BusinessOverviewCache(Base):
+    """종목 사업 개요 조립 결과 캐시 — FinancialStatementCache 패턴(cache-aside).
+
+    GET /companies/{code}/business 응답을 (stock_code) 당 1행 JSONB 로 캐시. 새 정기보고서
+    감지 시 refresh_if_new_report 가 재조립해 갱신. 페이로드는 BusinessOverview 직렬화
+    (sections + tables, 투자자 관점). inputs_hash 로 재생성 판정(원문 집합이 바뀌었는지).
+    """
+
+    __tablename__ = "business_overview_cache"
+    __table_args__ = (UniqueConstraint("stock_code", name="uq_business_overview_code"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    stock_code: Mapped[str] = mapped_column(String(6), index=True)
+    stock_name: Mapped[str] = mapped_column(String(120), default="")
+    # 베이스 사업보고서 접수번호(신선도·출처 표시).
+    as_of_annual_rcept: Mapped[str] = mapped_column(String(14), default="")
+    # 조립에 사용된 정기보고서 목록 [{rcept_no, kind, period, is_base}].
+    source_reports: Mapped[list] = mapped_column(JSONB, default=list)
+    payload: Mapped[dict] = mapped_column(JSONB, default=dict)  # BusinessOverview 직렬화
+    # 원문 집합(rcept_no 모음) 해시 — 바뀌면 재조립. 빈 값/None 은 미조립.
+    inputs_hash: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    cached_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )

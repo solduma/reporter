@@ -119,6 +119,7 @@ _BACKFILL_DOMAINS: list[tuple[str, str, int]] = [
     ("us_candle_10y", "US 일봉 10년", 200),
     ("us_financials_10y", "US 재무 10년", 60),
     ("related_company", "관계사", 3000),
+    ("business_overview", "사업개요", 50),
 ]
 
 

@@ -88,6 +88,10 @@ _OFS_STATEMENTS_BACKFILL_CRON = CronTrigger(hour=4, minute=45, timezone=_TZ)
 # 보고서 원문 파싱 백필(정밀 감가상각·EV/EBITDA): 매일 05:00. 보고서당 document.xml(수MB)
 # 다운로드라 가장 무거워 재무 백필(03:30) 이후로 뺀다. sync_state 로 재개 가능.
 _REPORT_BACKFILL_CRON = CronTrigger(hour=5, minute=0, timezone=_TZ)
+# 사업 개요(사업보고서+반기/분기 정리) 점진 백필: 매일 05:15. 리포트 원문 백필(05:00) 직후 —
+# 정기보고서 document.xml 을 같이 받지만 별도 도메인(business_overview). LLM 정리가 들어가
+# 무거워 per_run=50. sync_state 로 재개 가능.
+_BUSINESS_OVERVIEW_BACKFILL_CRON = CronTrigger(hour=5, minute=15, timezone=_TZ)
 # 리포트 원문(full_text) 소급 적재: 매일 05:30. 컬럼 추가 이전 리포트를 MinIO PDF 에서 회당 60건씩
 # 채운다(재개 가능). 리포트 파싱 백필(05:00) 직후, 뉴스(07:00) 이전.
 _REPORT_FULLTEXT_CRON = CronTrigger(hour=5, minute=30, timezone=_TZ)
@@ -106,6 +110,9 @@ _US_FINANCIALS_CRON = CronTrigger(hour=7, minute=10, timezone=_TZ)
 # (몇 밤에 걸쳐 전수 순환). DART 콜이라 재무·리포트 백필(03:30·05:00)과 시차를 두고, 뉴스(07:00)
 # 뒤에 둔다. 온디맨드 타임라인 조회와 같은 DisclosureSyncState 캐시를 공유(중복 조회 방지).
 _DISCLOSURE_CRON = CronTrigger(hour=7, minute=40, timezone=_TZ)
+# 사업 개요 배치 갱신(새 정기보고서 감지·재조립): 매일 07:50. 공시 순환(07:40) 직후 — 새로
+# 접수된 정기보고서가 반영된 뒤 재조립. 캐시 source_reports 와 inputs_hash 대비 새 rcept만.
+_BUSINESS_OVERVIEW_REFRESH_CRON = CronTrigger(hour=7, minute=50, timezone=_TZ)
 # 경제·실적 캘린더: 매일 06:50. FRED 발표일은 자주 안 바뀌므로 하루 1회면 충분. 미국 지표
 # 발표(대개 밤)가 반영되도록 아침에 돌려 당일 과거 이벤트에 실적치·LLM 영향이 채워지게 한다.
 _CALENDAR_CRON = CronTrigger(hour=6, minute=50, timezone=_TZ)
@@ -249,6 +256,28 @@ def run_report_backfill(settings: Settings | None = None) -> dict:
     session = SessionLocal()
     try:
         return report_ingest.run_backfill_progressive(session, settings)
+    finally:
+        session.close()
+
+
+def run_business_overview_backfill(settings: Settings | None = None) -> dict:
+    """사업 개요 점진 백필 1회분(정기보고서 원문 추출 + LLM 정리, per_run 종목). 재개 가능."""
+    from app.services import business_ingest
+
+    session = SessionLocal()
+    try:
+        return business_ingest.run_backfill_progressive(session, settings)
+    finally:
+        session.close()
+
+
+def run_business_overview_refresh(settings: Settings | None = None) -> dict:
+    """사업 개요 배치 갱신 — 유니버스 순회하며 새 정기보고서 감지·재조립(캐시 갱신)."""
+    from app.services import business_ingest
+
+    session = SessionLocal()
+    try:
+        return business_ingest.run_refresh_batch(session, settings)
     finally:
         session.close()
 
@@ -467,6 +496,7 @@ MANUAL_BATCHES: list[tuple[str, str, object]] = [
     ("ofs_statements", "별도재무제표 백필", run_ofs_financial_statements_backfill),
     ("related_company", "관계사 수집", run_related_company_backfill),
     ("report_backfill", "리포트 백필(10년)", run_report_backfill),
+    ("business_overview_backfill", "사업개요 백필", run_business_overview_backfill),
     ("report_fulltext", "리포트 원문 소급적재", run_report_fulltext_backfill),
     ("backfill_progressive", "일봉 백필(10년)", run_backfill_progressive),
     ("us_universe", "US 유니버스", run_us_universe_batch),
@@ -478,6 +508,7 @@ MANUAL_BATCHES: list[tuple[str, str, object]] = [
     ("capex_backfill", "CAPEX 백필(FCFF)", run_capex_backfill),
     ("market_premium", "시장 ERP(Damodaran)", run_market_premium_batch),
     ("sce_migrate", "SCE 마이그레이션", run_sce_migration_batch),
+    ("business_overview_refresh", "사업개요 갱신(새보고서)", run_business_overview_refresh),
 ]
 
 
@@ -493,6 +524,8 @@ BATCH_META["release_deploy"] = {"label": "release 배포", "heartbeat_timeout_se
 BATCH_META["ofs_statements"]["heartbeat_timeout_seconds"] = 1800
 BATCH_META["financials_backfill"]["heartbeat_timeout_seconds"] = 1800
 BATCH_META["report_backfill"]["heartbeat_timeout_seconds"] = 1800
+BATCH_META["business_overview_backfill"]["heartbeat_timeout_seconds"] = 1800
+BATCH_META["business_overview_refresh"]["heartbeat_timeout_seconds"] = 1800
 BATCH_META["report_fulltext"]["heartbeat_timeout_seconds"] = 1800
 BATCH_META["us_financials"]["heartbeat_timeout_seconds"] = 1800
 
@@ -604,6 +637,14 @@ def build_scheduler(settings: Settings | None = None) -> BlockingScheduler:
         replace_existing=True,
     )
     scheduler.add_job(
+        _logged("business_overview_backfill", run_business_overview_backfill),
+        trigger=_BUSINESS_OVERVIEW_BACKFILL_CRON,
+        id="business_overview_backfill",
+        max_instances=1,
+        coalesce=True,
+        replace_existing=True,
+    )
+    scheduler.add_job(
         _logged("news_events", run_news_events),
         trigger=_NEWS_EVENTS_CRON,
         id="news_events",
@@ -647,6 +688,14 @@ def build_scheduler(settings: Settings | None = None) -> BlockingScheduler:
         _logged("disclosures", run_disclosure_batch),
         trigger=_DISCLOSURE_CRON,
         id="disclosures",
+        max_instances=1,
+        coalesce=True,
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        _logged("business_overview_refresh", run_business_overview_refresh),
+        trigger=_BUSINESS_OVERVIEW_REFRESH_CRON,
+        id="business_overview_refresh",
         max_instances=1,
         coalesce=True,
         replace_existing=True,

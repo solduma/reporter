@@ -879,3 +879,44 @@ class OntologyMetricInfoRequest(BaseModel):
 class OntologyMetricInfoResponse(BaseModel):
     items: list[OntologyMetricInfoItem]
     coverage: float
+
+
+# ── 사업 개요(business overview) ──────────────────────────────────────────
+class BusinessTableOut(BaseModel):
+    """사업 개요 섹션 내 표."""
+
+    title: str = ""
+    headers: list[str] = Field(default_factory=list)
+    rows: list[list[str]] = Field(default_factory=list)
+
+
+class BusinessSectionOut(BaseModel):
+    """사업 개요 한 섹션 — 서술(마크다운) + 표."""
+
+    id: str
+    title: str = ""
+    narrative: str = ""
+    tables: list[BusinessTableOut] = Field(default_factory=list)
+    updated_by_rcept: str | None = None  # 마지막 갱신 정기보고서 접수번호
+    updated_by_kind: str | None = None  # annual | half | quarter | None
+
+
+class BusinessSourceReportOut(BaseModel):
+    """조립에 사용된 정기보고서 출처."""
+
+    rcept_no: str
+    kind: str  # annual | half | quarter
+    period: str  # '2024.12' | '2025.03' ...
+    is_base: bool = False  # 베이스 사업보고서 여부
+
+
+class BusinessOverviewOut(BaseModel):
+    """종목 사업 개요 — 공시 → DB → Cache 응답. None 필드는 미조립/미실행."""
+
+    stock_code: str
+    stock_name: str = ""
+    as_of_annual_rcept: str = ""
+    source_reports: list[BusinessSourceReportOut] = Field(default_factory=list)
+    sections: list[BusinessSectionOut] = Field(default_factory=list)
+    research_summary: dict | None = None  # 리서치+ 결과(Phase 3)
+    cached_at: datetime | None = None

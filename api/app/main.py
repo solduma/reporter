@@ -16,6 +16,7 @@ from app.db.session import init_db
 from app.routers import (
     admin,
     broadcasts,
+    business,
     calendar,
     companies,
     deepdive,
@@ -77,6 +78,7 @@ app.include_router(today.router)
 app.include_router(industries.router)
 app.include_router(industries.trade_router)
 app.include_router(companies.router)
+app.include_router(business.router)
 app.include_router(screener.router)
 app.include_router(market.router)
 app.include_router(admin.router)
