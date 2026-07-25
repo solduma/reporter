@@ -490,6 +490,20 @@ def tool_fetch_web_page(ctx: ToolContext, args: dict) -> dict:
     return {"available": True, **page}
 
 
+def tool_business_overview(ctx: ToolContext, args: dict) -> dict:
+    """종목 사업 개요(사업보고서 베이스 + 반기/분기 갱신, 투자자 관점 정리 결과).
+
+    business_ingest 가 조립해 BusinessOverviewCache 에 저장한 페이로드. 리서치+ 추가 리서치가
+    기존 사업 개요 위에서 출발하도록 주입한다. 캐시 없으면 available=False(리서치가 다른 도구로 진행).
+    """
+    from app.services import business_ingest
+
+    payload = business_ingest.get_cached_overview(ctx.db, ctx.code)
+    if not payload:
+        return {"available": False, "note": "사업 개요 캐시 없음(먼저 /business/refresh 필요)"}
+    return {"available": True, **payload}
+
+
 # 도구 레지스트리 — LLM 프롬프트에 이름·설명을 노출하고, 이름으로 디스패치.
 TOOLS: dict[str, tuple] = {
     "recent_periodic_report": (tool_recent_periodic_report, "최신 정기보고서(사업/반기/분기) 본문 발췌"),
@@ -504,6 +518,7 @@ TOOLS: dict[str, tuple] = {
     "fetch_web_page": (tool_fetch_web_page, "URL 본문 추출(블로그·뉴스) (args: url)"),
     "event_search": (tool_event_search, "미래 이벤트 탐색 — 섹터별 촉매(수주·계약·증설)·리스크"
                      "(소송·유증·우발부채) 뉴스 본문+DART 공시 (args: side, max_queries)"),
+    "business_overview": (tool_business_overview, "사업 개요(사업보고서+반기/분기 정리 결과) — 섹션·표"),
 }
 
 
