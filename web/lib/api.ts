@@ -2,6 +2,7 @@ import type {
   BroadcastDetail,
   BroadcastKind,
   BroadcastRef,
+  BusinessOverview,
   CalendarView,
   CandlePoint,
   ChartTimeframe,
@@ -370,6 +371,25 @@ export function fetchCompanyTrend(code: string): Promise<CompanyTrend> {
 
 export function fetchFinancials(code: string): Promise<FinancialPeriod[]> {
   return getJson<FinancialPeriod[]>(`/api/companies/${encodeURIComponent(code)}/financials`);
+}
+
+// 사업 개요 — cache-aside(GET). miss 시 백엔드가 동기 조립(12h 캐시). null = 미조립.
+export function fetchBusinessOverview(code: string): Promise<BusinessOverview | null> {
+  return getJson<BusinessOverview | null>(
+    `/api/companies/${encodeURIComponent(code)}/business`,
+  );
+}
+
+// 단건 재조립(원문 재추출 + LLM 정리 + 캐시 갱신). 수동 갱신 진입점.
+export async function refreshBusinessOverview(code: string): Promise<BusinessOverview | null> {
+  const res = await fetch(apiUrl(`/api/companies/${encodeURIComponent(code)}/business/refresh`), {
+    method: "POST",
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new Error(`사업 개요 갱신 실패 (${res.status})`);
+  }
+  return (await res.json()) as BusinessOverview | null;
 }
 
 export function fetchFinancialsStatus(code: string): Promise<FinancialsStatus> {
