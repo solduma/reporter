@@ -1,0 +1,136 @@
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+
+/* 좌(주주) · 우(자회사) 2열. 좁은 화면에서는 1열로 적층. */
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+
+@media (max-width: 768px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.column {
+  min-width: 0;
+}
+
+.colHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.subTitle {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.asOfTag {
+  font-size: 0.74rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.changes {
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+
+.changesHead {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.staleTag {
+  font-size: 0.72rem;
+  color: var(--hold);
+  font-weight: 600;
+}
+
+.scroll {
+  overflow-x: auto;
+  min-width: 0;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+}
+
+.table th,
+.table td {
+  padding: 8px 10px;
+  text-align: right;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+}
+
+.table thead th {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-align: right;
+}
+
+.nameCol {
+  text-align: left !important;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 상장 주주/관계사 내부 종목 링크 */
+.link {
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
+/* 비상장 법인 주주 — 본문색, 개인보다 약간 강조 */
+.corp {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.person {
+  color: var(--text);
+}
+
+/* 증감 방향색(+취득/−처분). PeersTable 점수 등급과 동일 변수. */
+.up {
+  color: var(--buy);
+  font-weight: 700;
+}
+
+.down {
+  color: var(--sell);
+  font-weight: 700;
+}
+
+.hint {
+  margin: 0;
+  padding: 16px 4px;
+  color: var(--muted);
+  font-size: 0.88rem;
+}

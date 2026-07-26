@@ -8,6 +8,7 @@ from datetime import date, datetime
 from sqlalchemy import (
     JSON,
     BigInteger,
+    Boolean,
     Date,
     DateTime,
     Enum,
@@ -325,6 +326,48 @@ class RelatedCompany(Base):
     related_stock_code: Mapped[str | None] = mapped_column(String(6))  # 관계사가 상장사면 링크
     source: Mapped[str] = mapped_column(String(24), default="")  # hyslrSttus | otrCprInvstmntSttus
     bsns_year: Mapped[int | None] = mapped_column(Integer)  # 근거 사업연도
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class Shareholder(Base):
+    """종목별 주주 명부 — DART 최대주주현황(hyslrSttus)의 개별 행.
+
+    RelatedCompany 가 모/자회사 '법인' 관계(웹서치 alias 원천)에만 쓰이므로, 주주 개인·특수관계인
+    행 단위 지분(이름/관계/지분율)은 별도 테이블로 저장한다. 기업분석 화면 지분구조 좌측 표 원천.
+    related_stock_code 로 상장 주주(법인)를 내부 종목 링크한다.
+    """
+
+    __tablename__ = "shareholder"
+    __table_args__ = (
+        UniqueConstraint("stock_code", "holder_name", name="uq_shareholder"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    stock_code: Mapped[str] = mapped_column(String(6), index=True)  # 기준 종목
+    holder_name: Mapped[str] = mapped_column(String(128))  # 주주명(법인/개인)
+    relate: Mapped[str] = mapped_column(String(64), default="")  # 최대주주 본인/배우자/자녀/특수관계인
+    stake_pct: Mapped[float | None] = mapped_column(Float)  # 기말 지분율(%)
+    is_corporate: Mapped[bool] = mapped_column(Boolean, default=False)  # 법인 여부
+    related_stock_code: Mapped[str | None] = mapped_column(String(6))  # 상장 주주면 링크
+    bsns_year: Mapped[int | None] = mapped_column(Integer)  # 근거 사업연도
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class OwnershipChangeCache(Base):
+    """임원·주요주주 소유변동(elestock) 캐시 — 엔드포인트 12h 캐싱.
+
+    elestock 은 시계열 변동 이력이라 본 테이블에 매입(영속)하지 않고 최신 스냅샷만 캐시한다.
+    기업분석 화면 '최근 지분 변동' 표 원천. DART 호출 빈도 제한(종목당 12h 1회).
+    """
+
+    __tablename__ = "ownership_change_cache"
+
+    stock_code: Mapped[str] = mapped_column(String(6), primary_key=True)
+    payload: Mapped[dict] = mapped_column(JSONB)  # [{rcept_no, date, reporter, ...}]
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

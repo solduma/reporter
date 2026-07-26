@@ -997,3 +997,40 @@ export interface BusinessOverview {
   research_summary?: ResearchSummary | null;
   cached_at?: string | null;
 }
+
+// ── 지분구조(ownership) ─────────────────────────────────────────────────
+export interface ShareholderRow {
+  holder_name: string;
+  relate: string; // 최대주주 본인/배우자/자녀/특수관계인 ...
+  stake_pct: number | null;
+  is_corporate: boolean;
+  related_stock_code: string | null; // 상장 주주(법인)면 내부 종목 링크
+  related_stock_name: string | null;
+}
+
+export interface SubsidiaryRow {
+  related_name: string;
+  relation: string; // subsidiary(50%+) | investor(그 외 출자)
+  stake_pct: number | null;
+  related_stock_code: string | null;
+  related_stock_name: string | null;
+}
+
+export interface OwnershipChangeRow {
+  rcept_no: string;
+  rcept_date: string | null; // ISO date
+  reporter: string;
+  position: string;
+  shares_delta: number | null; // +취득 / -처분
+  shares_after: number | null;
+  reason: string;
+}
+
+export interface OwnershipResponse {
+  stock_code: string;
+  as_of_year: number | null; // 주주 명부 근거 사업연도
+  shareholders: ShareholderRow[];
+  subsidiaries: SubsidiaryRow[];
+  changes: OwnershipChangeRow[];
+  changes_stale: boolean; // true 면 live-fetch 실패 → 짧게 폴링 재시도
+}

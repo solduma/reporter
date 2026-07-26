@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from app.adapters import dart
 from app.adapters.dart import throttle as dart_throttle
 from app.config import Settings, get_settings
-from app.db.models import CorpCodeMap, RelatedCompany, SyncState, UniverseSnapshot
+from app.db.models import CorpCodeMap, RelatedCompany, Shareholder, SyncState, UniverseSnapshot
 from app.services import sync_state, universe_ingest
 
 logger = logging.getLogger(__name__)
@@ -47,21 +47,31 @@ def _norm(name: str) -> str:
 
 
 def backfill_stock(db: Session, settings: Settings, code: str, corp_map: dict[str, str]) -> bool:
-    """한 종목의 관계사를 DART 에서 수집·upsert. 성공(또는 데이터없음 확정) 시 True."""
+    """한 종목의 관계사·주주를 DART 에서 수집·upsert. 성공(또는 데이터없음 확정) 시 True.
+
+    hyslrSttus(최대주주현황) 1회 호출로 RelatedCompany(parent) 와 Shareholder(주주 명부) 를
+    같이 채운다 — DART 호출을 늘리지 않는다. otrCprInvstmntSttus(타법인출자)는 자회사·출자사.
+    """
     corp_code = db.scalar(select(CorpCodeMap.corp_code).where(CorpCodeMap.stock_code == code))
     if not corp_code:
         return True  # 매핑 없음 → 완료 처리(재시도 불필요)
 
     today = datetime.now(UTC).date()
     related: list[dart.RelatedParty] = []
+    hyslr_rows: list[dart.HyslrRow] | None = None
+    base_year: int | None = None
     with requests.Session() as session:
         # 최신 확정 사업연도부터 역순 — 사업보고서는 다음 해 제출이라 직전 연도부터 시도.
         for year in range(today.year - 1, today.year - 1 - _YEARS_BACK, -1):
-            related = dart.fetch_related_companies(settings.dart_api_key, corp_code, year, 4, session)
-            if related:
+            hyslr_rows = dart.fetch_hyslr_rows(settings.dart_api_key, corp_code, year, 4, session)
+            related = dart.fetch_related_companies(
+                settings.dart_api_key, corp_code, year, 4, session, hyslr_rows=hyslr_rows
+            )
+            if related or hyslr_rows:
+                base_year = year
                 break
 
-    # 기존 행 삭제 후 재적재(관계사 구성 변동 반영). 종목 단위라 소량.
+    # 기존 행 삭제 후 재적재(관계사·주주 구성 변동 반영). 종목 단위라 소량.
     db.query(RelatedCompany).filter(RelatedCompany.stock_code == code).delete()
     for rp in related:
         db.execute(
@@ -73,12 +83,34 @@ def backfill_stock(db: Session, settings: Settings, code: str, corp_map: dict[st
                 stake_pct=rp.stake_pct,
                 related_stock_code=corp_map.get(_norm(rp.name)),
                 source="hyslrSttus" if rp.relation == "parent" else "otrCprInvstmntSttus",
-                bsns_year=today.year - 1,
+                bsns_year=base_year or (today.year - 1),
             )
             .on_conflict_do_nothing(constraint="uq_related_company")
         )
+
+    db.query(Shareholder).filter(Shareholder.stock_code == code).delete()
+    shareholder_n = 0
+    if hyslr_rows:
+        for row in hyslr_rows:
+            db.execute(
+                insert(Shareholder)
+                .values(
+                    stock_code=code,
+                    holder_name=row.name,
+                    relate=row.relate,
+                    stake_pct=row.stake_pct,
+                    is_corporate=row.is_corporate,
+                    # 링크는 corp_map 이름 매칭(상장 여부의 확정 신호)으로. is_corporate 접미사 휴리스틱은
+                    # "(주)" 없는 법인명(현대모비스 등)을 놓치므로 링크 게이트에 쓰지 않는다.
+                    related_stock_code=corp_map.get(_norm(row.name)),
+                    bsns_year=base_year,
+                )
+                .on_conflict_do_nothing(constraint="uq_shareholder")
+            )
+            shareholder_n += 1
+
     db.commit()
-    logger.info("related company %s: %d parties", code, len(related))
+    logger.info("related company %s: %d parties, %d shareholders", code, len(related), shareholder_n)
     return True
 
 
