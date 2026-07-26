@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from app.db.models import Base, IngestLog
 from app.services import ingest_log
 
 
@@ -85,3 +91,31 @@ def test_record_explicit_rows_detail_override_result(monkeypatch):
     assert obj.detail == "신규 리포트 3건"
     assert obj.duration_ms == 1200
     assert captured["committed"]
+
+
+def test_latest_for_jobs_returns_newest_per_job():
+    # 잡당 최신 1행만 — DISTINCT ON(postgres 전용) 대신 이식성 있는 group-by 자기조인.
+    # test_tui 에서는 latest_for_jobs 전체를 mock 하므로 여기서 실제 SQL 경로를 검증한다.
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine, tables=[IngestLog.__table__])
+    db = sessionmaker(bind=engine)()
+
+    base = datetime(2026, 7, 1, 9, tzinfo=UTC)
+    db.add_all([
+        IngestLog(job="backfill_10y", ts=base, status="ok", rows=100, detail="old"),
+        IngestLog(job="backfill_10y", ts=base.replace(hour=12), status="fail", rows=0, detail="boom"),
+        IngestLog(job="financials_10y", ts=base.replace(hour=10), status="ok", rows=50, detail="ok"),
+    ])
+    db.commit()
+
+    latest = ingest_log.latest_for_jobs(db, ["backfill_10y", "financials_10y", "absent"])
+    # 이력 없는 잡(absent)은 제외되고, 잡당 가장 최신 행만.
+    assert set(latest) == {"backfill_10y", "financials_10y"}
+    assert latest["backfill_10y"].status == "fail"  # 12:00 행(더 최신)
+    assert latest["backfill_10y"].detail == "boom"
+    assert latest["financials_10y"].rows == 50
+    db.close()
+
+
+def test_latest_for_jobs_empty_jobs_returns_empty():
+    assert ingest_log.latest_for_jobs(None, []) == {}
