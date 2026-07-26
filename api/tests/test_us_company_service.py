@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
@@ -98,17 +98,52 @@ def test_quote_none_when_symbol_unresolved(monkeypatch):
     assert us_company_service.quote("ZZZZ") is None
 
 
-def test_financials_backfill_marks_per_success(db_full, _mock_adapters):
-    # 유니버스 종목을 백필해 per 산출 성공분만 완료 마킹한다.
+def test_financials_backfill_marks_refreshed_tickers(db_full, _mock_adapters):
+    # 유니버스 종목을 백필해 facts 가 갱신된 종목을 완료 마킹한다.
     _seed_universe(db_full, ["NVDA", "AAPL"])
     result = us_company_service.run_financials_backfill(db_full, per_run=10)
-    assert result["done"] == 2  # 둘 다 목킹된 facts 로 per 산출
+    assert result["done"] == 2  # 둘 다 목킹된 facts 로 갱신
     marked = set(
         db_full.scalars(
             select(SyncState.stock_code).where(SyncState.domain == "us_financials_10y")
         ).all()
     )
     assert marked == {"NVDA", "AAPL"}
+
+
+def test_financials_backfill_marks_done_even_without_per(db_full, monkeypatch):
+    # per=None(결손주·TTM 결손)이라도 이번 실행에 facts 가 갱신됐으면 완료 마킹 —
+    # per 유무로 판정하면 같은 종목이 영원히 재조회되는 회귀 방지.
+    _seed_universe(db_full, ["LOSS"])
+    refreshed = UsFinancial(
+        ticker="LOSS", name="LOSSCO", per=None, updated_at=datetime.now(UTC)
+    )
+    monkeypatch.setattr(
+        us_company_service, "get_financials", lambda db, ticker, force=True: refreshed
+    )
+    result = us_company_service.run_financials_backfill(db_full, per_run=10)
+    assert result["done"] == 1
+    assert result["failed"] == 0
+    marked = set(
+        db_full.scalars(
+            select(SyncState.stock_code).where(SyncState.domain == "us_financials_10y")
+        ).all()
+    )
+    assert "LOSS" in marked
+
+
+def test_financials_backfill_retries_when_not_refreshed(db_full, monkeypatch):
+    # cik/facts 미비로 get_financials 가 기존 행(갱신 안 됨)을 그대로 돌려주면 재시도 대상.
+    _seed_universe(db_full, ["STALE"])
+    db_full.add(UsFinancial(ticker="STALE", name="STALE", per=None, updated_at=datetime(2020, 1, 1)))
+    db_full.commit()
+    # 기존 행을 그대로 돌려준다(updated_at 불변) → 갱신 아님 → 재시도.
+    monkeypatch.setattr(
+        us_company_service, "get_financials", lambda db, ticker, force=True: db.get(UsFinancial, ticker)
+    )
+    result = us_company_service.run_financials_backfill(db_full, per_run=10)
+    assert result["done"] == 0
+    assert result["failed"] == 1
 
 
 def test_financials_backfill_skips_already_done(db_full, _mock_adapters):
