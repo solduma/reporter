@@ -40,18 +40,20 @@ def _logged(job: str, fn):
         dart.configure_from_settings(get_settings())
         try:
             result = fn()
-            ingest_log.record(
-                None, job, result, duration_ms=int((time.monotonic() - start) * 1000)
-            )
+            ingest_log.record(None, job, result, duration_ms=int((time.monotonic() - start) * 1000))
             return result
         except Exception as e:
             ingest_log.record(
-                None, job, status="fail", detail=str(e)[:200],
+                None,
+                job,
+                status="fail",
+                detail=str(e)[:200],
                 duration_ms=int((time.monotonic() - start) * 1000),
             )
             raise
 
     return _run
+
 
 # 리포트는 장 시작 후 순차 발행되므로 넉넉히 커버한다. 멱등이라 중복 실행 무해.
 # timezone 을 트리거에 직접 지정: 지정하지 않으면 프로세스 로컬 tz(컨테이너=UTC)로
@@ -376,8 +378,12 @@ def run_deepdive_queue(settings: Settings | None = None) -> dict:
             return {"claimed": 0}
         # 백그라운드 스레드에서 실행 — scheduler 스레드 즉시 반환
         if _deepdive_executor is None:
-            _deepdive_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="deepdive-")
-        _deepdive_executor.submit(_run_deepdive_in_thread, SessionLocal, job.id, job.stock_code, settings)
+            _deepdive_executor = concurrent.futures.ThreadPoolExecutor(
+                max_workers=1, thread_name_prefix="deepdive-"
+            )
+        _deepdive_executor.submit(
+            _run_deepdive_in_thread, SessionLocal, job.id, job.stock_code, settings
+        )
         return {"claimed": 1, "job_id": job.id, "code": job.stock_code, "status": "running"}
     finally:
         session.close()
@@ -405,7 +411,9 @@ def run_ir_interview_queue(settings: Settings | None = None) -> dict:
 _business_research_executor: concurrent.futures.ThreadPoolExecutor | None = None
 
 
-def _run_business_research_in_thread(session_factory, job_id: int, code: str, settings: Settings) -> None:
+def _run_business_research_in_thread(
+    session_factory, job_id: int, code: str, settings: Settings
+) -> None:
     """백그라운드 스레드에서 사업 리서치 실행."""
     session = session_factory()
     try:
@@ -447,7 +455,6 @@ def run_business_research_queue(settings: Settings | None = None) -> dict:
         return {"claimed": 1, "job_id": job.id, "code": job.stock_code, "status": "running"}
     finally:
         session.close()
-
 
 
 def run_us_disclosure_batch(settings: Settings | None = None) -> dict:
@@ -561,6 +568,16 @@ MANUAL_BATCHES: list[tuple[str, str, object]] = [
 ]
 
 
+# MANUAL_BATCHES key(수동/TUI) → _logged 잡 이름(스케줄러가 ingest_log 에 남기는 job).
+# 대부분은 key 와 동일하지만 4개가 다르다 — TUI 가 최근상태를 ingest_log 에서 찾을 때 쓴다.
+BATCH_KEY_TO_LOG_JOB: dict[str, str] = {
+    "disclosure_batch": "disclosures",
+    "financials_backfill": "financials_10y",
+    "report_backfill": "report_10y",
+    "backfill_progressive": "backfill_10y",
+}
+
+
 # 배치 실행 메타데이터 — heartbeat timeout 등 TUI batch_runner 와 공유한다.
 # label 은 MANUAL_BATCHES 와 동일하지만, release_deploy 는 서버 제어 영역이라 별도 등록.
 _DEFAULT_TIMEOUT_SECONDS = 600
@@ -587,9 +604,7 @@ def _release_deploy_fn(settings: Settings | None = None) -> dict:
 
 
 # batch_runner 가 key 로 함수를 찾는 레지스트리.
-BATCH_FUNCTIONS: dict[str, object] = {
-    key: fn for key, _, fn in MANUAL_BATCHES
-}
+BATCH_FUNCTIONS: dict[str, object] = {key: fn for key, _, fn in MANUAL_BATCHES}
 BATCH_FUNCTIONS["release_deploy"] = _release_deploy_fn
 
 

@@ -52,8 +52,7 @@ def _summarize(job: str, result: dict) -> tuple[int, str]:
     if job == "candle_batch":
         rows = int(result.get("stocks", 0))
         return rows, (
-            f"{rows}종목 (재적재 {result.get('reloaded', 0)} · "
-            f"실패 {result.get('failed', 0)})"
+            f"{rows}종목 (재적재 {result.get('reloaded', 0)} · 실패 {result.get('failed', 0)})"
         )
     if job in ("backfill_10y", "financials_10y"):
         rows = int(result.get("done", 0))
@@ -99,8 +98,11 @@ def record(
             detail = sum_detail if detail is None else detail
         session.add(
             IngestLog(
-                job=job, status=status, rows=rows or 0,
-                detail=(detail or "")[:500], duration_ms=duration_ms,
+                job=job,
+                status=status,
+                rows=rows or 0,
+                detail=(detail or "")[:500],
+                duration_ms=duration_ms,
             )
         )
         session.commit()
@@ -127,7 +129,12 @@ def recent(db: Session, limit: int = 30) -> list[IngestLogRow]:
     rows = db.scalars(select(IngestLog).order_by(IngestLog.ts.desc()).limit(limit)).all()
     return [
         IngestLogRow(
-            ts=r.ts, job=r.job, status=r.status, rows=r.rows, detail=r.detail, duration_ms=r.duration_ms
+            ts=r.ts,
+            job=r.job,
+            status=r.status,
+            rows=r.rows,
+            detail=r.detail,
+            duration_ms=r.duration_ms,
         )
         for r in rows
     ]
@@ -144,3 +151,34 @@ def recent_failure_count(db: Session, since_hours: int = 24) -> int:
         )
         or 0
     )
+
+
+def latest_for_jobs(db: Session, jobs: list[str]) -> dict[str, IngestLogRow]:
+    """잡별 최신 실행 1행을 {job: row} 로 반환(이력 없는 잡은 제외).
+
+    TUI '배치' 탭 '최근상태'가 worker 가 남긴 스케줄 실행 결과를 보여주기 위해 쓴다.
+    Postgres DISTINCT ON 으로 잡당 1행씩 한 번에 가져온다.
+    """
+    if not jobs:
+        return {}
+    rows = (
+        db.execute(
+            select(IngestLog)
+            .where(IngestLog.job.in_(jobs))
+            .distinct_on(IngestLog.job)
+            .order_by(IngestLog.job, IngestLog.ts.desc())
+        )
+        .scalars()
+        .all()
+    )
+    return {
+        r.job: IngestLogRow(
+            ts=r.ts,
+            job=r.job,
+            status=r.status,
+            rows=r.rows,
+            detail=r.detail,
+            duration_ms=r.duration_ms,
+        )
+        for r in rows
+    }

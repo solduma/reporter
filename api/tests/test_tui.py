@@ -14,7 +14,7 @@ import json
 import os
 import tempfile
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -71,11 +71,13 @@ def _stub_services(monkeypatch):
     monkeypatch.setattr(tui, "ServerControl", _StubServerControl)
     monkeypatch.setattr(tui, "ScheduleControl", _StubScheduleControl)
     monkeypatch.setattr(
-        tui.admin_status, "table_counts",
+        tui.admin_status,
+        "table_counts",
         lambda db: {"reports": 49, "universe_snapshot": 4295},
     )
     monkeypatch.setattr(
-        tui.admin_status, "freshness",
+        tui.admin_status,
+        "freshness",
         lambda db: {
             "latest_report_date": "2026-07-08",
             "latest_universe_date": "2026-07-08",
@@ -84,32 +86,63 @@ def _stub_services(monkeypatch):
     )
     monkeypatch.setattr(tui.admin_status, "screener_preview", _fake_preview)
     monkeypatch.setattr(
-        tui.admin_status, "db_status",
+        tui.admin_status,
+        "db_status",
         lambda db: [admin_status.TableStatus(name="리포트", rows=49, latest="2026-07-08")],
     )
-    monkeypatch.setattr(tui.admin_status, "all_backfill_progress", lambda db: [
-        admin_status.BackfillStatus(
-            domain="backfill_10y", label="일봉 10년", done=2766, total=2766,
-            pct=100.0, remaining=0, per_run=3000,
-        ),
-    ])
     monkeypatch.setattr(
-        tui.ingest_log, "recent",
+        tui.admin_status,
+        "all_backfill_progress",
+        lambda db: [
+            admin_status.BackfillStatus(
+                domain="backfill_10y",
+                label="일봉 10년",
+                done=2766,
+                total=2766,
+                pct=100.0,
+                remaining=0,
+                per_run=3000,
+            ),
+        ],
+    )
+    monkeypatch.setattr(
+        tui.ingest_log,
+        "recent",
         lambda db, limit=30: [
             tui.ingest_log.IngestLogRow(
-                ts=datetime(2026, 7, 11, 2, 0), job="backfill_10y", status="ok",
-                rows=200, detail="완료 200 · 실패 0 · 남음 100", duration_ms=13000,
+                ts=datetime(2026, 7, 11, 2, 0),
+                job="backfill_10y",
+                status="ok",
+                rows=200,
+                detail="완료 200 · 실패 0 · 남음 100",
+                duration_ms=13000,
             )
         ],
     )
     monkeypatch.setattr(tui.ingest_log, "recent_failure_count", lambda db, since_hours=24: 0)
+    monkeypatch.setattr(
+        tui.ingest_log,
+        "latest_for_jobs",
+        lambda db, jobs: {
+            "backfill_10y": tui.ingest_log.IngestLogRow(
+                ts=datetime(2026, 7, 11, 2, 0),
+                job="backfill_10y",
+                status="ok",
+                rows=200,
+                detail="완료 200 · 실패 0 · 남음 100",
+                duration_ms=13000,
+            )
+        },
+    )
     # Stub git_info and last_deploy_info to avoid real git calls
     monkeypatch.setattr(
-        tui.sc, "git_info",
+        tui.sc,
+        "git_info",
         lambda: {"branch": "main", "commit": "abc1234", "ahead": 3, "behind": 0},
     )
     monkeypatch.setattr(
-        tui.sc, "last_deploy_info",
+        tui.sc,
+        "last_deploy_info",
         lambda: {"branch": "release", "tag": "v1.2.3", "ts": "2026-07-24T22:00:00", "n_commits": 5},
     )
 
@@ -141,9 +174,14 @@ async def test_tui_mounts_and_shows_status():
 
         ids = {b.id for b in app.query(Button)}
         assert {
-            "prev", "next", "sort",
-            "api_restart", "web_restart", "web_build",
-            "prod_deploy", "prod_rollback",
+            "prev",
+            "next",
+            "sort",
+            "api_restart",
+            "web_restart",
+            "web_build",
+            "prod_deploy",
+            "prod_rollback",
         } <= ids
 
 
@@ -155,7 +193,14 @@ async def test_tab_switching():
 
         tabs = app.query_one(TabbedContent)
         assert tabs.active == "tab_overview"
-        for tid in ("tab_batch", "tab_ingest", "tab_log", "tab_schedule", "tab_release", "tab_stocks"):
+        for tid in (
+            "tab_batch",
+            "tab_ingest",
+            "tab_log",
+            "tab_schedule",
+            "tab_release",
+            "tab_stocks",
+        ):
             app.action_show_tab(tid)
             await pilot.pause(0.1)
             assert tabs.active == tid
@@ -181,6 +226,82 @@ async def test_ingest_history_flags_failures(monkeypatch):
 
         title = str(app.query_one("#ingest_title", Static).render())
         assert "실패 3건" in title
+
+
+async def test_batch_table_shows_db_latest_status(monkeypatch):
+    """최근상태가 ingest_log 최신 행을 반영 — 메모리 deque만 보던 회귀 방지."""
+    consulted: dict = {}
+
+    def _spy(db, jobs):
+        consulted["jobs"] = set(jobs)
+        return {
+            "financials_10y": tui.ingest_log.IngestLogRow(
+                ts=datetime(2026, 7, 25, 19, 40),
+                job="financials_10y",
+                status="ok",
+                rows=100,
+                detail="완료 100 · 실패 0 · 남음 2218",
+                duration_ms=4257718,
+            ),
+        }
+
+    monkeypatch.setattr(tui.ingest_log, "latest_for_jobs", _spy)
+    app = tui.AdminTUI()
+    app._last_results.clear()
+    async with app.run_test() as pilot:
+        await pilot.pause(0.3)
+        from textual.widgets import DataTable
+
+        # _load_batch_table 가 DB(ingest_log.latest_for_jobs)를 잡 이름으로 조회했는지 —
+        # MANUAL_BATCHES key(financials_backfill)가 아닌 _logged 잡명(financials_10y)으로 매핑.
+        assert "financials_10y" in consulted["jobs"]
+        assert "financials_backfill" not in consulted["jobs"]
+        table = app.query_one("#batch_table", DataTable)
+        assert table.row_count == len(tui.MANUAL_BATCHES) + 1  # +릴리스 배포 행
+
+
+def test_fmt_batch_status_prefers_session_when_newer():
+    """세션 수행이 DB 행보다 새로우면 세션 결과, 아니면 DB 행, 둘 다 없으면 '-'."""
+
+    app = tui.AdminTUI()
+    latest = {
+        "financials_10y": tui.ingest_log.IngestLogRow(
+            ts=datetime(2026, 7, 25, 19, 40, tzinfo=UTC),
+            job="financials_10y",
+            status="ok",
+            rows=100,
+            detail="완료 100",
+            duration_ms=100,
+        ),
+    }
+    # 세션 결과가 DB 행보다 최근 → 세션 message
+    app._last_results.append(
+        tui.LastRunResult(
+            key="financials_backfill",
+            returncode=0,
+            message="완료",
+            ts=datetime(2026, 7, 26, 0, 0, tzinfo=UTC),
+        )
+    )
+    out = app._fmt_batch_status("financials_backfill", "financials_10y", latest)
+    assert "완료" in out and "✔" in out and "완료 100" not in out
+
+    # 세션 결과가 오래됨 → DB 행
+    app._last_results.clear()
+    app._last_results.append(
+        tui.LastRunResult(
+            key="financials_backfill",
+            returncode=0,
+            message="완료",
+            ts=datetime(2026, 7, 1, 0, 0, tzinfo=UTC),
+        )
+    )
+    out2 = app._fmt_batch_status("financials_backfill", "financials_10y", latest)
+    assert "완료 100" in out2
+
+    # DB 행·세션 결과 모두 없 → "-"
+    app._last_results.clear()
+    assert app._fmt_batch_status("calendar", "calendar", {}) == "-"
 
 
 async def test_refresh_action_reloads():
@@ -326,7 +447,8 @@ async def test_web_build_button_runs_build(monkeypatch):
 
 async def test_stock_search_single_hit_shows_detail(monkeypatch):
     monkeypatch.setattr(
-        tui.company_service, "search_candidates",
+        tui.company_service,
+        "search_candidates",
         lambda db, q: [("005930", "삼성전자", "KOSPI", 500_000_000_000_000)],
     )
 
@@ -365,7 +487,8 @@ async def test_stock_search_single_hit_shows_detail(monkeypatch):
 
 async def test_stock_search_multi_hit_lists_candidates(monkeypatch):
     monkeypatch.setattr(
-        tui.company_service, "search_candidates",
+        tui.company_service,
+        "search_candidates",
         lambda db, q: [
             ("005930", "삼성전자", "KOSPI", 5e14),
             ("005935", "삼성전자우", "KOSPI", 1e14),
@@ -406,12 +529,15 @@ def _fake_git(monkeypatch, responses):
 
 
 def test_prod_deploy_pushes_when_main_ahead(monkeypatch):
-    calls = _fake_git(monkeypatch, {
-        "fetch": (0, ""),
-        "merge-base": (0, ""),
-        "log": (0, "abc123 feat: x\ndef456 fix: y"),
-        "push": (0, ""),
-    })
+    calls = _fake_git(
+        monkeypatch,
+        {
+            "fetch": (0, ""),
+            "merge-base": (0, ""),
+            "log": (0, "abc123 feat: x\ndef456 fix: y"),
+            "push": (0, ""),
+        },
+    )
     msg = ProdDeploy().deploy()
     assert "release 배포 트리거됨 (2개 커밋" in msg
     pushed = [c for c in calls if c[0] == "push"]
@@ -419,9 +545,14 @@ def test_prod_deploy_pushes_when_main_ahead(monkeypatch):
 
 
 def test_prod_deploy_noop_when_release_up_to_date(monkeypatch):
-    calls = _fake_git(monkeypatch, {
-        "fetch": (0, ""), "merge-base": (0, ""), "log": (0, ""),
-    })
+    calls = _fake_git(
+        monkeypatch,
+        {
+            "fetch": (0, ""),
+            "merge-base": (0, ""),
+            "log": (0, ""),
+        },
+    )
     msg = ProdDeploy().deploy()
     assert "새 커밋 없음" in msg
     assert not [c for c in calls if c[0] == "push"]

@@ -54,7 +54,7 @@ from app.admin_paths import (
     RUN_DIR,
 )
 from app.db.session import SessionLocal, init_db
-from app.scheduler import BATCH_META, MANUAL_BATCHES
+from app.scheduler import BATCH_KEY_TO_LOG_JOB, BATCH_META, MANUAL_BATCHES
 from app.services import (
     admin_status,
     company_service,
@@ -391,7 +391,11 @@ class ScheduleEditScreen(ModalScreen):
         try:
             parts = time_val.split(":")
             h, m = int(parts[0]), int(parts[1])
-            dirty = h != self._original["hour"] or m != self._original["minute"] or enabled != self._original["enabled"]
+            dirty = (
+                h != self._original["hour"]
+                or m != self._original["minute"]
+                or enabled != self._original["enabled"]
+            )
         except (ValueError, IndexError):
             dirty = True
         self._dirty = dirty
@@ -403,11 +407,19 @@ class ScheduleEditScreen(ModalScreen):
             parts = time_val.split(":")
             h, m = int(parts[0]), int(parts[1])
             if not (0 <= h <= 23 and 0 <= m <= 59):
-                self.notify("시각 형식이 올바르지 않습니다 (HH:MM)", severity="error", timeout=TOAST_SHORT_SECONDS)
+                self.notify(
+                    "시각 형식이 올바르지 않습니다 (HH:MM)",
+                    severity="error",
+                    timeout=TOAST_SHORT_SECONDS,
+                )
                 self.query_one("#time_input", Input).focus()
                 return
         except (ValueError, IndexError):
-            self.notify("시각 형식이 올바르지 않습니다 (HH:MM)", severity="error", timeout=TOAST_SHORT_SECONDS)
+            self.notify(
+                "시각 형식이 올바르지 않습니다 (HH:MM)",
+                severity="error",
+                timeout=TOAST_SHORT_SECONDS,
+            )
             self.query_one("#time_input", Input).focus()
             return
         self.dismiss({"suffix": self._suffix, "hour": h, "minute": m, "enabled": enabled})
@@ -573,17 +585,26 @@ class AdminTUI(App):
                 yield DataTable(id="db_status", classes="tbl")
             # Tab 2: 배치
             with TabPane("배치", id="tab_batch"), VerticalScroll():
-                yield Static("[b]배치 수동 실행[/b]  Alt+/ 검색 | Enter 실행 | Ctrl+X 중단 | r/Alt+R 새로고침", classes="panel-title")
+                yield Static(
+                    "[b]배치 수동 실행[/b]  Alt+/ 검색 | Enter 실행 | Ctrl+X 중단 | r/Alt+R 새로고침",
+                    classes="panel-title",
+                )
                 yield Input(placeholder="검색...", id="batch_search", classes="no-search-hint")
                 yield DataTable(id="batch_table", classes="tbl")
             # Tab 3: 적재이력
             with TabPane("적재이력", id="tab_ingest"), VerticalScroll():
-                yield Static("[b]적재 이력[/b]  Alt+/ 필터 | r/Alt+R 새로고침", id="ingest_title", classes="panel-title")
+                yield Static(
+                    "[b]적재 이력[/b]  Alt+/ 필터 | r/Alt+R 새로고침",
+                    id="ingest_title",
+                    classes="panel-title",
+                )
                 yield Input(placeholder="필터...", id="ingest_filter")
                 yield DataTable(id="ingest_history", classes="tbl")
             # Tab 4: 모니터링(로그)
             with TabPane("모니터링(로그)", id="tab_log"), VerticalScroll():
-                yield Static("[b]모니터링(로그)[/b]  Alt+/ 검색 | h/Alt+H health", classes="panel-title")
+                yield Static(
+                    "[b]모니터링(로그)[/b]  Alt+/ 검색 | h/Alt+H health", classes="panel-title"
+                )
                 with Horizontal(id="log_filter_bar"):
                     yield Button("trace", id="log_trace", variant="default")
                     yield Button("debug", id="log_debug", variant="default")
@@ -593,12 +614,18 @@ class AdminTUI(App):
                 yield RichLog(id="log_content", highlight=True, max_lines=1000)
             # Tab 5: 발송스케줄
             with TabPane("발송스케줄", id="tab_schedule"), VerticalScroll():
-                yield Static("[b]발송스케줄[/b]  e/Alt+E 편집 | n/Alt+N 신규 | r/Alt+R 새로고침", classes="panel-title")
+                yield Static(
+                    "[b]발송스케줄[/b]  e/Alt+E 편집 | n/Alt+N 신규 | r/Alt+R 새로고침",
+                    classes="panel-title",
+                )
                 yield Static("이 탭은 검색을 지원하지 않습니다", classes="no-search-hint")
                 yield DataTable(id="schedule", classes="tbl")
             # Tab 6: 릴리스
             with TabPane("릴리스", id="tab_release"), VerticalScroll():
-                yield Static("[b]릴리스[/b]  b/Alt+B WEB 빌드 | a/Alt+A API 재기동 | w/Alt+W WEB 재기동", classes="panel-title")
+                yield Static(
+                    "[b]릴리스[/b]  b/Alt+B WEB 빌드 | a/Alt+A API 재기동 | w/Alt+W WEB 재기동",
+                    classes="panel-title",
+                )
                 yield Static("이 탭은 검색을 지원하지 않습니다", classes="no-search-hint")
                 yield Static(id="release_info")
                 with Horizontal(id="release_buttons"):
@@ -636,13 +663,19 @@ class AdminTUI(App):
         sched.add_columns("ID", "시각", "채널", "내용요약", "활성")
         sched.cursor_type = "row"
         self.query_one("#db_status", DataTable).add_columns("테이블", "행수", "최신 업데이트")
-        self.query_one("#ingest_history", DataTable).add_columns("시각", "작업", "결과", "건수", "소요")
-        self.query_one("#results_table", DataTable).add_columns("시간", "작업", "상태", "exit", "log_drops")
+        self.query_one("#ingest_history", DataTable).add_columns(
+            "시각", "작업", "결과", "건수", "소요"
+        )
+        self.query_one("#results_table", DataTable).add_columns(
+            "시간", "작업", "상태", "exit", "log_drops"
+        )
         self.query_one("#batch_table", DataTable).add_columns("작업명", "설명", "최근상태")
         self.query_one("#batch_table", DataTable).cursor_type = "row"
 
         self._register_signal_handlers()
-        self._cleanup_audit_task = asyncio.create_task(self._cleanup_audit_periodically(), name="audit-cleanup")
+        self._cleanup_audit_task = asyncio.create_task(
+            self._cleanup_audit_periodically(), name="audit-cleanup"
+        )
         self.run_worker(self._cleanup_stale_run_files_worker, group="startup", exclusive=True)
         self.action_refresh()
         self.set_interval(3.0, self._refresh_server_status)
@@ -651,10 +684,14 @@ class AdminTUI(App):
         if not self._shutdown_event.is_set():
             self._shutdown_event.set()
             with contextlib.suppress(RuntimeError):
-                t = asyncio.create_task(audit(
-                    action="tui_stop", target="admin_tui", outcome="unmount",
-                    detail={"running": self._current_subprocess is not None},
-                ))
+                t = asyncio.create_task(
+                    audit(
+                        action="tui_stop",
+                        target="admin_tui",
+                        outcome="unmount",
+                        detail={"running": self._current_subprocess is not None},
+                    )
+                )
                 self._background_tasks.add(t)
                 t.add_done_callback(self._background_tasks.discard)
             self.run_worker(self._background_shutdown, group="shutdown", exclusive=True)
@@ -680,9 +717,43 @@ class AdminTUI(App):
                 self._option_as_meta_detected = True
                 self._hide_meta_warning_banner()
             elif event.character in (
-                "¡", "™", "£", "¢", "∞", "§", "¶", "•", "ª", "º", "œ", "∑",
-                "'", "®", "†", "¥", "ø", "π", "å", "ß", "∂", "ƒ", "©", "˙",
-                "∆", "˚", "¬", "…", "Ω", "≈", "ç", "√", "∫", "µ", "≤", "≥", "÷",
+                "¡",
+                "™",
+                "£",
+                "¢",
+                "∞",
+                "§",
+                "¶",
+                "•",
+                "ª",
+                "º",
+                "œ",
+                "∑",
+                "'",
+                "®",
+                "†",
+                "¥",
+                "ø",
+                "π",
+                "å",
+                "ß",
+                "∂",
+                "ƒ",
+                "©",
+                "˙",
+                "∆",
+                "˚",
+                "¬",
+                "…",
+                "Ω",
+                "≈",
+                "ç",
+                "√",
+                "∫",
+                "µ",
+                "≤",
+                "≥",
+                "÷",
             ):
                 self._option_as_meta_detected = False
                 self._show_meta_warning_banner()
@@ -709,8 +780,15 @@ class AdminTUI(App):
 
         # 1. Emergency/safety: always pass through
         if key in (
-            "escape", "shift+l", "q", "alt+q", "alt+u", "alt+x",
-            "f1", "alt+shift+slash", "ctrl+question",
+            "escape",
+            "shift+l",
+            "q",
+            "alt+q",
+            "alt+u",
+            "alt+x",
+            "f1",
+            "alt+shift+slash",
+            "ctrl+question",
         ):
             return
 
@@ -718,11 +796,31 @@ class AdminTUI(App):
         if isinstance(self.screen, ScheduleEditScreen):
             # 2a. Block tab switch / cancel keys
             if key in (
-                "ctrl+x", "ctrl+shift+x",
-                "alt+1", "alt+2", "alt+3", "alt+4", "alt+5", "alt+6", "alt+7",
-                "ctrl+1", "ctrl+2", "ctrl+3", "ctrl+4", "ctrl+5", "ctrl+6", "ctrl+7",
-                "f2", "f3", "f4", "f5", "f6", "f7", "f8",
-                "ctrl+tab", "ctrl+shift+tab",
+                "ctrl+x",
+                "ctrl+shift+x",
+                "alt+1",
+                "alt+2",
+                "alt+3",
+                "alt+4",
+                "alt+5",
+                "alt+6",
+                "alt+7",
+                "ctrl+1",
+                "ctrl+2",
+                "ctrl+3",
+                "ctrl+4",
+                "ctrl+5",
+                "ctrl+6",
+                "ctrl+7",
+                "f2",
+                "f3",
+                "f4",
+                "f5",
+                "f6",
+                "f7",
+                "f8",
+                "ctrl+tab",
+                "ctrl+shift+tab",
             ):
                 self.notify("지금은 편집 중입니다. Esc로 닫기", timeout=TOAST_SHORT_SECONDS)
                 event.prevent_default()
@@ -746,13 +844,39 @@ class AdminTUI(App):
             if key in ("tab", "shift+tab", "up", "down", "left", "right", "enter", "space"):
                 return
             if key in (
-                "alt+1", "alt+2", "alt+3", "alt+4", "alt+5", "alt+6", "alt+7",
-                "ctrl+1", "ctrl+2", "ctrl+3", "ctrl+4", "ctrl+5", "ctrl+6", "ctrl+7",
-                "ctrl+tab", "ctrl+shift+tab",
-                "f2", "f3", "f4", "f5", "f6", "f7", "f8",
-                "f1", "alt+shift+slash", "ctrl+question",
-                "q", "alt+q", "alt+u", "alt+x",
-                "ctrl+x", "ctrl+shift+x", "shift+l",
+                "alt+1",
+                "alt+2",
+                "alt+3",
+                "alt+4",
+                "alt+5",
+                "alt+6",
+                "alt+7",
+                "ctrl+1",
+                "ctrl+2",
+                "ctrl+3",
+                "ctrl+4",
+                "ctrl+5",
+                "ctrl+6",
+                "ctrl+7",
+                "ctrl+tab",
+                "ctrl+shift+tab",
+                "f2",
+                "f3",
+                "f4",
+                "f5",
+                "f6",
+                "f7",
+                "f8",
+                "f1",
+                "alt+shift+slash",
+                "ctrl+question",
+                "q",
+                "alt+q",
+                "alt+u",
+                "alt+x",
+                "ctrl+x",
+                "ctrl+shift+x",
+                "shift+l",
             ):
                 return
             event.prevent_default()
@@ -810,7 +934,9 @@ class AdminTUI(App):
                     break
                 except (OSError, BlockingIOError):
                     if loop.time() - start >= FORCE_RELEASE_LOCK_TIMEOUT:
-                        await audit(action="force_release_lock", target=str(LOCK_FILE), outcome="timeout")
+                        await audit(
+                            action="force_release_lock", target=str(LOCK_FILE), outcome="timeout"
+                        )
                         return False
                     await asyncio.sleep(0.2)
 
@@ -819,7 +945,9 @@ class AdminTUI(App):
             with contextlib.suppress(OSError):
                 fcntl.flock(fd, fcntl.LOCK_UN)
             await audit(
-                action="force_release_lock", target=str(LOCK_FILE), outcome="manual",
+                action="force_release_lock",
+                target=str(LOCK_FILE),
+                outcome="manual",
                 detail={"killed": killed_any},
             )
             return True
@@ -888,7 +1016,11 @@ class AdminTUI(App):
                 f"작업 {self._state.action_name}이 실행 중입니다.\n"
                 "TUI만 종료하면 작업은 백그라운드에서 계속됩니다. 어떻게 할까요?"
             )
-            buttons = [("종료(작업중단)", "shutdown"), ("TUI만 종료(작업계속)", "detach"), ("취소", False)]
+            buttons = [
+                ("종료(작업중단)", "shutdown"),
+                ("TUI만 종료(작업계속)", "detach"),
+                ("취소", False),
+            ]
         else:
             msg = "종료 신호 수신. Admin TUI를 종료할까요?"
             buttons = [("종료", "shutdown"), ("취소", False)]
@@ -905,7 +1037,11 @@ class AdminTUI(App):
                     f"작업 {self._state.action_name}이 실행 중입니다.\n"
                     "TUI만 종료하면 작업은 백그라운드에서 계속됩니다. 어떻게 할까요?"
                 )
-                buttons = [("종료(작업중단)", "shutdown"), ("TUI만 종료(작업계속)", "detach"), ("취소", False)]
+                buttons = [
+                    ("종료(작업중단)", "shutdown"),
+                    ("TUI만 종료(작업계속)", "detach"),
+                    ("취소", False),
+                ]
             else:
                 msg = "Admin TUI를 종료할까요?"
                 buttons = [("종료", "shutdown"), ("취소", False)]
@@ -943,7 +1079,9 @@ class AdminTUI(App):
             self._cancel_failure_auto_reset_task.cancel()
             self._cancel_failure_auto_reset_task = None
         await audit(
-            action="tui_stop", target="admin_tui", outcome="detach" if detach_only else "shutdown",
+            action="tui_stop",
+            target="admin_tui",
+            outcome="detach" if detach_only else "shutdown",
             detail={"running": self._current_subprocess is not None},
         )
         key = self._state.key if self._state is not None else None
@@ -957,7 +1095,11 @@ class AdminTUI(App):
                     await asyncio.wait_for(self._detach_complete_event.wait(), timeout=10.0)
                 except TimeoutError:
                     logger.warning("detach cleanup timeout — forcing state clear")
-                    tasks = [t for t in (self._reader_task, self._watcher_task, self._monitor_task) if t is not None]
+                    tasks = [
+                        t
+                        for t in (self._reader_task, self._watcher_task, self._monitor_task)
+                        if t is not None
+                    ]
                     for t in tasks:
                         t.cancel()
                     await asyncio.gather(*tasks, return_exceptions=True)
@@ -976,7 +1118,11 @@ class AdminTUI(App):
                     logger.warning("shutdown cleanup timeout — emergency finalize")
                     if proc is not None:
                         await self._graceful_or_force_kill(proc, use_sigterm_first=False)
-                    tasks = [t for t in (self._reader_task, self._monitor_task, self._watcher_task) if t is not None]
+                    tasks = [
+                        t
+                        for t in (self._reader_task, self._monitor_task, self._watcher_task)
+                        if t is not None
+                    ]
                     for t in tasks:
                         t.cancel()
                     await asyncio.gather(*tasks, return_exceptions=True)
@@ -990,8 +1136,11 @@ class AdminTUI(App):
 
     # ── Subprocess execution + monitoring ───────────────────────────────
     async def _kill_process_group(
-        self, pgid: int, use_sigterm_first: bool = True,
-        sigterm_timeout: float = 10.0, sigkill_timeout: float = 5.0,
+        self,
+        pgid: int,
+        use_sigterm_first: bool = True,
+        sigterm_timeout: float = 10.0,
+        sigkill_timeout: float = 5.0,
     ) -> bool:
         if use_sigterm_first:
             try:
@@ -1050,7 +1199,7 @@ class AdminTUI(App):
                 current_size = current_stat.st_size
                 current_inode = current_stat.st_ino
 
-                inode_changed = (last_inode is not None and current_inode != last_inode)
+                inode_changed = last_inode is not None and current_inode != last_inode
                 truncated = current_size < last_size
                 if inode_changed or truncated or f is None:
                     if f is not None:
@@ -1062,7 +1211,9 @@ class AdminTUI(App):
                 if current_size > last_size:
                     await asyncio.to_thread(f.seek, last_size)
                     _f = f
-                    lines = await asyncio.to_thread(lambda f=_f: list(islice(f, LOG_READ_CHUNK_LINES)))
+                    lines = await asyncio.to_thread(
+                        lambda f=_f: list(islice(f, LOG_READ_CHUNK_LINES))
+                    )
                     for line in lines:
                         text = line.rstrip("\n")
                         try:
@@ -1086,12 +1237,19 @@ class AdminTUI(App):
 
     async def _watch_heartbeat(self, key: str, proc) -> None:
         path = _heartbeat_path(key)
-        timeout_seconds = BATCH_META.get(key, {}).get("heartbeat_timeout_seconds", DEFAULT_HEARTBEAT_TIMEOUT)
+        timeout_seconds = BATCH_META.get(key, {}).get(
+            "heartbeat_timeout_seconds", DEFAULT_HEARTBEAT_TIMEOUT
+        )
         while True:
             await asyncio.sleep(2.0)
             if self._state is None or self._state.key != key:
                 return
-            if self._process_exited_event.is_set() or self._detach_event.is_set() or self._killing or self._shutdown_event.is_set():
+            if (
+                self._process_exited_event.is_set()
+                or self._detach_event.is_set()
+                or self._killing
+                or self._shutdown_event.is_set()
+            ):
                 return
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
@@ -1103,8 +1261,15 @@ class AdminTUI(App):
             self._state.pct = data.get("pct", self._state.pct)
             self._state.last_heartbeat = datetime.fromisoformat(data["ts"])
             if utcnow() - self._state.last_heartbeat > timedelta(seconds=timeout_seconds):
-                self.notify(f"Heartbeat {timeout_seconds}초 초과 — 자동 종료", timeout=TOAST_LONG_SECONDS)
-                await audit(action="auto_kill", target=key, outcome="heartbeat_timeout", detail={"timeout": timeout_seconds})
+                self.notify(
+                    f"Heartbeat {timeout_seconds}초 초과 — 자동 종료", timeout=TOAST_LONG_SECONDS
+                )
+                await audit(
+                    action="auto_kill",
+                    target=key,
+                    outcome="heartbeat_timeout",
+                    detail={"timeout": timeout_seconds},
+                )
                 await self._graceful_or_force_kill(proc, use_sigterm_first=True)
 
     async def _monitor_process(self, key: str, proc) -> None:
@@ -1119,24 +1284,49 @@ class AdminTUI(App):
         if returncode is None:
             return
         self._last_returncode = returncode
-        final_drops = self._state.log_drops if (self._state and self._state.key == key) else log_drops
+        final_drops = (
+            self._state.log_drops if (self._state and self._state.key == key) else log_drops
+        )
         msg_detail = {"exit_code": returncode, "log_drops": final_drops}
         if returncode == 143:
             self.notify("작업이 중단되었습니다")
             await audit(action="cancel_batch", target=key, outcome="terminated", detail=msg_detail)
-            self._last_results.appendleft(LastRunResult(key=key, returncode=143, message="중단됨", ts=utcnow(), log_drops=final_drops))
+            self._last_results.appendleft(
+                LastRunResult(
+                    key=key, returncode=143, message="중단됨", ts=utcnow(), log_drops=final_drops
+                )
+            )
         elif returncode == 2:
-            self.notify("다른 프로세스가 lock을 점유 중입니다 — [Shift+L]로 강제해제 가능", timeout=TOAST_LONG_SECONDS)
+            self.notify(
+                "다른 프로세스가 lock을 점유 중입니다 — [Shift+L]로 강제해제 가능",
+                timeout=TOAST_LONG_SECONDS,
+            )
             await audit(action="run_batch", target=key, outcome="lock_busy", detail=msg_detail)
-            self._last_results.appendleft(LastRunResult(key=key, returncode=2, message="lock 점유", ts=utcnow(), log_drops=final_drops))
+            self._last_results.appendleft(
+                LastRunResult(
+                    key=key, returncode=2, message="lock 점유", ts=utcnow(), log_drops=final_drops
+                )
+            )
         elif returncode != 0:
             self.notify(f"작업 비정상 종료 (code={returncode})", timeout=TOAST_LONG_SECONDS)
             await audit(action="run_batch", target=key, outcome="failed", detail=msg_detail)
-            self._last_results.appendleft(LastRunResult(key=key, returncode=returncode, message=f"비정상 종료 (code={returncode})", ts=utcnow(), log_drops=final_drops))
+            self._last_results.appendleft(
+                LastRunResult(
+                    key=key,
+                    returncode=returncode,
+                    message=f"비정상 종료 (code={returncode})",
+                    ts=utcnow(),
+                    log_drops=final_drops,
+                )
+            )
         else:
             self.notify("작업 완료")
             await audit(action="run_batch", target=key, outcome="succeeded", detail=msg_detail)
-            self._last_results.appendleft(LastRunResult(key=key, returncode=0, message="완료", ts=utcnow(), log_drops=final_drops))
+            self._last_results.appendleft(
+                LastRunResult(
+                    key=key, returncode=0, message="완료", ts=utcnow(), log_drops=final_drops
+                )
+            )
 
     async def _cleanup_after_process(self, key: str) -> None:
         for p in (_pid_path(key), _heartbeat_path(key)):
@@ -1165,7 +1355,10 @@ class AdminTUI(App):
                 self.notify("이미 실행 중인 작업")
                 return
             if await self._is_cross_instance_lock_held():
-                self.notify("다른 TUI/프로세스에서 작업 실행 중 — [Shift+L]로 강제해제 가능", timeout=TOAST_LONG_SECONDS)
+                self.notify(
+                    "다른 TUI/프로세스에서 작업 실행 중 — [Shift+L]로 강제해제 가능",
+                    timeout=TOAST_LONG_SECONDS,
+                )
                 return
             if self._shutdown_event.is_set():
                 return
@@ -1185,7 +1378,13 @@ class AdminTUI(App):
             try:
                 await audit(action="run_batch", target=key, outcome="started")
                 proc = await asyncio.create_subprocess_exec(
-                    sys.executable, "-u", "-m", "app.batch_runner", key, "--log", str(log_path),
+                    sys.executable,
+                    "-u",
+                    "-m",
+                    "app.batch_runner",
+                    key,
+                    "--log",
+                    str(log_path),
                     stdout=asyncio.subprocess.DEVNULL,
                     stderr=asyncio.subprocess.DEVNULL,
                     start_new_session=True,
@@ -1211,30 +1410,88 @@ class AdminTUI(App):
                         lock_acquired = True
                         break
                 if lock_busy:
-                    self.notify("다른 프로세스가 lock을 점유 중입니다 — [Shift+L]로 강제해제 가능", timeout=TOAST_LONG_SECONDS)
+                    self.notify(
+                        "다른 프로세스가 lock을 점유 중입니다 — [Shift+L]로 강제해제 가능",
+                        timeout=TOAST_LONG_SECONDS,
+                    )
                     await audit(action="run_batch", target=key, outcome="lock_busy")
-                    self._last_results.appendleft(LastRunResult(key=key, returncode=2, message="lock 점유", ts=utcnow(), log_drops=0))
+                    self._last_results.appendleft(
+                        LastRunResult(
+                            key=key, returncode=2, message="lock 점유", ts=utcnow(), log_drops=0
+                        )
+                    )
                     return
                 if early_exit_code is not None:
                     if early_exit_code == 0:
-                        await audit(action="run_batch", target=key, outcome="succeeded", detail={"exit_code": 0, "fast": True})
+                        await audit(
+                            action="run_batch",
+                            target=key,
+                            outcome="succeeded",
+                            detail={"exit_code": 0, "fast": True},
+                        )
                         self.notify("작업이 빠르게 완료되었습니다")
-                        self._last_results.appendleft(LastRunResult(key=key, returncode=0, message="빠른 완료", ts=utcnow(), log_drops=0))
+                        self._last_results.appendleft(
+                            LastRunResult(
+                                key=key, returncode=0, message="빠른 완료", ts=utcnow(), log_drops=0
+                            )
+                        )
                     else:
-                        await audit(action="run_batch", target=key, outcome="early_exit", detail={"exit_code": early_exit_code})
-                        self.notify(f"batch_runner가 초기에 종료되었습니다 (code={early_exit_code})", timeout=TOAST_LONG_SECONDS)
-                        self._last_results.appendleft(LastRunResult(key=key, returncode=early_exit_code, message=f"초기 종료 (code={early_exit_code})", ts=utcnow(), log_drops=0))
+                        await audit(
+                            action="run_batch",
+                            target=key,
+                            outcome="early_exit",
+                            detail={"exit_code": early_exit_code},
+                        )
+                        self.notify(
+                            f"batch_runner가 초기에 종료되었습니다 (code={early_exit_code})",
+                            timeout=TOAST_LONG_SECONDS,
+                        )
+                        self._last_results.appendleft(
+                            LastRunResult(
+                                key=key,
+                                returncode=early_exit_code,
+                                message=f"초기 종료 (code={early_exit_code})",
+                                ts=utcnow(),
+                                log_drops=0,
+                            )
+                        )
                     return
                 if not lock_acquired:
-                    self.notify("batch_runner가 lock을 획득하지 못했습니다", timeout=TOAST_LONG_SECONDS)
+                    self.notify(
+                        "batch_runner가 lock을 획득하지 못했습니다", timeout=TOAST_LONG_SECONDS
+                    )
                     await self._graceful_or_force_kill(proc, use_sigterm_first=False)
                     await audit(action="run_batch", target=key, outcome="lock_acquire_failed")
-                    self._last_results.appendleft(LastRunResult(key=key, returncode=-1, message="lock 획득 실패", ts=utcnow(), log_drops=0))
+                    self._last_results.appendleft(
+                        LastRunResult(
+                            key=key,
+                            returncode=-1,
+                            message="lock 획득 실패",
+                            ts=utcnow(),
+                            log_drops=0,
+                        )
+                    )
                     return
                 if proc.returncode is not None:
-                    await audit(action="run_batch", target=key, outcome="early_exit", detail={"exit_code": proc.returncode})
-                    self.notify(f"batch_runner가 lock 획득 직후 종료되었습니다 (code={proc.returncode})", timeout=TOAST_LONG_SECONDS)
-                    self._last_results.appendleft(LastRunResult(key=key, returncode=proc.returncode, message=f"lock 획득 직후 종료 (code={proc.returncode})", ts=utcnow(), log_drops=0))
+                    await audit(
+                        action="run_batch",
+                        target=key,
+                        outcome="early_exit",
+                        detail={"exit_code": proc.returncode},
+                    )
+                    self.notify(
+                        f"batch_runner가 lock 획득 직후 종료되었습니다 (code={proc.returncode})",
+                        timeout=TOAST_LONG_SECONDS,
+                    )
+                    self._last_results.appendleft(
+                        LastRunResult(
+                            key=key,
+                            returncode=proc.returncode,
+                            message=f"lock 획득 직후 종료 (code={proc.returncode})",
+                            ts=utcnow(),
+                            log_drops=0,
+                        )
+                    )
                     return
 
                 # Phase 2: acquire _operation_lock briefly before setting RunningState
@@ -1261,26 +1518,36 @@ class AdminTUI(App):
                     )
                     self._current_subprocess = proc
                 _pid_path(key).write_text(
-                    json.dumps({
-                        "pid": proc.pid,
-                        "pgid": os.getpgid(proc.pid),
-                        "started_at": utcnow().isoformat(),
-                        "log_path": str(log_path),
-                    }),
+                    json.dumps(
+                        {
+                            "pid": proc.pid,
+                            "pgid": os.getpgid(proc.pid),
+                            "started_at": utcnow().isoformat(),
+                            "log_path": str(log_path),
+                        }
+                    ),
                     encoding="utf-8",
                 )
             except Exception as exc:
                 logger.warning(f"배치 생성 오류: {exc}")
                 self.notify(f"배치 생성 오류: {exc}", timeout=TOAST_LONG_SECONDS)
-                await audit(action="run_batch", target=key, outcome="error", detail={"error": str(exc)})
+                await audit(
+                    action="run_batch", target=key, outcome="error", detail={"error": str(exc)}
+                )
                 if proc is not None and proc.returncode is None:
                     await self._graceful_or_force_kill(proc, use_sigterm_first=False)
                 return
 
         # Outside lock: start monitoring
-        self._reader_task = asyncio.create_task(self._read_logs(log_path, key), name=f"reader-{key}")
-        self._monitor_task = asyncio.create_task(self._monitor_process(key, proc), name=f"monitor-{key}")
-        self._watcher_task = asyncio.create_task(self._watch_heartbeat(key, proc), name=f"heartbeat-{key}")
+        self._reader_task = asyncio.create_task(
+            self._read_logs(log_path, key), name=f"reader-{key}"
+        )
+        self._monitor_task = asyncio.create_task(
+            self._monitor_process(key, proc), name=f"monitor-{key}"
+        )
+        self._watcher_task = asyncio.create_task(
+            self._watch_heartbeat(key, proc), name=f"heartbeat-{key}"
+        )
         for t in (self._reader_task, self._monitor_task, self._watcher_task):
             t.add_done_callback(self._on_task_exception)
 
@@ -1312,7 +1579,11 @@ class AdminTUI(App):
             if self._state is not None and self._state.key == key:
                 await self._cleanup_after_process(key)
         else:
-            tasks = [t for t in (self._reader_task, self._watcher_task, self._monitor_task) if t is not None]
+            tasks = [
+                t
+                for t in (self._reader_task, self._watcher_task, self._monitor_task)
+                if t is not None
+            ]
             for t in tasks:
                 t.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
@@ -1346,14 +1617,20 @@ class AdminTUI(App):
             if not task.cancelled() and task.exception() is not None:
                 logger.warning(f"Task crashed: {task.get_name()} — {task.exception()}")
                 try:
-                    t = asyncio.create_task(audit(
-                        action="task_crash", target=task.get_name(), outcome="error",
-                        detail={"error": str(task.exception())},
-                    ))
+                    t = asyncio.create_task(
+                        audit(
+                            action="task_crash",
+                            target=task.get_name(),
+                            outcome="error",
+                            detail={"error": str(task.exception())},
+                        )
+                    )
                     self._background_tasks.add(t)
                     t.add_done_callback(self._background_tasks.discard)
                 except RuntimeError as exc:
-                    logging.getLogger("admin_audit").warning("audit task 생성 실패(루프 종료 중): %s", exc)
+                    logging.getLogger("admin_audit").warning(
+                        "audit task 생성 실패(루프 종료 중): %s", exc
+                    )
                 self._orchestrator_stop_event.set()
         except Exception as exc:
             logging.getLogger("admin_tui").warning("Task exception handler 오류: %s", exc)
@@ -1385,8 +1662,13 @@ class AdminTUI(App):
         self.notify("작업 중단 중...")
         ok = await self._graceful_or_force_kill(proc, use_sigterm_first=True)
         if not ok:
-            self.notify("작업이 응답하지 않습니다 — Ctrl+Shift+X로 강제해제, 또는 20초 후 자동 초기화", timeout=TOAST_LONG_SECONDS)
-            self._cancel_failure_auto_reset_task = asyncio.create_task(self._auto_reset_after_cancel_failure())
+            self.notify(
+                "작업이 응답하지 않습니다 — Ctrl+Shift+X로 강제해제, 또는 20초 후 자동 초기화",
+                timeout=TOAST_LONG_SECONDS,
+            )
+            self._cancel_failure_auto_reset_task = asyncio.create_task(
+                self._auto_reset_after_cancel_failure()
+            )
 
     async def _auto_reset_after_cancel_failure(self) -> None:
         try:
@@ -1400,7 +1682,10 @@ class AdminTUI(App):
 
     async def _trigger_force_release(self) -> None:
         current_task = asyncio.current_task()
-        if self._cancel_failure_auto_reset_task is not None and current_task is not self._cancel_failure_auto_reset_task:
+        if (
+            self._cancel_failure_auto_reset_task is not None
+            and current_task is not self._cancel_failure_auto_reset_task
+        ):
             self._cancel_failure_auto_reset_task.cancel()
             self._cancel_failure_auto_reset_task = None
         key = self._state.key if self._state is not None else None
@@ -1408,17 +1693,21 @@ class AdminTUI(App):
         if self._state is None or self._state.status != "cancelling":
             self.notify("강제해제는 취소 실패 상태에서만 사용할 수 있습니다")
             return
-        confirmed = await self.push_screen_wait(ConfirmScreen(
-            "작업을 강제로 종료하고 lock을 해제할까요?",
-            buttons=[("강제해제", True), ("취소", False)],
-        ))
+        confirmed = await self.push_screen_wait(
+            ConfirmScreen(
+                "작업을 강제로 종료하고 lock을 해제할까요?",
+                buttons=[("강제해제", True), ("취소", False)],
+            )
+        )
         if not confirmed:
             self.notify("강제해제 취소됨")
             return
         self._orchestrator_stop_event.set()
         if proc is not None:
             await self._graceful_or_force_kill(proc, use_sigterm_first=False)
-        tasks = [t for t in (self._reader_task, self._monitor_task, self._watcher_task) if t is not None]
+        tasks = [
+            t for t in (self._reader_task, self._monitor_task, self._watcher_task) if t is not None
+        ]
         for t in tasks:
             t.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
@@ -1459,10 +1748,12 @@ class AdminTUI(App):
 
         if orphans:
             names = ", ".join(f"{key}(pid={pid})" for key, pid, _, _ in orphans)
-            choice = await self.push_screen_wait(ConfirmScreen(
-                f"고아 프로세스 감지: {names}.\n종료하면 lock을 정리하고 새 작업을 시작할 수 있습니다.",
-                buttons=[("종료", "kill"), ("무시", "ignore")],
-            ))
+            choice = await self.push_screen_wait(
+                ConfirmScreen(
+                    f"고아 프로세스 감지: {names}.\n종료하면 lock을 정리하고 새 작업을 시작할 수 있습니다.",
+                    buttons=[("종료", "kill"), ("무시", "ignore")],
+                )
+            )
             if choice == "kill":
                 for _key, _pid, pgid, _pid_file in orphans:
                     with contextlib.suppress(ProcessLookupError, OSError):
@@ -1495,7 +1786,11 @@ class AdminTUI(App):
             if current_pgid != pgid:
                 return False
             proc = await asyncio.create_subprocess_exec(
-                "ps", "-o", "args=,etime=", "-p", str(pid),
+                "ps",
+                "-o",
+                "args=,etime=",
+                "-p",
+                str(pid),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -1516,7 +1811,9 @@ class AdminTUI(App):
     async def _cleanup_audit_periodically(self) -> None:
         while not self._shutdown_event.is_set():
             with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(self._shutdown_event.wait(), timeout=AUDIT_CLEANUP_INTERVAL_SECONDS)
+                await asyncio.wait_for(
+                    self._shutdown_event.wait(), timeout=AUDIT_CLEANUP_INTERVAL_SECONDS
+                )
             if self._shutdown_event.is_set():
                 return
             try:
@@ -1612,7 +1909,10 @@ class AdminTUI(App):
             held = await self._is_cross_instance_lock_held()
             text = "🔒 batch_runner가 lock 점유 중" if held else "🔓 lock 해제됨"
             with contextlib.suppress(Exception):
-                self.query_one("#lock_status", Static).update(f"{text}   마지막 갱신: {datetime.now():%H:%M:%S}")
+                self.query_one("#lock_status", Static).update(
+                    f"{text}   마지막 갱신: {datetime.now():%H:%M:%S}"
+                )
+
         self.run_worker(_update(), group="lock-status", exclusive=True)
 
     def _load_progress(self) -> None:
@@ -1636,15 +1936,36 @@ class AdminTUI(App):
     def _load_batch_table(self) -> None:
         table = self.query_one("#batch_table", DataTable)
         table.clear()
+        # worker 가 ingest_log 에 남긴 각 잡의 최신 결과를 한 번에 조회. 메모리 deque(_last_results)
+        # 만 보면 스케줄 실행 결과가 TUI 재시작마다 사라져 '최근상태'가 항상 비어 보인다.
+        log_jobs = [BATCH_KEY_TO_LOG_JOB.get(key, key) for key, _, _ in MANUAL_BATCHES]
+        db = SessionLocal()
+        try:
+            latest = ingest_log.latest_for_jobs(db, log_jobs)
+        finally:
+            db.close()
         for key, label, _ in MANUAL_BATCHES:
             meta = BATCH_META.get(key, {})
             desc = meta.get("label", label)
-            # Find last result for this key
-            last = next((r for r in self._last_results if r.key == key), None)
-            status = last.message if last else "-"
+            log_job = BATCH_KEY_TO_LOG_JOB.get(key, key)
+            status = self._fmt_batch_status(key, log_job, latest)
             table.add_row(label, desc, status)
-        # Add release_deploy
         table.add_row("릴리스 배포", "release_deploy", "-")
+
+    def _fmt_batch_status(self, key: str, log_job: str, latest: dict) -> str:
+        """배치 최근상태 셀 텍스트. TUI 세션 수행이 더 최근이면 그것, 아니면 DB 최신 행."""
+        last = next((r for r in self._last_results if r.key == key), None)
+        db_row = latest.get(log_job)
+        if last is not None and (db_row is None or last.ts >= db_row.ts):
+            mark = "[green]✔[/green]" if last.returncode == 0 else "[red]✖[/red]"
+            return f"{mark} {last.message}"
+        if db_row is None:
+            return "-"
+        ts = db_row.ts.astimezone().strftime("%m-%d %H:%M")
+        detail = (db_row.detail or "")[:36]
+        if db_row.status == "ok":
+            return f"[green]✔[/green] {ts} {detail}"
+        return f"[red]✖[/red] {ts} {detail}"
 
     def _load_schedule(self) -> None:
         table = self.query_one("#schedule", DataTable)
@@ -1683,13 +2004,14 @@ class AdminTUI(App):
             bar = "█" * filled + "░" * (bar_len - filled)
             if b.remaining > 0:
                 est_days = b.remaining / b.per_run
-                est = f"  ~{est_days:.0f}일 후" if est_days >= 1 else f"  ~{est_days*24:.0f}시간 후"
+                est = (
+                    f"  ~{est_days:.0f}일 후" if est_days >= 1 else f"  ~{est_days * 24:.0f}시간 후"
+                )
             else:
                 est = ""
             detail = f"  [dim]{b.detail}[/dim]" if b.detail else ""
             lines.append(
-                f"  {b.label:12s} {bar} {pct_str:>8s}  "
-                f"{b.done:,}/{b.total:,}{est}{detail}"
+                f"  {b.label:12s} {bar} {pct_str:>8s}  {b.done:,}/{b.total:,}{est}{detail}"
             )
         self.query_one("#db_title", Static).update("\n".join(lines))
         table = self.query_one("#db_status", DataTable)
@@ -1770,7 +2092,9 @@ class AdminTUI(App):
             lines.append(f"health: API {api_mark}  WEB {web_mark}")
             self.query_one("#release_info", Static).update("\n".join(lines))
         except Exception as exc:
-            self.query_one("#release_info", Static).update(f"[dim]릴리스 정보 로드 실패: {exc}[/dim]")
+            self.query_one("#release_info", Static).update(
+                f"[dim]릴리스 정보 로드 실패: {exc}[/dim]"
+            )
 
     # ── Schedule actions ──────────────────────────────────────────────
     def _selected_job(self):
@@ -1807,7 +2131,11 @@ class AdminTUI(App):
 
         self.push_screen(
             ScheduleEditScreen(
-                job.suffix, job.desc, job.hour, job.minute, job.enabled,
+                job.suffix,
+                job.desc,
+                job.hour,
+                job.minute,
+                job.enabled,
             ),
             _apply,
         )
@@ -1817,12 +2145,19 @@ class AdminTUI(App):
             if value is None:
                 return
             if isinstance(value, dict):
-                self._log_line(f"신규 추가 요청: {value.get('suffix', '?')} — launchd/install.sh로 등록하세요.")
+                self._log_line(
+                    f"신규 추가 요청: {value.get('suffix', '?')} — launchd/install.sh로 등록하세요."
+                )
                 self._load_schedule()
 
         self.push_screen(
             ScheduleEditScreen(
-                "new_job", "신규 발송 잡", 8, 0, True, is_new=True,
+                "new_job",
+                "신규 발송 잡",
+                8,
+                0,
+                True,
+                is_new=True,
             ),
             _apply,
         )
@@ -1986,7 +2321,15 @@ class AdminTUI(App):
             self._log_levels[level] = not self._log_levels[level]
             btn = self.query_one(f"#log_{level}", Button)
             if self._log_levels[level]:
-                btn.variant = "primary" if level == "info" else "warning" if level == "warn" else "error" if level == "error" else "default"
+                btn.variant = (
+                    "primary"
+                    if level == "info"
+                    else "warning"
+                    if level == "warn"
+                    else "error"
+                    if level == "error"
+                    else "default"
+                )
             else:
                 btn.variant = "default"
             self._log_line(f"로그 레벨 {level}: {'켜짐' if self._log_levels[level] else '꺼짐'}")
