@@ -11,7 +11,7 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from app.db.models import IngestLog
@@ -157,16 +157,23 @@ def latest_for_jobs(db: Session, jobs: list[str]) -> dict[str, IngestLogRow]:
     """잡별 최신 실행 1행을 {job: row} 로 반환(이력 없는 잡은 제외).
 
     TUI '배치' 탭 '최근상태'가 worker 가 남긴 스케줄 실행 결과를 보여주기 위해 쓴다.
-    Postgres DISTINCT ON 으로 잡당 1행씩 한 번에 가져온다.
+    '잡당 최신 1행'을 group-by 최대 ts + 자기조인으로 구한다. DISTINCT ON 은 postgres 전용이라
+    core select 에는 distinct_on() 이 없고 sqlite(테스트)에서도 동작하지 않는다.
     """
     if not jobs:
         return {}
+    latest_ts = (
+        select(IngestLog.job, func.max(IngestLog.ts).label("max_ts"))
+        .where(IngestLog.job.in_(jobs))
+        .group_by(IngestLog.job)
+    ).subquery()
     rows = (
         db.execute(
             select(IngestLog)
-            .where(IngestLog.job.in_(jobs))
-            .distinct_on(IngestLog.job)
-            .order_by(IngestLog.job, IngestLog.ts.desc())
+            .join(
+                latest_ts,
+                and_(IngestLog.job == latest_ts.c.job, IngestLog.ts == latest_ts.c.max_ts),
+            )
         )
         .scalars()
         .all()
