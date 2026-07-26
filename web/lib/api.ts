@@ -27,6 +27,7 @@ import type {
   Industry,
   MarketBrief,
   MarketOverview,
+  OwnershipResponse,
   Peer,
   Report,
   ResearchEntity,
@@ -448,6 +449,13 @@ export function fetchCompanyRatios(
 
 export function fetchPeers(code: string): Promise<Peer[]> {
   return getJson<Peer[]>(`/api/companies/${encodeURIComponent(code)}/peers`);
+}
+
+// 지분구조 — 주주 명부(좌) + 자회사·출자사(우) + 최근 지분변동(하단). DB 영속분 + elestock 12h 캐시.
+export function fetchOwnership(code: string): Promise<OwnershipResponse> {
+  return getJson<OwnershipResponse>(
+    `/api/companies/${encodeURIComponent(code)}/ownership`,
+  );
 }
 
 export function fetchTradePresets(): Promise<TradePresets> {

@@ -26,11 +26,12 @@ def _url_session(by_url: dict[str, dict]) -> MagicMock:
 
 def test_fetch_related_parent_and_subsidiary():
     # 모회사(법인 최대주주) + 자회사(50%+)/출자사, 합계 행 제외.
+    # relate 실제값은 '최대주주 본인'(DS005 실데이터 기준 — test_dart_shareholders 의 삼성 케이스와 동일).
     session = _url_session({
         client._HYSLR_URL: {
             "status": "000",
             "list": [
-                {"nm": "(주)가비아", "relate": "최대주주", "trmend_posesn_stock_qota_rt": "36.30"},
+                {"nm": "(주)가비아", "relate": "최대주주 본인", "trmend_posesn_stock_qota_rt": "36.30"},
                 {"nm": "전정완", "relate": "최대주주의 임원", "trmend_posesn_stock_qota_rt": "1.80"},
                 {"nm": "계", "relate": None, "trmend_posesn_stock_qota_rt": "39.10"},
             ],
@@ -54,11 +55,11 @@ def test_fetch_related_parent_and_subsidiary():
 
 
 def test_fetch_related_individual_top_holder_no_parent():
-    # 최대주주가 개인이면 모회사 없음(자회사만).
+    # 최대주주가 개인이면 relate='최대주주 본인' 이라도 is_corporate=False → 모회사 없음(자회사만).
     session = _url_session({
         client._HYSLR_URL: {
             "status": "000",
-            "list": [{"nm": "김대표", "relate": "최대주주", "trmend_posesn_stock_qota_rt": "40.0"}],
+            "list": [{"nm": "김대표", "relate": "최대주주 본인", "trmend_posesn_stock_qota_rt": "40.0"}],
         },
         client._OTR_CPR_URL: {"status": "000", "list": [{"inv_prm": "㈜자회사", "trmend_blce_qota_rt": "60"}]},
     })

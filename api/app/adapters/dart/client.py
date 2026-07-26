@@ -234,6 +234,21 @@ def fetch_roe(
 
 
 @dataclass
+class HyslrRow:
+    """최대주주현황(hyslrSttus) 개별 행 — 주주명/관계/지분율/법인여부.
+
+    기업분석 화면 지분구조 좌측(주주 명부) 원천. fetch_largest_shareholders(집계)·
+    fetch_related_companies(parent 파생)·ingest(Shareholder upsert)가 공유해 hyslrSttus
+    중복 호출을 피한다.
+    """
+
+    name: str  # 주주명(법인/개인)
+    relate: str  # 최대주주 본인/배우자/자녀/최대주주의 특수관계인 ...
+    stake_pct: float | None  # 기말 지분율(%)
+    is_corporate: bool  # 법인 접미사로 판정
+
+
+@dataclass
 class LargestShareholders:
     """최대주주 현황(DS005 hyslrSttus). 최대주주명·최대주주+특수관계인 합산 지분율(기말)."""
 
@@ -241,14 +256,14 @@ class LargestShareholders:
     group_stake_pct: float | None = None  # 최대주주+특수관계인 합산 지분율(%)
 
 
-def fetch_largest_shareholders(
+def fetch_hyslr_rows(
     api_key: str, corp_code: str, year: int, quarter: int, session: requests.Session
-) -> LargestShareholders | None:
-    """DS005 최대주주 현황 → 최대주주명 + 특수관계인 합산 지분율(기말). 실패·없음이면 None.
+) -> list[HyslrRow] | None:
+    """DS005 최대주주현황 → 개별 주주 행(이름/관계/지분율/법인여부). 실패·데이터없음이면 None.
 
-    개인·법인이 보통주/우선주 등 여러 행으로 쪼개져 나오므로 기말 지분율(trmend_posesn_stock_qota_rt)
-    을 전 행 합산해 지배지분을 근사한다. 최대주주명은 relate='최대주주 본인' 행의 nm. 딥다이브
-    overview 의 LLM 자유서술 대신 구조화 지분을 주입한다.
+    개인·법인이 보통주/우선주 등 여러 행으로 쪼개진 원시 list 를 정제한다. 소계·합계 행
+    (_is_total_row)은 제외. 집계(fetch_largest_shareholders)·parent 파생(fetch_related_companies)·
+    Shareholder upsert(ingest)가 이 결과를 공유해 hyslrSttus HTTP 호출을 1회로 유지한다.
     """
     reprt_code = DART_REPORT_CODES.get(quarter)
     if not reprt_code:
@@ -269,13 +284,40 @@ def fetch_largest_shareholders(
     _raise_if_quota(data)
     if data.get("status") != "000":
         return None
-    rows = data.get("list", [])
-    total_pct = sum(_float_field(r, "trmend_posesn_stock_qota_rt") or 0.0 for r in rows)
-    top = next((r for r in rows if "최대주주 본인" in (r.get("relate") or "")), rows[0] if rows else None)
+    rows: list[HyslrRow] = []
+    for r in data.get("list", []):
+        nm = (r.get("nm") or "").strip()
+        if not nm or _is_total_row(nm):
+            continue
+        rows.append(
+            HyslrRow(
+                name=nm,
+                relate=(r.get("relate") or "").strip(),
+                stake_pct=_float_field(r, "trmend_posesn_stock_qota_rt"),
+                is_corporate=_looks_corporate(nm),
+            )
+        )
+    return rows
+
+
+def fetch_largest_shareholders(
+    api_key: str, corp_code: str, year: int, quarter: int, session: requests.Session
+) -> LargestShareholders | None:
+    """DS005 최대주주 현황 → 최대주주명 + 특수관계인 합산 지분율(기말). 실패·없음이면 None.
+
+    개인·법인이 보통주/우선주 등 여러 행으로 쪼개져 나오므로 기말 지분율을 전 행 합산해 지배지분을
+    근사한다. 최대주주명은 relate='최대주주 본인' 행의 nm. 딥다이브 overview 의 LLM 자유서술 대신
+    구조화 지분을 주입한다. fetch_hyslr_rows 로 파싱한 행을 집계한다.
+    """
+    rows = fetch_hyslr_rows(api_key, corp_code, year, quarter, session)
+    if rows is None:
+        return None
+    total_pct = sum(r.stake_pct or 0.0 for r in rows)
+    top = next((r for r in rows if "최대주주 본인" in r.relate), rows[0] if rows else None)
     if top is None or total_pct <= 0:
         return None
     return LargestShareholders(
-        top_holder=(top.get("nm") or "").strip() or None,
+        top_holder=top.name or None,
         group_stake_pct=round(total_pct, 2),
     )
 
@@ -304,13 +346,22 @@ def _is_total_row(name: str) -> bool:
 
 
 def fetch_related_companies(
-    api_key: str, corp_code: str, year: int, quarter: int, session: requests.Session
+    api_key: str,
+    corp_code: str,
+    year: int,
+    quarter: int,
+    session: requests.Session,
+    *,
+    hyslr_rows: list[HyslrRow] | None = None,
 ) -> list[RelatedParty]:
     """모회사(hyslrSttus 법인 최대주주) + 자회사·출자사(otrCprInvstmntSttus)를 관계사 목록으로.
 
     - 모회사: 최대주주현황에서 relate='최대주주 본인'이며 법인으로 보이는 nm(개인 지배주주 제외).
     - 자회사/출자사: 타법인출자현황의 inv_prm. 기말지분율 50%+ 는 subsidiary, 그 외는 investor.
     실패·없음이면 빈 리스트(부분 실패 허용 — 한 소스 실패가 다른 소스를 막지 않는다).
+
+    hyslr_rows 를 전달하면 모회사 파생에 재사용해 hyslrSttus 중복 호출을 피한다(ingest 가
+    fetch_hyslr_rows 결과로 Shareholder 도 같이 채울 때 사용). None 이면 내부에서 직접 호출.
     """
     reprt_code = DART_REPORT_CODES.get(quarter)
     if not reprt_code:
@@ -318,22 +369,13 @@ def fetch_related_companies(
     params = {"crtfc_key": api_key, "corp_code": corp_code, "bsns_year": str(year), "reprt_code": reprt_code}
     out: list[RelatedParty] = []
 
-    # 모회사(지배주주 법인) — 최대주주현황.
-    try:
-        resp = dart_throttle.get(session, _HYSLR_URL, params=params, timeout=15)
-        resp.raise_for_status()
-        data = resp.json()
-        _raise_if_quota(data)
-        if data.get("status") == "000":
-            for r in data.get("list", []):
-                nm = (r.get("nm") or "").strip()
-                # 최대주주 본인 행(relate 에 '최대주주' 포함, '임원'·'특수관계' 등 제외)이 법인이면 모회사.
-                relate = (r.get("relate") or "").strip()
-                if nm and not _is_total_row(nm) and relate == "최대주주" and _looks_corporate(nm):
-                    out.append(RelatedParty(nm, "parent", _float_field(r, "trmend_posesn_stock_qota_rt")))
-                    break
-    except (requests.RequestException, ValueError) as e:
-        logger.warning("dart related(parent) failed %s %sQ%s: %s", corp_code, year, quarter, e)
+    # 모회사(지배주주 법인) — 최대주주현황. hyslr_rows 가 있으면 재사용(중복 HTTP 회피).
+    rows = hyslr_rows if hyslr_rows is not None else fetch_hyslr_rows(api_key, corp_code, year, quarter, session) or []
+    for r in rows:
+        # 최대주주 본인 행(relate=='최대주주 본인')이 법인이면 모회사.
+        if r.is_corporate and "최대주주 본인" in r.relate:
+            out.append(RelatedParty(r.name, "parent", r.stake_pct))
+            break
 
     # 자회사/출자사 — 타법인 출자현황.
     try:

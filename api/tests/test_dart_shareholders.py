@@ -72,3 +72,33 @@ def test_fetch_largest_shareholders_raises_on_quota():
     payload = {"status": "020", "message": "사용한도를 초과하였습니다."}
     with pytest.raises(dart.DartQuotaExceeded):
         dart.fetch_largest_shareholders("key", "x", 2024, 4, _list_session(payload))
+
+
+def test_fetch_hyslr_rows_parses_individual_rows_with_corporate_flag():
+    # 개별 주주 행(이름/관계/지분율/법인여부) — 합계 행 제외. Shareholder 테이블 원천.
+    payload = {
+        "status": "000",
+        "list": [
+            {"nm": "삼성생명보험㈜", "relate": "최대주주 본인", "trmend_posesn_stock_qota_rt": "8.51"},
+            {"nm": "홍라희", "relate": "최대주주의 특수관계인", "trmend_posesn_stock_qota_rt": "1.64"},
+            {"nm": "계", "relate": None, "trmend_posesn_stock_qota_rt": "11.79"},  # 합계 → 제외
+        ],
+    }
+    rows = dart.fetch_hyslr_rows("key", "00126380", 2024, 4, _list_session(payload))
+    assert rows is not None and len(rows) == 2  # 합계 행 1건 제외
+    by_name = {r.name: r for r in rows}
+    assert by_name["삼성생명보험㈜"].is_corporate is True
+    assert by_name["삼성생명보험㈜"].stake_pct == 8.51
+    assert by_name["홍라희"].is_corporate is False
+    assert by_name["홍라희"].relate == "최대주주의 특수관계인"
+    assert "계" not in by_name
+
+
+def test_fetch_hyslr_rows_empty_status_returns_none():
+    assert dart.fetch_hyslr_rows("key", "x", 2024, 4, _list_session({"status": "013"})) is None
+
+
+def test_fetch_hyslr_rows_bad_quarter_returns_none():
+    session = MagicMock()
+    assert dart.fetch_hyslr_rows("key", "x", 2024, 9, session) is None
+    session.get.assert_not_called()

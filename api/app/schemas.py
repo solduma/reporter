@@ -936,3 +936,48 @@ class ResearchGuidelineInput(BaseModel):
     """리서치 요청 바디."""
     guideline: str = ""
 
+
+# ── 지분구조(ownership) ───────────────────────────────────────────────────
+class ShareholderOut(BaseModel):
+    """주주 명부 1행 — 지분구조 좌측(최대주주+특수관계인)."""
+
+    holder_name: str
+    relate: str = ""  # 최대주주 본인/배우자/자녀/특수관계인 ...
+    stake_pct: float | None = None
+    is_corporate: bool = False
+    related_stock_code: str | None = None  # 상장 주주(법인)면 내부 종목 링크
+    related_stock_name: str | None = None
+
+
+class SubsidiaryOut(BaseModel):
+    """자회사·출자사 1행 — 지분구조 우측(타법인출자)."""
+
+    related_name: str
+    relation: str  # subsidiary(50%+) | investor(그 외 출자)
+    stake_pct: float | None = None
+    related_stock_code: str | None = None  # 상장 관계사면 내부 종목 링크
+    related_stock_name: str | None = None
+
+
+class OwnershipChangeOut(BaseModel):
+    """임원·주요주주 소유변동 1행 — 지분구조 하단(최근 변동)."""
+
+    rcept_no: str
+    rcept_date: date | None = None  # 접수일자(rcept_no 앞 8자리)
+    reporter: str = ""
+    position: str = ""
+    shares_delta: int | None = None  # +취득 / -처분
+    shares_after: int | None = None
+    reason: str = ""
+
+
+class OwnershipOut(BaseModel):
+    """종목 지분구조 — 주주 명부 + 자회사·출자사 + 최근 지분변동."""
+
+    stock_code: str
+    as_of_year: int | None = None  # 주주 명부 근거 사업연도 배지용
+    shareholders: list[ShareholderOut] = Field(default_factory=list)
+    subsidiaries: list[SubsidiaryOut] = Field(default_factory=list)
+    changes: list[OwnershipChangeOut] = Field(default_factory=list)
+    changes_stale: bool = False  # True 면 live-fetch 실패/미실행 → 프론트 폴링 재시도
+

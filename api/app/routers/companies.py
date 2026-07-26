@@ -29,6 +29,7 @@ from app.schemas import (
     FinancialStatementPeriod,
     FinancialStatementsOut,
     JudgmentOut,
+    OwnershipOut,
     PeerOut,
     RatioOut,
     ReportCard,
@@ -44,6 +45,7 @@ from app.services import (
     analysis_comment,
     candle_service,
     company_service,
+    ownership_service,
     screener_service,
     today_service,
     trend,
@@ -1089,6 +1091,18 @@ def company_financial_statements(
         )
     response.headers["Cache-Control"] = "public, max-age=300"
     return out
+
+
+@router.get("/{code}/ownership", response_model=OwnershipOut)
+def company_ownership(
+    code: str, db: Session = Depends(get_session)
+) -> OwnershipOut:
+    """종목 지분구조 — 좌측 주주 명부 + 우측 자회사·출자사 + 하단 최근 지분변동.
+
+    주주·자회사는 DB 영속분(야간 related_company_ingest). 최근 변동은 elestock live + 12h 캐시
+    (OwnershipChangeCache) — 캐시 miss 시 동기 조회 후 캐싱. changes_stale 면 프론트가 폴링 재시도.
+    """
+    return ownership_service.get_ownership(db, get_settings(), code)
 
 
 @router.get("/{code}/peers", response_model=list[PeerOut])

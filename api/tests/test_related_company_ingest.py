@@ -7,7 +7,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from app.adapters import dart
-from app.db.models import Base, CorpCodeMap, RelatedCompany
+from app.db.models import Base, CorpCodeMap, RelatedCompany, Shareholder
 from app.services import related_company_ingest as rci
 
 
@@ -15,7 +15,7 @@ from app.services import related_company_ingest as rci
 def db():
     engine = create_engine("sqlite://")
     Base.metadata.create_all(
-        engine, tables=[RelatedCompany.__table__, CorpCodeMap.__table__]
+        engine, tables=[RelatedCompany.__table__, Shareholder.__table__, CorpCodeMap.__table__]
     )
     session = sessionmaker(bind=engine)()
     yield session
@@ -34,9 +34,18 @@ def test_backfill_maps_listed_related_and_stores(db, monkeypatch):
     db.add(CorpCodeMap(stock_code="093320", corp_code="00B", corp_name="케이아이엔엑스"))
     db.commit()
 
+    # hyslr_rows(주주 명부)와 related(모/자회사·출자사)를 같이 모킹 — ingest 가 한 번의 hyslr
+    # 호출로 두 테이블을 채우는 구조를 반영.
+    monkeypatch.setattr(
+        rci.dart, "fetch_hyslr_rows",
+        lambda key, cc, y, q, s: [
+            dart.HyslrRow("(주)가비아", "최대주주 본인", 36.3, True),
+            dart.HyslrRow("김대표", "최대주주의 특수관계인", 1.5, False),
+        ],
+    )
     monkeypatch.setattr(
         rci.dart, "fetch_related_companies",
-        lambda key, cc, y, q, s: [
+        lambda key, cc, y, q, s, *, hyslr_rows=None: [
             dart.RelatedParty("(주)가비아", "parent", 36.3),
             dart.RelatedParty("㈜비상장자회사", "subsidiary", 80.0),
         ],
@@ -53,6 +62,14 @@ def test_backfill_maps_listed_related_and_stores(db, monkeypatch):
     assert by_name["(주)가비아"].relation == "parent"
     assert by_name["(주)가비아"].related_stock_code == "079940"  # 상장 → 역매핑
     assert by_name["㈜비상장자회사"].related_stock_code is None  # 비상장 → None
+
+    # 주주 명부(Shareholder)도 같은 hyslr 호출로 upsert — 법인 주주만 역매핑.
+    sh = db.scalars(select(Shareholder).where(Shareholder.stock_code == "093320")).all()
+    sh_by_name = {s.holder_name: s for s in sh}
+    assert sh_by_name["(주)가비아"].related_stock_code == "079940"
+    assert sh_by_name["(주)가비아"].is_corporate is True
+    assert sh_by_name["김대표"].is_corporate is False
+    assert sh_by_name["김대표"].related_stock_code is None  # 개인 → 링크 없음
 
 
 def test_backfill_no_corp_code_marks_done(db, monkeypatch):

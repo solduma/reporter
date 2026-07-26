@@ -15,6 +15,7 @@ import DeepDivePanel from "@/components/DeepDivePanel";
 import FinancialStatements from "@/components/FinancialStatements";
 import GrowthMetrics from "@/components/GrowthMetrics";
 import InfoDot from "@/components/InfoDot";
+import OwnershipStructure from "@/components/OwnershipStructure";
 import PeersTable from "@/components/PeersTable";
 import RealtimeQuoteBadge from "@/components/RealtimeQuoteBadge";
 import ScoreBreakdown from "@/components/ScoreBreakdown";
@@ -722,6 +723,15 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
           <span className={styles.growthTag}>사업보고서 · 반기/분기</span>
         </div>
         <BusinessOverview code={code} />
+      </section>
+
+      {/* 지분구조 — 사업 개요 아래, 재무제표 위. 주주 명부(좌)·자회사/출자사(우) + 최근 지분변동. */}
+      <section className={styles.chartCard}>
+        <div className={styles.growthHead}>
+          <h2 className={styles.sectionTitle}>지분구조</h2>
+          <span className={styles.growthTag}>최대주주현황 · 타법인출자 · 소유변동</span>
+        </div>
+        <OwnershipStructure code={code} />
       </section>
 
       {/* 재무제표 — 종목 정보 아래, 딥다이브 위. 연결/별도 탭 + 4개 재무제표. */}
