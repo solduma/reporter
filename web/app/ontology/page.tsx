@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import StockSearch from "@/components/StockSearch";
 import { fetchBusinessExplore } from "@/lib/api";
@@ -105,6 +105,16 @@ export default function OntologyExplorePage() {
     },
     [loadExplore],
   );
+
+  // 깊은 링크(?code=005930) 자동 로드 — 공유·스크린샷 검수용.
+  useEffect(() => {
+    if (focalId) return;
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("code");
+    if (code && /^\d{6}$/.test(code)) {
+      void loadExplore(`CMP_KRX_${code}`, true);
+    }
+  }, [focalId, loadExplore]);
 
   // ── 가시 노드/엣지(레이어 필터) ──────────────────────────────────────────
   const visibleNodes = useMemo(() => {
