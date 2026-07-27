@@ -9,6 +9,22 @@ import { useMetricInfo } from "@/lib/useMetricInfo";
 
 import styles from "./RatioPanel.module.css";
 
+function fmtRatioValue(value: number | null, unit: string | null): string {
+  if (value === null || value === undefined) return "—";
+  switch (unit) {
+    case "multiple":
+      return `${value.toLocaleString("ko-KR", { maximumFractionDigits: 2 })}배`;
+    case "percentage":
+      return `${value.toLocaleString("ko-KR", { maximumFractionDigits: 2 })}%`;
+    case "monetary_per_share":
+      return `${value.toLocaleString("ko-KR")}원`;
+    case "ratio":
+      return value.toLocaleString("ko-KR", { maximumFractionDigits: 2 });
+    default:
+      return `${value.toLocaleString("ko-KR")}${unit ? ` ${unit}` : ""}`;
+  }
+}
+
 const CATEGORIES = [
   { key: "profitability", label: "수익성" },
   { key: "liquidity", label: "유동성" },
@@ -100,7 +116,7 @@ export default function RatioPanel({ code }: Props) {
                   </span>
                   <span className={styles.value}>
                     {r.ok && r.value !== null
-                      ? `${r.value}${r.unit ? ` ${r.unit}` : ""}`
+                      ? fmtRatioValue(r.value, r.unit)
                       : r.reason || "-"}
                   </span>
                   <span className={styles.chevron}>{isExpanded ? "▾" : "▸"}</span>

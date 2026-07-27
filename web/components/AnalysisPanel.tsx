@@ -15,7 +15,7 @@ const AXIS_INFO: Record<string, { what: string; guide: string }> = {
     guide: "60↑ 고성장 축, 40↓ 정체. 같은 후보군 내 상대 점수.",
   },
   value: {
-    what: "저평가 정도(저PER·저PBR·저EV/EBITDA + 고ROE·고배당).",
+    what: "저평가 정도(PER·PBR·EV/EBITDA + 고ROE·고배당).",
     guide: "60↑ 저평가 우위, 40↓ 고평가. 자산·수익가치 기준.",
   },
   technical: {

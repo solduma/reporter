@@ -190,13 +190,11 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
   const [expandedAxis, setExpandedAxis] = useState<Set<string>>(new Set());
   const toggleAxis = useCallback((axisKey: string) => {
     setExpandedAxis((prev) => {
-      const next = new Set(prev);
-      if (next.has(axisKey)) {
-        next.delete(axisKey);
-      } else {
-        next.add(axisKey);
+      // 성장·가치·추세·탑다운 섹션은 상호베타적으로 열린다.
+      if (prev.has(axisKey)) {
+        return new Set();
       }
-      return next;
+      return new Set([axisKey]);
     });
   }, []);
 
