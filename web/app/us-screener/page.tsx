@@ -25,7 +25,7 @@ function n2(v: number | null, suffix = ""): string {
 const SORTS: { key: string; label: string }[] = [
   { key: "score", label: "스코어" },
   { key: "market_cap", label: "시총" },
-  { key: "per", label: "저PER" },
+  { key: "per", label: "PER" },
   { key: "momentum", label: "모멘텀" },
   { key: "trading_value", label: "거래대금" },
   { key: "change", label: "등락률" },

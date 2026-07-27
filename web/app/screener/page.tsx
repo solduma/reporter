@@ -39,7 +39,7 @@ interface Preset<T> {
 const STRATEGY_TABS: { value: ScreenerStrategy; label: string; desc: string }[] = [
   { value: "overall", label: "종합", desc: "성장·가치·추세·탑다운을 종합한 테크노펀더멘탈 점수로 정렬한다" },
   { value: "growth", label: "성장", desc: "매출·영업이익 성장과 모멘텀으로 성장주 후보를 좁힌다" },
-  { value: "value", label: "가치", desc: "저PER·저PBR·저EV/EBITDA·고ROE 로 저평가 우량주를 찾는다" },
+  { value: "value", label: "가치", desc: "PER·PBR·EV/EBITDA·고ROE 로 저평가 우량주를 찾는다" },
   { value: "trend", label: "추세", desc: "신고가 근접·이평 정배열·거래량·수익률 종합 기술적 추세로 정렬한다" },
   { value: "topdown", label: "탑다운", desc: "종목이 속한 섹터의 국내·미국 수급(자금유입)으로 정렬한다" },
 ];
