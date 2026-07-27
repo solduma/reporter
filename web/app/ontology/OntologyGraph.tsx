@@ -13,7 +13,6 @@ import {
   type NodeProps,
   type NodeTypes,
 } from "@xyflow/react";
-import dagre from "dagre";
 import "@xyflow/react/dist/style.css";
 
 import type { BusinessExploreNode, BusinessLayer } from "@/lib/types";
@@ -43,8 +42,20 @@ const EDGE_LABEL: Record<string, string> = {
   subsidiary_of: "자회사",
 };
 
-const NODE_W = 184;
-const NODE_H = 68;
+const NODE_W = 176;
+const NODE_H = 60;
+const DX = 206;
+const DY = 78;
+const MAX_COLS = 6;
+const BAND_GAP = 30;
+
+const LAYER_ORDER: BusinessLayer[] = [
+  "company",
+  "industry",
+  "product",
+  "raw_material",
+  "segment",
+];
 
 interface GraphNodeData {
   node: BusinessExploreNode;
@@ -58,23 +69,73 @@ interface GraphNodeData {
 type OntologyNode = Node<GraphNodeData, "ontology">;
 type OntologyNodeProps = NodeProps<OntologyNode>;
 
-function dagreLayout(
-  ids: string[],
+// focal 을 중심(0,0)에 두고, 이웃을 업스트림(좌)/다운스트림(우)으로 분리한 뒤
+// node_type(계층)별 가로 밴드로 격자 배치. 005930 처럼 이웃이 한쪽으로 쏠려도
+// 1열 장칼럼 이 아닌 계층별 격자가 되어 fitView 후에도 읽기 가능.
+function structuredLayout(
+  nodes: BusinessExploreNode[],
   edges: { source: string; target: string }[],
+  focalId: string,
 ): Record<string, { x: number; y: number }> {
-  const g = new dagre.graphlib.Graph();
-  g.setGraph({ rankdir: "LR", ranksep: 90, nodesep: 28, marginx: 24, marginy: 24 });
-  g.setDefaultEdgeLabel(() => ({}));
-  for (const id of ids) g.setNode(id, { width: NODE_W, height: NODE_H });
-  for (const e of edges) {
-    if (ids.includes(e.source) && ids.includes(e.target)) g.setEdge(e.source, e.target);
-  }
-  dagre.layout(g);
   const pos: Record<string, { x: number; y: number }> = {};
-  for (const id of ids) {
-    const p = g.node(id);
-    pos[id] = { x: (p?.x ?? 0) - NODE_W / 2, y: (p?.y ?? 0) - NODE_H / 2 };
+  pos[focalId] = { x: -NODE_W / 2, y: -NODE_H / 2 };
+
+  // focal 기준 방향: out(focal 이 src) 이 in 보다 우선.
+  const dir = new Map<string, "in" | "out">();
+  for (const e of edges) {
+    if (e.target === focalId && !dir.has(e.source)) dir.set(e.source, "in");
   }
+  for (const e of edges) {
+    if (e.source === focalId) dir.set(e.target, "out");
+  }
+
+  const neighbors = nodes.filter((n) => n.id !== focalId);
+  const groups = new Map<string, BusinessExploreNode[]>();
+  for (const n of neighbors) {
+    const d = dir.get(n.id) ?? "out";
+    const k = `${d}:${n.node_type}`;
+    const arr = groups.get(k);
+    if (arr) arr.push(n);
+    else groups.set(k, [n]);
+  }
+
+  const bandTypes = LAYER_ORDER.filter((t) =>
+    neighbors.some((n) => n.node_type === t),
+  );
+  if (bandTypes.length === 0) return pos;
+
+  const bandRows = bandTypes.map((t) => {
+    const outN = groups.get(`out:${t}`)?.length ?? 0;
+    const inN = groups.get(`in:${t}`)?.length ?? 0;
+    return Math.max(Math.ceil(outN / MAX_COLS), Math.ceil(inN / MAX_COLS), 1);
+  });
+  const bandHeights = bandRows.map((r) => r * DY);
+  const totalH =
+    bandHeights.reduce((a, b) => a + b, 0) + (bandTypes.length - 1) * BAND_GAP;
+
+  const bandCenters: number[] = [];
+  let cursor = -totalH / 2;
+  bandTypes.forEach((_, i) => {
+    bandCenters.push(cursor + bandHeights[i] / 2);
+    cursor += bandHeights[i] + BAND_GAP;
+  });
+
+  bandTypes.forEach((t, bi) => {
+    const cy = bandCenters[bi];
+    const rows = bandRows[bi];
+    (["out", "in"] as const).forEach((d) => {
+      const arr = groups.get(`${d}:${t}`);
+      if (!arr) return;
+      arr.forEach((n, i) => {
+        const col = i % MAX_COLS;
+        const row = Math.floor(i / MAX_COLS);
+        const yOff = (row - (rows - 1) / 2) * DY;
+        const xBase = (col + 1) * DX;
+        const x = d === "out" ? xBase - NODE_W / 2 : -xBase - NODE_W / 2;
+        pos[n.id] = { x, y: cy + yOff - NODE_H / 2 };
+      });
+    });
+  });
   return pos;
 }
 
@@ -131,12 +192,14 @@ export default function OntologyGraph({
   onNodeExpand,
   onNodeSelect,
 }: OntologyGraphProps) {
-  const ids = useMemo(() => nodes.map((n) => n.id), [nodes]);
   const layoutEdges = useMemo(
     () => edges.map((e) => ({ source: e.src, target: e.dst })),
     [edges],
   );
-  const positions = useMemo(() => dagreLayout(ids, layoutEdges), [ids, layoutEdges]);
+  const positions = useMemo(
+    () => structuredLayout(nodes, layoutEdges, focalId),
+    [nodes, layoutEdges, focalId],
+  );
 
   const rfNodes: OntologyNode[] = useMemo(
     () =>
