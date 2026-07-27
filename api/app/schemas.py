@@ -1004,6 +1004,41 @@ class BusinessPeerOut(BaseModel):
     canonical_id: str | None = None
 
 
+class BusinessExploreNodeOut(BaseModel):
+    """탐색 focal 노드 — 정적 메타 + 인스턴스 status/confidence 병합."""
+
+    id: str
+    node_type: str
+    korean_name: str
+    english_name: str = ""
+    aliases: list[str] = Field(default_factory=list)
+    status: str | None = None
+    confidence: float | None = None
+    commodity_type: str | None = None
+    is_also_material_id: str | None = None
+    gics_code: str | None = None
+    stock_code: str | None = None
+
+
+class BusinessExploreNeighborOut(BusinessExploreNodeOut):
+    """탐색 이웃 — focal 과의 엣지 메타 포함."""
+
+    edge_type: str
+    direction: str  # "out"(focal 이 src) | "in"(focal 이 dst)
+    share: float | None = None
+    period: str | None = None
+    source_quote: str | None = None
+    chain_stage: str | None = None
+
+
+class BusinessExploreOut(BaseModel):
+    """노드 중심 1-hop 탐색 결과 — focal + 이웃 + 엣지."""
+
+    focal: BusinessExploreNodeOut
+    neighbors: list[BusinessExploreNeighborOut] = Field(default_factory=list)
+    edges: list[BusinessEdgeOut] = Field(default_factory=list)
+
+
 # ── 사업 개요(business overview) ──────────────────────────────────────────
 class BusinessTableOut(BaseModel):
     """사업 개요 섹션 내 표."""
