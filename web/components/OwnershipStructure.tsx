@@ -10,6 +10,7 @@ import type {
   OwnershipChangeRow,
   OwnershipResponse,
   OwnershipSummaryRow,
+  ShareholderRow,
 } from "@/lib/types";
 
 import styles from "./OwnershipStructure.module.css";
@@ -38,6 +39,21 @@ function fmtWon(n: number | null | undefined): string {
   if (Math.abs(n) >= 1e8) return `${(n / 1e8).toFixed(1)}억`;
   if (Math.abs(n) >= 1e4) return `${(n / 1e4).toFixed(0)}만`;
   return n.toLocaleString("ko-KR");
+}
+
+// 주주 명부를 현재 기준 스냅샷으로 정리 — 동일 주주는 한 줄로, 실제 지분이 있는 주주만 노출.
+function snapshotShareholders(rows: ShareholderRow[]): ShareholderRow[] {
+  const map = new Map<string, ShareholderRow>();
+  for (const s of rows) {
+    const existing = map.get(s.holder_name);
+    // 동명이면 더 높은 지분율/최신 관계를 우선한다.
+    if (!existing || (s.stake_pct ?? 0) > (existing.stake_pct ?? 0)) {
+      map.set(s.holder_name, s);
+    }
+  }
+  return Array.from(map.values())
+    .filter((s) => (s.stake_pct ?? 0) > 0)
+    .sort((a, b) => (b.stake_pct ?? 0) - (a.stake_pct ?? 0));
 }
 
 export default function OwnershipStructure({ code }: { code: string }) {
@@ -102,6 +118,7 @@ export default function OwnershipStructure({ code }: { code: string }) {
   const filteredCount = subsidiary_filtered ?? subsidiaries.length;
   const totalCount = subsidiary_total ?? subsidiaries.length;
   const displaySubs = showAllSubs ? subsidiaries : subsidiaries.slice(0, filteredCount);
+  const snapshotHolders = snapshotShareholders(shareholders);
 
   return (
     <div className={styles.wrap}>
@@ -114,7 +131,7 @@ export default function OwnershipStructure({ code }: { code: string }) {
           asOfYear={as_of_year}
           emptyText="주주 데이터가 없습니다."
         >
-          {shareholders.length > 0 && (
+          {snapshotHolders.length > 0 && (
             <table className={styles.table}>
               <thead>
                 <tr>
@@ -124,7 +141,7 @@ export default function OwnershipStructure({ code }: { code: string }) {
                 </tr>
               </thead>
               <tbody>
-                {shareholders.map((s) => (
+                {snapshotHolders.map((s) => (
                   <tr key={s.holder_name}>
                     <th className={styles.nameCol} scope="row">
                       {s.related_stock_code ? (
