@@ -1,0 +1,32 @@
+version: "0.1.0"
+metadata:
+  name: "DART induty_code → GICS 매핑"
+  description: "corpCode.xml 의 induty_code → GICS sub-industry. DART 코드값은 실제 corpCode.xml 샘플 기반 큐레이팅(시드). 매핑 누락 시 normalizer 가 unknown 처리."
+  standards: ["DART", "GICS"]
+  created: "2026-07-27"
+  updated: "2026-07-27"
+mappings:
+  "C28": "IND_GICS_45102010"    # 반도체·디스플레이 제조 → Semiconductors
+  "C26": "IND_GICS_45302030"    # 전자부품·컴퓨터·영상·음향 → Electronic Components
+  "J58": "IND_GICS_45201010"    # 소프트웨어 개발·공급 → Application Software
+  "J61": "IND_GICS_45202010"    # 컴퓨터 프로그래밍·IT 서비스 → IT Consulting
+  "C29": "IND_GICS_25102010"    # 자동차 제조 → Automobile Manufacturers
+  "C30": "IND_GICS_25101010"    # 자동차 부품 → Auto Parts & Equipment
+  "C24": "IND_GICS_15104050"    # 철강 → Steel
+  "C23": "IND_GICS_15104010"    # 1차 금속(비철) → Aluminum
+  "C20": "IND_GICS_15101020"    # 화학(정밀) → Specialty Chemicals
+  "C19": "IND_GICS_15101010"    # 기초화학 → Commodity Chemicals
+  "C17": "IND_GICS_10205010"    # 석유정제 → Integrated Oil & Gas
+  "C21": "IND_GICS_35201010"    # 제약 → Pharmaceuticals
+  "C262": "IND_GICS_35202010"   # 생물학·바이오 → Biotechnology
+  "H50": "IND_GICS_20108030"    # 해상 운송 → Marine Transportation
+  "H51": "IND_GICS_20108020"    # 항공 운송 → Passenger Airlines
+  "K64": "IND_GICS_40101010"    # 금융업(은행) → Diversified Banks
+  "K66": "IND_GICS_40201030"    # 증권 → Capital Markets
+  "K65": "IND_GICS_40203010"    # 보험 → Insurance
+  "J61": "IND_GICS_45202010"    # IT 서비스(중복 안전)
+  "L70": "IND_GICS_50101010"    # 통신업 → Integrated Telecom
+  "J63": "IND_GICS_50201020"    # 게임 → Interactive Home Entertainment
+  "G46": "IND_GICS_25404010"    # 인터넷 포털 → Interactive Media & Services
+  "C10": "IND_GICS_30201010"    # 식품 제조 → Packaged Foods
+  "C11": "IND_GICS_30202010"    # 음료 제조 → Brewers

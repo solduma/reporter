@@ -1,0 +1,26 @@
+version: "0.1.0"
+metadata:
+  name: "삼성전자 비즈니스 온톨로지 그래프 예시"
+  description: "노드·엣지 인스턴스 예시. 엣지는 인스턴스 데이터이므로 ontology SOT가 아니라 영속측(business_ontology_edge)에 저장되는 형태를 보여준다."
+  created: "2026-07-27"
+company:
+  id: CMP_KRX_005930
+  korean_name: 삼성전자
+  stock_code: "005930"
+nodes:
+  - {node_type: industry, id: IND_GICS_45102010}
+  - {node_type: industry, id: IND_GICS_45202010}
+  - {node_type: product, id: PRD_SEMI_DRAM}
+  - {node_type: product, id: PRD_SEMI_NAND}
+  - {node_type: product, id: PRD_SEMI_FOUNDRY}
+  - {node_type: product, id: PRD_DISPLAY_OLED}
+  - {node_type: raw_material, id: MAT_SEMI_SILICON_WAFER}
+edges:
+  - {src: CMP_KRX_005930, dst: IND_GICS_45102010, edge_type: operates_in, share: null, source_quote: "반도체 부문이 핵심 사업"}
+  - {src: CMP_KRX_005930, dst: IND_GICS_45202010, edge_type: operates_in, share: null, source_quote: "IT 서비스·무선사업"}
+  - {src: CMP_KRX_005930, dst: PRD_SEMI_DRAM, edge_type: manufactures, share: 0.42, period: "2024.12", source_quote: "DRAM 매출은 전체 매출의 약 42%"}
+  - {src: CMP_KRX_005930, dst: PRD_SEMI_NAND, edge_type: manufactures, share: 0.18, period: "2024.12", source_quote: "NAND 플래시 18%"}
+  - {src: CMP_KRX_005930, dst: PRD_SEMI_FOUNDRY, edge_type: manufactures, share: null, source_quote: "파운드리 사업 확대"}
+  - {src: CMP_KRX_005930, dst: MAT_SEMI_SILICON_WAFER, edge_type: uses_material, share: null, source_quote: "웨이퍼를 주요 원재료로 사용"}
+  - {src: CMP_KRX_005930, dst: SEG_REGION_OVERSEAS, edge_type: has_segment, share: 0.68, period: "2024.12", source_quote: "해외 매출 비중 68%"}
+  - {src: CMP_KRX_005930, dst: PRD_SEMI_DRAM, edge_type: part_of_value_chain, chain_stage: operations, source_quote: "메모리 웨이퍼 생산"}

@@ -1,0 +1,37 @@
+[project]
+name = "business-ontology"
+version = "0.1.0"
+description = "비즈니스 온톨로지 — 기업/산업/제품/원재료 + 가치사슬 로더·정규화·그래프"
+requires-python = ">=3.11"
+dependencies = [
+    "pyyaml>=6.0",
+    "jsonschema>=4.20",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["business_ontology"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "C4", "UP", "SIM", "RUF"]
+ignore = ["E501"]
+allowed-confusables = ["（", "）"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["business_ontology"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

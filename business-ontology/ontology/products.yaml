@@ -1,0 +1,142 @@
+version: "0.1.0"
+metadata:
+  name: "제품 온톨로지 시드"
+  description: "한국 주요 산업 제품 정준 사전. korean_name/english_name/aliases + commodity_type + is_also_material_id(제품 겸 원재료 교차링크). 시드 — 미매칭 시 pending_review 후보 노드로 신규 생성."
+  standards: ["GICS"]
+  created: "2026-07-27"
+  updated: "2026-07-27"
+ontology:
+  products:
+    PRD_SEMI_DRAM:
+      id: PRD_SEMI_DRAM
+      korean_name: "DRAM"
+      english_name: "DRAM"
+      aliases: ["메모리반도체", "D램", "DDR", "DDR4", "DDR5", "HBM3", "HBM"]
+      commodity_type: "memory_semiconductor"
+      is_also_material_id: null
+    PRD_SEMI_NAND:
+      id: PRD_SEMI_NAND
+      korean_name: "NAND 플래시"
+      english_name: "NAND Flash"
+      aliases: ["NAND", "플래시메모리", "eUFS"]
+      commodity_type: "memory_semiconductor"
+      is_also_material_id: null
+    PRD_SEMI_FOUNDRY:
+      id: PRD_SEMI_FOUNDRY
+      korean_name: "파운드리"
+      english_name: "Foundry"
+      aliases: ["팹", "위탁생산", "파운드리 서비스", "System LSI"]
+      commodity_type: "logic_semiconductor"
+      is_also_material_id: null
+    PRD_SEMI_SYSTEM:
+      id: PRD_SEMI_SYSTEM
+      korean_name: "시스템 반도체"
+      english_name: "System Semiconductor"
+      aliases: ["비메모리반도체", "SoC", "DDI", "CMOS 이미지센서", "CIS", "전력반도체", "PMIC", "전력관리 IC"]
+      commodity_type: "logic_semiconductor"
+      is_also_material_id: null
+    PRD_DISPLAY_OLED:
+      id: PRD_DISPLAY_OLED
+      korean_name: "OLED 디스플레이"
+      english_name: "OLED Display"
+      aliases: ["OLED", "유기EL", "AMOLED", "POLED"]
+      commodity_type: "display_panel"
+      is_also_material_id: null
+    PRD_DISPLAY_LCD:
+      id: PRD_DISPLAY_LCD
+      korean_name: "LCD 디스플레이"
+      english_name: "LCD Display"
+      aliases: ["LCD", "액정표시장치", "TFT-LCD"]
+      commodity_type: "display_panel"
+      is_also_material_id: null
+    PRD_BATTERY_EV:
+      id: PRD_BATTERY_EV
+      korean_name: "전지차 배터리셀"
+      english_name: "EV Battery Cell"
+      aliases: ["이차전지", "리튬이온전지", "EV 배터리", "양극재", "음극재", "전해액", "세퍼레이터"]
+      commodity_type: "battery"
+      is_also_material_id: null
+    PRD_AUTO_VEHICLE:
+      id: PRD_AUTO_VEHICLE
+      korean_name: "자동차"
+      english_name: "Automobile"
+      aliases: ["완성차", "승용차", "SUV", "EV", "전기차", "상용차"]
+      commodity_type: null
+      is_also_material_id: null
+    PRD_AUTO_PARTS:
+      id: PRD_AUTO_PARTS
+      korean_name: "자동차 부품"
+      english_name: "Auto Parts"
+      aliases: ["모듈", "트랜스미션", "새시", "시트", "타이어", "범퍼"]
+      commodity_type: null
+      is_also_material_id: null
+    PRD_STEEL_PRODUCT:
+      id: PRD_STEEL_PRODUCT
+      korean_name: "철강제품"
+      english_name: "Steel Product"
+      aliases: ["냉연강판", "열연강판", "후판", "선재", "스테인리스", "철근", "형강"]
+      commodity_type: null
+      is_also_material_id: MAT_METAL_STEEL
+    PRD_PETROCHEM:
+      id: PRD_PETROCHEM
+      korean_name: "석유화학제품"
+      english_name: "Petrochemical Product"
+      aliases: ["에틸렌", "프로필렌", "PX", "PTA", "폴리에틸렌", "폴리프로필렌", "합성수지", "합성고무"]
+      commodity_type: null
+      is_also_material_id: null
+    PRD_REFINED_OIL:
+      id: PRD_REFINED_OIL
+      korean_name: "정제 유류"
+      english_name: "Refined Petroleum"
+      aliases: ["휘발유", "경유", "등유", "벙커C", "석유제품"]
+      commodity_type: null
+      is_also_material_id: null
+    PRD_SHIP:
+      id: PRD_SHIP
+      korean_name: "선박"
+      english_name: "Ship"
+      aliases: ["조선", "컨테이너선", "LNG선", "탱커", "드릴십", "해상플랜트"]
+      commodity_type: null
+      is_also_material_id: null
+    PRD_CEMENT:
+      id: PRD_CEMENT
+      korean_name: "시멘트"
+      english_name: "Cement"
+      aliases: ["포틀랜드시멘트", "레미콘"]
+      commodity_type: null
+      is_also_material_id: null
+    PRD_PHARMA:
+      id: PRD_PHARMA
+      korean_name: "완제의약품"
+      english_name: "Pharmaceutical"
+      aliases: ["의약품", "신약", "바이오신약", "후발의약품", "제제"]
+      commodity_type: null
+      is_also_material_id: null
+    PRD_CMO_BIO:
+      id: PRD_CMO_BIO
+      korean_name: "바이오 CDMO"
+      english_name: "Biopharma CDMO"
+      aliases: ["수탁생산", "바이오의약품", "세포치료제", "ADC", "단백질의약품"]
+      commodity_type: null
+      is_also_material_id: null
+    PRD_GAME:
+      id: PRD_GAME
+      korean_name: "게임"
+      english_name: "Game"
+      aliases: ["모바일게임", "PC게임", "콘솔게임", "MMORPG"]
+      commodity_type: null
+      is_also_material_id: null
+    PRD_SOFTWARE:
+      id: PRD_SOFTWARE
+      korean_name: "소프트웨어"
+      english_name: "Software"
+      aliases: ["S/W", "솔루션", "플랫폼", "클라우드", "SaaS", "ERP"]
+      commodity_type: null
+      is_also_material_id: null
+    PRD_FIN_INSURANCE:
+      id: PRD_FIN_INSURANCE
+      korean_name: "보험상품"
+      english_name: "Insurance Product"
+      aliases: ["생명보험", "손해보험", "장기보험", "자동차보험"]
+      commodity_type: null
+      is_also_material_id: null

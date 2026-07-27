@@ -1,0 +1,1411 @@
+version: 0.1.0
+metadata:
+  name: GICS 산업 분류
+  description: GICS 2023 — 11 sector / 25 group / 69 industry / 163 sub-industry 시드
+  standards:
+  - GICS
+  created: '2026-07-27'
+  updated: '2026-07-27'
+ontology:
+  industries:
+    IND_GICS_10101010:
+      id: IND_GICS_10101010
+      gics_code: '10101010'
+      gics_sector: '10'
+      gics_group: '1010'
+      gics_industry: '101010'
+      gics_sub_industry: '10101010'
+      korean_name: 유전용 장비·서비스
+      english_name: Oil & Gas Drilling
+      aliases:
+      - 유정시추
+    IND_GICS_10101020:
+      id: IND_GICS_10101020
+      gics_code: '10101020'
+      gics_sector: '10'
+      gics_group: '1010'
+      gics_industry: '101010'
+      gics_sub_industry: '10101020'
+      korean_name: 유전·가스 장비
+      english_name: Oil & Gas Equipment
+      aliases: []
+    IND_GICS_10205010:
+      id: IND_GICS_10205010
+      gics_code: '10205010'
+      gics_sector: '10'
+      gics_group: '1020'
+      gics_industry: '102050'
+      gics_sub_industry: '10205010'
+      korean_name: 통합 석유가스
+      english_name: Integrated Oil & Gas
+      aliases:
+      - 종합석유
+    IND_GICS_10205020:
+      id: IND_GICS_10205020
+      gics_code: '10205020'
+      gics_sector: '10'
+      gics_group: '1020'
+      gics_industry: '102050'
+      gics_sub_industry: '10205020'
+      korean_name: 석유·가스 탐사·생산
+      english_name: Oil & Gas Exploration & Production
+      aliases:
+      - E&P
+      - 탐사생산
+    IND_GICS_10205030:
+      id: IND_GICS_10205030
+      gics_code: '10205030'
+      gics_sector: '10'
+      gics_group: '1020'
+      gics_industry: '102050'
+      gics_sub_industry: '10205030'
+      korean_name: 석유·가스 정제·마케팅
+      english_name: Oil & Gas Refining & Marketing
+      aliases:
+      - 정제
+    IND_GICS_10205040:
+      id: IND_GICS_10205040
+      gics_code: '10205040'
+      gics_sector: '10'
+      gics_group: '1020'
+      gics_industry: '102050'
+      gics_sub_industry: '10205040'
+      korean_name: 석유·가스 저장·운송
+      english_name: Oil & Gas Storage & Transportation
+      aliases:
+      - 파이프라인
+    IND_GICS_10205050:
+      id: IND_GICS_10205050
+      gics_code: '10205050'
+      gics_sector: '10'
+      gics_group: '1020'
+      gics_industry: '102050'
+      gics_sub_industry: '10205050'
+      korean_name: 석탄·소비연료
+      english_name: Coal & Consumable Fuels
+      aliases:
+      - 석탄
+    IND_GICS_15101010:
+      id: IND_GICS_15101010
+      gics_code: '15101010'
+      gics_sector: '15'
+      gics_group: '1510'
+      gics_industry: '151010'
+      gics_sub_industry: '15101010'
+      korean_name: 다목적 화학
+      english_name: Commodity Chemicals
+      aliases:
+      - 기초화학
+      - 벌크화학
+    IND_GICS_15101020:
+      id: IND_GICS_15101020
+      gics_code: '15101020'
+      gics_sector: '15'
+      gics_group: '1510'
+      gics_industry: '151010'
+      gics_sub_industry: '15101020'
+      korean_name: 특수 화학
+      english_name: Specialty Chemicals
+      aliases:
+      - 정밀화학
+    IND_GICS_15101030:
+      id: IND_GICS_15101030
+      gics_code: '15101030'
+      gics_sector: '15'
+      gics_group: '1510'
+      gics_industry: '151010'
+      gics_sub_industry: '15101030'
+      korean_name: 비료·농약
+      english_name: Fertilizers & Agricultural Chemicals
+      aliases:
+      - 비료
+      - 농약
+    IND_GICS_15101040:
+      id: IND_GICS_15101040
+      gics_code: '15101040'
+      gics_sector: '15'
+      gics_group: '1510'
+      gics_industry: '151010'
+      gics_sub_industry: '15101040'
+      korean_name: 산업용 가스
+      english_name: Industrial Gases
+      aliases: []
+    IND_GICS_15102010:
+      id: IND_GICS_15102010
+      gics_code: '15102010'
+      gics_sector: '15'
+      gics_group: '1510'
+      gics_industry: '151020'
+      gics_sub_industry: '15102010'
+      korean_name: 건축 자재
+      english_name: Construction Materials
+      aliases:
+      - 건축자재
+      - 시멘트
+    IND_GICS_15103010:
+      id: IND_GICS_15103010
+      gics_code: '15103010'
+      gics_sector: '15'
+      gics_group: '1510'
+      gics_industry: '151030'
+      gics_sub_industry: '15103010'
+      korean_name: 금속·유리·플라스틱 용기
+      english_name: Metal, Glass & Plastic Containers
+      aliases:
+      - 용기
+    IND_GICS_15103020:
+      id: IND_GICS_15103020
+      gics_code: '15103020'
+      gics_sector: '15'
+      gics_group: '1510'
+      gics_industry: '151030'
+      gics_sub_industry: '15103020'
+      korean_name: 종이·플라스틱 포장
+      english_name: Paper & Plastic Packaging
+      aliases:
+      - 포장
+    IND_GICS_15104010:
+      id: IND_GICS_15104010
+      gics_code: '15104010'
+      gics_sector: '15'
+      gics_group: '1510'
+      gics_industry: '151040'
+      gics_sub_industry: '15104010'
+      korean_name: 알루미늄
+      english_name: Aluminum
+      aliases:
+      - 알루미늄
+    IND_GICS_15104020:
+      id: IND_GICS_15104020
+      gics_code: '15104020'
+      gics_sector: '15'
+      gics_group: '1510'
+      gics_industry: '151040'
+      gics_sub_industry: '15104020'
+      korean_name: 다목적 금속
+      english_name: Diversified Metals
+      aliases:
+      - 비철금속
+    IND_GICS_15104025:
+      id: IND_GICS_15104025
+      gics_code: '15104025'
+      gics_sector: '15'
+      gics_group: '1510'
+      gics_industry: '151040'
+      gics_sub_industry: '15104025'
+      korean_name: 구리
+      english_name: Copper
+      aliases:
+      - 동
+    IND_GICS_15104030:
+      id: IND_GICS_15104030
+      gics_code: '15104030'
+      gics_sector: '15'
+      gics_group: '1510'
+      gics_industry: '151040'
+      gics_sub_industry: '15104030'
+      korean_name: 금
+      english_name: Gold
+      aliases:
+      - 금
+    IND_GICS_15104040:
+      id: IND_GICS_15104040
+      gics_code: '15104040'
+      gics_sector: '15'
+      gics_group: '1510'
+      gics_industry: '151040'
+      gics_sub_industry: '15104040'
+      korean_name: 귀금속·광물
+      english_name: Precious Metals & Minerals
+      aliases:
+      - 귀금속
+    IND_GICS_15104045:
+      id: IND_GICS_15104045
+      gics_code: '15104045'
+      gics_sector: '15'
+      gics_group: '1510'
+      gics_industry: '151040'
+      gics_sub_industry: '15104045'
+      korean_name: 은
+      english_name: Silver
+      aliases:
+      - 은
+    IND_GICS_15104050:
+      id: IND_GICS_15104050
+      gics_code: '15104050'
+      gics_sector: '15'
+      gics_group: '1510'
+      gics_industry: '151040'
+      gics_sub_industry: '15104050'
+      korean_name: 철강
+      english_name: Steel
+      aliases:
+      - 철강
+    IND_GICS_15105010:
+      id: IND_GICS_15105010
+      gics_code: '15105010'
+      gics_sector: '15'
+      gics_group: '1510'
+      gics_industry: '151050'
+      gics_sub_industry: '15105010'
+      korean_name: 임산물
+      english_name: Forest Products
+      aliases:
+      - 임산물
+    IND_GICS_15105020:
+      id: IND_GICS_15105020
+      gics_code: '15105020'
+      gics_sector: '15'
+      gics_group: '1510'
+      gics_industry: '151050'
+      gics_sub_industry: '15105020'
+      korean_name: 제지
+      english_name: Paper Products
+      aliases:
+      - 제지
+    IND_GICS_20101010:
+      id: IND_GICS_20101010
+      gics_code: '20101010'
+      gics_sector: '20'
+      gics_group: '2010'
+      gics_industry: '201010'
+      gics_sub_industry: '20101010'
+      korean_name: 항공·국방
+      english_name: Aerospace & Defense
+      aliases:
+      - 항공국방
+    IND_GICS_20104010:
+      id: IND_GICS_20104010
+      gics_code: '20104010'
+      gics_sector: '20'
+      gics_group: '2010'
+      gics_industry: '201040'
+      gics_sub_industry: '20104010'
+      korean_name: 건축 제품
+      english_name: Building Products
+      aliases:
+      - 건축제품
+    IND_GICS_20104020:
+      id: IND_GICS_20104020
+      gics_code: '20104020'
+      gics_sector: '20'
+      gics_group: '2010'
+      gics_industry: '201040'
+      gics_sub_industry: '20104020'
+      korean_name: 건축·엔지니어링 서비스
+      english_name: Construction & Engineering
+      aliases:
+      - 건설
+    IND_GICS_20104030:
+      id: IND_GICS_20104030
+      gics_code: '20104030'
+      gics_sector: '20'
+      gics_group: '2010'
+      gics_industry: '201040'
+      gics_sub_industry: '20104030'
+      korean_name: 주택 건설
+      english_name: Homebuilders
+      aliases:
+      - 주택건설
+    IND_GICS_20105010:
+      id: IND_GICS_20105010
+      gics_code: '20105010'
+      gics_sector: '20'
+      gics_group: '2010'
+      gics_industry: '201050'
+      gics_sub_industry: '20105010'
+      korean_name: 전기 부품·장비
+      english_name: Electrical Components & Equipment
+      aliases:
+      - 전기장비
+    IND_GICS_20105020:
+      id: IND_GICS_20105020
+      gics_code: '20105020'
+      gics_sector: '20'
+      gics_group: '2010'
+      gics_industry: '201050'
+      gics_sub_industry: '20105020'
+      korean_name: 중전기 기기
+      english_name: Heavy Electrical Equipment
+      aliases:
+      - 중전기
+    IND_GICS_20106010:
+      id: IND_GICS_20106010
+      gics_code: '20106010'
+      gics_sector: '20'
+      gics_group: '2010'
+      gics_industry: '201060'
+      gics_sub_industry: '20106010'
+      korean_name: 건설 기계·중장비
+      english_name: Construction Machinery & Heavy Trucks
+      aliases:
+      - 건설기계
+    IND_GICS_20106015:
+      id: IND_GICS_20106015
+      gics_code: '20106015'
+      gics_sector: '20'
+      gics_group: '2010'
+      gics_industry: '201060'
+      gics_sub_industry: '20106015'
+      korean_name: 농업·산업 기계
+      english_name: Agricultural & Farm Machinery
+      aliases:
+      - 농기계
+    IND_GICS_20106020:
+      id: IND_GICS_20106020
+      gics_code: '20106020'
+      gics_sector: '20'
+      gics_group: '2010'
+      gics_industry: '201060'
+      gics_sub_industry: '20106020'
+      korean_name: 산업 기계·부품
+      english_name: Industrial Machinery & Supplies & Components
+      aliases:
+      - 산업기계
+    IND_GICS_20106030:
+      id: IND_GICS_20106030
+      gics_code: '20106030'
+      gics_sector: '20'
+      gics_group: '2010'
+      gics_industry: '201060'
+      gics_sub_industry: '20106030'
+      korean_name: 다목적 산업용 기계
+      english_name: Diversified Industrial
+      aliases: []
+    IND_GICS_20107010:
+      id: IND_GICS_20107010
+      gics_code: '20107010'
+      gics_sector: '20'
+      gics_group: '2010'
+      gics_industry: '201070'
+      gics_sub_industry: '20107010'
+      korean_name: 상업 인쇄·서비스
+      english_name: Commercial Printing
+      aliases:
+      - 인쇄
+    IND_GICS_20107020:
+      id: IND_GICS_20107020
+      gics_code: '20107020'
+      gics_sector: '20'
+      gics_group: '2010'
+      gics_industry: '201070'
+      gics_sub_industry: '20107020'
+      korean_name: 환경·시설 서비스
+      english_name: Environmental & Facilities Services
+      aliases:
+      - 환경서비스
+    IND_GICS_20107030:
+      id: IND_GICS_20107030
+      gics_code: '20107030'
+      gics_sector: '20'
+      gics_group: '2010'
+      gics_industry: '201070'
+      gics_sub_industry: '20107030'
+      korean_name: 사무서비스·외주
+      english_name: Office Services & Supplies
+      aliases: []
+    IND_GICS_20108010:
+      id: IND_GICS_20108010
+      gics_code: '20108010'
+      gics_sector: '20'
+      gics_group: '2010'
+      gics_industry: '201080'
+      gics_sub_industry: '20108010'
+      korean_name: 항공 화물·물류
+      english_name: Air Freight & Logistics
+      aliases:
+      - 항공화물
+    IND_GICS_20108020:
+      id: IND_GICS_20108020
+      gics_code: '20108020'
+      gics_sector: '20'
+      gics_group: '2010'
+      gics_industry: '201080'
+      gics_sub_industry: '20108020'
+      korean_name: 여객 항공
+      english_name: Passenger Airlines
+      aliases:
+      - 항공사
+    IND_GICS_20108030:
+      id: IND_GICS_20108030
+      gics_code: '20108030'
+      gics_sector: '20'
+      gics_group: '2010'
+      gics_industry: '201080'
+      gics_sub_industry: '20108030'
+      korean_name: 해운
+      english_name: Marine Transportation
+      aliases:
+      - 해운
+    IND_GICS_20108040:
+      id: IND_GICS_20108040
+      gics_code: '20108040'
+      gics_sector: '20'
+      gics_group: '2010'
+      gics_industry: '201080'
+      gics_sub_industry: '20108040'
+      korean_name: 철도
+      english_name: Ground Transportation
+      aliases:
+      - 철도
+    IND_GICS_20108050:
+      id: IND_GICS_20108050
+      gics_code: '20108050'
+      gics_sector: '20'
+      gics_group: '2010'
+      gics_industry: '201080'
+      gics_sub_industry: '20108050'
+      korean_name: 물류 인프라
+      english_name: Transportation Infrastructure
+      aliases:
+      - 항만
+      - 공항
+    IND_GICS_20108060:
+      id: IND_GICS_20108060
+      gics_code: '20108060'
+      gics_sector: '20'
+      gics_group: '2010'
+      gics_industry: '201080'
+      gics_sub_industry: '20108060'
+      korean_name: 트럭 운송
+      english_name: Trucking
+      aliases:
+      - 화물운송
+    IND_GICS_25101010:
+      id: IND_GICS_25101010
+      gics_code: '25101010'
+      gics_sector: '25'
+      gics_group: '2510'
+      gics_industry: '251010'
+      gics_sub_industry: '25101010'
+      korean_name: 자동차 부품·장비
+      english_name: Auto Parts & Equipment
+      aliases:
+      - 자동차부품
+    IND_GICS_25101020:
+      id: IND_GICS_25101020
+      gics_code: '25101020'
+      gics_sector: '25'
+      gics_group: '2510'
+      gics_industry: '251010'
+      gics_sub_industry: '25101020'
+      korean_name: 타이어·고무
+      english_name: Tires & Rubber
+      aliases:
+      - 타이어
+    IND_GICS_25102010:
+      id: IND_GICS_25102010
+      gics_code: '25102010'
+      gics_sector: '25'
+      gics_group: '2510'
+      gics_industry: '251020'
+      gics_sub_industry: '25102010'
+      korean_name: 자동차 제조
+      english_name: Automobile Manufacturers
+      aliases:
+      - 완성차
+    IND_GICS_25102020:
+      id: IND_GICS_25102020
+      gics_code: '25102020'
+      gics_sector: '25'
+      gics_group: '2510'
+      gics_industry: '251020'
+      gics_sub_industry: '25102020'
+      korean_name: 오토바이 제조
+      english_name: Motorcycle Manufacturers
+      aliases:
+      - 오토바이
+    IND_GICS_25201010:
+      id: IND_GICS_25201010
+      gics_code: '25201010'
+      gics_sector: '25'
+      gics_group: '2520'
+      gics_industry: '252010'
+      gics_sub_industry: '25201010'
+      korean_name: 가전제품
+      english_name: Household Appliances
+      aliases:
+      - 가전
+    IND_GICS_25202010:
+      id: IND_GICS_25202010
+      gics_code: '25202010'
+      gics_sector: '25'
+      gics_group: '2520'
+      gics_industry: '252020'
+      gics_sub_industry: '25202010'
+      korean_name: 가구
+      english_name: Home Furnishings
+      aliases:
+      - 가구
+    IND_GICS_25202020:
+      id: IND_GICS_25202020
+      gics_code: '25202020'
+      gics_sector: '25'
+      gics_group: '2520'
+      gics_industry: '252020'
+      gics_sub_industry: '25202020'
+      korean_name: 주방용품
+      english_name: Home Improvement Retail
+      aliases: []
+    IND_GICS_25203010:
+      id: IND_GICS_25203010
+      gics_code: '25203010'
+      gics_sector: '25'
+      gics_group: '2520'
+      gics_industry: '252030'
+      gics_sub_industry: '25203010'
+      korean_name: 레저용품
+      english_name: Leisure Products
+      aliases:
+      - 레저용품
+    IND_GICS_25301010:
+      id: IND_GICS_25301010
+      gics_code: '25301010'
+      gics_sector: '25'
+      gics_group: '2530'
+      gics_industry: '253010'
+      gics_sub_industry: '25301010'
+      korean_name: 호텔·리조트·크루즈
+      english_name: Hotels, Resorts & Cruise Lines
+      aliases:
+      - 호텔
+    IND_GICS_25302010:
+      id: IND_GICS_25302010
+      gics_code: '25302010'
+      gics_sector: '25'
+      gics_group: '2530'
+      gics_industry: '253020'
+      gics_sub_industry: '25302010'
+      korean_name: 레저 시설
+      english_name: Specialized Consumer Services
+      aliases: []
+    IND_GICS_25302020:
+      id: IND_GICS_25302020
+      gics_code: '25302020'
+      gics_sector: '25'
+      gics_group: '2530'
+      gics_industry: '253020'
+      gics_sub_industry: '25302020'
+      korean_name: 레스토랑
+      english_name: Restaurants
+      aliases:
+      - 외식
+    IND_GICS_25401010:
+      id: IND_GICS_25401010
+      gics_code: '25401010'
+      gics_sector: '25'
+      gics_group: '2540'
+      gics_industry: '254010'
+      gics_sub_industry: '25401010'
+      korean_name: 광고
+      english_name: Advertising
+      aliases:
+      - 광고
+    IND_GICS_25402010:
+      id: IND_GICS_25402010
+      gics_code: '25402010'
+      gics_sector: '25'
+      gics_group: '2540'
+      gics_industry: '254020'
+      gics_sub_industry: '25402010'
+      korean_name: 방송
+      english_name: Broadcasting
+      aliases:
+      - 방송
+    IND_GICS_25402020:
+      id: IND_GICS_25402020
+      gics_code: '25402020'
+      gics_sector: '25'
+      gics_group: '2540'
+      gics_industry: '254020'
+      gics_sub_industry: '25402020'
+      korean_name: 출판
+      english_name: Publishing
+      aliases:
+      - 출판
+    IND_GICS_25403010:
+      id: IND_GICS_25403010
+      gics_code: '25403010'
+      gics_sector: '25'
+      gics_group: '2540'
+      gics_industry: '254030'
+      gics_sub_industry: '25403010'
+      korean_name: 영화·엔터테인먼트
+      english_name: Movies & Entertainment
+      aliases:
+      - 엔터테인먼트
+    IND_GICS_25404010:
+      id: IND_GICS_25404010
+      gics_code: '25404010'
+      gics_sector: '25'
+      gics_group: '2540'
+      gics_industry: '254040'
+      gics_sub_industry: '25404010'
+      korean_name: 인터랙티브 미디어·서비스
+      english_name: Interactive Media & Services
+      aliases:
+      - 인터넷서비스
+      - 포털
+    IND_GICS_25501010:
+      id: IND_GICS_25501010
+      gics_code: '25501010'
+      gics_sector: '25'
+      gics_group: '2550'
+      gics_industry: '255010'
+      gics_sub_industry: '25501010'
+      korean_name: 의류 소매
+      english_name: Apparel Retail
+      aliases:
+      - 의류소매
+    IND_GICS_25501020:
+      id: IND_GICS_25501020
+      gics_code: '25501020'
+      gics_sector: '25'
+      gics_group: '2550'
+      gics_industry: '255010'
+      gics_sub_industry: '25501020'
+      korean_name: 다목적 소매
+      english_name: Multiline Retail
+      aliases:
+      - 백화점
+    IND_GICS_25501030:
+      id: IND_GICS_25501030
+      gics_code: '25501030'
+      gics_sector: '25'
+      gics_group: '2550'
+      gics_industry: '255010'
+      gics_sub_industry: '25501030'
+      korean_name: 전자상거래
+      english_name: Internet & Direct Marketing Retail
+      aliases:
+      - 이커머스
+    IND_GICS_25502010:
+      id: IND_GICS_25502010
+      gics_code: '25502010'
+      gics_sector: '25'
+      gics_group: '2550'
+      gics_industry: '255020'
+      gics_sub_industry: '25502010'
+      korean_name: 컴퓨터·전자 소매
+      english_name: Computer & Electronics Retail
+      aliases:
+      - 전자소매
+    IND_GICS_25502020:
+      id: IND_GICS_25502020
+      gics_code: '25502020'
+      gics_sector: '25'
+      gics_group: '2550'
+      gics_industry: '255020'
+      gics_sub_industry: '25502020'
+      korean_name: 홈임프루브먼트 소매
+      english_name: Home Improvement Retail
+      aliases:
+      - 건설소매
+    IND_GICS_25502030:
+      id: IND_GICS_25502030
+      gics_code: '25502030'
+      gics_sector: '25'
+      gics_group: '2550'
+      gics_industry: '255020'
+      gics_sub_industry: '25502030'
+      korean_name: 전문 소매
+      english_name: Specialty Stores
+      aliases:
+      - 전문소매
+    IND_GICS_25502040:
+      id: IND_GICS_25502040
+      gics_code: '25502040'
+      gics_sector: '25'
+      gics_group: '2550'
+      gics_industry: '255020'
+      gics_sub_industry: '25502040'
+      korean_name: 자동차 소매
+      english_name: Automotive Retail
+      aliases: []
+    IND_GICS_30101010:
+      id: IND_GICS_30101010
+      gics_code: '30101010'
+      gics_sector: '30'
+      gics_group: '3010'
+      gics_industry: '301010'
+      gics_sub_industry: '30101010'
+      korean_name: 식료품 소매
+      english_name: Food Retail
+      aliases:
+      - 식료품소매
+    IND_GICS_30101020:
+      id: IND_GICS_30101020
+      gics_code: '30101020'
+      gics_sector: '30'
+      gics_group: '3010'
+      gics_industry: '301010'
+      gics_sub_industry: '30101020'
+      korean_name: 식품·약품 소매
+      english_name: Food & Staples Retailing
+      aliases:
+      - 대형마트
+    IND_GICS_30201010:
+      id: IND_GICS_30201010
+      gics_code: '30201010'
+      gics_sector: '30'
+      gics_group: '3020'
+      gics_industry: '302010'
+      gics_sub_industry: '30201010'
+      korean_name: 가공 식품
+      english_name: Packaged Foods & Meats
+      aliases:
+      - 식품
+    IND_GICS_30201020:
+      id: IND_GICS_30201020
+      gics_code: '30201020'
+      gics_sector: '30'
+      gics_group: '3020'
+      gics_industry: '302010'
+      gics_sub_industry: '30201020'
+      korean_name: 유제품
+      english_name: Dairy
+      aliases:
+      - 유제품
+    IND_GICS_30202010:
+      id: IND_GICS_30202010
+      gics_code: '30202010'
+      gics_sector: '30'
+      gics_group: '3020'
+      gics_industry: '302020'
+      gics_sub_industry: '30202010'
+      korean_name: 주류
+      english_name: Brewers
+      aliases:
+      - 맥주
+    IND_GICS_30202015:
+      id: IND_GICS_30202015
+      gics_code: '30202015'
+      gics_sector: '30'
+      gics_group: '3020'
+      gics_industry: '302020'
+      gics_sub_industry: '30202015'
+      korean_name: 증류주·와인
+      english_name: Distillers & Vintners
+      aliases:
+      - 주류
+    IND_GICS_30202020:
+      id: IND_GICS_30202020
+      gics_code: '30202020'
+      gics_sector: '30'
+      gics_group: '3020'
+      gics_industry: '302020'
+      gics_sub_industry: '30202020'
+      korean_name: 비알콜 음료
+      english_name: Non-Alcoholic Beverages
+      aliases:
+      - 음료
+    IND_GICS_30203010:
+      id: IND_GICS_30203010
+      gics_code: '30203010'
+      gics_sector: '30'
+      gics_group: '3020'
+      gics_industry: '302030'
+      gics_sub_industry: '30203010'
+      korean_name: 담배
+      english_name: Tobacco
+      aliases:
+      - 담배
+    IND_GICS_30301010:
+      id: IND_GICS_30301010
+      gics_code: '30301010'
+      gics_sector: '30'
+      gics_group: '3030'
+      gics_industry: '303010'
+      gics_sub_industry: '30301010'
+      korean_name: 가정용품
+      english_name: Household Products
+      aliases:
+      - 생활용품
+    IND_GICS_30302010:
+      id: IND_GICS_30302010
+      gics_code: '30302010'
+      gics_sector: '30'
+      gics_group: '3030'
+      gics_industry: '303020'
+      gics_sub_industry: '30302010'
+      korean_name: 개인용품
+      english_name: Personal Care Products
+      aliases:
+      - 화장품
+    IND_GICS_30302020:
+      id: IND_GICS_30302020
+      gics_code: '30302020'
+      gics_sector: '30'
+      gics_group: '3030'
+      gics_industry: '303020'
+      gics_sub_industry: '30302020'
+      korean_name: 의류·신발·액세서리 제조
+      english_name: Apparel, Accessories & Footwear
+      aliases:
+      - 의류제조
+    IND_GICS_35101010:
+      id: IND_GICS_35101010
+      gics_code: '35101010'
+      gics_sector: '35'
+      gics_group: '3510'
+      gics_industry: '351010'
+      gics_sub_industry: '35101010'
+      korean_name: 헬스케어 장비
+      english_name: Health Care Equipment
+      aliases:
+      - 의료기기
+    IND_GICS_35101020:
+      id: IND_GICS_35101020
+      gics_code: '35101020'
+      gics_sector: '35'
+      gics_group: '3510'
+      gics_industry: '351010'
+      gics_sub_industry: '35101020'
+      korean_name: 헬스케어 용품
+      english_name: Health Care Supplies
+      aliases: []
+    IND_GICS_35102010:
+      id: IND_GICS_35102010
+      gics_code: '35102010'
+      gics_sector: '35'
+      gics_group: '3510'
+      gics_industry: '351020'
+      gics_sub_industry: '35102010'
+      korean_name: 헬스케어 서비스
+      english_name: Health Care Services
+      aliases:
+      - 병원
+    IND_GICS_35102020:
+      id: IND_GICS_35102020
+      gics_code: '35102020'
+      gics_sector: '35'
+      gics_group: '3510'
+      gics_industry: '351020'
+      gics_sub_industry: '35102020'
+      korean_name: 헬스케어 시설
+      english_name: Health Care Facilities
+      aliases: []
+    IND_GICS_35103010:
+      id: IND_GICS_35103010
+      gics_code: '35103010'
+      gics_sector: '35'
+      gics_group: '3510'
+      gics_industry: '351030'
+      gics_sub_industry: '35103010'
+      korean_name: 헬스케어 기술
+      english_name: Health Care Technology
+      aliases:
+      - 의료IT
+    IND_GICS_35201010:
+      id: IND_GICS_35201010
+      gics_code: '35201010'
+      gics_sector: '35'
+      gics_group: '3520'
+      gics_industry: '352010'
+      gics_sub_industry: '35201010'
+      korean_name: 제약
+      english_name: Pharmaceuticals
+      aliases:
+      - 제약
+    IND_GICS_35202010:
+      id: IND_GICS_35202010
+      gics_code: '35202010'
+      gics_sector: '35'
+      gics_group: '3520'
+      gics_industry: '352020'
+      gics_sub_industry: '35202010'
+      korean_name: 생명공학
+      english_name: Biotechnology
+      aliases:
+      - 바이오
+    IND_GICS_35202020:
+      id: IND_GICS_35202020
+      gics_code: '35202020'
+      gics_sector: '35'
+      gics_group: '3520'
+      gics_industry: '352020'
+      gics_sub_industry: '35202020'
+      korean_name: 생명과학 도구·서비스
+      english_name: Life Sciences Tools & Services
+      aliases:
+      - 생명과학
+    IND_GICS_40101010:
+      id: IND_GICS_40101010
+      gics_code: '40101010'
+      gics_sector: '40'
+      gics_group: '4010'
+      gics_industry: '401010'
+      gics_sub_industry: '40101010'
+      korean_name: 다목적 은행
+      english_name: Diversified Banks
+      aliases:
+      - 시중은행
+    IND_GICS_40101020:
+      id: IND_GICS_40101020
+      gics_code: '40101020'
+      gics_sector: '40'
+      gics_group: '4010'
+      gics_industry: '401010'
+      gics_sub_industry: '40101020'
+      korean_name: 지역 은행
+      english_name: Regional Banks
+      aliases:
+      - 지방은행
+    IND_GICS_40201010:
+      id: IND_GICS_40201010
+      gics_code: '40201010'
+      gics_sector: '40'
+      gics_group: '4020'
+      gics_industry: '402010'
+      gics_sub_industry: '40201010'
+      korean_name: 다목적 금융 서비스
+      english_name: Diversified Financial Services
+      aliases: []
+    IND_GICS_40201020:
+      id: IND_GICS_40201020
+      gics_code: '40201020'
+      gics_sector: '40'
+      gics_group: '4020'
+      gics_industry: '402010'
+      gics_sub_industry: '40201020'
+      korean_name: 다목적 소비 금융
+      english_name: Consumer Finance
+      aliases:
+      - 소비자금융
+    IND_GICS_40201030:
+      id: IND_GICS_40201030
+      gics_code: '40201030'
+      gics_sector: '40'
+      gics_group: '4020'
+      gics_industry: '402010'
+      gics_sub_industry: '40201030'
+      korean_name: 자본시장
+      english_name: Capital Markets
+      aliases:
+      - 증권
+      - 투자은행
+    IND_GICS_40203010:
+      id: IND_GICS_40203010
+      gics_code: '40203010'
+      gics_sector: '40'
+      gics_group: '4020'
+      gics_industry: '402030'
+      gics_sub_industry: '40203010'
+      korean_name: 보험
+      english_name: Insurance
+      aliases:
+      - 보험
+    IND_GICS_40203020:
+      id: IND_GICS_40203020
+      gics_code: '40203020'
+      gics_sector: '40'
+      gics_group: '4020'
+      gics_industry: '402030'
+      gics_sub_industry: '40203020'
+      korean_name: 재보험
+      english_name: Reinsurance
+      aliases:
+      - 재보험
+    IND_GICS_40203030:
+      id: IND_GICS_40203030
+      gics_code: '40203030'
+      gics_sector: '40'
+      gics_group: '4020'
+      gics_industry: '402030'
+      gics_sub_industry: '40203030'
+      korean_name: 보험 브로커·서비스
+      english_name: Insurance Brokers
+      aliases:
+      - 보험중개
+    IND_GICS_40301010:
+      id: IND_GICS_40301010
+      gics_code: '40301010'
+      gics_sector: '40'
+      gics_group: '4030'
+      gics_industry: '403010'
+      gics_sub_industry: '40301010'
+      korean_name: 부동산 운영
+      english_name: Real Estate Operating Companies
+      aliases:
+      - 부동산
+    IND_GICS_40301020:
+      id: IND_GICS_40301020
+      gics_code: '40301020'
+      gics_sector: '40'
+      gics_group: '4030'
+      gics_industry: '403010'
+      gics_sub_industry: '40301020'
+      korean_name: 부동산 개발
+      english_name: Real Estate Development
+      aliases:
+      - 건설
+    IND_GICS_40301030:
+      id: IND_GICS_40301030
+      gics_code: '40301030'
+      gics_sector: '40'
+      gics_group: '4030'
+      gics_industry: '403010'
+      gics_sub_industry: '40301030'
+      korean_name: REITs
+      english_name: REITs
+      aliases:
+      - 리츠
+    IND_GICS_45101010:
+      id: IND_GICS_45101010
+      gics_code: '45101010'
+      gics_sector: '45'
+      gics_group: '4510'
+      gics_industry: '451010'
+      gics_sub_industry: '45101010'
+      korean_name: 반도체 장비
+      english_name: Semiconductor Equipment
+      aliases:
+      - 반도체장비
+    IND_GICS_45101020:
+      id: IND_GICS_45101020
+      gics_code: '45101020'
+      gics_sector: '45'
+      gics_group: '4510'
+      gics_industry: '451010'
+      gics_sub_industry: '45101020'
+      korean_name: 대규모 반도체 제조
+      english_name: Alternative Energy Equipment
+      aliases: []
+    IND_GICS_45102010:
+      id: IND_GICS_45102010
+      gics_code: '45102010'
+      gics_sector: '45'
+      gics_group: '4510'
+      gics_industry: '451020'
+      gics_sub_industry: '45102010'
+      korean_name: 대규모 반도체 제조
+      english_name: Semiconductors
+      aliases:
+      - 반도체
+      - 메모리반도체
+      - 비메모리반도체
+    IND_GICS_45102020:
+      id: IND_GICS_45102020
+      gics_code: '45102020'
+      gics_sector: '45'
+      gics_group: '4510'
+      gics_industry: '451020'
+      gics_sub_industry: '45102020'
+      korean_name: 반도체 부품
+      english_name: Semiconductor Components
+      aliases:
+      - 반도체부품
+    IND_GICS_45201010:
+      id: IND_GICS_45201010
+      gics_code: '45201010'
+      gics_sector: '45'
+      gics_group: '4520'
+      gics_industry: '452010'
+      gics_sub_industry: '45201010'
+      korean_name: 응용 소프트웨어
+      english_name: Application Software
+      aliases:
+      - 소프트웨어
+      - 앱SW
+    IND_GICS_45201020:
+      id: IND_GICS_45201020
+      gics_code: '45201020'
+      gics_sector: '45'
+      gics_group: '4520'
+      gics_industry: '452010'
+      gics_sub_industry: '45201020'
+      korean_name: 시스템 소프트웨어
+      english_name: Systems Software
+      aliases:
+      - 시스템SW
+    IND_GICS_45201030:
+      id: IND_GICS_45201030
+      gics_code: '45201030'
+      gics_sector: '45'
+      gics_group: '4520'
+      gics_industry: '452010'
+      gics_sub_industry: '45201030'
+      korean_name: 홈 엔터테인먼트 소프트웨어
+      english_name: Home Entertainment Software
+      aliases: []
+    IND_GICS_45202010:
+      id: IND_GICS_45202010
+      gics_code: '45202010'
+      gics_sector: '45'
+      gics_group: '4520'
+      gics_industry: '452020'
+      gics_sub_industry: '45202010'
+      korean_name: IT 컨설팅·서비스
+      english_name: IT Consulting & Other Services
+      aliases:
+      - IT서비스
+    IND_GICS_45202020:
+      id: IND_GICS_45202020
+      gics_code: '45202020'
+      gics_sector: '45'
+      gics_group: '4520'
+      gics_industry: '452020'
+      gics_sub_industry: '45202020'
+      korean_name: 데이터 처리·외주 서비스
+      english_name: Data Processing & Outsourced Services
+      aliases:
+      - 데이터처리
+    IND_GICS_45301010:
+      id: IND_GICS_45301010
+      gics_code: '45301010'
+      gics_sector: '45'
+      gics_group: '4530'
+      gics_industry: '453010'
+      gics_sub_industry: '45301010'
+      korean_name: 통신 장비
+      english_name: Communications Equipment
+      aliases:
+      - 통신장비
+    IND_GICS_45302010:
+      id: IND_GICS_45302010
+      gics_code: '45302010'
+      gics_sector: '45'
+      gics_group: '4530'
+      gics_industry: '453020'
+      gics_sub_industry: '45302010'
+      korean_name: 기술 하드웨어·저장·주변장치
+      english_name: Technology Hardware, Storage & Peripherals
+      aliases:
+      - 하드웨어
+    IND_GICS_45302020:
+      id: IND_GICS_45302020
+      gics_code: '45302020'
+      gics_sector: '45'
+      gics_group: '4530'
+      gics_industry: '453020'
+      gics_sub_industry: '45302020'
+      korean_name: 전자 제조 서비스
+      english_name: Electronic Manufacturing Services
+      aliases:
+      - EMS
+    IND_GICS_45302030:
+      id: IND_GICS_45302030
+      gics_code: '45302030'
+      gics_sector: '45'
+      gics_group: '4530'
+      gics_industry: '453020'
+      gics_sub_industry: '45302030'
+      korean_name: 전자 부품
+      english_name: Electronic Components
+      aliases:
+      - 전자부품
+    IND_GICS_45302040:
+      id: IND_GICS_45302040
+      gics_code: '45302040'
+      gics_sector: '45'
+      gics_group: '4530'
+      gics_industry: '453020'
+      gics_sub_industry: '45302040'
+      korean_name: 전자 계기·제어
+      english_name: Electronic Equipment & Instruments
+      aliases:
+      - 전자계측
+    IND_GICS_45303010:
+      id: IND_GICS_45303010
+      gics_code: '45303010'
+      gics_sector: '45'
+      gics_group: '4530'
+      gics_industry: '453030'
+      gics_sub_industry: '45303010'
+      korean_name: 기술 유통
+      english_name: Technology Distributors
+      aliases: []
+    IND_GICS_50101010:
+      id: IND_GICS_50101010
+      gics_code: '50101010'
+      gics_sector: '50'
+      gics_group: '5010'
+      gics_industry: '501010'
+      gics_sub_industry: '50101010'
+      korean_name: 종합 통신 서비스
+      english_name: Integrated Telecommunication Services
+      aliases:
+      - 통신
+      - 이동통신
+    IND_GICS_50101020:
+      id: IND_GICS_50101020
+      gics_code: '50101020'
+      gics_sector: '50'
+      gics_group: '5010'
+      gics_industry: '501010'
+      gics_sub_industry: '50101020'
+      korean_name: 무선 통신 서비스
+      english_name: Wireless Telecommunication Services
+      aliases:
+      - 무선통신
+    IND_GICS_50201010:
+      id: IND_GICS_50201010
+      gics_code: '50201010'
+      gics_sector: '50'
+      gics_group: '5020'
+      gics_industry: '502010'
+      gics_sub_industry: '50201010'
+      korean_name: 영화·엔터테인먼트
+      english_name: Movies & Entertainment
+      aliases:
+      - 엔터
+    IND_GICS_50201020:
+      id: IND_GICS_50201020
+      gics_code: '50201020'
+      gics_sector: '50'
+      gics_group: '5020'
+      gics_industry: '502010'
+      gics_sub_industry: '50201020'
+      korean_name: 인터랙티브 홈 엔터테인먼트
+      english_name: Interactive Home Entertainment
+      aliases:
+      - 게임
+    IND_GICS_50201030:
+      id: IND_GICS_50201030
+      gics_code: '50201030'
+      gics_sector: '50'
+      gics_group: '5020'
+      gics_industry: '502010'
+      gics_sub_industry: '50201030'
+      korean_name: 인터랙티브 미디어·서비스
+      english_name: Interactive Media & Services
+      aliases:
+      - 인터넷
+      - 포털
+    IND_GICS_55101010:
+      id: IND_GICS_55101010
+      gics_code: '55101010'
+      gics_sector: '55'
+      gics_group: '5510'
+      gics_industry: '551010'
+      gics_sub_industry: '55101010'
+      korean_name: 전기 유틸리티
+      english_name: Electric Utilities
+      aliases:
+      - 전력
+    IND_GICS_55101020:
+      id: IND_GICS_55101020
+      gics_code: '55101020'
+      gics_sector: '55'
+      gics_group: '5510'
+      gics_industry: '551010'
+      gics_sub_industry: '55101020'
+      korean_name: 종합 유틸리티
+      english_name: Multi-Utilities
+      aliases:
+      - 종합공익
+    IND_GICS_55101030:
+      id: IND_GICS_55101030
+      gics_code: '55101030'
+      gics_sector: '55'
+      gics_group: '5510'
+      gics_industry: '551010'
+      gics_sub_industry: '55101030'
+      korean_name: 수도 유틸리티
+      english_name: Water Utilities
+      aliases:
+      - 수도
+    IND_GICS_55101040:
+      id: IND_GICS_55101040
+      gics_code: '55101040'
+      gics_sector: '55'
+      gics_group: '5510'
+      gics_industry: '551010'
+      gics_sub_industry: '55101040'
+      korean_name: 독립 전력 생산
+      english_name: Independent Power Producers
+      aliases:
+      - IPP
+    IND_GICS_55102010:
+      id: IND_GICS_55102010
+      gics_code: '55102010'
+      gics_sector: '55'
+      gics_group: '5510'
+      gics_industry: '551020'
+      gics_sub_industry: '55102010'
+      korean_name: 가스 유틸리티
+      english_name: Gas Utilities
+      aliases:
+      - 가스
+    IND_GICS_60101010:
+      id: IND_GICS_60101010
+      gics_code: '60101010'
+      gics_sector: '60'
+      gics_group: '6010'
+      gics_industry: '601010'
+      gics_sub_industry: '60101010'
+      korean_name: 다목적 REITs
+      english_name: Diversified REITs
+      aliases:
+      - 리츠
+    IND_GICS_60101020:
+      id: IND_GICS_60101020
+      gics_code: '60101020'
+      gics_sector: '60'
+      gics_group: '6010'
+      gics_industry: '601010'
+      gics_sub_industry: '60101020'
+      korean_name: 산업 REITs
+      english_name: Industrial REITs
+      aliases: []
+    IND_GICS_60101030:
+      id: IND_GICS_60101030
+      gics_code: '60101030'
+      gics_sector: '60'
+      gics_group: '6010'
+      gics_industry: '601010'
+      gics_sub_industry: '60101030'
+      korean_name: 주거 REITs
+      english_name: Residential REITs
+      aliases: []
+    IND_GICS_60101040:
+      id: IND_GICS_60101040
+      gics_code: '60101040'
+      gics_sector: '60'
+      gics_group: '6010'
+      gics_industry: '601010'
+      gics_sub_industry: '60101040'
+      korean_name: 헬스케어 REITs
+      english_name: Health Care REITs
+      aliases: []
+    IND_GICS_60101050:
+      id: IND_GICS_60101050
+      gics_code: '60101050'
+      gics_sector: '60'
+      gics_group: '6010'
+      gics_industry: '601010'
+      gics_sub_industry: '60101050'
+      korean_name: 소매 REITs
+      english_name: Retail REITs
+      aliases: []
+    IND_GICS_60101060:
+      id: IND_GICS_60101060
+      gics_code: '60101060'
+      gics_sector: '60'
+      gics_group: '6010'
+      gics_industry: '601010'
+      gics_sub_industry: '60101060'
+      korean_name: 오피스 REITs
+      english_name: Office REITs
+      aliases: []
+    IND_GICS_60101070:
+      id: IND_GICS_60101070
+      gics_code: '60101070'
+      gics_sector: '60'
+      gics_group: '6010'
+      gics_industry: '601010'
+      gics_sub_industry: '60101070'
+      korean_name: 특수 REITs
+      english_name: Specialized REITs
+      aliases: []
+    IND_GICS_60102010:
+      id: IND_GICS_60102010
+      gics_code: '60102010'
+      gics_sector: '60'
+      gics_group: '6010'
+      gics_industry: '601020'
+      gics_sub_industry: '60102010'
+      korean_name: 부동산 운영·개발
+      english_name: Real Estate Management & Development
+      aliases:
+      - 부동산개발
