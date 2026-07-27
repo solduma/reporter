@@ -1,0 +1,31 @@
+version: "0.1.0"
+metadata:
+  name: "KSIC 9차 → GICS 매핑(참고용)"
+  description: "한국표준산업분류(9차) → GICS sub-industry. DART induty_code 가 KSIC 에 가깝지만 엄격하지 않아 참고용으로만 사용."
+  standards: ["KSIC", "GICS"]
+  created: "2026-07-27"
+  updated: "2026-07-27"
+mappings:
+  "261": "IND_GICS_45102010"    # 반도체 메모리 → Semiconductors
+  "262": "IND_GICS_45302030"    # 전자부품 → Electronic Components
+  "263": "IND_GICS_45301010"    # 통신장비 → Communications Equipment
+  "264": "IND_GICS_45201010"    # 소프트웨어 → Application Software
+  "291": "IND_GICS_25102010"    # 자동차 제조 → Automobile Manufacturers
+  "292": "IND_GICS_25101010"    # 자동차 부품 → Auto Parts
+  "241": "IND_GICS_15104050"    # 철강 → Steel
+  "242": "IND_GICS_15104010"    # 1차 비철금속 → Aluminum
+  "202": "IND_GICS_15101020"    # 정밀화학 → Specialty Chemicals
+  "201": "IND_GICS_15101010"    # 기초화학 → Commodity Chemicals
+  "192": "IND_GICS_10205010"    # 석유정제 → Integrated Oil & Gas
+  "212": "IND_GICS_35201010"    # 제약 → Pharmaceuticals
+  "213": "IND_GICS_35202010"    # 생물학·바이오 → Biotechnology
+  "511": "IND_GICS_20108030"    # 해상 운송 → Marine Transportation
+  "510": "IND_GICS_20108020"    # 항공 운송 → Passenger Airlines
+  "641": "IND_GICS_40101010"    # 은행 → Diversified Banks
+  "649": "IND_GICS_40201030"    # 증권 → Capital Markets
+  "651": "IND_GICS_40203010"    # 보험 → Insurance
+  "612": "IND_GICS_50101010"    # 통신 → Integrated Telecom
+  "582": "IND_GICS_50201020"    # 게임 → Interactive Home Entertainment
+  "631": "IND_GICS_25404010"    # 인터넷 포털 → Interactive Media & Services
+  "107": "IND_GICS_30201010"    # 식품 → Packaged Foods
+  "110": "IND_GICS_30202010"    # 음료 → Brewers

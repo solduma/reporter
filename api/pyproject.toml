@@ -18,6 +18,8 @@ dependencies = [
     "openpyxl>=3.1.5",
     # 재무 온톨로지 로더·정규화·비율엔진(2차-A, financial-ontology/python). 포트 뒤 어댑터만 직접 사용.
     "financial-ontology",
+    # 비즈니스 온톨로지(기업/산업/제품/원재료, business-ontology/python). 포트 뒤 어댑터만 직접 사용.
+    "business-ontology",
 ]
 
 [project.scripts]
@@ -37,6 +39,7 @@ dev = [
 [tool.uv.sources]
 reporter = { path = "..", editable = true }
 financial-ontology = { path = "../financial-ontology/python", editable = true }
+business-ontology = { path = "../business-ontology/python", editable = true }
 
 [build-system]
 requires = ["hatchling"]
@@ -56,7 +59,7 @@ ignore = ["E501", "B008"]
 allowed-confusables = ["×", "−", "÷"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["app", "reporter", "financial_ontology"]
+known-first-party = ["app", "reporter", "financial_ontology", "business_ontology"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

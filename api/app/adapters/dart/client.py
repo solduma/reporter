@@ -49,12 +49,18 @@ _DOCUMENT_URL = "https://opendart.fss.or.kr/api/document.xml"
 _ELESTOCK_URL = "https://opendart.fss.or.kr/api/elestock.json"
 _STOCK_TOTQY_URL = "https://opendart.fss.or.kr/api/stockTotqySttus.json"  # DS002 주식총수현황
 _ALOTMATTER_URL = "https://opendart.fss.or.kr/api/alotMatter.json"  # DS002 배당에관한사항
-_FNLTT_INDX_URL = "https://opendart.fss.or.kr/api/fnlttSinglIndx.json"  # DS003 단일회사 주요 재무지표
+_FNLTT_INDX_URL = (
+    "https://opendart.fss.or.kr/api/fnlttSinglIndx.json"  # DS003 단일회사 주요 재무지표
+)
 _HYSLR_URL = "https://opendart.fss.or.kr/api/hyslrSttus.json"  # DS005 최대주주 현황
 _OTR_CPR_URL = "https://opendart.fss.or.kr/api/otrCprInvstmntSttus.json"  # DS002 타법인 출자현황
 _MAJORSTOCK_URL = "https://opendart.fss.or.kr/api/majorstock.json"  # DS004 대량보유 상황보고
 _CVBD_ISSUE_URL = "https://opendart.fss.or.kr/api/cvbdIsDecsn.json"  # DS005 전환사채권 발행결정
-_BDWT_ISSUE_URL = "https://opendart.fss.or.kr/api/bdwtIsDecsn.json"  # DS005 신주인수권부사채권 발행결정
+_BDWT_ISSUE_URL = (
+    "https://opendart.fss.or.kr/api/bdwtIsDecsn.json"  # DS005 신주인수권부사채권 발행결정
+)
+# 부문별 매출(iotHom3MdQe) — 사업보고서 원문의 유일한 구조화 DART 소스. 제품/지역/부문 매출 비중.
+_SEGMENT_SALES_URL = "https://opendart.fss.or.kr/api/iotHom3MdQe.json"
 _DART_VIEWER = "https://dart.fss.or.kr/dsaf001/main.do?rcpNo={rcept_no}"
 
 # 분기 → DART 보고서 코드. 1Q=11013·반기=11012·3Q=11014·사업보고서(연간)=11011.
@@ -378,11 +384,20 @@ def fetch_related_companies(
     reprt_code = DART_REPORT_CODES.get(quarter)
     if not reprt_code:
         return []
-    params = {"crtfc_key": api_key, "corp_code": corp_code, "bsns_year": str(year), "reprt_code": reprt_code}
+    params = {
+        "crtfc_key": api_key,
+        "corp_code": corp_code,
+        "bsns_year": str(year),
+        "reprt_code": reprt_code,
+    }
     out: list[RelatedParty] = []
 
     # 모회사(지배주주 법인) — 최대주주현황. hyslr_rows 가 있으면 재사용(중복 HTTP 회피).
-    rows = hyslr_rows if hyslr_rows is not None else fetch_hyslr_rows(api_key, corp_code, year, quarter, session) or []
+    rows = (
+        hyslr_rows
+        if hyslr_rows is not None
+        else fetch_hyslr_rows(api_key, corp_code, year, quarter, session) or []
+    )
     for r in rows:
         # 최대주주 본인 행(relate=='최대주주 본인')이 법인이면 모회사.
         if r.is_corporate and "최대주주 본인" in r.relate:
@@ -407,7 +422,11 @@ def fetch_related_companies(
                 book_value = _int_field(r, "trmend_blce_acntbk_amount")
                 sub_total_assets = _int_field(r, "recent_bsns_year_fnnr_sttus_tot_assets")
                 sub_net_profit = _int_field(r, "recent_bsns_year_fnnr_sttus_thstrm_ntpf")
-                out.append(RelatedParty(nm, relation, pct, inv_purpose, book_value, sub_total_assets, sub_net_profit))
+                out.append(
+                    RelatedParty(
+                        nm, relation, pct, inv_purpose, book_value, sub_total_assets, sub_net_profit
+                    )
+                )
     except (requests.RequestException, ValueError) as e:
         logger.warning("dart related(investment) failed %s %sQ%s: %s", corp_code, year, quarter, e)
 
@@ -427,7 +446,9 @@ class MajorHolder:
     report_resn: str = ""  # 보고사유
 
 
-def fetch_major_shareholders(api_key: str, corp_code: str, session: requests.Session | None = None) -> list[MajorHolder]:
+def fetch_major_shareholders(
+    api_key: str, corp_code: str, session: requests.Session | None = None
+) -> list[MajorHolder]:
     """DS004 대량보유 상황보고 → 5%+ 주주 목록(최신순). 실패·없음이면 빈 리스트."""
     params = {"crtfc_key": api_key, "corp_code": corp_code}
     s = session or requests.Session()
@@ -440,15 +461,17 @@ def fetch_major_shareholders(api_key: str, corp_code: str, session: requests.Ses
             return []
         out: list[MajorHolder] = []
         for r in data.get("list", []):
-            out.append(MajorHolder(
-                rcept_dt=(r.get("rcept_dt") or "").strip(),
-                repror=(r.get("repror") or "").strip(),
-                stkqy=_int_field(r, "stkqy"),
-                stkrt=_float_field(r, "stkrt"),
-                stkqy_irds=_int_field(r, "stkqy_irds"),
-                stkrt_irds=_float_field(r, "stkrt_irds"),
-                report_resn=(r.get("report_resn") or "").strip(),
-            ))
+            out.append(
+                MajorHolder(
+                    rcept_dt=(r.get("rcept_dt") or "").strip(),
+                    repror=(r.get("repror") or "").strip(),
+                    stkqy=_int_field(r, "stkqy"),
+                    stkrt=_float_field(r, "stkrt"),
+                    stkqy_irds=_int_field(r, "stkqy_irds"),
+                    stkrt_irds=_float_field(r, "stkrt_irds"),
+                    report_resn=(r.get("report_resn") or "").strip(),
+                )
+            )
         return out
     except (requests.RequestException, ValueError) as e:
         logger.warning("dart majorstock failed %s: %s", corp_code, e)
@@ -467,7 +490,9 @@ class CbIssue:
     cvisstk_tisstk_vs: float | None = None  # 주식총수 대비 비율(%)
 
 
-def fetch_cb_issuance(api_key: str, corp_code: str, bgn_de: str, end_de: str, session: requests.Session | None = None) -> list[CbIssue]:
+def fetch_cb_issuance(
+    api_key: str, corp_code: str, bgn_de: str, end_de: str, session: requests.Session | None = None
+) -> list[CbIssue]:
     """DS005 전환사채권 발행결정 → CB 발행내역(최신순). 실패·없음이면 빈 리스트."""
     params = {"crtfc_key": api_key, "corp_code": corp_code, "bgn_de": bgn_de, "end_de": end_de}
     s = session or requests.Session()
@@ -480,14 +505,16 @@ def fetch_cb_issuance(api_key: str, corp_code: str, bgn_de: str, end_de: str, se
             return []
         out: list[CbIssue] = []
         for r in data.get("list", []):
-            out.append(CbIssue(
-                rcept_no=(r.get("rcept_no") or "").strip(),
-                bddd=(r.get("bddd") or "").strip(),
-                bd_fta=_int_field(r, "bd_fta"),
-                cv_prc=_int_field(r, "cv_prc"),
-                cvisstk_cnt=_int_field(r, "cvisstk_cnt"),
-                cvisstk_tisstk_vs=_float_field(r, "cvisstk_tisstk_vs"),
-            ))
+            out.append(
+                CbIssue(
+                    rcept_no=(r.get("rcept_no") or "").strip(),
+                    bddd=(r.get("bddd") or "").strip(),
+                    bd_fta=_int_field(r, "bd_fta"),
+                    cv_prc=_int_field(r, "cv_prc"),
+                    cvisstk_cnt=_int_field(r, "cvisstk_cnt"),
+                    cvisstk_tisstk_vs=_float_field(r, "cvisstk_tisstk_vs"),
+                )
+            )
         return out
     except (requests.RequestException, ValueError) as e:
         logger.warning("dart cvbd failed %s: %s", corp_code, e)
@@ -506,7 +533,9 @@ class BwIssue:
     nstk_isstk_tisstk_vs: float | None = None  # 주식총수 대비 비율(%)
 
 
-def fetch_bw_issuance(api_key: str, corp_code: str, bgn_de: str, end_de: str, session: requests.Session | None = None) -> list[BwIssue]:
+def fetch_bw_issuance(
+    api_key: str, corp_code: str, bgn_de: str, end_de: str, session: requests.Session | None = None
+) -> list[BwIssue]:
     """DS005 신주인수권부사채권 발행결정 → BW 발행내역(최신순). 실패·없음이면 빈 리스트."""
     params = {"crtfc_key": api_key, "corp_code": corp_code, "bgn_de": bgn_de, "end_de": end_de}
     s = session or requests.Session()
@@ -519,14 +548,16 @@ def fetch_bw_issuance(api_key: str, corp_code: str, bgn_de: str, end_de: str, se
             return []
         out: list[BwIssue] = []
         for r in data.get("list", []):
-            out.append(BwIssue(
-                rcept_no=(r.get("rcept_no") or "").strip(),
-                bddd=(r.get("bddd") or "").strip(),
-                bd_fta=_int_field(r, "bd_fta"),
-                ex_prc=_int_field(r, "ex_prc"),
-                nstk_isstk_cnt=_int_field(r, "nstk_isstk_cnt"),
-                nstk_isstk_tisstk_vs=_float_field(r, "nstk_isstk_tisstk_vs"),
-            ))
+            out.append(
+                BwIssue(
+                    rcept_no=(r.get("rcept_no") or "").strip(),
+                    bddd=(r.get("bddd") or "").strip(),
+                    bd_fta=_int_field(r, "bd_fta"),
+                    ex_prc=_int_field(r, "ex_prc"),
+                    nstk_isstk_cnt=_int_field(r, "nstk_isstk_cnt"),
+                    nstk_isstk_tisstk_vs=_float_field(r, "nstk_isstk_tisstk_vs"),
+                )
+            )
         return out
     except (requests.RequestException, ValueError) as e:
         logger.warning("dart bdwt failed %s: %s", corp_code, e)
@@ -622,7 +653,9 @@ def fetch_income_and_equity(
             resp.raise_for_status()
             data = resp.json()
         except (requests.RequestException, ValueError) as e:
-            logger.warning("dart income failed %s %sQ%s %s: %s", corp_code, year, quarter, fs_div, e)
+            logger.warning(
+                "dart income failed %s %sQ%s %s: %s", corp_code, year, quarter, fs_div, e
+            )
             continue
         _raise_if_quota(data)
         if data.get("status") != "000":
@@ -684,9 +717,11 @@ def _parse_income_equity(rows: list[dict]) -> IncomeEquity:
         # 순차입용: 차입금 합산·현금(BS 계정명). 누계·잔액 아님.
         elif sj == "BS" and nm == "현금및현금성자산" and fin.cash is None:
             fin.cash = amt
-        elif sj == "BS" and any(
-            k in nm for k in ("단기차입금", "장기차입금", "사채", "유동성장기부채")
-        ) and "누계" not in nm:
+        elif (
+            sj == "BS"
+            and any(k in nm for k in ("단기차입금", "장기차입금", "사채", "유동성장기부채"))
+            and "누계" not in nm
+        ):
             borrowings += amt
             got_borrowing = True
     if got_borrowing:
@@ -736,23 +771,51 @@ def parse_full_statements(rows: list[dict]) -> dict[str, list[dict]]:
         # IFRS 재무제표 표준 계정과목 기준. 정확한 시작일치로 오탐(기타유동자산→유동자산) 방지.
         _MAJOR_PREFIXES = (
             # BS(재무상태표)
-            "유동자산", "비유동자산", "자산총계",
-            "유동부채", "비유동부채", "부채총계",
-            "자본금", "자본잉여금", "이익잉여금", "자본총계",
-            "현금및현금성자산", "매출채권", "재고자산",
-            "유형자산", "무형자산", "투자자산",
-            "단기차입금", "장기차입금", "매입채무",
+            "유동자산",
+            "비유동자산",
+            "자산총계",
+            "유동부채",
+            "비유동부채",
+            "부채총계",
+            "자본금",
+            "자본잉여금",
+            "이익잉여금",
+            "자본총계",
+            "현금및현금성자산",
+            "매출채권",
+            "재고자산",
+            "유형자산",
+            "무형자산",
+            "투자자산",
+            "단기차입금",
+            "장기차입금",
+            "매입채무",
             # IS/CIS(손익계산서)
-            "수익(매출액)", "매출원가", "매출총이익",
-            "판매비와관리비", "영업이익(",
-            "영업외수익", "영업외비용",
-            "법인세비용차감전순이익", "법인세비용", "당기순이익",
-            "총포괄손익", "지배기업의 소유주",
+            "수익(매출액)",
+            "매출원가",
+            "매출총이익",
+            "판매비와관리비",
+            "영업이익(",
+            "영업외수익",
+            "영업외비용",
+            "법인세비용차감전순이익",
+            "법인세비용",
+            "당기순이익",
+            "총포괄손익",
+            "지배기업의 소유주",
             # CF(현금흐름표)
-            "영업활동현금흐름", "투자활동현금흐름", "재무활동현금흐름",
-            "기초현금및현금성자산", "기말현금및현금성자산",
+            "영업활동현금흐름",
+            "투자활동현금흐름",
+            "재무활동현금흐름",
+            "기초현금및현금성자산",
+            "기말현금및현금성자산",
         )
-        level = 0 if any(nm.startswith(p) for p in _MAJOR_PREFIXES) or any(kw in nm for kw in ("합계", "총계")) else 1
+        level = (
+            0
+            if any(nm.startswith(p) for p in _MAJOR_PREFIXES)
+            or any(kw in nm for kw in ("합계", "총계"))
+            else 1
+        )
         item["level"] = level
         groups[sj].append(item)
     return {k: v for k, v in groups.items() if v}
@@ -793,7 +856,9 @@ def fetch_full_statements(
     연결(CFS) 우선, 없으면 별도(OFS). 실패·데이터없음이면 None.
     """
     for fs_div in ("CFS", "OFS"):
-        parsed = _fetch_full_statements_for_fs_div(api_key, corp_code, year, quarter, fs_div, session)
+        parsed = _fetch_full_statements_for_fs_div(
+            api_key, corp_code, year, quarter, fs_div, session
+        )
         if parsed:
             return parsed
     return None
@@ -811,10 +876,17 @@ class CorpMapping:
     stock_code: str
     corp_code: str
     corp_name: str
+    induty_code: str | None = (
+        None  # DART 표준산업분류코드(corpCode.xml induty_code). 무료 산업분류.
+    )
 
 
 def fetch_corp_mappings(api_key: str, session: requests.Session) -> list[CorpMapping]:
-    """corpCode.xml(zip) 을 받아 상장사(stock_code 보유) 매핑만 반환한다."""
+    """corpCode.xml(zip) 을 받아 상장사(stock_code 보유) 매핑만 반환한다.
+
+    induty_code(DART 표준산업분류)를 함께 캡처 — 별도 API 호출 없이 corpCode.xml 에 포함된
+    무료 산업분류로 GICS 2차 anchor(mappings/dart_industry.yaml)에 사용.
+    """
     try:
         resp = dart_throttle.get(session, _CORPCODE_URL, params={"crtfc_key": api_key}, timeout=30)
         resp.raise_for_status()
@@ -835,10 +907,78 @@ def fetch_corp_mappings(api_key: str, session: requests.Session) -> list[CorpMap
         stock_code = (item.findtext("stock_code") or "").strip()
         corp_code = (item.findtext("corp_code") or "").strip()
         if stock_code and corp_code:  # 상장사만
+            induty = (item.findtext("induty_code") or "").strip() or None
             mappings.append(
-                CorpMapping(stock_code, corp_code, (item.findtext("corp_name") or "").strip())
+                CorpMapping(
+                    stock_code,
+                    corp_code,
+                    (item.findtext("corp_name") or "").strip(),
+                    induty_code=induty,
+                )
             )
     return mappings
+
+
+@dataclass
+class SegmentRow:
+    """iotHom3MdQe 부문별 매출 행. segment_type: 산업/제품/지역/매출형태 구분코드."""
+
+    bsns_year: str
+    report_code: str
+    segment_type: str  # DART 기준: 산업(I)/제품(P)/지역(G)/매출형태(S) — 공시 원문 구분값 그대로.
+    segment_name: str
+    revenue: float | None = None  # 부문 매출액(원)
+    ratio_pct: float | None = None  # 총 매출 대비 비중(%)
+
+
+def fetch_segment_sales(
+    api_key: str,
+    corp_code: str,
+    year: int,
+    report_code: str,
+    session: requests.Session,
+) -> list[SegmentRow]:
+    """iotHom3MdQe(부문별 매출) 조회 → SegmentRow 목록. 사업보고서 연간 기준.
+
+    사업보고서(11011) 원문의 부문별 매출을 구조화해 반환 — 제품/지역/부문 매출 비중의 유일한
+    정형 DART 소스. 실패·데이터없음·한도초과 시 빈 리스트(조립 중단 아님 — 부문 매출은 보강 정보).
+    """
+    params = {
+        "crtfc_key": api_key,
+        "corp_code": corp_code,
+        "bsns_year": str(year),
+        "reprt_code": report_code,
+    }
+    try:
+        resp = dart_throttle.get(session, _SEGMENT_SALES_URL, params=params, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+    except (requests.RequestException, ValueError) as e:
+        logger.warning("dart segment_sales failed %s %s: %s", corp_code, year, e)
+        return []
+    _raise_if_quota(data)
+    if data.get("status") != "000":
+        return []
+    rows: list[SegmentRow] = []
+    for r in data.get("list", []) or []:
+        seg_type = (
+            r.get("se") or ""
+        ).strip()  # DART 응답의 구분 필드명(se) — 산업/제품/지역/매출형태
+        # 부문명/매출액/비중 필드는 DART 가 응답에서 kwd 항목 배열로 주는 경우가 많아 값 추출은 관대히.
+        seg_name = (r.get("category") or r.get("item") or r.get("segment_name") or "").strip()
+        if not seg_type and not seg_name:
+            continue
+        rows.append(
+            SegmentRow(
+                bsns_year=str(year),
+                report_code=report_code,
+                segment_type=seg_type,
+                segment_name=seg_name,
+                revenue=_float_field(r, "thstrm_am"),
+                ratio_pct=_float_field(r, "thstrm_rt"),
+            )
+        )
+    return rows
 
 
 def fetch_disclosures(
@@ -925,7 +1065,11 @@ def find_periodic_report(
     if not keyword:
         return None
     # annual 은 다음 해 상반기 제출, half/quarter 는 당해 연중 제출.
-    begin, end = (f"{year + 1}0101", f"{year + 1}0930") if kind == "annual" else (f"{year}0301", f"{year + 1}0331")
+    begin, end = (
+        (f"{year + 1}0101", f"{year + 1}0930")
+        if kind == "annual"
+        else (f"{year}0301", f"{year + 1}0331")
+    )
     params = {
         "crtfc_key": api_key,
         "corp_code": corp_code,
@@ -947,7 +1091,8 @@ def find_periodic_report(
     # 대상 회계연도·기간이 report_nm 에 'YYYY.MM' 로 명시된다(예: '분기보고서 (2026.03)').
     tag = f"{year}.{_REPORT_PERIOD_MONTH[kind]}"
     matches = [
-        r for r in data.get("list", [])
+        r
+        for r in data.get("list", [])
         if keyword in (r.get("report_nm") or "") and tag in (r.get("report_nm") or "")
     ]
     if not matches:
@@ -1031,7 +1176,10 @@ def fetch_ownership_changes(
     """
     try:
         resp = dart_throttle.get(
-            session, _ELESTOCK_URL, params={"crtfc_key": api_key, "corp_code": corp_code}, timeout=15
+            session,
+            _ELESTOCK_URL,
+            params={"crtfc_key": api_key, "corp_code": corp_code},
+            timeout=15,
         )
         resp.raise_for_status()
         data = resp.json()

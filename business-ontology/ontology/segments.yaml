@@ -1,0 +1,39 @@
+version: "0.1.0"
+metadata:
+  name: "부문 온톨로지 시드"
+  description: "iotHom3MdQe 부문별 매출(산업/제품/지역/매출형태)의 부문 타입 시드. 실제 부문명 인스턴스는 LLM 추출+normalizer 가 pending_review 후보로 생성."
+  standards: ["DART"]
+  created: "2026-07-27"
+  updated: "2026-07-27"
+ontology:
+  segments:
+    SEG_REGION_DOMESTIC:
+      id: SEG_REGION_DOMESTIC
+      segment_type: region
+      korean_name: "내수(국내)"
+      english_name: "Domestic"
+      aliases: ["국내", "내수", "국내매출"]
+    SEG_REGION_OVERSEAS:
+      id: SEG_REGION_OVERSEAS
+      segment_type: region
+      korean_name: "수출(해외)"
+      english_name: "Overseas"
+      aliases: ["수출", "해외", "해외매출", "export"]
+    SEG_CHANNEL_DIRECT:
+      id: SEG_CHANNEL_DIRECT
+      segment_type: sales_channel
+      korean_name: "직접 매출"
+      english_name: "Direct Sales"
+      aliases: ["직접판매", "직매"]
+    SEG_CHANNEL_AGENCY:
+      id: SEG_CHANNEL_AGENCY
+      segment_type: sales_channel
+      korean_name: "대리점 매출"
+      english_name: "Agency Sales"
+      aliases: ["대리", "대리점"]
+    SEG_CHANNEL_EXPORT:
+      id: SEG_CHANNEL_EXPORT
+      segment_type: sales_channel
+      korean_name: "수출 매출"
+      english_name: "Export Sales"
+      aliases: ["수출", "export sales"]

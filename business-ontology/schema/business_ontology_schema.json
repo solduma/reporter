@@ -1,0 +1,130 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://reporter.dev/business-ontology/schema/business_ontology",
+  "title": "Business Ontology Schema",
+  "type": "object",
+  "required": ["version", "metadata", "ontology"],
+  "properties": {
+    "version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$"},
+    "metadata": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": {"type": "string"},
+        "description": {"type": "string"},
+        "standards": {"type": "array", "items": {"type": "string"}},
+        "created": {"type": "string", "format": "date"},
+        "updated": {"type": "string", "format": "date"}
+      }
+    },
+    "ontology": {
+      "type": "object",
+      "properties": {
+        "industries": {
+          "type": "object",
+          "patternProperties": {"^IND_GICS_[0-9]{8}$": {"$ref": "#/definitions/IndustryNode"}},
+          "additionalProperties": false
+        },
+        "products": {
+          "type": "object",
+          "patternProperties": {"^PRD_[A-Z][A-Z0-9_]*$": {"$ref": "#/definitions/ProductNode"}},
+          "additionalProperties": false
+        },
+        "materials": {
+          "type": "object",
+          "patternProperties": {"^MAT_[A-Z][A-Z0-9_]*$": {"$ref": "#/definitions/RawMaterialNode"}},
+          "additionalProperties": false
+        },
+        "companies": {
+          "type": "object",
+          "patternProperties": {"^CMP_(KRX|DART)_[0-9A-Z]+$": {"$ref": "#/definitions/CompanyNode"}},
+          "additionalProperties": false
+        },
+        "segments": {
+          "type": "object",
+          "patternProperties": {"^SEG_[A-Z][A-Z0-9_]*$": {"$ref": "#/definitions/SegmentNode"}},
+          "additionalProperties": false
+        },
+        "edge_types": {
+          "type": "object",
+          "patternProperties": {"^[a-z_]+$": {"$ref": "#/definitions/EdgeTypeMeta"}},
+          "additionalProperties": false
+        }
+      }
+    }
+  },
+  "definitions": {
+    "IndustryNode": {
+      "type": "object",
+      "required": ["id", "gics_code", "gics_sector", "gics_group", "gics_industry", "gics_sub_industry", "korean_name", "english_name"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^IND_GICS_[0-9]{8}$"},
+        "gics_code": {"type": "string", "pattern": "^[0-9]{8}$"},
+        "gics_sector": {"type": "string", "pattern": "^[0-9]{2}$"},
+        "gics_group": {"type": "string", "pattern": "^[0-9]{4}$"},
+        "gics_industry": {"type": "string", "pattern": "^[0-9]{6}$"},
+        "gics_sub_industry": {"type": "string", "pattern": "^[0-9]{8}$"},
+        "korean_name": {"type": "string"},
+        "english_name": {"type": "string"},
+        "aliases": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "ProductNode": {
+      "type": "object",
+      "required": ["id", "korean_name"],
+      "properties": {
+        "id": {"type": "string"},
+        "korean_name": {"type": "string"},
+        "english_name": {"type": "string"},
+        "aliases": {"type": "array", "items": {"type": "string"}},
+        "commodity_type": {"type": ["string", "null"]},
+        "is_also_material_id": {"type": ["string", "null"]}
+      }
+    },
+    "RawMaterialNode": {
+      "type": "object",
+      "required": ["id", "korean_name"],
+      "properties": {
+        "id": {"type": "string"},
+        "korean_name": {"type": "string"},
+        "english_name": {"type": "string"},
+        "aliases": {"type": "array", "items": {"type": "string"}},
+        "commodity_ref": {"type": "object"}
+      }
+    },
+    "CompanyNode": {
+      "type": "object",
+      "required": ["id", "corp_code", "korean_name"],
+      "properties": {
+        "id": {"type": "string"},
+        "corp_code": {"type": "string"},
+        "stock_code": {"type": ["string", "null"]},
+        "korean_name": {"type": "string"},
+        "english_name": {"type": "string"},
+        "aliases": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "SegmentNode": {
+      "type": "object",
+      "required": ["id", "segment_type", "korean_name"],
+      "properties": {
+        "id": {"type": "string"},
+        "segment_type": {"type": "string", "enum": ["industry", "product", "region", "sales_channel"]},
+        "korean_name": {"type": "string"},
+        "english_name": {"type": "string"},
+        "aliases": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "EdgeTypeMeta": {
+      "type": "object",
+      "required": ["id", "korean_name"],
+      "properties": {
+        "id": {"type": "string"},
+        "korean_name": {"type": "string"},
+        "english_name": {"type": "string"},
+        "directed": {"type": "boolean"},
+        "description": {"type": ["string", "null"]}
+      }
+    }
+  }
+}

@@ -1,0 +1,93 @@
+version: "0.1.0"
+metadata:
+  name: "원재료 온톨로지 시드"
+  description: "주요 원재료 정준 사전. commodity_ref 로 상품 분류 체계(LME 금속/CAS 화학/BP·IEA 에너지)에 연결 — 향후 가격 연동. 미매칭 시 pending_review 후보."
+  standards: ["LME", "CAS", "BP", "IEA"]
+  created: "2026-07-27"
+  updated: "2026-07-27"
+ontology:
+  materials:
+    MAT_METAL_COPPER:
+      id: MAT_METAL_COPPER
+      korean_name: "구리"
+      english_name: "Copper"
+      aliases: ["동", "전해동괴", "동관", "구리선"]
+      commodity_ref: {taxonomy: "LME", code: "COPPER"}
+    MAT_METAL_ALUMINUM:
+      id: MAT_METAL_ALUMINUM
+      korean_name: "알루미늄"
+      english_name: "Aluminum"
+      aliases: ["알루미늄괴", "알루미늄 합금"]
+      commodity_ref: {taxonomy: "LME", code: "ALUMINIUM"}
+    MAT_METAL_STEEL:
+      id: MAT_METAL_STEEL
+      korean_name: "철강(원재료)"
+      english_name: "Steel Raw Material"
+      aliases: ["철광석", "스크랩", "코크스", "원료탄", "판재"]
+      commodity_ref: {taxonomy: "other", code: "IRON_ORE"}
+    MAT_METAL_NICKEL:
+      id: MAT_METAL_NICKEL
+      korean_name: "니켈"
+      english_name: "Nickel"
+      aliases: ["니켈괴", "황산니켈", "니켈수지"]
+      commodity_ref: {taxonomy: "LME", code: "NICKEL"}
+    MAT_METAL_LITHIUM:
+      id: MAT_METAL_LITHIUM
+      korean_name: "리튬"
+      english_name: "Lithium"
+      aliases: ["탄산리튬", "수산화리튬", "리튬이온", "리튬 금속"]
+      commodity_ref: {taxonomy: "other", code: "LITHIUM_CARBONATE"}
+    MAT_METAL_COBALT:
+      id: MAT_METAL_COBALT
+      korean_name: "코발트"
+      english_name: "Cobalt"
+      aliases: ["코발트 황산염", "코발트수지"]
+      commodity_ref: {taxonomy: "LME", code: "COBALT"}
+    MAT_SEMI_SILICON_WAFER:
+      id: MAT_SEMI_SILICON_WAFER
+      korean_name: "실리콘 웨이퍼"
+      english_name: "Silicon Wafer"
+      aliases: ["웨이퍼", "반도체 웨이퍼", "다결정 실리콘", "폴리실리콘"]
+      commodity_ref: {taxonomy: "other", code: "SILICON_WAFER"}
+    MAT_CHEM_URETHANE:
+      id: MAT_CHEM_URETHANE
+      korean_name: "우레탄"
+      english_name: "Polyurethane"
+      aliases: ["폴리우레탄", "MDI", "TDI"]
+      commodity_ref: {taxonomy: "CAS", code: "polyurethane"}
+    MAT_CHEM_CAPROLACTAM:
+      id: MAT_CHEM_CAPROLACTAM
+      korean_name: "카프롤락탐"
+      english_name: "Caprolactam"
+      aliases: ["CPL", "나일론 원료"]
+      commodity_ref: {taxonomy: "CAS", code: "105-60-2"}
+    MAT_ENERGY_CRUDE:
+      id: MAT_ENERGY_CRUDE
+      korean_name: "원유"
+      english_name: "Crude Oil"
+      aliases: ["크루드", "두바이유", "브렌트유", "WTI"]
+      commodity_ref: {taxonomy: "BP", code: "BRENT"}
+    MAT_ENERGY_NATGAS:
+      id: MAT_ENERGY_NATGAS
+      korean_name: "천연가스"
+      english_name: "Natural Gas"
+      aliases: ["LNG", "천연가스"]
+      commodity_ref: {taxonomy: "IEA", code: "NATURAL_GAS"}
+    MAT_ENERGY_COAL:
+      id: MAT_ENERGY_COAL
+      korean_name: "석탄"
+      english_name: "Coal"
+      aliases: ["유연탄", "역청탄", "무연탄"]
+      commodity_ref: {taxonomy: "IEA", code: "COAL"}
+    MAT_AGRI_PALM:
+      id: MAT_AGRI_PALM
+      korean_name: "팜유"
+      english_name: "Palm Oil"
+      aliases: ["팜오일", "대두유", "식물성유지"]
+      commodity_ref: {taxonomy: "other", code: "PALM_OIL"}
+    MAT_GLASS_SUBSTRATE:
+      id: MAT_GLASS_SUBSTRATE
+      korean_name: "글래스 기판"
+      english_name: "Glass Substrate"
+      aliases: ["유리기판", "디스플레이 기판"]
+      commodity_ref: {taxonomy: "other", code: "GLASS_SUBSTRATE"}

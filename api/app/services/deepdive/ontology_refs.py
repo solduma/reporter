@@ -3,10 +3,17 @@
 키가 Financial 컬럼명(revenue, per ...)이나 온톨로지 계정/비율 ID(IS_REV_TOTAL, roe ...)면
 metric_info 를 통해 정준 라벨/설명을 찾아낸다. 본문(narrative_md) 키워드 매칭은 정확도/위험
 대비가 크지 않아 단계 JSON 키 위주로 시작.
+
+비즈니스 온톨로지(기업/산업/제품/원재료)는 사업보고서 ingest 단계에서 business_ontology_node/edge
+테이블에 영속화된 정준 그래프를 읽어, 각 정준 노드 ID 를 OntologyRef 로 방출한다 — 기존 InfoDot
+채널이 그대로 노출(신규 UI 불필요). 정준화되지 않은(pending_review) 노드는 정준 ID 가 없으므로 제외.
 """
 
 from __future__ import annotations
 
+from sqlalchemy.orm import Session
+
+from app.services import business_ontology as bo_service
 from app.services import ontology as ontology_service
 
 _STAGE_KEYS = ("overview", "redflags", "business", "thesis", "valuation")
@@ -26,11 +33,19 @@ def _collect_keys(obj: object) -> set[str]:
     return keys
 
 
-def extract_ontology_refs(report: dict) -> list[dict[str, str | None]]:
+def extract_ontology_refs(
+    report: dict,
+    db: Session | None = None,
+    stock_code: str | None = None,
+) -> list[dict[str, str | None]]:
     """DeepDiveReport *_json dict 에서 온톨로지와 매핑되는 키를 추출.
 
     반환: [{stage, key, ontology_id, label, description}, ...]
     stage 는 현재 키 출처를 구분하기 위한 것 — 동일 키가 여러 stage 에 있을 수 있다.
+
+    db·stock_code 가 주어지면 비즈니스 온톨로지 정준 노드(기업/산업/제품/원재료)도 함께 방출한다.
+    사업보고서 ingest 시 영속화된 그래프(business_ontology_node)에서 정준 ID 만 꺼내 온톨로지
+    채널에 싣는다 — pending_review(미정준) 노드는 정준 ID 가 없어 제외.
     """
     refs: list[dict[str, str | None]] = []
     for stage in _STAGE_KEYS:
@@ -54,4 +69,36 @@ def extract_ontology_refs(report: dict) -> list[dict[str, str | None]]:
                     "description": str(info["description"] or ""),
                 }
             )
+    refs.extend(_business_ontology_refs(db, stock_code))
     return refs
+
+
+def _business_ontology_refs(
+    db: Session | None,
+    stock_code: str | None,
+) -> list[dict[str, str | None]]:
+    """영속화된 비즈니스 온톨로지 그래프의 정준 노드 → OntologyRef.
+
+    정준(canonical) 노드만 방출 — pending_review 노드는 정준 ID 가 없다. 노드 식별자(id)가
+    곧 정준 ID(CMP_KRX_·IND_GICS_·PRD_·MAT_ 접두)이므로 key·ontology_id 에 동일값을 쓴다.
+    """
+    if db is None or not stock_code:
+        return []
+    graph = bo_service.company_graph(db, stock_code)
+    out: list[dict[str, str | None]] = []
+    for n in graph.get("nodes", []):
+        if n.get("status") != "canonical":
+            continue
+        nid = n.get("id")
+        if not nid:
+            continue
+        out.append(
+            {
+                "stage": "business",
+                "key": str(nid),
+                "ontology_id": str(nid),
+                "label": str(n.get("korean_name") or nid),
+                "description": str(n.get("node_type") or ""),
+            }
+        )
+    return out

@@ -1,0 +1,46 @@
+version: "0.1.0"
+metadata:
+  name: "기업 온톨로지 시드"
+  description: |
+    시드 상장사 — 대부분의 기업 노드는 인스턴스 데이터로 CorpCodeMap 역해석을 통해 생성된다.
+    정준 키는 DART corp_code(안정적). stock_code 는 거래 식별자. 여기는 검증용 시드만 담는다.
+  standards: ["DART"]
+  created: "2026-07-27"
+  updated: "2026-07-27"
+ontology:
+  companies:
+    CMP_KRX_005930:
+      id: CMP_KRX_005930
+      corp_code: "00126380"
+      stock_code: "005930"
+      korean_name: "삼성전자"
+      english_name: "Samsung Electronics"
+      aliases: ["삼성전자(주)", "Samsung Electronics Co.,Ltd.", "삼전"]
+    CMP_KRX_000660:
+      id: CMP_KRX_000660
+      corp_code: "00164742"
+      stock_code: "000660"
+      korean_name: "SK하이닉스"
+      english_name: "SK Hynix"
+      aliases: ["SK하이닉스(주)", "하이닉스", "SK Hynix Inc."]
+    CMP_KRX_005380:
+      id: CMP_KRX_005380
+      corp_code: "00116287"
+      stock_code: "005380"
+      korean_name: "현대차"
+      english_name: "Hyundai Motor"
+      aliases: ["현대자동차", "현대자동차(주)", "Hyundai Motor Co.", "현대차"]
+    CMP_KRX_035420:
+      id: CMP_KRX_035420
+      corp_code: "00136980"
+      stock_code: "035420"
+      korean_name: "NAVER"
+      english_name: "NAVER"
+      aliases: ["네이버", "NAVER Corp", "네이버(주)"]
+    CMP_KRX_373220:
+      id: CMP_KRX_373220
+      corp_code: "00132597"
+      stock_code: "373220"
+      korean_name: "LG에너지솔루션"
+      english_name: "LG Energy Solution"
+      aliases: ["LG에너지솔루션(주)", "LG Energy Solution Ltd."]

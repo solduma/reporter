@@ -1,0 +1,99 @@
+version: "0.1.0"
+metadata:
+  name: "비즈니스 온톨로지 엣지 타입"
+  description: "기업/산업/제품/원재료/부문 간 관계(엣지) 타입 정의. 엣지 인스턴스는 YAML SOT가 아니라 LLM 추출+normalizer 가 생성한다."
+  standards: ["GICS"]
+  created: "2026-07-27"
+  updated: "2026-07-27"
+ontology:
+  edge_types:
+    operates_in:
+      id: operates_in
+      korean_name: "사업 영역(산업)"
+      english_name: "operates_in"
+      directed: true
+      description: "기업 → 산업(GICS sub-industry). 다사업 종목은 여러 엣지를 가진다."
+    manufactures:
+      id: manufactures
+      korean_name: "생산"
+      english_name: "manufactures"
+      directed: true
+      description: "기업 → 제품. share 속성으로 매출 비중 표현."
+    uses_material:
+      id: uses_material
+      korean_name: "원재료 사용"
+      english_name: "uses_material"
+      directed: true
+      description: "기업 → 원재료. 주요 원재료·매입 비중."
+    supplies:
+      id: supplies
+      korean_name: "공급(원재료→기업)"
+      english_name: "supplies"
+      directed: true
+      description: "원재료/제품 공급자 → 기업. supplies_to 의 역방향 보조."
+    supplies_to:
+      id: supplies_to
+      korean_name: "공급(기업→고객)"
+      english_name: "supplies_to"
+      directed: true
+      description: "기업 → 주요 고객(Company). 매출 비중·집중도 리스크."
+    competes_with:
+      id: competes_with
+      korean_name: "경쟁"
+      english_name: "competes_with"
+      directed: false
+      description: "기업 ↔ 경쟁사. 무방향 취급(그래프에서 양방향 수집)."
+    parent_of:
+      id: parent_of
+      korean_name: "모회사"
+      english_name: "parent_of"
+      directed: true
+      description: "기업 → 자회사(Company). 기존 RelatedCompany 와 중복 회피 — 온톨로지는 링크만."
+    subsidiary_of:
+      id: subsidiary_of
+      korean_name: "자회사"
+      english_name: "subsidiary_of"
+      directed: true
+      description: "기업 → 모회사(Company). parent_of 의 역방향."
+    has_segment:
+      id: has_segment
+      korean_name: "부문 보유"
+      english_name: "has_segment"
+      directed: true
+      description: "기업 → 부문(Segment). iotHom3MdQe 부문별 매출."
+    has_facility:
+      id: has_facility
+      korean_name: "설비 보유"
+      english_name: "has_facility"
+      directed: true
+      description: "기업 → 설비(v2 Facility 노드). 생산능력·가동률."
+    exports_to:
+      id: exports_to
+      korean_name: "수출"
+      english_name: "exports_to"
+      directed: true
+      description: "기업 → 지역(v2 GeographicMarket). 수출 비중·국가."
+    led_by:
+      id: led_by
+      korean_name: "경영진"
+      english_name: "led_by"
+      directed: true
+      description: "기업 → 임원(v2 Executive 노드). 지배구조."
+    owns_ip:
+      id: owns_ip
+      korean_name: "지적재산 보유"
+      english_name: "owns_ip"
+      directed: true
+      description: "기업 → 특허/IP(v2). 무형자산 해자 증거."
+    substitute_of:
+      id: substitute_of
+      korean_name: "대체재"
+      english_name: "substitute_of"
+      directed: false
+      description: "제품/원재료 ↔ 대체재. v2."
+    part_of_value_chain:
+      id: part_of_value_chain
+      korean_name: "가치사슬 단계"
+      english_name: "part_of_value_chain"
+      directed: true
+      description: "기업 → 가치사슬 구성요소. chain_stage 속성(Porter 5 주+4 지원활동) 필수."

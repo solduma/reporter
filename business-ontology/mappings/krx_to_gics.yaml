@@ -1,0 +1,34 @@
+version: "0.1.0"
+metadata:
+  name: "KRX 업종분류 → GICS sub-industry 매핑"
+  description: "KRX 업종분류코드 → GICS 8자리 sub-industry. 2차 분류(국내 데이터 피드 정합). 큐레이팅된 시드."
+  standards: ["KRX", "GICS"]
+  created: "2026-07-27"
+  updated: "2026-07-27"
+mappings:
+  # KRX 업종코드(코스피/코스닥 업종분류) → GICS sub-industry id
+  "021": "IND_GICS_45102010"   # 반도체 → Semiconductors
+  "022": "IND_GICS_45301010"   # 통신장비 → Communications Equipment
+  "023": "IND_GICS_45302030"   # 전자부품 → Electronic Components
+  "024": "IND_GICS_45201010"   # 소프트웨어 → Application Software
+  "025": "IND_GICS_45202010"   # IT 서비스 → IT Consulting
+  "031": "IND_GICS_25102010"   # 자동차 제조 → Automobile Manufacturers
+  "032": "IND_GICS_25101010"   # 자동차부품 → Auto Parts & Equipment
+  "041": "IND_GICS_15104050"   # 철강 → Steel
+  "042": "IND_GICS_15104010"   # 비철금속 → Aluminum/Diversified Metals
+  "051": "IND_GICS_15101020"   # 정밀화학 → Specialty Chemicals
+  "052": "IND_GICS_15101010"   # 기초화학 → Commodity Chemicals
+  "061": "IND_GICS_10205010"   # 종합석유 → Integrated Oil & Gas
+  "071": "IND_GICS_35201010"   # 제약 → Pharmaceuticals
+  "072": "IND_GICS_35202010"   # 바이오 → Biotechnology
+  "081": "IND_GICS_20108030"   # 해운 → Marine Transportation
+  "082": "IND_GICS_20108010"   # 항공화물 → Air Freight & Logistics
+  "083": "IND_GICS_20108020"   # 항공사 → Passenger Airlines
+  "091": "IND_GICS_40101010"   # 은행 → Diversified Banks
+  "092": "IND_GICS_40201030"   # 증권 → Capital Markets
+  "093": "IND_GICS_40203010"   # 보험 → Insurance
+  "101": "IND_GICS_50101010"   # 통신서비스 → Integrated Telecom
+  "111": "IND_GICS_25404010"   # 인터넷서비스 → Interactive Media & Services
+  "112": "IND_GICS_50201020"   # 게임 → Interactive Home Entertainment
+  "121": "IND_GICS_30201010"   # 식품 → Packaged Foods
+  "122": "IND_GICS_30202010"   # 음료/주류 → Brewers

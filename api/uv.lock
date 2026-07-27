@@ -115,6 +115,27 @@ wheels = [
 ]
 
 [[package]]
+name = "business-ontology"
+version = "0.1.0"
+source = { editable = "../business-ontology/python" }
+dependencies = [
+    { name = "jsonschema" },
+    { name = "pyyaml" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "jsonschema", specifier = ">=4.20" },
+    { name = "pyyaml", specifier = ">=6.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=8.0" },
+    { name = "ruff", specifier = ">=0.6" },
+]
+
+[[package]]
 name = "certifi"
 version = "2026.6.17"
 source = { registry = "https://pypi.org/simple" }
@@ -1176,6 +1197,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "apscheduler" },
+    { name = "business-ontology" },
     { name = "fastapi" },
     { name = "financial-ontology" },
     { name = "minio" },
@@ -1201,6 +1223,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "apscheduler", specifier = ">=3.10" },
+    { name = "business-ontology", editable = "../business-ontology/python" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "financial-ontology", editable = "../financial-ontology/python" },
     { name = "minio", specifier = ">=7.2" },

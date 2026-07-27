@@ -17,6 +17,7 @@ from app.routers import (
     admin,
     broadcasts,
     business,
+    business_ontology,
     calendar,
     companies,
     deepdive,
@@ -90,6 +91,7 @@ app.include_router(us.screener_router)
 app.include_router(deepdive.router)
 app.include_router(ir_interview.router)
 app.include_router(ontology.router)
+app.include_router(business_ontology.router)
 
 
 @app.get("/health")

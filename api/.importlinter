@@ -10,6 +10,7 @@ root_packages =
     app
     reporter
     financial_ontology
+    business_ontology
 ; domain·ports 가 외부 IO 패키지를 import 하지 않는지 검사하려면 외부 패키지도 그래프에 포함.
 include_external_packages = True
 
@@ -172,4 +173,18 @@ forbidden_modules =
 ; 유일한 구현(adapters/financial_ontology)만 financial_ontology 패키지 직접 참조, 나머지는
 ; app.ports.financial_ontology(OntologyPort)에 의존. 2차-A 의 순수 패키지를 2차-B 에서 포트 뒤에 캡슐화.
 ; adapters 안에서만 패키지 import 허용, services 이하는 포트 경유. allow_indirect 로 직접 import 만 금지.
+allow_indirect_imports = true
+
+[importlinter:contract:business-ontology-behind-port]
+name = 비즈니스 온톨로지(business_ontology)은 adapters.business_ontology 뒤에만 — 서비스·라우터·도메인·포트는 BusinessOntologyPort 경유
+type = forbidden
+source_modules =
+    app.services
+    app.routers
+    app.domain
+    app.ports
+forbidden_modules =
+    business_ontology
+; 유일한 구현(adapters/business_ontology)만 business_ontology 패키지 직접 참조, 나머지는
+; app.ports.business_ontology(BusinessOntologyPort)에 의존. ontology-behind-port 와 동일 경계.
 allow_indirect_imports = true

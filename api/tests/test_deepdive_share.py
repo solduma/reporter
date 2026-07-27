@@ -10,7 +10,13 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import sessionmaker
 
-from app.db.models import Base, DeepDiveReport, DeepDiveShare
+from app.db.models import (
+    Base,
+    BusinessOntologyEdge,
+    BusinessOntologyNode,
+    DeepDiveReport,
+    DeepDiveShare,
+)
 from app.services.deepdive import share
 
 
@@ -23,8 +29,17 @@ def _compile_jsonb_sqlite(type_, compiler, **kw):
 @pytest.fixture
 def db(monkeypatch):
     # 격리 in-memory SQLite. JSONB 는 위 @compiles 훅으로 JSON 컬럼으로 생성된다.
+    # business_ontology_node/edge 는 report_to_out 가 ontology_refs 방출 시 조회.
     engine = create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(engine, tables=[DeepDiveReport.__table__, DeepDiveShare.__table__])
+    Base.metadata.create_all(
+        engine,
+        tables=[
+            DeepDiveReport.__table__,
+            DeepDiveShare.__table__,
+            BusinessOntologyNode.__table__,
+            BusinessOntologyEdge.__table__,
+        ],
+    )
     session = sessionmaker(bind=engine)()
     # 종목명 해석은 외부 조회이므로 고정.
     monkeypatch.setattr(share.company_service, "resolve_stock_name", lambda _db, _c: "테스트종목")
