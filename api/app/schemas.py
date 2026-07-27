@@ -881,6 +881,126 @@ class OntologyMetricInfoResponse(BaseModel):
     coverage: float
 
 
+# --- 비즈니스 온톨로지(/api/business-ontology) ---------------------------------
+class BusinessNormalizeItem(BaseModel):
+    """비즈니스 온톨로지 정규화 단건 결과(노드 타입별)."""
+
+    term: str
+    node_type: str = ""  # company|industry|product|raw_material|segment
+    canonical_id: str | None = None
+    matched_via: str = ""
+    status: str = ""  # canonical|pending_review|unknown
+    confidence: float = 0.0
+    resolved: bool = False
+
+
+class BusinessNormalizeRequest(BaseModel):
+    """raw mention 일괄 정규화 요청. mentions: [(name, node_type), ...]."""
+
+    mentions: list[tuple[str, str]] = Field(
+        default_factory=list,
+        description="[(name, node_type)] — node_type: company|industry|product|raw_material|segment",
+    )
+    standard: str | None = Field(
+        default=None, description="dart|krx|ksic. industry 해석시 산업코드 표준."
+    )
+
+
+class BusinessNormalizeResponse(BaseModel):
+    items: list[BusinessNormalizeItem]
+    coverage: float  # 정규화 성공 비율(0~1)
+
+
+class BusinessIndustryNodeOut(BaseModel):
+    """GICS 산업 노드(4단계 rollup)."""
+
+    id: str
+    gics_code: str
+    gics_sector: str
+    gics_group: str
+    gics_industry: str
+    gics_sub_industry: str
+    korean_name: str
+    english_name: str = ""
+    aliases: list[str] = Field(default_factory=list)
+
+
+class BusinessNodeOut(BaseModel):
+    """정적 비즈니스 노드(제품/원재료/기업/부문/산업 공통)."""
+
+    id: str
+    node_type: str
+    korean_name: str
+    english_name: str = ""
+    aliases: list[str] = Field(default_factory=list)
+    commodity_type: str | None = None
+    is_also_material_id: str | None = None
+    commodity_ref: dict[str, str] = Field(default_factory=dict)
+    corp_code: str | None = None
+    stock_code: str | None = None
+    segment_type: str | None = None
+
+
+class BusinessEdgeTypeOut(BaseModel):
+    """엣지 타입 메타."""
+
+    id: str
+    korean_name: str
+    english_name: str = ""
+    directed: bool = True
+    description: str | None = None
+
+
+class BusinessEdgeOut(BaseModel):
+    """엣지 인스턴스(회사 그래프 응답)."""
+
+    src: str
+    dst: str
+    edge_type: str
+    share: float | None = None
+    period: str | None = None
+    source_quote: str | None = None
+    chain_stage: str | None = None
+    confidence: float | None = None
+
+
+class BusinessGraphOut(BaseModel):
+    """회사 비즈니스 그래프 — 노드 + 엣지."""
+
+    nodes: list[BusinessNodeOut] = Field(default_factory=list)
+    edges: list[BusinessEdgeOut] = Field(default_factory=list)
+
+
+class BusinessSegmentOut(BaseModel):
+    """부문별 매출(iotHom3MdQe)."""
+
+    bsns_year: str
+    report_code: str | None = None
+    segment_type: str
+    segment_name: str
+    revenue: float | None = None
+    ratio_pct: float | None = None
+
+
+class BusinessCompanyEdgeOut(BaseModel):
+    """회사-노드 관계(manufactures/uses_material) + 비중."""
+
+    node_id: str
+    korean_name: str
+    edge_type: str
+    share: float | None = None
+    period: str | None = None
+    confidence: float | None = None
+
+
+class BusinessPeerOut(BaseModel):
+    """GICS 동종업 종목."""
+
+    stock_code: str
+    korean_name: str
+    canonical_id: str | None = None
+
+
 # ── 사업 개요(business overview) ──────────────────────────────────────────
 class BusinessTableOut(BaseModel):
     """사업 개요 섹션 내 표."""
