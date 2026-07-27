@@ -18,14 +18,21 @@ from app.adapters import dart
 from app.config import Settings
 from app.db.models import (
     CorpCodeMap,
+    DilutionCache,
+    Financial,
+    MajorHolderCache,
     OwnershipChangeCache,
+    OwnershipSummary,
     RelatedCompany,
     Shareholder,
 )
 from app.domain.disclosure import OwnershipChange
 from app.schemas import (
+    DilutionOut,
+    MajorHolderOut,
     OwnershipChangeOut,
     OwnershipOut,
+    OwnershipSummaryOut,
     ShareholderOut,
     SubsidiaryOut,
 )
@@ -133,6 +140,193 @@ def _change_out(p: dict) -> OwnershipChangeOut:
     )
 
 
+def _classify_group(pct: float | None) -> str:
+    """합산 지분율 등급 — <30% 분산 / 30~50% 안정 / 50%+ 독점."""
+    if pct is None:
+        return ""
+    if pct >= 50:
+        return "독점"
+    if pct >= 30:
+        return "안정"
+    return "분산"
+
+
+def _classify_floating(ratio: float | None) -> str:
+    """유통주식 비율 등급 — <30% 과소유동 / 30~60% 적정 / 60%+ 과다유동."""
+    if ratio is None:
+        return ""
+    if ratio >= 60:
+        return "과다유동"
+    if ratio >= 30:
+        return "적정"
+    return "과소유동"
+
+
+def _compute_significance(
+    sub_net_profit: int | None,
+    inv_purpose: str | None,
+    parent_net_income: float | None,
+) -> list[str]:
+    """자회사 3단계 필터 → significance 태그 목록.
+
+    1단계 정량: 당기순이익 ≥ 모회사 10% OR 적자(당기순이익 < 0).
+    2단계 리스크: 적자(otrCpr에 자본잠식/부채비율 없어 적자로 대체).
+    3단계 정성: 출자목적 키워드(신사업/신규/IPO).
+    """
+    tags: list[str] = []
+    if sub_net_profit is not None:
+        if parent_net_income and parent_net_income > 0 and sub_net_profit >= parent_net_income * 0.1:
+            tags.append("이익10%+")
+        if sub_net_profit < 0:
+            tags.append("적자")
+    if inv_purpose:
+        purpose_lower = inv_purpose.lower()
+        for kw in ("신사업", "신규", "ipo", "신기술", "벤처"):
+            if kw in purpose_lower:
+                tags.append("신사업")
+                break
+    return tags
+
+
+def _get_ownership_summary(db: Session, code: str) -> OwnershipSummaryOut | None:
+    """OwnershipSummary DB 조회 → 분석 배지."""
+    s = db.get(OwnershipSummary, code)
+    if s is None:
+        return None
+    return OwnershipSummaryOut(
+        group_stake_pct=s.group_stake_pct,
+        group_class=_classify_group(s.group_stake_pct),
+        floating_ratio=s.floating_ratio,
+        floating_class=_classify_floating(s.floating_ratio),
+        dilution_pct=None,  # CB/BW 희석은 _get_dilution 에서 계산
+    )
+
+
+def _get_major_holders(
+    db: Session, settings: Settings, code: str, corp_code: str | None
+) -> list[MajorHolderOut]:
+    """5%+ 대량보유주주 — 캐시 우선(12h), miss 시 majorstock.json live 조회."""
+    cached = db.get(MajorHolderCache, code)
+    if cached is not None:
+        updated = cached.updated_at if cached.updated_at.tzinfo else cached.updated_at.replace(tzinfo=UTC)
+        if datetime.now(UTC) - updated < _CHANGE_CACHE_TTL:
+            return [MajorHolderOut(**p) for p in cached.payload]
+
+    if not corp_code or not settings.dart_api_key:
+        return [MajorHolderOut(**p) for p in (cached.payload if cached else [])]
+
+    try:
+        with requests.Session() as session:
+            raw = dart.fetch_major_shareholders(settings.dart_api_key, corp_code, session)
+    except dart.DartQuotaExceeded:
+        logger.info("major holders: DART quota exceeded %s", code)
+        return [MajorHolderOut(**p) for p in (cached.payload if cached else [])]
+
+    payload = [
+        {
+            "rcept_dt": h.rcept_dt,
+            "repror": h.repror,
+            "stkrt": h.stkrt,
+            "stkqy": h.stkqy,
+            "report_resn": h.report_resn,
+        }
+        for h in raw
+    ]
+    if cached is None:
+        db.add(MajorHolderCache(stock_code=code, payload=payload))
+    else:
+        cached.payload = payload
+        cached.updated_at = datetime.now(UTC)
+    db.commit()
+    return [MajorHolderOut(**p) for p in payload]
+
+
+def _get_dilution(
+    db: Session, settings: Settings, code: str, corp_code: str | None
+) -> tuple[list[DilutionOut], float | None]:
+    """CB/BW 발행내역 — 캐시 우선(12h), miss 시 live 조회.
+
+    반환 (dilution_list, dilution_pct): dilution_pct = Σ(발행주식수) / 발행주식.
+    """
+    cached = db.get(DilutionCache, code)
+    if cached is not None:
+        updated = cached.updated_at if cached.updated_at.tzinfo else cached.updated_at.replace(tzinfo=UTC)
+        if datetime.now(UTC) - updated < _CHANGE_CACHE_TTL:
+            items = [DilutionOut(**p) for p in cached.payload]
+            total_shares = sum((p.cvisstk_cnt or 0) for p in items)
+            return items, _dilution_pct(total_shares, db, code)
+
+    if not corp_code or not settings.dart_api_key:
+        items = [DilutionOut(**p) for p in (cached.payload if cached else [])]
+        return items, None
+
+    # 최근 3년 CB/BW 조회.
+    today = datetime.now(UTC).date()
+    bgn_de = (today.replace(year=today.year - 3)).strftime("%Y%m%d")
+    end_de = today.strftime("%Y%m%d")
+    try:
+        with requests.Session() as session:
+            cb_raw = dart.fetch_cb_issuance(settings.dart_api_key, corp_code, bgn_de, end_de, session)
+            bw_raw = dart.fetch_bw_issuance(settings.dart_api_key, corp_code, bgn_de, end_de, session)
+    except dart.DartQuotaExceeded:
+        logger.info("dilution: DART quota exceeded %s", code)
+        items = [DilutionOut(**p) for p in (cached.payload if cached else [])]
+        return items, None
+
+    payload = []
+    for c in cb_raw:
+        payload.append({
+            "type": "CB",
+            "bddd": c.bddd,
+            "bd_fta": c.bd_fta,
+            "cv_prc": c.cv_prc,
+            "cvisstk_cnt": c.cvisstk_cnt,
+            "tisstk_vs": c.cvisstk_tisstk_vs,
+        })
+    for b in bw_raw:
+        payload.append({
+            "type": "BW",
+            "bddd": b.bddd,
+            "bd_fta": b.bd_fta,
+            "cv_prc": b.ex_prc,
+            "cvisstk_cnt": b.nstk_isstk_cnt,
+            "tisstk_vs": b.nstk_isstk_tisstk_vs,
+        })
+    payload.sort(key=lambda r: r["bddd"] or "", reverse=True)
+
+    if cached is None:
+        db.add(DilutionCache(stock_code=code, payload=payload))
+    else:
+        cached.payload = payload
+        cached.updated_at = datetime.now(UTC)
+    db.commit()
+
+    items = [DilutionOut(**p) for p in payload]
+    total_shares = sum((p.cvisstk_cnt or 0) for p in items)
+    return items, _dilution_pct(total_shares, db, code)
+
+
+def _dilution_pct(total_new_shares: int, db: Session, code: str) -> float | None:
+    """잠재 희석률 = Σ(발행주식수) / 발행주식."""
+    if total_new_shares <= 0:
+        return None
+    summary = db.get(OwnershipSummary, code)
+    if summary and summary.floating_shares and summary.floating_shares > 0:
+        return round(total_new_shares / summary.floating_shares * 100, 2)
+    return None
+
+
+def _parent_net_income(db: Session, code: str) -> float | None:
+    """모회사 최신 연결(CFS) 당기순이익(억원) — 자회사 이익 10% 임계값용."""
+    row = db.execute(
+        select(Financial.net_income)
+        .where(Financial.stock_code == code, Financial.fs_div == "CFS")
+        .order_by(Financial.period.desc())
+        .limit(1)
+    ).scalar()
+    return row
+
+
 def get_ownership(db: Session, settings: Settings, code: str) -> OwnershipOut:
     """종목 지분구조 응답 조립 — 주주 명부 + 자회사·출자사 + 최근 지분변동."""
     corp_code = db.scalar(select(CorpCodeMap.corp_code).where(CorpCodeMap.stock_code == code))
@@ -164,6 +358,38 @@ def get_ownership(db: Session, settings: Settings, code: str) -> OwnershipOut:
 
     as_of_year = max((s.bsns_year for s in shareholders if s.bsns_year), default=None)
 
+    # 분석 배지 — 합산 지분율·유통주식.
+    summary = _get_ownership_summary(db, code)
+
+    # 5%+ 대량보유주주.
+    major_holders = _get_major_holders(db, settings, code, corp_code)
+
+    # CB/BW 희석.
+    dilution, dilution_pct = _get_dilution(db, settings, code, corp_code)
+    if summary and dilution_pct is not None:
+        summary.dilution_pct = dilution_pct
+
+    # 자회사 3단계 필터 — 모회사 당기순이익.
+    parent_ni = _parent_net_income(db, code)
+    subsidiary_total = len(subsidiaries)
+    filtered_subs: list[SubsidiaryOut] = []
+    for s in subsidiaries:
+        significance = _compute_significance(s.sub_net_profit, s.inv_purpose, parent_ni)
+        out = SubsidiaryOut(
+            related_name=s.related_name,
+            relation=s.relation,
+            stake_pct=s.stake_pct,
+            related_stock_code=s.related_stock_code,
+            related_stock_name=names.get(s.related_stock_code) if s.related_stock_code else None,
+            inv_purpose=s.inv_purpose,
+            book_value=s.book_value,
+            sub_net_profit=s.sub_net_profit,
+            significance=significance,
+        )
+        # significance 가 있거나 지분율 ≥ 5% 또는 장부가액 ≥ 10억이면 노출.
+        if significance or (s.stake_pct is not None and s.stake_pct >= 5) or (s.book_value and s.book_value >= 1_000_000_000):
+            filtered_subs.append(out)
+
     return OwnershipOut(
         stock_code=code,
         as_of_year=as_of_year,
@@ -178,16 +404,12 @@ def get_ownership(db: Session, settings: Settings, code: str) -> OwnershipOut:
             )
             for s in shareholders
         ],
-        subsidiaries=[
-            SubsidiaryOut(
-                related_name=s.related_name,
-                relation=s.relation,
-                stake_pct=s.stake_pct,
-                related_stock_code=s.related_stock_code,
-                related_stock_name=names.get(s.related_stock_code) if s.related_stock_code else None,
-            )
-            for s in subsidiaries
-        ],
+        subsidiaries=filtered_subs,
+        subsidiary_total=subsidiary_total,
+        subsidiary_filtered=len(filtered_subs),
         changes=changes,
         changes_stale=stale,
+        summary=summary,
+        major_holders=major_holders,
+        dilution=dilution,
     )

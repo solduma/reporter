@@ -4,7 +4,13 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { fetchOwnership } from "@/lib/api";
-import type { OwnershipResponse, OwnershipChangeRow } from "@/lib/types";
+import type {
+  DilutionRow,
+  MajorHolderRow,
+  OwnershipChangeRow,
+  OwnershipResponse,
+  OwnershipSummaryRow,
+} from "@/lib/types";
 
 import styles from "./OwnershipStructure.module.css";
 
@@ -27,10 +33,18 @@ function fmtShares(n: number | null | undefined): string {
   return n === null || n === undefined ? "—" : n.toLocaleString("ko-KR");
 }
 
+function fmtWon(n: number | null | undefined): string {
+  if (n === null || n === undefined) return "—";
+  if (Math.abs(n) >= 1e8) return `${(n / 1e8).toFixed(1)}억`;
+  if (Math.abs(n) >= 1e4) return `${(n / 1e4).toFixed(0)}만`;
+  return n.toLocaleString("ko-KR");
+}
+
 export default function OwnershipStructure({ code }: { code: string }) {
   const [state, setState] = useState<
     { status: "loading" | "ready" | "error"; data: OwnershipResponse | null; message?: string }
   >({ status: "loading", data: null });
+  const [showAllSubs, setShowAllSubs] = useState(false);
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = useCallback(async () => {
@@ -67,14 +81,33 @@ export default function OwnershipStructure({ code }: { code: string }) {
     return <p className={styles.hint}>{state.message ?? "지분구조 데이터가 없습니다."}</p>;
   }
 
-  const { shareholders, subsidiaries, changes, as_of_year, changes_stale } = state.data;
+  const {
+    shareholders = [],
+    subsidiaries = [],
+    changes = [],
+    as_of_year,
+    changes_stale,
+    summary = null,
+    major_holders = [],
+    dilution = [],
+    subsidiary_total,
+    subsidiary_filtered,
+  } = state.data ?? {};
   const empty = shareholders.length === 0 && subsidiaries.length === 0 && changes.length === 0;
   if (empty) {
     return <p className={styles.hint}>지분구조 데이터가 없습니다.</p>;
   }
 
+  // "전체 출자 보기" 토글 시 모든 자회사 표시.
+  const filteredCount = subsidiary_filtered ?? subsidiaries.length;
+  const totalCount = subsidiary_total ?? subsidiaries.length;
+  const displaySubs = showAllSubs ? subsidiaries : subsidiaries.slice(0, filteredCount);
+
   return (
     <div className={styles.wrap}>
+      {/* 분석 배지 — 지배력·리스크·수급 */}
+      {summary ? <SummaryBadges summary={summary} /> : null}
+
       <div className={styles.grid}>
         <OwnershipColumn
           title="주주에 관한 사항"
@@ -111,36 +144,133 @@ export default function OwnershipStructure({ code }: { code: string }) {
               </tbody>
             </table>
           )}
+
+          {/* 5%+ 대량보유주주 */}
+          {major_holders.length > 0 && (
+            <div className={styles.subSection}>
+              <h4 className={styles.subSectionTitle}>5%+ 대량보유주주</h4>
+              <div className={styles.scroll}>
+                <table className={styles.table}>
+                  <thead>
+                    <tr>
+                      <th className={styles.nameCol} scope="col">보고자</th>
+                      <th scope="col">보유비율</th>
+                      <th scope="col">보유주식</th>
+                      <th scope="col">사유</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {major_holders.map((h, i) => (
+                      <tr key={`mh-${i}`}>
+                        <th className={styles.nameCol} scope="row">{h.repror}</th>
+                        <td className={styles.num}>{fmtStake(h.stkrt)}</td>
+                        <td className={styles.num}>{fmtShares(h.stkqy)}</td>
+                        <td>{h.report_resn || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* CB/BW 희석 리스크 */}
+          {dilution.length > 0 && (
+            <div className={styles.subSection}>
+              <h4 className={styles.subSectionTitle}>CB/BW 희석 리스크</h4>
+              <div className={styles.scroll}>
+                <table className={styles.table}>
+                  <thead>
+                    <tr>
+                      <th scope="col">종류</th>
+                      <th scope="col">결의일</th>
+                      <th scope="col">발행금액</th>
+                      <th scope="col">전환가액</th>
+                      <th scope="col">발행주식</th>
+                      <th scope="col">비율</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dilution.map((d, i) => (
+                      <tr key={`dil-${i}`}>
+                        <td><span className={d.type === "CB" ? styles.tagCb : styles.tagBw}>{d.type}</span></td>
+                        <td>{d.bddd || "—"}</td>
+                        <td className={styles.num}>{fmtWon(d.bd_fta)}</td>
+                        <td className={styles.num}>{d.cv_prc?.toLocaleString("ko-KR") ?? "—"}원</td>
+                        <td className={styles.num}>{fmtShares(d.cvisstk_cnt)}</td>
+                        <td className={styles.num}>{d.tisstk_vs !== null ? `${d.tisstk_vs}%` : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className={styles.dilutionNote}>
+                ※ 주식담보대출 정보는 공시 원문 참조
+              </p>
+            </div>
+          )}
         </OwnershipColumn>
 
-        <OwnershipColumn title="자회사 · 출자사" emptyText="자회사 데이터가 없습니다.">
-          {subsidiaries.length > 0 && (
-            <table className={styles.table}>
-              <thead>
-                <tr>
-                  <th className={styles.nameCol} scope="col">관계사</th>
-                  <th scope="col">관계</th>
-                  <th scope="col">지분율</th>
-                </tr>
-              </thead>
-              <tbody>
-                {subsidiaries.map((s) => (
-                  <tr key={`${s.related_name}-${s.relation}`}>
-                    <th className={styles.nameCol} scope="row">
-                      {s.related_stock_code ? (
-                        <Link href={`/companies/${s.related_stock_code}`} className={styles.link}>
-                          {s.related_name}
-                        </Link>
-                      ) : (
-                        <span className={styles.corp}>{s.related_name}</span>
-                      )}
-                    </th>
-                    <td>{s.relation === "subsidiary" ? "자회사" : "출자사"}</td>
-                    <td className={styles.num}>{fmtStake(s.stake_pct)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        <OwnershipColumn
+          title={`자회사 · 출자사 (의미 ${filteredCount} / 전체 ${totalCount})`}
+          emptyText="자회사 데이터가 없습니다."
+        >
+          {displaySubs.length > 0 && (
+            <>
+              <div className={styles.legend}>
+                <span className={styles.tagSignificance}>이익10%+</span>
+                <span className={styles.tagSignificance}>적자</span>
+                <span className={styles.tagSignificance}>신사업</span>
+              </div>
+              <div className={styles.scroll}>
+                <table className={styles.table}>
+                  <thead>
+                    <tr>
+                      <th className={styles.nameCol} scope="col">관계사</th>
+                      <th scope="col">관계</th>
+                      <th scope="col">지분율</th>
+                      <th scope="col">당기순이익</th>
+                      <th scope="col">출자목적</th>
+                      <th scope="col">비고</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {displaySubs.map((s) => (
+                      <tr key={`${s.related_name}-${s.relation}`}>
+                        <th className={styles.nameCol} scope="row">
+                          {s.related_stock_code ? (
+                            <Link href={`/companies/${s.related_stock_code}`} className={styles.link}>
+                              {s.related_name}
+                            </Link>
+                          ) : (
+                            <span className={styles.corp}>{s.related_name}</span>
+                          )}
+                        </th>
+                        <td>{s.relation === "subsidiary" ? "자회사" : "출자사"}</td>
+                        <td className={styles.num}>{fmtStake(s.stake_pct)}</td>
+                        <td className={`${styles.num} ${(s.sub_net_profit ?? 0) < 0 ? styles.down : ""}`}>
+                          {fmtWon(s.sub_net_profit)}
+                        </td>
+                        <td>{s.inv_purpose || "—"}</td>
+                        <td>
+                          {(s.significance ?? []).map((tag) => (
+                            <span key={tag} className={styles.tagSignificance}>{tag}</span>
+                          ))}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {totalCount > filteredCount && (
+                <button
+                  className={styles.toggleBtn}
+                  onClick={() => setShowAllSubs((v) => !v)}
+                >
+                  {showAllSubs ? "의미 자회사만 보기" : `전체 출자 보기 (${totalCount}개)`}
+                </button>
+              )}
+            </>
           )}
         </OwnershipColumn>
       </div>
@@ -171,6 +301,42 @@ export default function OwnershipStructure({ code }: { code: string }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function SummaryBadges({ summary }: { summary: OwnershipSummaryRow }) {
+  return (
+    <div className={styles.badges}>
+      <div className={styles.badge}>
+        <span className={styles.badgeLabel}>지배력</span>
+        <span className={styles.badgeValue}>
+          {summary.group_stake_pct !== null ? `${summary.group_stake_pct}%` : "—"}
+        </span>
+        <span className={`${styles.badgeClass} ${styles[`class_${summary.group_class}`] || ""}`}>
+          {summary.group_class || "—"}
+        </span>
+      </div>
+      <div className={styles.badge}>
+        <span className={styles.badgeLabel}>수급</span>
+        <span className={styles.badgeValue}>
+          {summary.floating_ratio !== null ? `${summary.floating_ratio}%` : "—"}
+        </span>
+        <span className={`${styles.badgeClass} ${styles[`class_${summary.floating_class}`] || ""}`}>
+          {summary.floating_class || "—"}
+        </span>
+      </div>
+      <div className={styles.badge}>
+        <span className={styles.badgeLabel}>희석</span>
+        <span className={styles.badgeValue}>
+          {summary.dilution_pct !== null ? `${summary.dilution_pct}%` : "—"}
+        </span>
+        <span className={styles.badgeClass}>
+          {summary.dilution_pct !== null
+            ? summary.dilution_pct > 10 ? "주의" : "양호"
+            : "—"}
+        </span>
+      </div>
     </div>
   );
 }

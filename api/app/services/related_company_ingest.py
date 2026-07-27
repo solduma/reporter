@@ -18,7 +18,14 @@ from sqlalchemy.orm import Session
 from app.adapters import dart
 from app.adapters.dart import throttle as dart_throttle
 from app.config import Settings, get_settings
-from app.db.models import CorpCodeMap, RelatedCompany, Shareholder, SyncState, UniverseSnapshot
+from app.db.models import (
+    CorpCodeMap,
+    OwnershipSummary,
+    RelatedCompany,
+    Shareholder,
+    SyncState,
+    UniverseSnapshot,
+)
 from app.services import sync_state, universe_ingest
 
 logger = logging.getLogger(__name__)
@@ -84,6 +91,11 @@ def backfill_stock(db: Session, settings: Settings, code: str, corp_map: dict[st
                 related_stock_code=corp_map.get(_norm(rp.name)),
                 source="hyslrSttus" if rp.relation == "parent" else "otrCprInvstmntSttus",
                 bsns_year=base_year or (today.year - 1),
+                # otrCpr 추가 필드 — 자회사 필터(이익 10%+/적자/출자목적)용.
+                inv_purpose=rp.inv_purpose,
+                book_value=rp.book_value,
+                sub_total_assets=rp.sub_total_assets,
+                sub_net_profit=rp.sub_net_profit,
             )
             .on_conflict_do_nothing(constraint="uq_related_company")
         )
@@ -109,9 +121,64 @@ def backfill_stock(db: Session, settings: Settings, code: str, corp_map: dict[st
             )
             shareholder_n += 1
 
+    # 주식총수(발행·자기·유통) + 합산 지분율 → OwnershipSummary.
+    _upsert_ownership_summary(db, settings, code, corp_code, hyslr_rows, base_year)
+
     db.commit()
     logger.info("related company %s: %d parties, %d shareholders", code, len(related), shareholder_n)
     return True
+
+
+def _upsert_ownership_summary(
+    db: Session,
+    settings: Settings,
+    code: str,
+    corp_code: str,
+    hyslr_rows: list[dart.HyslrRow] | None,
+    base_year: int | None,
+) -> None:
+    """주식총수(stockTotqySttus) + 합산 지분율(hyslrSttus) → OwnershipSummary upsert."""
+    today = datetime.now(UTC).date()
+    year = base_year or (today.year - 1)
+
+    # 합산 지분율 — hyslrSttus 개별 행 stake_pct 합계.
+    group_stake_pct: float | None = None
+    if hyslr_rows:
+        total = sum(r.stake_pct for r in hyslr_rows if r.stake_pct is not None)
+        group_stake_pct = round(total, 2) if total > 0 else None
+
+    # 주식총수 — stockTotqySttus live 조회.
+    floating_shares: int | None = None
+    floating_ratio: float | None = None
+    try:
+        with requests.Session() as session:
+            st = dart.fetch_stock_total(settings.dart_api_key, corp_code, year, 4, session)
+        if st and st.issued and st.issued > 0:
+            outstanding = st.outstanding or (st.issued - (st.treasury or 0))
+            floating_shares = outstanding
+            floating_ratio = round(outstanding / st.issued * 100, 2)
+    except Exception:
+        logger.warning("stock total fetch failed %s", code, exc_info=True)
+
+    db.execute(
+        insert(OwnershipSummary)
+        .values(
+            stock_code=code,
+            group_stake_pct=group_stake_pct,
+            floating_shares=floating_shares,
+            floating_ratio=floating_ratio,
+            bsns_year=year,
+        )
+        .on_conflict_do_update(
+            index_elements=["stock_code"],
+            set_={
+                "group_stake_pct": group_stake_pct,
+                "floating_shares": floating_shares,
+                "floating_ratio": floating_ratio,
+                "bsns_year": year,
+            },
+        )
+    )
 
 
 def _universe_codes(db: Session) -> list[str]:
