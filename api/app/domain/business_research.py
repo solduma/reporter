@@ -10,6 +10,7 @@ from dataclasses import dataclass
 @dataclass
 class ResearchEntity:
     """공급자/고객/경쟁사 엔티티. Phase 3b에서 BusinessOntologyNode로."""
+
     name: str
     role: str  # 원재료 공급자, 주요 고객, 경쟁사 등
     note: str = ""  # 추가 세부사항(선택)
@@ -18,6 +19,7 @@ class ResearchEntity:
 @dataclass
 class ValueChainLink:
     """밸류체인 연결. Phase 3b에서 BusinessOntologyEdge로."""
+
     stage: str  # 원료 조달, 생산, 유통, 서비스 등
     direction: str  # upstream, downstream
     entity: str  # 관련 회사/법인/산업명
@@ -25,8 +27,27 @@ class ValueChainLink:
 
 
 @dataclass
+class OntologyMention:
+    """사업보고서 원문에서 LLM 이 추출한 비즈니스 온톨로지 언급(대상 노드 + 회사와의 관계).
+
+    LLM/normalizer 분리: LLM 은 raw name + source_quote(원문 verbatim) 만 내고, 결정론적
+    normalizer 가 정준 canonical_id 를 부여. edge_type 은 회사(주체) → 대상 노드 관계.
+    company/industry/product/raw_material/segment. 정준화·ID 부여는 하지 않는다.
+    """
+
+    node_type: str  # 대상 노드 타입: company/industry/product/raw_material/segment
+    name: str  # 대상 raw name(정준화 전)
+    edge_type: str  # manufactures/uses_material/operates_in/competes_with/supplies_to/supplies/has_segment/...
+    share: float | None = None  # 0~1 비중(있을 때만)
+    period: str | None = None  # 'YYYY.MM' 또는 연도
+    source_quote: str = ""  # 원문 verbatim 발췌(감사증적, 필수)
+    confidence: float = 0.0  # LLM 자체 신뢰도(정규화 confidence 와 별도)
+
+
+@dataclass
 class ResearchSummary:
     """리서치+ 결과 요약. LLM이 산출하는 구조화 결과 + 서술."""
+
     guideline: str  # 사용자 가이드라인 입력
     vendors: list[ResearchEntity]  # 주요 원재료/공급자
     customers: list[ResearchEntity]  # 주요 고객

@@ -31,6 +31,8 @@ from app.adapters.dart import throttle as dart_throttle
 from app.adapters.llm.factory import get_llm
 from app.config import Settings, get_settings
 from app.db.models import (
+    BusinessOntologyEdge,
+    BusinessOntologyNode,
     BusinessOverviewCache,
     BusinessReportRaw,
     CorpCodeMap,
@@ -39,6 +41,8 @@ from app.db.models import (
     UniverseSnapshot,
 )
 from app.domain import business_overview as bo
+from app.domain.business_research import OntologyMention
+from app.ports.business_ontology import BusinessNodeType
 from app.ports.llm import LLMError, LLMPort
 from app.services import company_service
 from app.services.deepdive import review_loop
@@ -419,15 +423,266 @@ def fetch_segment_sales_for(
     return len(rows)
 
 
+# ── 비즈니스 온톨로지 추출(LLM NER + 결정론적 정규화) ──────────────────────
+# LLM/normalizer 분리: LLM 은 raw mention + source_quote(원문 verbatim) 만 내고, 결정론적
+# normalizer 가 정준 canonical_id 를 부여. confidence < 0.85 → pending_review(자동 병합 금지).
+_ONTOLOGY_EXTRACT_SYSTEM = (
+    "너는 한국 상장사 사업보고서 원문에서 비즈니스 온톨로지 엔티티를 추출하는 NER+관계 태거다. "
+    "원문에 언급된 제품·원재료·산업·고객·공급자·경쟁사·사업 부문을 식별해 **회사(주체)와의 관계**로 태깅한다. "
+    "**원문에 없는 내용은 추출하지 않는다** — 추측·일반론 금지. 각 mention 은 반드시 원문에서 발췌한 "
+    "source_quote(verbatim span)를 포함한다(감사증적). 정준화·ID 부여는 하지 않는다 — raw name 만 내라.\n\n"
+    "node_type(대상 노드): company|industry|product|raw_material|segment.\n"
+    "edge_type(회사→대상 관계): manufactures(제품 생산), uses_material(원재료 사용), operates_in(산업 영위), "
+    "competes_with(경쟁사), supplies_to(주요 고객/납품처), supplies(공급자), has_segment(사업 부문), "
+    "exports_to(수출 대상 — node_type=segment), parent_of, subsidiary_of.\n"
+    "share: 0~1 매출 비중(원문에 명시된 경우만). period: 'YYYY.MM' 또는 연도(원문에 명시된 경우만).\n"
+    "confidence: LLM 자체 추출 신뢰도 0~1.\n\n"
+    "출력은 반드시 아래 JSON 스키마만(다른 텍스트 금지):\n"
+    '{"mentions": [{"node_type": "product", "name": "DRAM", "edge_type": "manufactures", '
+    '"share": 0.42, "period": "2024.12", "source_quote": "원문 발췌 span", "confidence": 0.9}]}\n'
+    "mention 이 0개여도 빈 배열로 반환. 원문에 비즈니스 엔티티가 없으면 mentions=[] ."
+)
+
+# node_type → 회사-대상 기본 관계(LLM 이 edge_type 누락시 폴백).
+_DEFAULT_EDGE_FOR_TYPE: dict[BusinessNodeType, str] = {
+    "product": "manufactures",
+    "raw_material": "uses_material",
+    "industry": "operates_in",
+    "company": "competes_with",
+    "segment": "has_segment",
+}
+_VALID_NODE_TYPES: set[str] = set(_DEFAULT_EDGE_FOR_TYPE)
+
+
+def _to_float(v) -> float | None:
+    if v is None:
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def extract_ontology_entities(llm: LLMPort, model: str, ctx: dict) -> list[OntologyMention]:
+    """조립 컨텍스트 원문에서 비즈니스 온톨로지 언급(LLM NER) 추출. 추가 DART 호출 없음.
+
+    LLM 은 raw name + source_quote 만 반환 — 정준화는 _persist_ontology 의 normalizer 단에서.
+    실패·비정형 응답 시 빈 목록(조립 중단 아님 — 온톨로지는 보강).
+    """
+    user = (
+        f"[종목] {ctx['stock_code']} {ctx['stock_name']}\n\n"
+        f"[베이스 사업보고서 원문 — 사업의 내용]\n{ctx['base']['text']}\n\n"
+        f"[반기·분기 갱신 원문 — 회사의 개황]\n" + "\n---\n".join(u["text"] for u in ctx["updates"])
+    )
+    try:
+        raw = llm.chat(model, _ONTOLOGY_EXTRACT_SYSTEM, user, temperature=0.2)
+    except LLMError as e:
+        logger.warning("ontology extract LLM failed %s: %s", ctx["stock_code"], e)
+        return []
+    data = _extract_json(raw)
+    if not data:
+        return []
+    out: list[OntologyMention] = []
+    for m in data.get("mentions", []):
+        if not isinstance(m, dict):
+            continue
+        name = (m.get("name") or "").strip()
+        nt = (m.get("node_type") or "").strip()
+        if not name or nt not in _VALID_NODE_TYPES:
+            continue
+        out.append(
+            OntologyMention(
+                node_type=nt,
+                name=name,
+                edge_type=(m.get("edge_type") or "").strip(),
+                share=_to_float(m.get("share")),
+                period=(m.get("period") or "").strip() or None,
+                source_quote=(m.get("source_quote") or "").strip(),
+                confidence=_to_float(m.get("confidence")) or 0.0,
+            )
+        )
+    return out
+
+
+def _upsert_ontology_node(
+    db: Session,
+    code: str,
+    node_type: str,
+    canonical_id: str | None,
+    korean_name: str,
+    status: str,
+    source_rcept: str | None,
+    confidence: float | None,
+    english_name: str | None = None,
+) -> int:
+    """노드 upsert → PK id 반환. (stock_code, node_type, korean_name) 로 중복 제거."""
+    stmt = insert(BusinessOntologyNode).values(
+        stock_code=code,
+        node_type=node_type,
+        canonical_id=canonical_id,
+        korean_name=korean_name,
+        english_name=english_name,
+        status=status,
+        source_rcept=source_rcept,
+        confidence=confidence,
+    )
+    stmt = stmt.on_conflict_do_update(
+        constraint="uq_bont_node",
+        set_={
+            "canonical_id": canonical_id,
+            "status": status,
+            "english_name": english_name,
+            "source_rcept": source_rcept,
+            "confidence": confidence,
+        },
+    )
+    db.execute(stmt)
+    return int(
+        db.scalar(
+            select(BusinessOntologyNode.id).where(
+                BusinessOntologyNode.stock_code == code,
+                BusinessOntologyNode.node_type == node_type,
+                BusinessOntologyNode.korean_name == korean_name,
+            )
+        )
+    )
+
+
+def _upsert_ontology_edge(
+    db: Session,
+    code: str,
+    src_id: int,
+    dst_id: int,
+    edge_type: str,
+    share: float | None,
+    period: str | None,
+    source_quote: str,
+    source_rcept: str | None,
+    confidence: float | None,
+    chain_stage: str | None = None,
+) -> None:
+    """엣지 upsert. period 는 '' 로 정규화(unique constraint NULL distinctness 회피)."""
+    stmt = insert(BusinessOntologyEdge).values(
+        stock_code=code,
+        src_node_id=src_id,
+        dst_node_id=dst_id,
+        edge_type=edge_type,
+        share=share,
+        period=period or "",
+        source_quote=source_quote or None,
+        source_rcept=source_rcept,
+        chain_stage=chain_stage,
+        confidence=confidence,
+    )
+    stmt = stmt.on_conflict_do_update(
+        constraint="uq_bont_edge",
+        set_={
+            "share": share,
+            "source_quote": source_quote or None,
+            "chain_stage": chain_stage,
+            "confidence": confidence,
+        },
+    )
+    db.execute(stmt)
+
+
+def persist_ontology(
+    db: Session,
+    code: str,
+    mentions: list[OntologyMention],
+    source_rcept: str,
+    stock_name: str,
+    induty_code: str | None = None,
+) -> dict[str, object]:
+    """LLM 추출 mentions → 정규화·노드/엣지 영속 + 캐시 스냅싯 반환.
+
+    회사(주체) 노드를 src 로 모든 엣지 연결. 대상 노드는 normalizer 로 정준화(회사는 CorpCodeMap DB 경유,
+    산업은 GICS/dart 매핑, 제품/원재료/부문은 사전). 정준 미해결도 pending_review 로 저장(자동 병합 금지).
+    induty_code(사업보고서 DART 산업) 가 있으면 회사 operates_in 산업 노드+엣지 추가.
+    실패해도 조립을 깨지 않기 위해 호출측이 try/except 로 감싼다.
+    """
+    from app.services import business_ontology as bo_svc
+
+    # 회사(주체) 노드 — 정준 ID = CMP_KRX_<stock_code>.
+    company_id = _upsert_ontology_node(
+        db, code, "company", f"CMP_KRX_{code}", stock_name, "canonical", source_rcept, 1.0
+    )
+
+    # DART induty_code → GICS 산업 operates_in 엣지(회사 자기 산업).
+    if induty_code:
+        r = bo_svc.normalize_one(induty_code, "industry", standard="dart")
+        if r.canonical_id:
+            ind_node = bo_svc.industry(r.canonical_id)
+            ind_korean = ind_node.korean_name if ind_node else (r.term or induty_code)
+            ind_id = _upsert_ontology_node(
+                db,
+                code,
+                "industry",
+                r.canonical_id,
+                ind_korean,
+                r.status,
+                source_rcept,
+                r.confidence,
+            )
+            _upsert_ontology_edge(
+                db,
+                code,
+                company_id,
+                ind_id,
+                "operates_in",
+                None,
+                None,
+                "",
+                source_rcept,
+                r.confidence,
+            )
+
+    for m in mentions:
+        if m.node_type == "company":
+            r = bo_svc.resolve_company(db, m.name)
+        else:
+            r = bo_svc.normalize_one(m.name, m.node_type)  # type: ignore[arg-type]
+        edge_type = m.edge_type or _DEFAULT_EDGE_FOR_TYPE[m.node_type]  # type: ignore[index]
+        dst_id = _upsert_ontology_node(
+            db,
+            code,
+            m.node_type,
+            r.canonical_id,
+            r.term or m.name,
+            r.status,
+            source_rcept,
+            r.confidence,
+        )
+        _upsert_ontology_edge(
+            db,
+            code,
+            company_id,
+            dst_id,
+            edge_type,
+            m.share,
+            m.period,
+            m.source_quote,
+            source_rcept,
+            m.confidence,
+        )
+    db.commit()
+    # 캐시 스냅샷은 DB 실제 행에서 재구성(회사 그래프 서비스와 동일 원천).
+    return bo_svc.company_graph(db, code)
+
+
 def assemble_overview(db: Session, settings: Settings, code: str) -> dict | None:
     """종목 사업 개요 조립 → BusinessOverviewCache 저장 + 페이로드 반환. 사업보고서 없으면 None.
 
     1) 대상 정기보고서 발견 → 2) 누락 원문 추출·적재 → 3) LLM 정리정돈(review 루프) → 4) 캐시 저장.
     LLM 미설정 시 원문만 적재하고 None 반환(조립 불가 — 캐시 미생성).
     """
-    corp_code = db.scalar(select(CorpCodeMap.corp_code).where(CorpCodeMap.stock_code == code))
-    if not corp_code or not settings.dart_api_key:
+    corp_row = db.execute(
+        select(CorpCodeMap.corp_code, CorpCodeMap.induty_code).where(CorpCodeMap.stock_code == code)
+    ).first()
+    if not corp_row or not settings.dart_api_key:
         return None
+    corp_code = corp_row.corp_code
+    induty_code = corp_row.induty_code
     llm = get_llm(settings)
     if llm is None:
         logger.info("business assemble %s: LLM 미설정 — 원문만 적재 가능", code)
@@ -478,6 +733,19 @@ def assemble_overview(db: Session, settings: Settings, code: str) -> dict | None
 
     base_rcept, _base_kind, _base_year = reports[0]
     name = ctx["stock_name"]
+
+    # 비즈니스 온톨로지 추출·영속 — 조립된 ctx 원문 재사용(추가 DART 호출 없음). 보강 정보라
+    # 실패해도 캐시 생략하지 않고 빈 스냅샷으로 저장(회귀 방지 — segment_sales 와 동일 취급).
+    ontology_snapshot: dict[str, object] = {"nodes": [], "edges": []}
+    try:
+        mentions = extract_ontology_entities(llm, model, ctx)
+        if mentions:
+            ontology_snapshot = persist_ontology(
+                db, code, mentions, base_rcept, name, induty_code=induty_code
+            )
+    except Exception as e:  # BLE001: 온톨로지 보강 실패가 조립을 깨지 않게
+        logger.warning("ontology extract %s skipped: %s", code, e)
+
     payload = {
         "stock_code": code,
         "stock_name": name,
@@ -488,6 +756,7 @@ def assemble_overview(db: Session, settings: Settings, code: str) -> dict | None
         ],
         "sections": _map_sections(result, reports),
         "research_summary": None,
+        "ontology": ontology_snapshot,
     }
     _store_cache(
         db, code, name, base_rcept, payload["source_reports"], _inputs_hash(reports), payload
@@ -578,6 +847,7 @@ def _merge_research_into_cache(db: Session, code: str, research_summary: dict) -
             "source_reports": [],
             "sections": [],
             "research_summary": research_summary,
+            "ontology": {"nodes": [], "edges": []},
         }
         _store_cache(
             db,

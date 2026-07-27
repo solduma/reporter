@@ -10,6 +10,15 @@ from __future__ import annotations
 
 from dataclasses import asdict
 
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.db.models import (
+    BusinessOntologyEdge,
+    BusinessOntologyNode,
+    CorpCodeMap,
+    SegmentSales,
+)
 from app.ports.business_ontology import (
     BusinessNodeType,
     BusinessNormalizeResult,
@@ -59,34 +68,186 @@ def node(node_id: str) -> NodeOut | None:
     return _port().node(node_id)
 
 
-# ── 회사 그래프·부문 매출(DB 영속 — Task #28 에서 ORM 모델·쿼리 주입) ──────
-# v1 스켈레톤 단계에서는 테이블이 비어있으므로 빈 결과를 반환한다. ingest 파이프라인
-# (business_ingest.py LLM 추출 스텝 + segment_sales fetch)가 행을 채운 뒤 실데이터 반환.
+# ── 회사 해석(포트 + DB) ──────────────────────────────────────────────────
+def resolve_company(db: Session, name: str) -> BusinessNormalizeResult:
+    """회사명 → 정준 ID. 패키지 시드 사전 → CorpCodeMap DB exact → pending_review.
+
+    패키지 normalizer 가 접두/접미사 제거한 term 을 그대로 CorpCodeMap exact 에 재사용(중복 strip 회피).
+    정준 매칭 시 canonical_id = CMP_KRX_<stock_code>. DB fuzzy 는 v2.
+    """
+    port = _port()
+    r = port.resolve(name, "company")
+    if r.resolved:
+        return r
+    cleaned = r.term or name  # 패키지가 suffix 제거한 결과
+    row = db.execute(select(CorpCodeMap.stock_code).where(CorpCodeMap.corp_name == cleaned)).first()
+    if row:
+        return BusinessNormalizeResult(
+            term=name,
+            node_type="company",
+            canonical_id=f"CMP_KRX_{row.stock_code}",
+            matched_via="corp_name",
+            status="canonical",
+            confidence=1.0,
+        )
+    return r  # 패키지의 pending_review 결과 그대로
 
 
-def company_graph(db, code: str) -> dict[str, object]:
-    """회사 노드 + 인접 엣지/이웃 노드. Task #28 에서 business_ontology_node/edge 쿼리로 채운다."""
-    return {"nodes": [], "edges": []}
+# ── 회사 그래프·부문 매출(DB 영속) ────────────────────────────────────────
+def _node_ref(n: BusinessOntologyNode) -> str:
+    """그래프 응답에서 노드를 식별하는 문자열 — 정준 ID 우선, 없으면 타입:이름."""
+    return n.canonical_id or f"{n.node_type}:{n.korean_name}"
 
 
-def company_segments(db, code: str, year: str | None = None) -> list[dict[str, object]]:
-    """부문별 매출(iotHom3MdQe). Task #28 에서 segment_sales 테이블 쿼리로 채운다."""
-    return []
+def company_graph(db: Session, code: str) -> dict[str, object]:
+    """회사 비즈니스 그래프 — 노드(business_ontology_node) + 엣지(business_ontology_edge)."""
+    nodes = db.scalars(
+        select(BusinessOntologyNode).where(BusinessOntologyNode.stock_code == code)
+    ).all()
+    if not nodes:
+        return {"nodes": [], "edges": []}
+    by_pk = {n.id: n for n in nodes}
+    node_dicts: list[dict[str, object]] = []
+    seen: set[str] = set()
+    for n in nodes:
+        ref = _node_ref(n)
+        if ref in seen:
+            continue
+        seen.add(ref)
+        node_dicts.append(
+            {
+                "id": ref,
+                "node_type": n.node_type,
+                "korean_name": n.korean_name,
+                "english_name": n.english_name or "",
+                "aliases": [],
+                "status": n.status,
+                "confidence": n.confidence,
+            }
+        )
+    edges = db.scalars(
+        select(BusinessOntologyEdge).where(BusinessOntologyEdge.stock_code == code)
+    ).all()
+    edge_dicts: list[dict[str, object]] = []
+    for e in edges:
+        src = by_pk.get(e.src_node_id)
+        dst = by_pk.get(e.dst_node_id)
+        if not src or not dst:
+            continue
+        edge_dicts.append(
+            {
+                "src": _node_ref(src),
+                "dst": _node_ref(dst),
+                "edge_type": e.edge_type,
+                "share": e.share,
+                "period": e.period or None,
+                "source_quote": e.source_quote,
+                "chain_stage": e.chain_stage,
+                "confidence": e.confidence,
+            }
+        )
+    return {"nodes": node_dicts, "edges": edge_dicts}
 
 
-def company_products(db, code: str) -> list[dict[str, object]]:
-    """회사가 생산하는 제품 + 매출 비중(manufactures 엣지). Task #28 에서 채운다."""
-    return []
+def company_segments(db: Session, code: str, year: str | None = None) -> list[dict[str, object]]:
+    """부문별 매출(iotHom3MdQe → segment_sales). year 미지정시 전체."""
+    stmt = select(SegmentSales).where(SegmentSales.stock_code == code)
+    if year:
+        stmt = stmt.where(SegmentSales.bsns_year == year)
+    rows = db.scalars(stmt).all()
+    return [
+        {
+            "bsns_year": r.bsns_year,
+            "report_code": r.report_code,
+            "segment_type": r.segment_type,
+            "segment_name": r.segment_name,
+            "revenue": r.revenue,
+            "ratio_pct": r.ratio_pct,
+        }
+        for r in rows
+    ]
 
 
-def company_materials(db, code: str) -> list[dict[str, object]]:
-    """회사가 사용하는 원재료(uses_material 엣지). Task #28 에서 채운다."""
-    return []
+def _company_edges(db: Session, code: str, edge_type: str) -> list[dict[str, object]]:
+    """회사→대상 엣지 + 대상 노드 메타(manufactures/uses_material 공용)."""
+    edges = db.scalars(
+        select(BusinessOntologyEdge).where(
+            BusinessOntologyEdge.stock_code == code,
+            BusinessOntologyEdge.edge_type == edge_type,
+        )
+    ).all()
+    if not edges:
+        return []
+    dst_ids = [e.dst_node_id for e in edges]
+    nodes = {
+        n.id: n
+        for n in db.scalars(
+            select(BusinessOntologyNode).where(BusinessOntologyNode.id.in_(dst_ids))
+        ).all()
+    }
+    out: list[dict[str, object]] = []
+    for e in edges:
+        dst = nodes.get(e.dst_node_id)
+        if dst is None:
+            continue
+        out.append(
+            {
+                "node_id": dst.canonical_id or _node_ref(dst),
+                "korean_name": dst.korean_name,
+                "edge_type": e.edge_type,
+                "share": e.share,
+                "period": e.period or None,
+                "confidence": e.confidence,
+            }
+        )
+    return out
 
 
-def industry_companies(db, gics_code: str) -> list[dict[str, object]]:
-    """GICS 동종업(peers). Task #28 에서 operates_in 엣지 역방향 쿼리로 채운다."""
-    return []
+def company_products(db: Session, code: str) -> list[dict[str, object]]:
+    """회사가 생산하는 제품 + 매출 비중(manufactures 엣지)."""
+    return _company_edges(db, code, "manufactures")
+
+
+def company_materials(db: Session, code: str) -> list[dict[str, object]]:
+    """회사가 사용하는 원재료(uses_material 엣지)."""
+    return _company_edges(db, code, "uses_material")
+
+
+def industry_companies(db: Session, gics_code: str) -> list[dict[str, object]]:
+    """GICS 동종업 종목(peers) — operates_in 엣지 역방향. 산업 노드는 GICS 코드 또는 ID 로 식별."""
+    ind = industry(gics_code)
+    if ind is None:
+        return []
+    # 해당 산업을 operates_in 하는 회사 노드 → 회사 메타(node_type=company 동일 stock_code).
+    ind_nodes = db.scalars(
+        select(BusinessOntologyNode).where(
+            BusinessOntologyNode.node_type == "industry",
+            BusinessOntologyNode.canonical_id == ind.id,
+        )
+    ).all()
+    if not ind_nodes:
+        return []
+    codes = [n.stock_code for n in ind_nodes]
+    companies = {
+        c.stock_code: c
+        for c in db.scalars(
+            select(BusinessOntologyNode).where(
+                BusinessOntologyNode.node_type == "company",
+                BusinessOntologyNode.stock_code.in_(codes),
+            )
+        ).all()
+    }
+    out: list[dict[str, object]] = []
+    for sc in codes:
+        c = companies.get(sc)
+        out.append(
+            {
+                "stock_code": sc,
+                "korean_name": c.korean_name if c else "",
+                "canonical_id": c.canonical_id if c else None,
+            }
+        )
+    return out
 
 
 def node_to_dict(n: NodeOut | IndustryNodeOut) -> dict[str, object]:

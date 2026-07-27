@@ -288,6 +288,61 @@ class SegmentSales(Base):
     )
 
 
+class BusinessOntologyNode(Base):
+    """비즈니스 온톨로지 노드 인스턴스 — 회사별로 추출된 기업/산업/제품/원재료/부문 노드.
+
+    정적 온톨로지 패키지의 정준 canonical_id 를 회사 컨텍스트로 인스턴스화. LLM 추출 원문 언급을
+    결정론적 normalizer 가 해석 — 정준 미해결(pending_review)도 저장하되 status 로 구분(자동 병합 금지,
+    수동 리뷰 후 canonical 승격). (stock_code, node_type, korean_name) = 회사 내 원문 언급 단위.
+    """
+
+    __tablename__ = "business_ontology_node"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    stock_code: Mapped[str] = mapped_column(String(6), index=True)
+    node_type: Mapped[str] = mapped_column(
+        String(16)
+    )  # company/industry/product/raw_material/segment
+    canonical_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    korean_name: Mapped[str] = mapped_column(String(128))
+    english_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="canonical")  # canonical/pending_review
+    source_rcept: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        UniqueConstraint("stock_code", "node_type", "korean_name", name="uq_bont_node"),
+    )
+
+
+class BusinessOntologyEdge(Base):
+    """비즈니스 온톨로지 엣지 인스턴스 — 회사 노드와 인접 노드 간 관계(manufactures/uses_material/...).
+
+    src 는 회사(주체) 노드, dst 는 대상 노드. source_quote 는 원문 verbatim 발췌(감사증적).
+    (stock_code, src_node_id, dst_node_id, edge_type, period) 로 회사 내 엣지 중복 제거.
+    """
+
+    __tablename__ = "business_ontology_edge"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    stock_code: Mapped[str] = mapped_column(String(6), index=True)
+    src_node_id: Mapped[int] = mapped_column(ForeignKey("business_ontology_node.id"), index=True)
+    dst_node_id: Mapped[int] = mapped_column(ForeignKey("business_ontology_node.id"), index=True)
+    edge_type: Mapped[str] = mapped_column(String(32))
+    share: Mapped[float | None] = mapped_column(Float, nullable=True)
+    period: Mapped[str] = mapped_column(String(16), default="")
+    source_quote: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_rcept: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    chain_stage: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        UniqueConstraint(
+            "stock_code", "src_node_id", "dst_node_id", "edge_type", "period", name="uq_bont_edge"
+        ),
+    )
+
+
 class DisclosureSyncState(Base):
     """종목별 DART 마지막 동기화 시각·깊이. 공시가 0건이거나 신규가 없어도 재조회를 억제한다.
 
@@ -377,14 +432,14 @@ class Shareholder(Base):
     """
 
     __tablename__ = "shareholder"
-    __table_args__ = (
-        UniqueConstraint("stock_code", "holder_name", name="uq_shareholder"),
-    )
+    __table_args__ = (UniqueConstraint("stock_code", "holder_name", name="uq_shareholder"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     stock_code: Mapped[str] = mapped_column(String(6), index=True)  # 기준 종목
     holder_name: Mapped[str] = mapped_column(String(128))  # 주주명(법인/개인)
-    relate: Mapped[str] = mapped_column(String(64), default="")  # 최대주주 본인/배우자/자녀/특수관계인
+    relate: Mapped[str] = mapped_column(
+        String(64), default=""
+    )  # 최대주주 본인/배우자/자녀/특수관계인
     stake_pct: Mapped[float | None] = mapped_column(Float)  # 기말 지분율(%)
     is_corporate: Mapped[bool] = mapped_column(Boolean, default=False)  # 법인 여부
     related_stock_code: Mapped[str | None] = mapped_column(String(6))  # 상장 주주면 링크
@@ -667,9 +722,7 @@ class FinancialStatementCache(Base):
     """
 
     __tablename__ = "financial_statement_cache"
-    __table_args__ = (
-        UniqueConstraint("stock_code", "fs_div", name="uq_fs_cache_code_div"),
-    )
+    __table_args__ = (UniqueConstraint("stock_code", "fs_div", name="uq_fs_cache_code_div"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     stock_code: Mapped[str] = mapped_column(String(6), index=True)
@@ -1144,6 +1197,7 @@ class BusinessResearchJob(Base):
     리서치 결과는 별도 테이블이 아니라 BusinessOverviewCache.payload["research_summary"]에
     직접 저장(다음 방문 시 GET /business 로 자동 노출). 이 행은 lifecycle만 관리.
     """
+
     __tablename__ = "business_research_job"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -1159,7 +1213,9 @@ class BusinessResearchJob(Base):
     # 실패 원인(실패 시에만).
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     # 요청 시각.
-    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    requested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
     # 실행 시작 시각(running 전환 시).
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # 완료 시각(done/failed).

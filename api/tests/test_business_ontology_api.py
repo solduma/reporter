@@ -10,8 +10,13 @@ from __future__ import annotations
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from app.adapters.business_ontology import get_business_ontology_port
+from app.db.models import Base, BusinessOntologyEdge, BusinessOntologyNode
+from app.db.session import get_session
 from app.routers import business_ontology
 from app.services import business_ontology as bo_service
 
@@ -136,9 +141,24 @@ def test_router_node_unknown_404(client: TestClient):
     assert resp.status_code == 404
 
 
-def test_router_graph_empty_until_ingest(client: TestClient):
-    """DB 백엔드 — 스켈레톤 단계에선 빈 그래프(테이블 미생성/미충전). Task #28 이후 실데이터."""
-    resp = client.get("/api/business-ontology/005930/graph")
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["nodes"] == [] and body["edges"] == []
+def test_router_graph_empty_until_ingest():
+    """DB 백엔드 — 빈 테이블(ingest 전)은 빈 그래프. get_session 을 인메모리 SQLite 로 override."""
+    engine = create_engine(
+        "sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
+    Base.metadata.create_all(
+        engine, tables=[BusinessOntologyNode.__table__, BusinessOntologyEdge.__table__]
+    )
+    session = sessionmaker(bind=engine)()
+
+    app = FastAPI()
+    app.include_router(business_ontology.router)
+    app.dependency_overrides[get_session] = lambda: session
+    client = TestClient(app)
+    try:
+        resp = client.get("/api/business-ontology/005930/graph")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["nodes"] == [] and body["edges"] == []
+    finally:
+        session.close()

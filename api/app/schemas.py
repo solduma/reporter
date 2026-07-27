@@ -926,7 +926,7 @@ class BusinessIndustryNodeOut(BaseModel):
 
 
 class BusinessNodeOut(BaseModel):
-    """정적 비즈니스 노드(제품/원재료/기업/부문/산업 공통)."""
+    """정적 비즈니스 노드(제품/원재료/기업/부문/산업 공통). 인스턴스 노드(그래프)시 status/confidence 추가."""
 
     id: str
     node_type: str
@@ -939,6 +939,9 @@ class BusinessNodeOut(BaseModel):
     corp_code: str | None = None
     stock_code: str | None = None
     segment_type: str | None = None
+    # 인스턴스 노드(회사 그래프) 전용 — 정적 노드 응답에는 미사용.
+    status: str | None = None
+    confidence: float | None = None
 
 
 class BusinessEdgeTypeOut(BaseModel):
@@ -1044,6 +1047,7 @@ class BusinessOverviewOut(BaseModel):
 
 class ResearchStatus(BaseModel):
     """사업 리서치 job 상태(폴링용)."""
+
     stock_code: str
     # none(해당 없음) | pending(큐) | running(실행 중) | done(성공, research_summary 저장됨) | failed
     status: str = "none"
@@ -1054,6 +1058,7 @@ class ResearchStatus(BaseModel):
 
 class ResearchGuidelineInput(BaseModel):
     """리서치 요청 바디."""
+
     guideline: str = ""
 
 
@@ -1141,4 +1146,3 @@ class OwnershipOut(BaseModel):
     summary: OwnershipSummaryOut | None = None  # 분석 배지
     major_holders: list[MajorHolderOut] = Field(default_factory=list)  # 5%+ 주주
     dilution: list[DilutionOut] = Field(default_factory=list)  # CB/BW 발행내역
-
