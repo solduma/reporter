@@ -254,6 +254,38 @@ class CorpCodeMap(Base):
     stock_code: Mapped[str] = mapped_column(String(6), primary_key=True)
     corp_code: Mapped[str] = mapped_column(String(8), index=True)
     corp_name: Mapped[str] = mapped_column(String(128))
+    # DART 표준산업분류코드(corpCode.xml induty_code). 무료 산업분류 → GICS 2차 anchor.
+    # 신규 컬럼(_COLUMN_MIGRATIONS 로 추가). 과거 적재분은 NULL.
+    induty_code: Mapped[str | None] = mapped_column(String(16), nullable=True)
+
+
+class SegmentSales(Base):
+    """부문별 매출(iotHom3MdQe) — 사업보고서 원문의 구조화 DART 소스.
+
+    제품/지역/산업/매출형태 부문의 매출액·비중을 종목·사업연도·보고서 단위로 저장.
+    비즈니스 온톨로지 has_segment 엣지 + /api/business-ontology/{code}/segments 응답 원천.
+    """
+
+    __tablename__ = "segment_sales"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    stock_code: Mapped[str] = mapped_column(String(6), index=True)
+    bsns_year: Mapped[str] = mapped_column(String(4))
+    report_code: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    segment_type: Mapped[str] = mapped_column(String(16))  # 산업/제품/지역/매출형태 구분
+    segment_name: Mapped[str] = mapped_column(String(128))
+    revenue: Mapped[float | None] = mapped_column(Float, nullable=True)
+    ratio_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    __table_args__ = (
+        UniqueConstraint(
+            "stock_code",
+            "bsns_year",
+            "report_code",
+            "segment_type",
+            "segment_name",
+            name="uq_segment_sales",
+        ),
+    )
 
 
 class DisclosureSyncState(Base):

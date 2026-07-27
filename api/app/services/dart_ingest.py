@@ -38,11 +38,18 @@ def ensure_corp_mappings(db: Session, settings: Settings, session: requests.Sess
     mappings = dart.fetch_corp_mappings(settings.dart_api_key, session)
     for m in mappings:
         stmt = insert(CorpCodeMap).values(
-            stock_code=m.stock_code, corp_code=m.corp_code, corp_name=m.corp_name
+            stock_code=m.stock_code,
+            corp_code=m.corp_code,
+            corp_name=m.corp_name,
+            induty_code=m.induty_code,
         )
         stmt = stmt.on_conflict_do_update(
             index_elements=["stock_code"],
-            set_={"corp_code": stmt.excluded.corp_code, "corp_name": stmt.excluded.corp_name},
+            set_={
+                "corp_code": stmt.excluded.corp_code,
+                "corp_name": stmt.excluded.corp_name,
+                "induty_code": stmt.excluded.induty_code,
+            },
         )
         db.execute(stmt)
     db.commit()
