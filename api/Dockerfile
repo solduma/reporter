@@ -15,6 +15,8 @@ COPY pyproject.toml uv.lock README.md ./
 COPY src ./src
 COPY api ./api
 COPY financial-ontology ./financial-ontology
+# 비즈니스 온톨로지(기업/산업/제품/원재료) — api/pyproject 가 editable path ../business-ontology/python 참조.
+COPY business-ontology ./business-ontology
 
 WORKDIR /app/api
 # api/.env 는 이미지에 넣지 않는다(런타임 env 로 주입). 의존성만 설치.
