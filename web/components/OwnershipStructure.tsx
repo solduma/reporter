@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 
 import { fetchOwnership } from "@/lib/api";
 import type {
@@ -132,11 +132,23 @@ function snapshotShareholders(
   return { holders, recentZero };
 }
 
+// Set 토글 헬퍼 — 행/섹션 확장 상태.
+function toggleInSet(prev: Set<string>, key: string): Set<string> {
+  const next = new Set(prev);
+  if (next.has(key)) next.delete(key);
+  else next.add(key);
+  return next;
+}
+
 export default function OwnershipStructure({ code }: { code: string }) {
   const [state, setState] = useState<
     { status: "loading" | "ready" | "error"; data: OwnershipResponse | null; message?: string }
   >({ status: "loading", data: null });
   const [showAllSubs, setShowAllSubs] = useState(false);
+  // 행 클릭 시 변동 내역 확장 — 주주·0%전환·5%+·기타 각 행.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  // 0%전환·5%+·기타 섹션 자체 접힘(디폴트 collapsed).
+  const [openSections, setOpenSections] = useState<Set<string>>(new Set());
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = useCallback(async () => {
@@ -201,6 +213,44 @@ export default function OwnershipStructure({ code }: { code: string }) {
     (c) => c.rcept_date && (c.shares_after ?? 0) === 0 && !snapshotHolders.some((s) => s.holder_name === c.reporter),
   );
 
+  // elestock 변동을 보고자별로 묶어 주주·0%전환 행 클릭 시 확장.
+  const changesByName = new Map<string, OwnershipChangeRow[]>();
+  for (const c of changes) {
+    if (!c.reporter) continue;
+    const arr = changesByName.get(c.reporter) ?? [];
+    arr.push(c);
+    changesByName.set(c.reporter, arr);
+  }
+  const changesFor = (name: string): OwnershipChangeRow[] => changesByName.get(name) ?? [];
+
+  // 5%+ 보고서를 보고자별로 묶어 행 클릭 시 개별 보고 상세 확장.
+  const majorByName = new Map<string, MajorHolderRow[]>();
+  for (const h of major_holders) {
+    const arr = majorByName.get(h.repror) ?? [];
+    arr.push(h);
+    majorByName.set(h.repror, arr);
+  }
+
+  // 기타 최근 변동: 주주 명부·0%전환·5%+ 어디에도 매칭되지 않는 보고자(임원 등)의 변동.
+  // 독립 "최근 지분 변동" 테이블을 폐지하고 per-shareholder 확장으로 옮겼으므로, 매칭되지 않은
+  // 변동 데이터가 소실되지 않도록 별도 collapsed 섹션에 보존한다.
+  const displayedNames = new Set<string>();
+  snapshotHolders.forEach((s) => displayedNames.add(s.holder_name));
+  recentZero.forEach((s) => displayedNames.add(s.holder_name));
+  zeroChangeRows.forEach((c) => displayedNames.add(c.reporter));
+  major_holders.forEach((h) => displayedNames.add(h.repror));
+  const orphanReporters: { reporter: string; rows: OwnershipChangeRow[]; latest: OwnershipChangeRow }[] = [];
+  for (const [reporter, rows] of changesByName) {
+    if (displayedNames.has(reporter)) continue;
+    const latest = rows.slice().sort((a, b) => (b.rcept_date ?? "").localeCompare(a.rcept_date ?? ""))[0];
+    orphanReporters.push({ reporter, rows, latest });
+  }
+  orphanReporters.sort((a, b) => (b.latest.rcept_date ?? "").localeCompare(a.latest.rcept_date ?? ""));
+
+  const groupedMajor = groupMajorHolders(major_holders);
+  const toggleRow = (key: string) => setExpanded((p) => toggleInSet(p, key));
+  const toggleSection = (key: string) => setOpenSections((p) => toggleInSet(p, key));
+
   return (
     <div className={styles.wrap}>
       {/* 분석 배지 — 지배력·리스크·수급 */}
@@ -212,6 +262,7 @@ export default function OwnershipStructure({ code }: { code: string }) {
           asOfYear={as_of_year}
           emptyText="주주 데이터가 없습니다."
         >
+          {/* 주주 명부 — 행 클릭 시 해당 주주의 elestock 소유변동 확장 */}
           {snapshotHolders.length > 0 && (
             <table className={styles.table}>
               <thead>
@@ -222,31 +273,61 @@ export default function OwnershipStructure({ code }: { code: string }) {
                 </tr>
               </thead>
               <tbody>
-                {snapshotHolders.map((s) => (
-                  <tr key={s.holder_name}>
-                    <th className={styles.nameCol} scope="row">
-                      {s.related_stock_code ? (
-                        <Link href={`/companies/${s.related_stock_code}`} className={styles.link}>
-                          {s.holder_name}
-                        </Link>
-                      ) : (
-                        <span className={s.is_corporate ? styles.corp : styles.person}>
-                          {s.holder_name}
-                        </span>
-                      )}
-                    </th>
-                    <td>{relateLabel(s.relate)}</td>
-                    <td className={styles.num}>{fmtStake(s.stake_pct)}</td>
-                  </tr>
-                ))}
+                {snapshotHolders.map((s) => {
+                  const key = `sh-${s.holder_name}`;
+                  const hist = changesFor(s.holder_name);
+                  const expandable = hist.length > 0;
+                  const isOpen = expanded.has(key);
+                  return (
+                    <Fragment key={key}>
+                      <tr
+                        className={expandable ? styles.clickable : undefined}
+                        onClick={expandable ? () => toggleRow(key) : undefined}
+                      >
+                        <th className={styles.nameCol} scope="row">
+                          {s.related_stock_code ? (
+                            <Link
+                              href={`/companies/${s.related_stock_code}`}
+                              className={styles.link}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {s.holder_name}
+                            </Link>
+                          ) : (
+                            <span className={s.is_corporate ? styles.corp : styles.person}>
+                              {s.holder_name}
+                            </span>
+                          )}
+                          {expandable ? (
+                            <span className={styles.rowArrow}>{isOpen ? "▾" : "▸"}</span>
+                          ) : null}
+                        </th>
+                        <td>{relateLabel(s.relate)}</td>
+                        <td className={styles.num}>{fmtStake(s.stake_pct)}</td>
+                      </tr>
+                      {isOpen && expandable ? (
+                        <tr className={styles.detailRow}>
+                          <td colSpan={3}>
+                            <ChangeHistoryDetail rows={hist} />
+                          </td>
+                        </tr>
+                      ) : null}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           )}
 
-          {/* 최근 1년 내 0%로 전환된 주주 (임원·주요주주 소유 전량 처분 등) */}
+          {/* 최근 1년 내 0%로 전환된 주주 — 섹션 디폴트 collapsed, 행 클릭 시 변동 확장 */}
           {(recentZero.length > 0 || zeroChangeRows.length > 0) && (
-            <div className={styles.subSection}>
-              <h4 className={styles.subSectionTitle}>최근 1년 내 0% 전환</h4>
+            <CollapsibleSection
+              title="최근 1년 내 0% 전환"
+              count={recentZero.length + zeroChangeRows.length}
+              sectionKey="zero"
+              open={openSections.has("zero")}
+              onToggle={toggleSection}
+            >
               <div className={styles.scroll}>
                 <table className={styles.table}>
                   <thead>
@@ -258,52 +339,103 @@ export default function OwnershipStructure({ code }: { code: string }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {recentZero.map((s) => (
-                      <tr key={`zero-${s.holder_name}`}>
-                        <th className={styles.nameCol} scope="row">
-                          {s.related_stock_code ? (
-                            <Link href={`/companies/${s.related_stock_code}`} className={styles.link}>
-                              {s.holder_name}
-                            </Link>
-                          ) : (
-                            <span className={s.is_corporate ? styles.corp : styles.person}>
-                              {s.holder_name}
-                            </span>
-                          )}
-                        </th>
-                        <td>{s.position}</td>
-                        <td>{s.changedAt}</td>
-                        <td className={styles.num}>
-                          {s.delta !== null
-                            ? `${s.delta > 0 ? "+" : ""}${s.delta.toLocaleString("ko-KR")}주`
-                            : "—"}
-                        </td>
-                      </tr>
-                    ))}
-                    {zeroChangeRows.map((c) => (
-                      <tr key={`zero-${c.reporter}-${c.rcept_no}`}>
-                        <th className={styles.nameCol} scope="row">
-                          <span className={styles.person}>{c.reporter}</span>
-                        </th>
-                        <td>{c.position || "—"}</td>
-                        <td>{c.rcept_date ?? "—"}</td>
-                        <td className={styles.num}>
-                          {c.shares_delta !== null
-                            ? `${c.shares_delta > 0 ? "+" : ""}${c.shares_delta.toLocaleString("ko-KR")}주`
-                            : "—"}
-                        </td>
-                      </tr>
-                    ))}
+                    {recentZero.map((s) => {
+                      const key = `zero-${s.holder_name}`;
+                      const hist = changesFor(s.holder_name);
+                      const expandable = hist.length > 0;
+                      const isOpen = expanded.has(key);
+                      return (
+                        <Fragment key={key}>
+                          <tr
+                            className={expandable ? styles.clickable : undefined}
+                            onClick={expandable ? () => toggleRow(key) : undefined}
+                          >
+                            <th className={styles.nameCol} scope="row">
+                              {s.related_stock_code ? (
+                                <Link
+                                  href={`/companies/${s.related_stock_code}`}
+                                  className={styles.link}
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  {s.holder_name}
+                                </Link>
+                              ) : (
+                                <span className={s.is_corporate ? styles.corp : styles.person}>
+                                  {s.holder_name}
+                                </span>
+                              )}
+                              {expandable ? (
+                                <span className={styles.rowArrow}>{isOpen ? "▾" : "▸"}</span>
+                              ) : null}
+                            </th>
+                            <td>{s.position}</td>
+                            <td>{s.changedAt}</td>
+                            <td className={styles.num}>
+                              {s.delta !== null
+                                ? `${s.delta > 0 ? "+" : ""}${s.delta.toLocaleString("ko-KR")}주`
+                                : "—"}
+                            </td>
+                          </tr>
+                          {isOpen && expandable ? (
+                            <tr className={styles.detailRow}>
+                              <td colSpan={4}>
+                                <ChangeHistoryDetail rows={hist} />
+                              </td>
+                            </tr>
+                          ) : null}
+                        </Fragment>
+                      );
+                    })}
+                    {zeroChangeRows.map((c) => {
+                      const key = `zero-${c.reporter}-${c.rcept_no}`;
+                      const hist = changesFor(c.reporter);
+                      const expandable = hist.length > 0;
+                      const isOpen = expanded.has(key);
+                      return (
+                        <Fragment key={key}>
+                          <tr
+                            className={expandable ? styles.clickable : undefined}
+                            onClick={expandable ? () => toggleRow(key) : undefined}
+                          >
+                            <th className={styles.nameCol} scope="row">
+                              <span className={styles.person}>{c.reporter}</span>
+                              {expandable ? (
+                                <span className={styles.rowArrow}>{isOpen ? "▾" : "▸"}</span>
+                              ) : null}
+                            </th>
+                            <td>{c.position || "—"}</td>
+                            <td>{c.rcept_date ?? "—"}</td>
+                            <td className={styles.num}>
+                              {c.shares_delta !== null
+                                ? `${c.shares_delta > 0 ? "+" : ""}${c.shares_delta.toLocaleString("ko-KR")}주`
+                                : "—"}
+                            </td>
+                          </tr>
+                          {isOpen && expandable ? (
+                            <tr className={styles.detailRow}>
+                              <td colSpan={4}>
+                                <ChangeHistoryDetail rows={hist} />
+                              </td>
+                            </tr>
+                          ) : null}
+                        </Fragment>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
-            </div>
+            </CollapsibleSection>
           )}
 
-          {/* 5%+ 대량보유주주 — 보고자별 1줄(최신) + 변경 이력 요약 */}
+          {/* 5%+ 대량보유주주 — 섹션 디폴트 collapsed, 행 클릭 시 개별 보고 상세 확장 */}
           {major_holders.length > 0 && (
-            <div className={styles.subSection}>
-              <h4 className={styles.subSectionTitle}>5%+ 대량보유주주</h4>
+            <CollapsibleSection
+              title="5%+ 대량보유주주"
+              count={groupedMajor.length}
+              sectionKey="major"
+              open={openSections.has("major")}
+              onToggle={toggleSection}
+            >
               <div className={styles.scroll}>
                 <table className={styles.table}>
                   <thead>
@@ -315,18 +447,35 @@ export default function OwnershipStructure({ code }: { code: string }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {groupMajorHolders(major_holders).map((h) => (
-                      <tr key={`mh-${h.repror}`}>
-                        <th className={styles.nameCol} scope="row">{h.repror}</th>
-                        <td className={styles.num}>{fmtStake(h.stkrt)}</td>
-                        <td className={styles.num}>{fmtShares(h.stkqy)}</td>
-                        <td className={styles.historyCell}>{h.history}</td>
-                      </tr>
-                    ))}
+                    {groupedMajor.map((h) => {
+                      const key = `mh-${h.repror}`;
+                      const detail = majorByName.get(h.repror) ?? [];
+                      const isOpen = expanded.has(key);
+                      return (
+                        <Fragment key={key}>
+                          <tr className={styles.clickable} onClick={() => toggleRow(key)}>
+                            <th className={styles.nameCol} scope="row">
+                              {h.repror}
+                              <span className={styles.rowArrow}>{isOpen ? "▾" : "▸"}</span>
+                            </th>
+                            <td className={styles.num}>{fmtStake(h.stkrt)}</td>
+                            <td className={styles.num}>{fmtShares(h.stkqy)}</td>
+                            <td className={styles.historyCell}>{h.history}</td>
+                          </tr>
+                          {isOpen ? (
+                            <tr className={styles.detailRow}>
+                              <td colSpan={4}>
+                                <MajorHolderDetail rows={detail} />
+                              </td>
+                            </tr>
+                          ) : null}
+                        </Fragment>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
-            </div>
+            </CollapsibleSection>
           )}
 
           {/* CB/BW 희석 리스크 */}
@@ -363,6 +512,58 @@ export default function OwnershipStructure({ code }: { code: string }) {
                 ※ 주식담보대출 정보는 공시 원문 참조
               </p>
             </div>
+          )}
+
+          {/* 기타 최근 변동 — 어디에도 매칭 안 되는 임원·주요주주 소유변동 보존(collapsed) */}
+          {orphanReporters.length > 0 && (
+            <CollapsibleSection
+              title="기타 최근 변동"
+              count={orphanReporters.length}
+              sectionKey="etc"
+              open={openSections.has("etc")}
+              onToggle={toggleSection}
+              stale={changes_stale}
+            >
+              <p className={styles.subNote}>주주 명부·5%+에 속하지 않는 보고자의 소유변동</p>
+              <div className={styles.scroll}>
+                <table className={styles.table}>
+                  <thead>
+                    <tr>
+                      <th className={styles.nameCol} scope="col">보고자</th>
+                      <th scope="col">직위</th>
+                      <th scope="col">최근 변동</th>
+                      <th scope="col">건수</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {orphanReporters.map(({ reporter, rows, latest }) => {
+                      const key = `etc-${reporter}`;
+                      const isOpen = expanded.has(key);
+                      return (
+                        <Fragment key={key}>
+                          <tr className={styles.clickable} onClick={() => toggleRow(key)}>
+                            <th className={styles.nameCol} scope="row">
+                              {reporter}
+                              <span className={styles.rowArrow}>{isOpen ? "▾" : "▸"}</span>
+                            </th>
+                            <td>{latest.position || "—"}</td>
+                            <td>{latest.rcept_date ?? "—"}</td>
+                            <td className={styles.num}>{rows.length}건</td>
+                          </tr>
+                          {isOpen ? (
+                            <tr className={styles.detailRow}>
+                              <td colSpan={4}>
+                                <ChangeHistoryDetail rows={rows} />
+                              </td>
+                            </tr>
+                          ) : null}
+                        </Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </CollapsibleSection>
           )}
         </OwnershipColumn>
 
@@ -429,33 +630,6 @@ export default function OwnershipStructure({ code }: { code: string }) {
           )}
         </OwnershipColumn>
       </div>
-
-      {changes.length > 0 && (
-        <div className={styles.changes}>
-          <div className={styles.changesHead}>
-            <h3 className={styles.subTitle}>최근 지분 변동</h3>
-            {changes_stale ? <span className={styles.staleTag}>갱신 중</span> : null}
-          </div>
-          <div className={styles.scroll}>
-            <table className={styles.table}>
-              <thead>
-                <tr>
-                  <th scope="col">일자</th>
-                  <th className={styles.nameCol} scope="col">보고자</th>
-                  <th scope="col">직위</th>
-                  <th scope="col">증감</th>
-                  <th scope="col">변동후</th>
-                </tr>
-              </thead>
-              <tbody>
-                {changes.map((c) => (
-                  <ChangeRow key={c.rcept_no} change={c} />
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -520,20 +694,79 @@ function OwnershipColumn({
   );
 }
 
-function ChangeRow({ change }: { change: OwnershipChangeRow }) {
-  const delta = change.shares_delta;
-  const positive = delta !== null && delta >= 0;
+// 접힘 섹션 — 헤더 클릭으로 토글. 0%전환·5%+·기타는 디폴트 collapsed.
+function CollapsibleSection({
+  title,
+  count,
+  sectionKey,
+  open,
+  onToggle,
+  stale,
+  children,
+}: {
+  title: string;
+  count?: number;
+  sectionKey: string;
+  open: boolean;
+  onToggle: (key: string) => void;
+  stale?: boolean;
+  children: React.ReactNode;
+}) {
   return (
-    <tr>
-      <td>{change.rcept_date ?? "—"}</td>
-      <th className={styles.nameCol} scope="row">
-        {change.reporter}
-      </th>
-      <td>{change.position || "—"}</td>
-      <td className={`${styles.num} ${positive ? styles.up : styles.down}`}>
-        {delta === null ? "—" : `${positive ? "+" : ""}${delta.toLocaleString("ko-KR")}주`}
-      </td>
-      <td className={styles.num}>{fmtShares(change.shares_after)}</td>
-    </tr>
+    <div className={styles.subSection}>
+      <button
+        type="button"
+        className={styles.sectionToggle}
+        aria-expanded={open}
+        onClick={() => onToggle(sectionKey)}
+      >
+        <span className={styles.sectionArrow}>{open ? "▾" : "▸"}</span>
+        <span className={styles.subSectionTitle}>{title}</span>
+        {count !== undefined ? <span className={styles.countBadge}>{count}</span> : null}
+        {stale ? <span className={styles.staleTag}>갱신 중</span> : null}
+      </button>
+      {open ? children : null}
+    </div>
+  );
+}
+
+// elestock 소유변동 확장 — 주주·0%전환·기타 행 클릭 시.
+function ChangeHistoryDetail({ rows }: { rows: OwnershipChangeRow[] }) {
+  const sorted = rows.slice().sort((a, b) => (b.rcept_date ?? "").localeCompare(a.rcept_date ?? ""));
+  return (
+    <ul className={styles.changeList}>
+      {sorted.map((c) => {
+        const delta = c.shares_delta;
+        const positive = delta !== null && delta >= 0;
+        return (
+          <li key={c.rcept_no} className={styles.changeItem}>
+            <span className={styles.changeDate}>{c.rcept_date ?? "—"}</span>
+            <span className={styles.changePos}>{c.position || "—"}</span>
+            <span className={`${styles.changeDelta} ${positive ? styles.up : styles.down}`}>
+              {delta === null ? "—" : `${positive ? "+" : ""}${delta.toLocaleString("ko-KR")}주`}
+            </span>
+            <span className={styles.changeAfter}>변동후 {fmtShares(c.shares_after)}</span>
+            {c.reason ? <span className={styles.changeReason}>{c.reason}</span> : null}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+// 5%+ 보고자의 개별 대량보유 상황보고 확장 — 행 클릭 시.
+function MajorHolderDetail({ rows }: { rows: MajorHolderRow[] }) {
+  const sorted = rows.slice().sort((a, b) => (b.rcept_dt ?? "").localeCompare(a.rcept_dt ?? ""));
+  return (
+    <ul className={styles.changeList}>
+      {sorted.map((h, i) => (
+        <li key={`${h.rcept_dt}-${i}`} className={styles.changeItem}>
+          <span className={styles.changeDate}>{fmtDate(h.rcept_dt)}</span>
+          <span className={styles.changeAfter}>보유 {fmtStake(h.stkrt)}</span>
+          <span className={styles.changeAfter}>{fmtShares(h.stkqy)}주</span>
+          {h.report_resn ? <span className={styles.changeReason}>{h.report_resn}</span> : null}
+        </li>
+      ))}
+    </ul>
   );
 }

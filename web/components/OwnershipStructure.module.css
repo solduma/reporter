@@ -196,6 +196,113 @@
   color: var(--text);
 }
 
+/* 접힘 섹션 헤더(토글 버튼) — 0%전환·5%+·기타 디폴트 collapsed */
+.sectionToggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin: 0 0 6px;
+  padding: 0;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text);
+  font: inherit;
+}
+
+.sectionToggle:hover {
+  color: var(--accent);
+}
+
+.sectionArrow {
+  color: var(--muted);
+  font-size: 0.78rem;
+  flex-shrink: 0;
+}
+
+.countBadge {
+  font-size: 0.72rem;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0 7px;
+}
+
+.subNote {
+  margin: 0 0 6px;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+/* 클릭 가능 행 — 행 클릭 시 변동 내역 확장 */
+.clickable {
+  cursor: pointer;
+}
+
+.clickable:hover {
+  background: var(--surface);
+}
+
+.rowArrow {
+  margin-left: 5px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 400;
+}
+
+/* 확장된 변동 내역 행 — 표 셀 내 리스트 */
+.detailRow > td {
+  padding: 10px 12px !important;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.changeList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.changeItem {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: baseline;
+  font-size: 0.82rem;
+}
+
+.changeDate {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  min-width: 72px;
+}
+
+.changePos {
+  color: var(--text);
+  min-width: 60px;
+}
+
+.changeDelta {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.changeAfter {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.changeReason {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
 /* significance 태그 */
 .legend {
   display: flex;
