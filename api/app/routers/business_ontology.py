@@ -70,6 +70,26 @@ def get_node(node_id: str) -> schemas.BusinessNodeOut:
 
 
 # ── 회사 그래프·부문 매출(DB 영속 — Task #28 에서 실데이터) ────────────────
+@router.get("/explore", response_model=schemas.BusinessExploreOut)
+def explore_node(
+    node_id: str = Query(..., description="canonical_id (예: CMP_KRX_005930, PRD_SEMI_DRAM, IND_GICS_45102010)"),
+    db: Session = Depends(get_session),
+) -> schemas.BusinessExploreOut:
+    """노드 중심 1-hop 탐색 — focal 의 모든 stock_code 인스턴스를 모아 cross-stock 이웃 구성.
+
+    회사/제품/원재료/산업 어느 노드든 focal. 기존 /{code}/graph(회사 스코프)와 달리
+    계층을 가로지르는 탐색(기업→산업→동종업→그 기업의 제품/원재료)을 지원.
+    """
+    g = bo_service.explore_node(db, node_id)
+    if g is None:
+        raise HTTPException(status_code=404, detail=f"unknown node: {node_id}")
+    return schemas.BusinessExploreOut(
+        focal=schemas.BusinessExploreNodeOut(**g["focal"]),  # type: ignore[arg-type]
+        neighbors=[schemas.BusinessExploreNeighborOut(**n) for n in g.get("neighbors", [])],
+        edges=[schemas.BusinessEdgeOut(**e) for e in g.get("edges", [])],
+    )
+
+
 @router.get("/{code}/graph", response_model=schemas.BusinessGraphOut)
 def company_graph(code: str, db: Session = Depends(get_session)) -> schemas.BusinessGraphOut:
     """회사 비즈니스 그래프 — 노드 + 엣지(operates_in/manufactures/uses_material/...)."""

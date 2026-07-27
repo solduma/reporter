@@ -21,7 +21,13 @@ function formatCap(cap: number | null): string {
   return `${Math.round(cap / 1e8).toLocaleString()}억`;
 }
 
-export default function StockSearch() {
+export default function StockSearch({
+  onPick,
+  placeholder = "종목명 또는 코드 검색 (예: 삼성전자, 005930)",
+}: {
+  onPick?: (code: string, name: string) => void;
+  placeholder?: string;
+}) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<StockSearchHit[]>([]);
@@ -72,9 +78,16 @@ export default function StockSearch() {
   }, []);
 
   function goto(code: string) {
-    if (code) {
-      router.push(`/companies/${encodeURIComponent(code)}`);
+    if (!code) {
+      return;
     }
+    if (onPick) {
+      const hit = hits.find((h) => h.stock_code === code);
+      onPick(code, hit?.stock_name ?? "");
+      setOpen(false);
+      return;
+    }
+    router.push(`/companies/${encodeURIComponent(code)}`);
   }
 
   // '분석' 버튼: 후보 최상단(또는 하이라이트)을, 코드 직접입력이면 그 코드를 분석.
@@ -115,7 +128,7 @@ export default function StockSearch() {
         <input
           className={styles.input}
           type="text"
-          placeholder="종목명 또는 코드 검색 (예: 삼성전자, 005930)"
+          placeholder={placeholder}
           aria-label="종목 검색"
           value={query}
           onChange={(e) => setQuery(e.target.value)}

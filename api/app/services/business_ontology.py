@@ -253,3 +253,233 @@ def industry_companies(db: Session, gics_code: str) -> list[dict[str, object]]:
 def node_to_dict(n: NodeOut | IndustryNodeOut) -> dict[str, object]:
     """포트 DTO → 응답 dict(라우터/스키마 변환 공통)."""
     return {k: v for k, v in asdict(n).items() if v not in (None, [], {})} or asdict(n)
+
+
+# ── 노드 중심 횡단 탐색(cross-stock 1-hop) ─────────────────────────────────
+def _focal_dict(node_id: str, db: Session) -> dict[str, object] | None:
+    """canonical_id → focal 노드 dict(정적 메타 + 인스턴스 status/confidence 병합).
+
+    정적 온톨로지(port.node / port.industry)가 aliases·commodity·gics_code 등 메타를 제공하고,
+    DB 인스턴스 행이 status·confidence·stock_code 를 제공. 어느 한쪽이라도 있으면 focal 구성.
+    """
+    static_node = _port().node(node_id)
+    static_ind = _port().industry(node_id)
+    if static_node is None and static_ind is None:
+        # 정적 미해결 — DB 에 pending_review 인스턴스만 있을 수 있으나 탐색은 정준 기준.
+        rows = db.scalars(
+            select(BusinessOntologyNode).where(BusinessOntologyNode.canonical_id == node_id)
+        ).all()
+        if not rows:
+            return None
+        r = rows[0]
+        return {
+            "id": node_id,
+            "node_type": r.node_type,
+            "korean_name": r.korean_name,
+            "english_name": r.english_name or "",
+            "aliases": [],
+            "status": r.status,
+            "confidence": r.confidence,
+            "commodity_type": None,
+            "is_also_material_id": None,
+            "gics_code": None,
+            "stock_code": r.stock_code if r.node_type == "company" else None,
+        }
+
+    rows = db.scalars(
+        select(BusinessOntologyNode).where(
+            BusinessOntologyNode.canonical_id == node_id,
+            BusinessOntologyNode.status == "canonical",
+        )
+    ).all()
+    # 인스턴스 status/confidence 집계 — 정준 행 중 최고 confidence.
+    status = rows[0].status if rows else "canonical"
+    confidence = max((r.confidence or 0.0) for r in rows) if rows else None
+    stock_code = None
+    if rows and rows[0].node_type == "company":
+        stock_code = rows[0].stock_code
+
+    if static_ind is not None:
+        return {
+            "id": static_ind.id,
+            "node_type": "industry",
+            "korean_name": static_ind.korean_name,
+            "english_name": static_ind.english_name,
+            "aliases": list(static_ind.aliases),
+            "status": status,
+            "confidence": confidence,
+            "commodity_type": None,
+            "is_also_material_id": None,
+            "gics_code": static_ind.gics_code,
+            "stock_code": stock_code,
+        }
+    n = static_node  # type: ignore[assignment]
+    return {
+        "id": n.id,
+        "node_type": n.node_type,
+        "korean_name": n.korean_name,
+        "english_name": n.english_name,
+        "aliases": list(n.aliases),
+        "status": status,
+        "confidence": confidence,
+        "commodity_type": n.commodity_type,
+        "is_also_material_id": n.is_also_material_id,
+        "gics_code": None,
+        "stock_code": n.stock_code if n.node_type == "company" else stock_code,
+    }
+
+
+def _neighbor_dict(
+    n: BusinessOntologyNode,
+    edge: BusinessOntologyEdge | None,
+    direction: str,
+    edge_type: str,
+) -> dict[str, object]:
+    """인스턴스 이웃 노드 + 엣지 메타 → neighbor dict."""
+    cid = n.canonical_id or f"{n.node_type}:{n.korean_name}"
+    d: dict[str, object] = {
+        "id": cid,
+        "node_type": n.node_type,
+        "korean_name": n.korean_name,
+        "english_name": n.english_name or "",
+        "aliases": [],
+        "status": n.status,
+        "confidence": n.confidence,
+        "commodity_type": None,
+        "is_also_material_id": None,
+        "gics_code": None,
+        "stock_code": n.stock_code if n.node_type == "company" else None,
+        "edge_type": edge_type,
+        "direction": direction,
+    }
+    if edge is not None:
+        d.update(
+            {
+                "share": edge.share,
+                "period": edge.period or None,
+                "source_quote": edge.source_quote,
+                "chain_stage": edge.chain_stage,
+            }
+        )
+    else:
+        d.update(
+            {
+                "share": None,
+                "period": None,
+                "source_quote": None,
+                "chain_stage": None,
+            }
+        )
+    return d
+
+
+def explore_node(db: Session, node_id: str) -> dict[str, object] | None:
+    """노드 중심 1-hop 탐색 — focal 의 모든 stock_code 인스턴스를 모아 cross-stock 이웃 구성.
+
+    회사·제품·원재료·산업 어느 노드든 focal 이 될 수 있다. 엣지는 company-centric(src=회사)이므로
+    비-회사 focal 의 이웃은 역방향 엣지로 수집. 산업 focal 은 GICS 형제 sub-industry 를 합성 이웃으로
+    추가하고, 제품/원재료 focal 은 is_also_material_id 교차링크를 추가한다.
+    """
+    focal = _focal_dict(node_id, db)
+    if focal is None:
+        return None
+
+    # focal 의 모든 정준 인스턴스 PK — 동일 canonical_id 가 여러 stock_code 에 걸쳐 존재.
+    pks = [
+        r.id
+        for r in db.scalars(
+            select(BusinessOntologyNode).where(
+                BusinessOntologyNode.canonical_id == node_id,
+                BusinessOntologyNode.status == "canonical",
+            )
+        ).all()
+    ]
+    neighbors: list[dict[str, object]] = []
+    edges_out: list[dict[str, object]] = []
+    if pks:
+        rows = db.scalars(
+            select(BusinessOntologyEdge).where(
+                (BusinessOntologyEdge.src_node_id.in_(pks))
+                | (BusinessOntologyEdge.dst_node_id.in_(pks))
+            )
+        ).all()
+        # 이웃 노드 PK 수집(focal 아닌 끝).
+        other_pks: set[int] = set()
+        for e in rows:
+            if e.src_node_id in pks and e.dst_node_id not in pks:
+                other_pks.add(e.dst_node_id)
+            elif e.dst_node_id in pks and e.src_node_id not in pks:
+                other_pks.add(e.src_node_id)
+        nbr_nodes = {
+            n.id: n
+            for n in db.scalars(
+                select(BusinessOntologyNode).where(BusinessOntologyNode.id.in_(other_pks))
+            ).all()
+        }
+        for e in rows:
+            if e.src_node_id in pks and e.dst_node_id not in pks:
+                nbr = nbr_nodes.get(e.dst_node_id)
+                if nbr is None:
+                    continue
+                neighbors.append(_neighbor_dict(nbr, e, "out", e.edge_type))
+                edges_out.append(
+                    {"src": node_id, "dst": nbr.canonical_id or f"{nbr.node_type}:{nbr.korean_name}", "edge_type": e.edge_type,
+                     "share": e.share, "period": e.period or None, "source_quote": e.source_quote,
+                     "chain_stage": e.chain_stage, "confidence": e.confidence}
+                )
+            elif e.dst_node_id in pks and e.src_node_id not in pks:
+                nbr = nbr_nodes.get(e.src_node_id)
+                if nbr is None:
+                    continue
+                neighbors.append(_neighbor_dict(nbr, e, "in", e.edge_type))
+                edges_out.append(
+                    {"src": nbr.canonical_id or f"{nbr.node_type}:{nbr.korean_name}", "dst": node_id, "edge_type": e.edge_type,
+                     "share": e.share, "period": e.period or None, "source_quote": e.source_quote,
+                     "chain_stage": e.chain_stage, "confidence": e.confidence}
+                )
+
+    # 산업 focal — GICS 형제 sub-industry 합성 이웃(같은 6자리 industry).
+    if focal["node_type"] == "industry" and focal.get("gics_code"):
+        gics = str(focal["gics_code"])
+        prefix6 = gics[:6]
+        for ind in _port().list_industries():
+            if ind.gics_code == gics or not ind.gics_code.startswith(prefix6):
+                continue
+            nbr_id = ind.id
+            neighbors.append(
+                {
+                    "id": nbr_id, "node_type": "industry", "korean_name": ind.korean_name,
+                    "english_name": ind.english_name, "aliases": list(ind.aliases),
+                    "status": "canonical", "confidence": None, "commodity_type": None,
+                    "is_also_material_id": None, "gics_code": ind.gics_code, "stock_code": None,
+                    "edge_type": "sibling_industry", "direction": "out",
+                    "share": None, "period": None, "source_quote": None, "chain_stage": None,
+                }
+            )
+            edges_out.append(
+                {"src": node_id, "dst": nbr_id, "edge_type": "sibling_industry",
+                 "share": None, "period": None, "source_quote": None, "chain_stage": None, "confidence": None}
+            )
+
+    # 제품/원재료 focal — is_also_material_id 교차링크 합성 이웃.
+    cross = focal.get("is_also_material_id")
+    if cross and cross != node_id:
+        cross_static = _port().node(cross)
+        if cross_static is not None:
+            neighbors.append(
+                {
+                    "id": cross_static.id, "node_type": cross_static.node_type,
+                    "korean_name": cross_static.korean_name, "english_name": cross_static.english_name,
+                    "aliases": list(cross_static.aliases), "status": "canonical", "confidence": None,
+                    "commodity_type": cross_static.commodity_type, "is_also_material_id": None,
+                    "gics_code": None, "stock_code": None,
+                    "edge_type": "is_also_material", "direction": "out",
+                    "share": None, "period": None, "source_quote": None, "chain_stage": None,
+                }
+            )
+            edges_out.append(
+                {"src": node_id, "dst": cross_static.id, "edge_type": "is_also_material",
+                 "share": None, "period": None, "source_quote": None, "chain_stage": None, "confidence": None}
+            )
+
+    return {"focal": focal, "neighbors": neighbors, "edges": edges_out}

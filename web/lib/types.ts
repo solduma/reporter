@@ -803,6 +803,49 @@ export interface OntologyRef {
   description: string | null;
 }
 
+// ── 비즈니스 온톨로지 탐색(explore) ──────────────────────────────────────
+export type BusinessLayer = "company" | "industry" | "product" | "raw_material" | "segment";
+
+export interface BusinessExploreNode {
+  id: string;
+  node_type: BusinessLayer;
+  korean_name: string;
+  english_name: string;
+  aliases: string[];
+  status: string | null;
+  confidence: number | null;
+  commodity_type: string | null;
+  is_also_material_id: string | null;
+  gics_code: string | null;
+  stock_code: string | null;
+}
+
+export interface BusinessExploreNeighbor extends BusinessExploreNode {
+  edge_type: string;
+  direction: "out" | "in";
+  share: number | null;
+  period: string | null;
+  source_quote: string | null;
+  chain_stage: string | null;
+}
+
+export interface BusinessExploreEdge {
+  src: string;
+  dst: string;
+  edge_type: string;
+  share: number | null;
+  period: string | null;
+  source_quote: string | null;
+  chain_stage: string | null;
+  confidence: number | null;
+}
+
+export interface BusinessExploreOut {
+  focal: BusinessExploreNode;
+  neighbors: BusinessExploreNeighbor[];
+  edges: BusinessExploreEdge[];
+}
+
 // 공유 링크 생성 응답 — token 으로 /share/{token} 조립.
 export interface DeepDiveShare {
   token: string;

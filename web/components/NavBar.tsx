@@ -11,6 +11,7 @@ const LINKS = [
   { href: "/screener", label: "국내 스크리너", featured: false },
   { href: "/us-screener", label: "US 스크리너", featured: false },
   { href: "/industries", label: "산업 흐름", featured: false },
+  { href: "/ontology", label: "비즈니스 온톨로지", featured: false },
   { href: "/calendar", label: "경제 캘린더", featured: false },
   { href: "/companies", label: "기업 분석", featured: false },
   { href: "/ir-interview", label: "주담 전략", featured: false },
