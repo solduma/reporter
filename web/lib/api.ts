@@ -2,6 +2,7 @@ import type {
   BroadcastDetail,
   BroadcastKind,
   BroadcastRef,
+  BusinessExploreOut,
   BusinessOverview,
   CalendarView,
   CandlePoint,
@@ -598,4 +599,11 @@ export async function createDeepDiveShare(code: string): Promise<DeepDiveShare> 
 // 무인증 공유 스냅샷 조회(게이트 밖 /share/[token] 페이지). 만료/부재는 410.
 export function fetchSharedDeepDive(token: string): Promise<SharedDeepDive> {
   return getJson<SharedDeepDive>(`/api/deepdive/share/${token}`);
+}
+
+// 비즈니스 온톨로지 노드 중심 탐색 — canonical_id 기준 1-hop 이웃(cross-stock).
+export function fetchBusinessExplore(nodeId: string): Promise<BusinessExploreOut> {
+  return getJson<BusinessExploreOut>(
+    `/api/business-ontology/explore?node_id=${encodeURIComponent(nodeId)}`,
+  );
 }

@@ -13,6 +13,8 @@
   },
   "dependencies": {
     "@tanstack/react-query": "^5.101.4",
+    "@xyflow/react": "^12.11.2",
+    "dagre": "^0.8.5",
     "lightweight-charts": "^5.2.0",
     "next": "^14.2.5",
     "pdfjs-dist": "4.8.69",
@@ -25,6 +27,7 @@
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
+    "@types/dagre": "^0.7.54",
     "@types/node": "^20.14.10",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
