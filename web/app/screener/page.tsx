@@ -12,7 +12,6 @@ import {
   fetchScreenerSectors,
 } from "@/lib/api";
 import { GLOSSARY } from "@/lib/glossary";
-import { useAutoTour } from "@/lib/useAutoTour";
 import { usePersistentState } from "@/lib/usePersistentState";
 import type {
   ScreenerDynamicFilterMeta,
@@ -564,8 +563,6 @@ function ScreenerContent() {
 
   const total = result?.total ?? 0;
   const items = result?.items ?? [];
-  // 결과가 뜬 뒤(요소 존재) 첫 방문 1회 온보딩 투어 자동 시작.
-  useAutoTour("screener", !loading && items.length > 0);
   const currentPage = Math.floor(offset / PAGE_SIZE) + 1;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const hasPrev = offset > 0;
@@ -618,7 +615,7 @@ function ScreenerContent() {
         <h1 className={styles.title}>국내 스크리너</h1>
         <p className={styles.subtitle}>{strategyDesc}</p>
         <StockSearch />
-        <div className={styles.strategyTabs} role="tablist" aria-label="스크리너 전략" data-tour="strategy">
+        <div className={styles.strategyTabs} role="tablist" aria-label="스크리너 전략">
           {STRATEGY_TABS.map((tab) => {
             const on = tab.value === strategy;
             return (
@@ -637,7 +634,7 @@ function ScreenerContent() {
         </div>
       </header>
 
-      <section className={styles.filters} data-tour="filters">
+      <section className={styles.filters}>
         <button
           type="button"
           className={styles.filterToggle}
@@ -869,7 +866,7 @@ function ScreenerContent() {
       ) : (
         <>
           <div className={styles.scroll}>
-            <table className={styles.table} data-tour="results">
+            <table className={styles.table}>
               <thead>
                 <tr>
                   {columns.map((col, index) => {
@@ -911,11 +908,10 @@ function ScreenerContent() {
                 </tr>
               </thead>
               <tbody>
-                {items.map((row, rowIndex) => (
+                {items.map((row) => (
                   <tr
                     key={row.stock_code}
                     className={styles.row}
-                    data-tour={rowIndex === 0 ? "firstRow" : undefined}
                     onClick={() => router.push(`/companies/${row.stock_code}`)}
                   >
                     <th className={styles.nameCol} scope="row">

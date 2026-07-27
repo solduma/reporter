@@ -32,7 +32,6 @@ import {
 } from "@/lib/api";
 import { agoIso, dateToTs, monthsAgoIso } from "@/lib/chartTime";
 import { addQuickPick } from "@/lib/quickPicks";
-import { useAutoTour } from "@/lib/useAutoTour";
 import type {
   AnalysisAxis,
   CandlePoint,
@@ -526,8 +525,6 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
   }, []);
 
   const displayName = summary?.stock_name ?? "이름 미상";
-  // 분석 로드 후(섹션 요소 존재) 첫 방문 1회 온보딩 투어.
-  useAutoTour("company", analysis.status === "ready");
 
   // 조회한 종목을 '자주 찾는 종목'(localStorage)에 자동 추가. 이름이 확인된 뒤에만 등록해
   // '이름 미상'이 목록에 남지 않게 한다.
@@ -752,7 +749,7 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
 
       {/* 순서: ① 종목 정보(최상단) → ② 테크노펀더멘탈 종합 → ③ 성장 → ④ 가치 → ⑤ 추세 → ⑥ 탑다운 → 동일업종 → 타임라인.
           각 지표 카드에 해당 축의 테크노펀더멘탈 점수 + 계산 근거(요소별 값·기여도)를 얹는다. */}
-      <section className={styles.chartCard} data-tour="analysis">
+      <section className={styles.chartCard}>
         <div className={styles.growthHead}>
           <h2 className={styles.sectionTitle}>테크노펀더멘탈 분석</h2>
           <span className={styles.growthTag}>성장·가치·추세·탑다운</span>
@@ -767,7 +764,7 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
       </section>
 
       {expandedAxis.has("growth") ? (
-        <section className={styles.chartCard} data-tour="snapshot">
+        <section className={styles.chartCard}>
           <div className={styles.growthHead}>
             <h2 className={styles.sectionTitle}>성장 지표</h2>
             <span className={styles.growthTag}>성장주 스냅샷</span>
@@ -779,7 +776,7 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
 
       {/* 가치 지표: PER·PBR·PSR 분위수 밴드 (자체 date-range 슬라이더로 3개 차트 동시 조작) */}
       {expandedAxis.has("value") ? (
-        <section className={styles.chartCard} data-tour="valuation">
+        <section className={styles.chartCard}>
           <h2 className={styles.sectionTitle}>
             가치 지표
             <InfoDot termKey="band" />
