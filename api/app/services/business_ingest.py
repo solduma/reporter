@@ -603,10 +603,8 @@ def persist_ontology(
     """
     from app.services import business_ontology as bo_svc
 
-    # 회사(주체) 노드 — 정준 ID = CMP_KRX_<stock_code>.
-    company_id = _upsert_ontology_node(
-        db, code, "company", f"CMP_KRX_{code}", stock_name, "canonical", source_rcept, 1.0
-    )
+    # 회사(주체) 노드 — 정준 ID = CMP_KRX_<stock_code>. 이미 있으면 재사용(이름 불일치 중복 노드 방지).
+    company_id = _ensure_company_node(db, code, source_rcept, name=stock_name)
 
     # DART induty_code → GICS 산업 operates_in 엣지(회사 자기 산업).
     if induty_code:
@@ -667,6 +665,132 @@ def persist_ontology(
         )
     db.commit()
     # 캐시 스냅샷은 DB 실제 행에서 재구성(회사 그래프 서비스와 동일 원천).
+    return bo_svc.company_graph(db, code)
+
+
+def _ensure_company_node(
+    db: Session, code: str, source_rcept: str | None = None, name: str | None = None
+) -> int:
+    """회사(주체) 노드 PK 확보 — 이미 있으면 재사용, 없으면 생성.
+
+    korean_name 이 호출마다 달라지는 것(조립 stock_name vs 리서치 시점)을 막기 위해 기존 노드가
+    있으면 그대로 재사용한다. (stock_code, node_type, korean_name) 유일 제약 때문에 이름이 다르면
+    별도 행이 생기기 때문. 신규 생성시에만 name(또는 CorpCodeMap.corp_name) 을 사용한다.
+    """
+    existing = db.scalar(
+        select(BusinessOntologyNode.id).where(
+            BusinessOntologyNode.stock_code == code,
+            BusinessOntologyNode.node_type == "company",
+        )
+    )
+    if existing:
+        return int(existing)
+    if not name:
+        name = (
+            db.scalar(select(CorpCodeMap.corp_name).where(CorpCodeMap.stock_code == code)) or code
+        )
+    return _upsert_ontology_node(
+        db, code, "company", f"CMP_KRX_{code}", name, "canonical", source_rcept, 1.0
+    )
+
+
+# 밸류체인 단계(stage 키워드) → 온톨로지 chain_stage(5主+4지원 중主活动 4종).
+_VALUE_CHAIN_STAGE_MAP: dict[str, str] = {
+    "원료": "inbound",
+    "조달": "inbound",
+    "구매": "inbound",
+    "생산": "operations",
+    "제조": "operations",
+    "가공": "operations",
+    "유통": "outbound",
+    "물류": "outbound",
+    "판매": "outbound",
+    "출하": "outbound",
+    "서비스": "service",
+    "마케팅": "marketing",
+    "영업": "marketing",
+}
+
+
+def _map_chain_stage(stage: str) -> str | None:
+    """리서치 value_chain.stage(자유텍스트) → 온톨로지 chain_stage enum."""
+    s = (stage or "").strip()
+    if not s:
+        return None
+    for kw, cs in _VALUE_CHAIN_STAGE_MAP.items():
+        if kw in s:
+            return cs
+    return None
+
+
+def _resolve_entity(db, name: str, bo_svc):
+    """리서치 엔티티명 → (정규화결과, 노드타입). 회사→원재료→제품→산업 순 시도."""
+    r = bo_svc.resolve_company(db, name)
+    if r.resolved:
+        return r, "company"
+    for nt in ("raw_material", "product", "industry"):
+        r2 = bo_svc.normalize_one(name, nt)  # type: ignore[arg-type]
+        if r2.resolved:
+            return r2, nt
+    # 무매치 — company pending_review 로 보존(자동 병합 금지).
+    return r, "company"
+
+
+def promote_research_to_ontology(
+    db: Session, code: str, summary: dict, source_rcept: str | None = None
+) -> dict[str, object]:
+    """리서치 결과(ResearchSummary 직렬화 dict) → 온톨로지 노드/엣지 승격 + 스냅샷 반환.
+
+    Phase 3b: vendors→supplies(회사 공급자)/uses_material(원재료), customers→supplies_to,
+    competitors→competes_with, value_chain→part_of_value_chain(chain_stage 매핑).
+    정규화는 결정론적 normalizer 경유. 리서치는 특정 공시 rcept 기반이 아니므로 source_rcept=None.
+    """
+    from app.services import business_ontology as bo_svc
+
+    company_id = _ensure_company_node(db, code, source_rcept)
+
+    def _add(name: str, edge_type: str, note: str, chain_stage: str | None = None) -> None:
+        name = (name or "").strip()
+        if not name:
+            return
+        r, nt = _resolve_entity(db, name, bo_svc)
+        dst_id = _upsert_ontology_node(
+            db, code, nt, r.canonical_id, r.term or name, r.status, source_rcept, r.confidence
+        )
+        # 원재료로 정준화된 공급자는 uses_material(원재료 사용)로 일관성 유지.
+        et = "uses_material" if (edge_type == "supplies" and nt == "raw_material") else edge_type
+        _upsert_ontology_edge(
+            db,
+            code,
+            company_id,
+            dst_id,
+            et,
+            None,
+            None,
+            note,
+            source_rcept,
+            r.confidence,
+            chain_stage=chain_stage,
+        )
+
+    for v in summary.get("vendors", []) or []:
+        if isinstance(v, dict):
+            _add(v.get("name", ""), "supplies", v.get("note", ""))
+    for c in summary.get("customers", []) or []:
+        if isinstance(c, dict):
+            _add(c.get("name", ""), "supplies_to", c.get("note", ""))
+    for comp in summary.get("competitors", []) or []:
+        if isinstance(comp, dict):
+            _add(comp.get("name", ""), "competes_with", comp.get("note", ""))
+    for link in summary.get("value_chain", []) or []:
+        if isinstance(link, dict):
+            _add(
+                link.get("entity", ""),
+                "part_of_value_chain",
+                link.get("note", ""),
+                chain_stage=_map_chain_stage(link.get("stage", "")),
+            )
+    db.commit()
     return bo_svc.company_graph(db, code)
 
 
@@ -838,6 +962,14 @@ def _merge_research_into_cache(db: Session, code: str, research_summary: dict) -
     None으로 리셋하므로, 경유하면 리서치가 사라짐.
     """
     row = db.scalar(select(BusinessOverviewCache).where(BusinessOverviewCache.stock_code == code))
+
+    # Phase 3b: 리서치 엔티티/밸류체인 → 온톨로지 노드/엣지 승격. 보강 정보라 실패해도 캐시 병합은 진행.
+    ontology_snapshot: dict[str, object] | None = None
+    try:
+        ontology_snapshot = promote_research_to_ontology(db, code, research_summary)
+    except Exception as e:  # BLE001: 온톨로지 승격 실패가 리서치 캐싱을 깨지 않게
+        logger.warning("research→ontology promote %s skipped: %s", code, e)
+
     if row is None:
         # 스텁 생성: 빈 sections/source_reports, stock_name은 추후 채워짐.
         stub_payload = {
@@ -847,7 +979,7 @@ def _merge_research_into_cache(db: Session, code: str, research_summary: dict) -
             "source_reports": [],
             "sections": [],
             "research_summary": research_summary,
-            "ontology": {"nodes": [], "edges": []},
+            "ontology": ontology_snapshot or {"nodes": [], "edges": []},
         }
         _store_cache(
             db,
@@ -863,6 +995,8 @@ def _merge_research_into_cache(db: Session, code: str, research_summary: dict) -
     # 기존 payload에 research_summary만 덮어쓰기.
     payload = row.payload or {}
     payload["research_summary"] = research_summary
+    if ontology_snapshot is not None:
+        payload["ontology"] = ontology_snapshot
 
     # 기존 inputs_hash/source_reports/as_of_annual_rcept를 보존한 upsert (refresh_if_new_report 오트리거 방지).
     _store_cache(

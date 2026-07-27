@@ -10,18 +10,27 @@ from unittest.mock import MagicMock
 
 import pytest
 from sqlalchemy import create_engine, select
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import sessionmaker
 
 from app.db.models import (
     Base,
     BusinessOntologyEdge,
     BusinessOntologyNode,
+    BusinessOverviewCache,
     CorpCodeMap,
     SegmentSales,
 )
 from app.domain.business_research import OntologyMention
 from app.services import business_ingest as bi
 from app.services import business_ontology as bo_svc
+
+
+# SQLite 는 JSONB 를 모른다 — 테스트 방언에서만 JSON 으로 렌더.
+@compiles(JSONB, "sqlite")
+def _jsonb_sqlite(type_, compiler, **kw):
+    return "JSON"
 
 
 @pytest.fixture
@@ -32,6 +41,7 @@ def db():
         tables=[
             BusinessOntologyNode.__table__,
             BusinessOntologyEdge.__table__,
+            BusinessOverviewCache.__table__,
             CorpCodeMap.__table__,
             SegmentSales.__table__,
         ],
@@ -194,3 +204,68 @@ def test_industry_companies_peers(db):
     bi.persist_ontology(db, "005930", [], "R1", "삼성전자", induty_code="C28")
     peers = bo_svc.industry_companies(db, "45102010")  # Semiconductors GICS 코드
     assert any(p["stock_code"] == "005930" for p in peers)
+
+
+# --- Phase 3b: 리서치 → 온톨로지 승격 ---
+def test_promote_research_maps_roles_to_edges(db):
+    """vendors→supplies, customers→supplies_to, competitors→competes_with, value_chain→part_of_value_chain."""
+    db.add(CorpCodeMap(stock_code="000660", corp_code="00164742", corp_name="SK하이닉스"))
+    db.commit()
+    summary = {
+        "vendors": [{"name": "SK하이닉스", "role": "부품 공급", "note": "n1"}],
+        "customers": [{"name": "SK하이닉스", "role": "납품처", "note": "n2"}],
+        "competitors": [{"name": "SK하이닉스", "role": "경쟁", "note": "n3"}],
+        "value_chain": [
+            {"stage": "원료 조달", "direction": "upstream", "entity": "SK하이닉스", "note": "n4"}
+        ],
+    }
+    snap = bi.promote_research_to_ontology(db, "005930", summary)
+    edges = db.scalars(select(BusinessOntologyEdge)).all()
+    types = {e.edge_type for e in edges}
+    assert {"supplies", "supplies_to", "competes_with", "part_of_value_chain"} == types
+    # chain_stage 매핑: 원료 조달 → inbound.
+    vc = next(e for e in edges if e.edge_type == "part_of_value_chain")
+    assert vc.chain_stage == "inbound"
+    # 회사 노드 1(주체) + SK하이닉스 1(대상) — 역할이 달라도 동일 대상 노드 재사용.
+    nodes = db.scalars(select(BusinessOntologyNode)).all()
+    assert len(nodes) == 2
+    assert any(n["id"] for n in snap["nodes"])
+
+
+def test_promote_vendor_material_uses_uses_material(db):
+    """공급자가 원재료로 정준화되면 uses_material 엣지(LLM 추출과 일관성)."""
+    summary = {"vendors": [{"name": "실리콘 웨이퍼", "role": "원재료 공급", "note": ""}]}
+    bi.promote_research_to_ontology(db, "005930", summary)
+    edges = db.scalars(select(BusinessOntologyEdge)).all()
+    # 실리콘 웨이퍼가 material 사전에 있으면 uses_material, 아니면 supplies(company pending).
+    assert edges[0].edge_type in ("uses_material", "supplies")
+
+
+def test_promote_chain_stage_keywords(db):
+    assert bi._map_chain_stage("생산 공정") == "operations"
+    assert bi._map_chain_stage("유통망") == "outbound"
+    assert bi._map_chain_stage("서비스") == "service"
+    assert bi._map_chain_stage("") is None
+    assert bi._map_chain_stage("알 수 없는 단계") is None
+
+
+def test_merge_research_into_cache_sets_ontology_snapshot(db):
+    """_merge_research_into_cache 가 리서치 승격 후 payload["ontology"] 를 갱신."""
+    db.add(CorpCodeMap(stock_code="000660", corp_code="00164742", corp_name="SK하이닉스"))
+    db.commit()
+    summary = {
+        "vendors": [{"name": "SK하이닉스", "role": "", "note": ""}],
+        "customers": [],
+        "competitors": [],
+        "value_chain": [],
+        "narrative_md": "",
+        "guideline": "",
+        "model": "m",
+    }
+    bi._merge_research_into_cache(db, "005930", summary)
+    row = db.scalar(
+        select(BusinessOverviewCache).where(BusinessOverviewCache.stock_code == "005930")
+    )
+    assert row is not None
+    ont = row.payload.get("ontology")
+    assert ont and any(e["edge_type"] == "supplies" for e in ont["edges"])
