@@ -5,17 +5,11 @@
   min-width: 0;
 }
 
-/* 좌(주주) · 우(자회사) 2열. 좁은 화면에서는 1열로 적층. */
+/* 주주(상) · 자회사(하) 세로 적층. */
 .grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  display: flex;
+  flex-direction: column;
   gap: 18px;
-}
-
-@media (max-width: 768px) {
-  .grid {
-    grid-template-columns: 1fr;
-  }
 }
 
 .column {
@@ -90,6 +84,14 @@
 
 .nameCol {
   text-align: left !important;
+}
+
+/* 변경 이력 요약セル — 좌정렬·개행 허용(날짜·증감 텍스트). */
+.historyCell {
+  text-align: left !important;
+  white-space: normal !important;
+  color: var(--muted);
+  font-size: 0.8rem;
 }
 
 .num {
