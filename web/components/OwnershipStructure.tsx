@@ -41,6 +41,46 @@ function fmtWon(n: number | null | undefined): string {
   return n.toLocaleString("ko-KR");
 }
 
+// YYYYMMDD → YYYY.MM.DD (DART 접수일자 표기).
+function fmtDate(d: string): string {
+  if (!d || d.length !== 8) return d || "—";
+  return `${d.slice(0, 4)}.${d.slice(4, 6)}.${d.slice(6, 8)}`;
+}
+
+// 5%+ 대량보유주주: 보고자별로 그룹화 — 동일 주주의 다수 보고서를
+// 최신 보고(현재 기준) 1줄 + 변경 이력 1줄 요약으로 정리.
+function groupMajorHolders(rows: MajorHolderRow[]): {
+  repror: string;
+  stkrt: number | null;
+  stkqy: number | null;
+  history: string;
+}[] {
+  const groups = new Map<string, MajorHolderRow[]>();
+  for (const r of rows) {
+    const arr = groups.get(r.repror) ?? [];
+    arr.push(r);
+    groups.set(r.repror, arr);
+  }
+  const out: { repror: string; stkrt: number | null; stkqy: number | null; history: string }[] = [];
+  for (const [repror, arr] of groups) {
+    const sorted = arr
+      .slice()
+      .sort((a, b) => (a.rcept_dt ?? "").localeCompare(b.rcept_dt ?? ""));
+    const latest = sorted[sorted.length - 1];
+    const first = sorted[0];
+    let history: string;
+    if (sorted.length <= 1) {
+      history = `단일 보고 (${fmtDate(latest.rcept_dt)})`;
+    } else {
+      const f = first.stkrt !== null ? `${first.stkrt.toFixed(2)}%` : "—";
+      const l = latest.stkrt !== null ? `${latest.stkrt.toFixed(2)}%` : "—";
+      history = `${sorted.length}건 · ${f}→${l} (${fmtDate(latest.rcept_dt)})`;
+    }
+    out.push({ repror, stkrt: latest.stkrt, stkqy: latest.stkqy, history });
+  }
+  return out.sort((a, b) => (b.stkrt ?? 0) - (a.stkrt ?? 0));
+}
+
 // 1년 내 0%로 전환된 주주를 찾기 위한 윈도우(밀리초).
 const ZERO_TRANSITION_WINDOW_MS = 365 * 24 * 60 * 60 * 1000;
 
@@ -260,7 +300,7 @@ export default function OwnershipStructure({ code }: { code: string }) {
             </div>
           )}
 
-          {/* 5%+ 대량보유주주 */}
+          {/* 5%+ 대량보유주주 — 보고자별 1줄(최신) + 변경 이력 요약 */}
           {major_holders.length > 0 && (
             <div className={styles.subSection}>
               <h4 className={styles.subSectionTitle}>5%+ 대량보유주주</h4>
@@ -271,16 +311,16 @@ export default function OwnershipStructure({ code }: { code: string }) {
                       <th className={styles.nameCol} scope="col">보고자</th>
                       <th scope="col">보유비율</th>
                       <th scope="col">보유주식</th>
-                      <th scope="col">사유</th>
+                      <th scope="col">변경 이력</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {major_holders.map((h, i) => (
-                      <tr key={`mh-${i}`}>
+                    {groupMajorHolders(major_holders).map((h) => (
+                      <tr key={`mh-${h.repror}`}>
                         <th className={styles.nameCol} scope="row">{h.repror}</th>
                         <td className={styles.num}>{fmtStake(h.stkrt)}</td>
                         <td className={styles.num}>{fmtShares(h.stkqy)}</td>
-                        <td>{h.report_resn || "—"}</td>
+                        <td className={styles.historyCell}>{h.history}</td>
                       </tr>
                     ))}
                   </tbody>
