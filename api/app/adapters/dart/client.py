@@ -52,6 +52,9 @@ _ALOTMATTER_URL = "https://opendart.fss.or.kr/api/alotMatter.json"  # DS002 배�
 _FNLTT_INDX_URL = "https://opendart.fss.or.kr/api/fnlttSinglIndx.json"  # DS003 단일회사 주요 재무지표
 _HYSLR_URL = "https://opendart.fss.or.kr/api/hyslrSttus.json"  # DS005 최대주주 현황
 _OTR_CPR_URL = "https://opendart.fss.or.kr/api/otrCprInvstmntSttus.json"  # DS002 타법인 출자현황
+_MAJORSTOCK_URL = "https://opendart.fss.or.kr/api/majorstock.json"  # DS004 대량보유 상황보고
+_CVBD_ISSUE_URL = "https://opendart.fss.or.kr/api/cvbdIsDecsn.json"  # DS005 전환사채권 발행결정
+_BDWT_ISSUE_URL = "https://opendart.fss.or.kr/api/bdwtIsDecsn.json"  # DS005 신주인수권부사채권 발행결정
 _DART_VIEWER = "https://dart.fss.or.kr/dsaf001/main.do?rcpNo={rcept_no}"
 
 # 분기 → DART 보고서 코드. 1Q=11013·반기=11012·3Q=11014·사업보고서(연간)=11011.
@@ -324,11 +327,20 @@ def fetch_largest_shareholders(
 
 @dataclass
 class RelatedParty:
-    """관계사 1건 — 웹서치 관련성 판정 alias 원천."""
+    """관계사 1건 — 웹서치 관련성 판정 alias 원천.
+
+    otrCprInvstmntSttus 의 추가 필드(inv_purpose·book_value·sub_total_assets·sub_net_profit)는
+    자회사 필터(이익 10%+/적자/출자목적)에 사용. None 이면 DART 응답에 해당 필드가 없거나
+    hyslrSttus(모회사)에서 파생된 행.
+    """
 
     name: str  # 법인명(관계사)
     relation: str  # 'parent'(모회사/지배주주) | 'subsidiary'(50%+) | 'investor'(그 외 출자)
     stake_pct: float | None = None
+    inv_purpose: str | None = None  # 출자목적(otrCpr 전용)
+    book_value: int | None = None  # 기말 장부가액(원, otrCpr 전용)
+    sub_total_assets: int | None = None  # 자회사 총자산(원, otrCpr 전용)
+    sub_net_profit: int | None = None  # 자회사 당기순이익(원, otrCpr 전용)
 
 
 # 개인(법인 아님) 최대주주를 걸러내는 법인 접미사/키워드. 이 중 하나라도 있으면 법인으로 본다.
@@ -390,11 +402,135 @@ def fetch_related_companies(
                     continue
                 pct = _float_field(r, "trmend_blce_qota_rt")
                 relation = "subsidiary" if (pct is not None and pct >= 50.0) else "investor"
-                out.append(RelatedParty(nm, relation, pct))
+                # otrCpr 추가 필드 — 자회사 필터(이익 10%+/적자/출자목적)용.
+                inv_purpose = (r.get("invstmnt_purps") or "").strip() or None
+                book_value = _int_field(r, "trmend_blce_acntbk_amount")
+                sub_total_assets = _int_field(r, "recent_bsns_year_fnnr_sttus_tot_assets")
+                sub_net_profit = _int_field(r, "recent_bsns_year_fnnr_sttus_thstrm_ntpf")
+                out.append(RelatedParty(nm, relation, pct, inv_purpose, book_value, sub_total_assets, sub_net_profit))
     except (requests.RequestException, ValueError) as e:
         logger.warning("dart related(investment) failed %s %sQ%s: %s", corp_code, year, quarter, e)
 
     return out
+
+
+@dataclass
+class MajorHolder:
+    """대량보유 상황보고(majorstock.json) 1건 — 5%+ 주주."""
+
+    rcept_dt: str  # 접수일자(YYYYMMDD)
+    repror: str  # 대표보고자(주주명)
+    stkqy: int | None = None  # 보유주식수
+    stkrt: float | None = None  # 보유비율(%)
+    stkqy_irds: int | None = None  # 증감
+    stkrt_irds: float | None = None  # 증감(%)
+    report_resn: str = ""  # 보고사유
+
+
+def fetch_major_shareholders(api_key: str, corp_code: str, session: requests.Session | None = None) -> list[MajorHolder]:
+    """DS004 대량보유 상황보고 → 5%+ 주주 목록(최신순). 실패·없음이면 빈 리스트."""
+    params = {"crtfc_key": api_key, "corp_code": corp_code}
+    s = session or requests.Session()
+    try:
+        resp = dart_throttle.get(s, _MAJORSTOCK_URL, params=params, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+        _raise_if_quota(data)
+        if data.get("status") != "000":
+            return []
+        out: list[MajorHolder] = []
+        for r in data.get("list", []):
+            out.append(MajorHolder(
+                rcept_dt=(r.get("rcept_dt") or "").strip(),
+                repror=(r.get("repror") or "").strip(),
+                stkqy=_int_field(r, "stkqy"),
+                stkrt=_float_field(r, "stkrt"),
+                stkqy_irds=_int_field(r, "stkqy_irds"),
+                stkrt_irds=_float_field(r, "stkrt_irds"),
+                report_resn=(r.get("report_resn") or "").strip(),
+            ))
+        return out
+    except (requests.RequestException, ValueError) as e:
+        logger.warning("dart majorstock failed %s: %s", corp_code, e)
+        return []
+
+
+@dataclass
+class CbIssue:
+    """전환사채권 발행결정(cvbdIsDecsn.json) 1건."""
+
+    rcept_no: str = ""
+    bddd: str = ""  # 이사회결의일(YYYYMMDD)
+    bd_fta: int | None = None  # 사채권면총액(원)
+    cv_prc: int | None = None  # 전환가액(원/주)
+    cvisstk_cnt: int | None = None  # 전환 발행 주식수
+    cvisstk_tisstk_vs: float | None = None  # 주식총수 대비 비율(%)
+
+
+def fetch_cb_issuance(api_key: str, corp_code: str, bgn_de: str, end_de: str, session: requests.Session | None = None) -> list[CbIssue]:
+    """DS005 전환사채권 발행결정 → CB 발행내역(최신순). 실패·없음이면 빈 리스트."""
+    params = {"crtfc_key": api_key, "corp_code": corp_code, "bgn_de": bgn_de, "end_de": end_de}
+    s = session or requests.Session()
+    try:
+        resp = dart_throttle.get(s, _CVBD_ISSUE_URL, params=params, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+        _raise_if_quota(data)
+        if data.get("status") != "000":
+            return []
+        out: list[CbIssue] = []
+        for r in data.get("list", []):
+            out.append(CbIssue(
+                rcept_no=(r.get("rcept_no") or "").strip(),
+                bddd=(r.get("bddd") or "").strip(),
+                bd_fta=_int_field(r, "bd_fta"),
+                cv_prc=_int_field(r, "cv_prc"),
+                cvisstk_cnt=_int_field(r, "cvisstk_cnt"),
+                cvisstk_tisstk_vs=_float_field(r, "cvisstk_tisstk_vs"),
+            ))
+        return out
+    except (requests.RequestException, ValueError) as e:
+        logger.warning("dart cvbd failed %s: %s", corp_code, e)
+        return []
+
+
+@dataclass
+class BwIssue:
+    """신주인수권부사채권 발행결정(bdwtIsDecsn.json) 1건."""
+
+    rcept_no: str = ""
+    bddd: str = ""  # 이사회결의일(YYYYMMDD)
+    bd_fta: int | None = None  # 사채권면총액(원)
+    ex_prc: int | None = None  # 행사가액(원/주)
+    nstk_isstk_cnt: int | None = None  # 행사 발행 주식수
+    nstk_isstk_tisstk_vs: float | None = None  # 주식총수 대비 비율(%)
+
+
+def fetch_bw_issuance(api_key: str, corp_code: str, bgn_de: str, end_de: str, session: requests.Session | None = None) -> list[BwIssue]:
+    """DS005 신주인수권부사채권 발행결정 → BW 발행내역(최신순). 실패·없음이면 빈 리스트."""
+    params = {"crtfc_key": api_key, "corp_code": corp_code, "bgn_de": bgn_de, "end_de": end_de}
+    s = session or requests.Session()
+    try:
+        resp = dart_throttle.get(s, _BDWT_ISSUE_URL, params=params, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+        _raise_if_quota(data)
+        if data.get("status") != "000":
+            return []
+        out: list[BwIssue] = []
+        for r in data.get("list", []):
+            out.append(BwIssue(
+                rcept_no=(r.get("rcept_no") or "").strip(),
+                bddd=(r.get("bddd") or "").strip(),
+                bd_fta=_int_field(r, "bd_fta"),
+                ex_prc=_int_field(r, "ex_prc"),
+                nstk_isstk_cnt=_int_field(r, "nstk_isstk_cnt"),
+                nstk_isstk_tisstk_vs=_float_field(r, "nstk_isstk_tisstk_vs"),
+            ))
+        return out
+    except (requests.RequestException, ValueError) as e:
+        logger.warning("dart bdwt failed %s: %s", corp_code, e)
+        return []
 
 
 @dataclass

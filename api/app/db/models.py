@@ -326,6 +326,11 @@ class RelatedCompany(Base):
     related_stock_code: Mapped[str | None] = mapped_column(String(6))  # 관계사가 상장사면 링크
     source: Mapped[str] = mapped_column(String(24), default="")  # hyslrSttus | otrCprInvstmntSttus
     bsns_year: Mapped[int | None] = mapped_column(Integer)  # 근거 사업연도
+    # otrCprInvstmntSttus 추가 필드 — 자회사 필터(이익 10%+/적자/출자목적)용.
+    inv_purpose: Mapped[str | None] = mapped_column(String(64))  # 출자목적(자회사/관계회사/신사업…)
+    book_value: Mapped[int | None] = mapped_column(BigInteger)  # 기말 장부가액(원)
+    sub_total_assets: Mapped[int | None] = mapped_column(BigInteger)  # 자회사 총자산(원)
+    sub_net_profit: Mapped[int | None] = mapped_column(BigInteger)  # 자회사 당기순이익(원)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
@@ -368,6 +373,55 @@ class OwnershipChangeCache(Base):
 
     stock_code: Mapped[str] = mapped_column(String(6), primary_key=True)
     payload: Mapped[dict] = mapped_column(JSONB)  # [{rcept_no, date, reporter, ...}]
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class OwnershipSummary(Base):
+    """종목별 지분구조 요약 — 합산 지분율·유통주식 등 분석 배지 원천.
+
+    야간 related_company_ingest.backfill_stock 에서 hyslrSttus(합산) + stockTotqySttus(유통)를
+    계산해 영속. 기업분석 화면 지분구조 섹션 상단 분석 배지(지배력·수급) 원천.
+    """
+
+    __tablename__ = "ownership_summary"
+
+    stock_code: Mapped[str] = mapped_column(String(6), primary_key=True)
+    group_stake_pct: Mapped[float | None] = mapped_column(Float)  # 최대주주+특수관계인 합산(%)
+    floating_shares: Mapped[int | None] = mapped_column(BigInteger)  # 유통주식수
+    floating_ratio: Mapped[float | None] = mapped_column(Float)  # 유통비율(%)
+    bsns_year: Mapped[int | None] = mapped_column(Integer)  # 근거 사업연도
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class MajorHolderCache(Base):
+    """5%+ 대량보유주주(majorstock.json) 캐시 — 엔드포인트 12h 캐싱.
+
+    OwnershipChangeCache 와 동일 패턴. DART 호출 빈도 제한(종목당 12h 1회).
+    """
+
+    __tablename__ = "major_holder_cache"
+
+    stock_code: Mapped[str] = mapped_column(String(6), primary_key=True)
+    payload: Mapped[dict] = mapped_column(JSONB)  # [{rcept_dt, repror, stkrt, ...}]
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class DilutionCache(Base):
+    """CB/BW 발행내역(cvbdIsDecsn·bdwtIsDecsn) 캐시 — 엔드포인트 12h 캐싱.
+
+    전환사채·신주인수권부사채 발행결정을 캐시해 잠재 지분 희석률 계산. 동일 패턴.
+    """
+
+    __tablename__ = "dilution_cache"
+
+    stock_code: Mapped[str] = mapped_column(String(6), primary_key=True)
+    payload: Mapped[dict] = mapped_column(JSONB)  # [{type, bd_fta, cv_prc, cvisstk_cnt, ...}]
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

@@ -67,6 +67,11 @@ _COLUMN_MIGRATIONS = (
     "ALTER TABLE financials ADD COLUMN IF NOT EXISTS cost_of_debt DOUBLE PRECISION",
     # 연결(CFS)·별도(OFS) 구분 저장 — valuation 에서 본업(별도)·지분가치(연결-본업) 밸류에이션.
     "ALTER TABLE financials ADD COLUMN IF NOT EXISTS fs_div VARCHAR(3) DEFAULT 'CFS'",
+    # 지분구조 심화: 자회사 필터(이익 10%+/적자/출자목적)용 otrCpr 추가 필드.
+    "ALTER TABLE related_company ADD COLUMN IF NOT EXISTS inv_purpose VARCHAR(64)",
+    "ALTER TABLE related_company ADD COLUMN IF NOT EXISTS book_value BIGINT",
+    "ALTER TABLE related_company ADD COLUMN IF NOT EXISTS sub_total_assets BIGINT",
+    "ALTER TABLE related_company ADD COLUMN IF NOT EXISTS sub_net_profit BIGINT",
 )
 
 # 데이터 정합성 정규화(멱등) — 스키마가 아닌 값 보정. init_db 마다 실행되나 조건절이 이미 보정된

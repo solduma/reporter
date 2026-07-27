@@ -6,6 +6,8 @@
 
 from app.adapters.dart import report_parser, throttle
 from app.adapters.dart.client import (
+    BwIssue,
+    CbIssue,
     CorpMapping,
     DartQuotaExceeded,
     Disclosure,
@@ -13,10 +15,13 @@ from app.adapters.dart.client import (
     HyslrRow,
     IncomeEquity,
     LargestShareholders,
+    MajorHolder,
     RelatedParty,
     StockTotal,
     configure_from_settings,
     extract_ownership_reason,
+    fetch_bw_issuance,
+    fetch_cb_issuance,
     fetch_corp_mappings,
     fetch_disclosures,
     fetch_dividend,
@@ -26,6 +31,7 @@ from app.adapters.dart.client import (
     fetch_hyslr_rows,
     fetch_income_and_equity,
     fetch_largest_shareholders,
+    fetch_major_shareholders,
     fetch_ownership_changes,
     fetch_related_companies,
     fetch_roe,
@@ -36,6 +42,8 @@ from app.adapters.dart.client import (
 from app.adapters.dart.report_parser import fetch_report_zip, parse_cf_depreciation
 
 __all__ = [
+    "BwIssue",
+    "CbIssue",
     "CorpMapping",
     "DartQuotaExceeded",
     "Disclosure",
@@ -43,10 +51,13 @@ __all__ = [
     "HyslrRow",
     "IncomeEquity",
     "LargestShareholders",
+    "MajorHolder",
     "RelatedParty",
     "StockTotal",
     "configure_from_settings",
     "extract_ownership_reason",
+    "fetch_bw_issuance",
+    "fetch_cb_issuance",
     "fetch_corp_mappings",
     "fetch_disclosures",
     "fetch_dividend",
@@ -56,6 +67,7 @@ __all__ = [
     "fetch_hyslr_rows",
     "fetch_income_and_equity",
     "fetch_largest_shareholders",
+    "fetch_major_shareholders",
     "fetch_ownership_changes",
     "fetch_related_companies",
     "fetch_report_zip",

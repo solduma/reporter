@@ -957,6 +957,11 @@ class SubsidiaryOut(BaseModel):
     stake_pct: float | None = None
     related_stock_code: str | None = None  # 상장 관계사면 내부 종목 링크
     related_stock_name: str | None = None
+    # otrCpr 추가 필드 — 자회사 필터(이익 10%+/적자/출자목적)용.
+    inv_purpose: str | None = None  # 출자목적
+    book_value: int | None = None  # 기말 장부가액(원)
+    sub_net_profit: int | None = None  # 자회사 당기순이익(원)
+    significance: list[str] = Field(default_factory=list)  # ["이익10%+","적자","신사업"]
 
 
 class OwnershipChangeOut(BaseModel):
@@ -971,6 +976,37 @@ class OwnershipChangeOut(BaseModel):
     reason: str = ""
 
 
+class OwnershipSummaryOut(BaseModel):
+    """지분구조 분석 배지 — 합산 지분율·유통주식·희석."""
+
+    group_stake_pct: float | None = None  # 최대주주+특수관계인 합산(%)
+    group_class: str = ""  # "분산" (<30%) | "안정" (30~50%) | "독점" (50%+)
+    floating_ratio: float | None = None  # 유통주식 비율(%)
+    floating_class: str = ""  # "과소유동" (<30%) | "적정" (30~60%) | "과다유동" (60%+)
+    dilution_pct: float | None = None  # CB/BW 전환 시 잠재 희석(%)
+
+
+class MajorHolderOut(BaseModel):
+    """5%+ 대량보유주주 1건."""
+
+    rcept_dt: str = ""  # 접수일자(YYYYMMDD)
+    repror: str = ""  # 대표보고자(주주명)
+    stkrt: float | None = None  # 보유비율(%)
+    stkqy: int | None = None  # 보유주식수
+    report_resn: str = ""  # 보고사유
+
+
+class DilutionOut(BaseModel):
+    """CB/BW 발행 1건 — 잠재 지분 희석."""
+
+    type: str = ""  # "CB" | "BW"
+    bddd: str = ""  # 이사회결의일(YYYYMMDD)
+    bd_fta: int | None = None  # 발행금액(원)
+    cv_prc: int | None = None  # 전환/행사가액(원/주)
+    cvisstk_cnt: int | None = None  # 발행 주식수
+    tisstk_vs: float | None = None  # 주식총수 대비 비율(%)
+
+
 class OwnershipOut(BaseModel):
     """종목 지분구조 — 주주 명부 + 자회사·출자사 + 최근 지분변동."""
 
@@ -978,6 +1014,11 @@ class OwnershipOut(BaseModel):
     as_of_year: int | None = None  # 주주 명부 근거 사업연도 배지용
     shareholders: list[ShareholderOut] = Field(default_factory=list)
     subsidiaries: list[SubsidiaryOut] = Field(default_factory=list)
+    subsidiary_total: int = 0  # 전체 출자 수(필터 전)
+    subsidiary_filtered: int = 0  # 필터 후 노출 수
     changes: list[OwnershipChangeOut] = Field(default_factory=list)
     changes_stale: bool = False  # True 면 live-fetch 실패/미실행 → 프론트 폴링 재시도
+    summary: OwnershipSummaryOut | None = None  # 분석 배지
+    major_holders: list[MajorHolderOut] = Field(default_factory=list)  # 5%+ 주주
+    dilution: list[DilutionOut] = Field(default_factory=list)  # CB/BW 발행내역
 

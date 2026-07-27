@@ -1014,6 +1014,10 @@ export interface SubsidiaryRow {
   stake_pct: number | null;
   related_stock_code: string | null;
   related_stock_name: string | null;
+  inv_purpose: string | null; // 출자목적
+  book_value: number | null; // 기말 장부가액(원)
+  sub_net_profit: number | null; // 자회사 당기순이익(원)
+  significance: string[]; // ["이익10%+","적자","신사업"]
 }
 
 export interface OwnershipChangeRow {
@@ -1026,11 +1030,41 @@ export interface OwnershipChangeRow {
   reason: string;
 }
 
+export interface OwnershipSummaryRow {
+  group_stake_pct: number | null; // 최대주주+특수관계인 합산(%)
+  group_class: string; // "분산" | "안정" | "독점"
+  floating_ratio: number | null; // 유통주식 비율(%)
+  floating_class: string; // "과소유동" | "적정" | "과다유동"
+  dilution_pct: number | null; // CB/BW 전환 시 잠재 희석(%)
+}
+
+export interface MajorHolderRow {
+  rcept_dt: string; // 접수일자(YYYYMMDD)
+  repror: string; // 대표보고자(주주명)
+  stkrt: number | null; // 보유비율(%)
+  stkqy: number | null; // 보유주식수
+  report_resn: string; // 보고사유
+}
+
+export interface DilutionRow {
+  type: string; // "CB" | "BW"
+  bddd: string; // 이사회결의일(YYYYMMDD)
+  bd_fta: number | null; // 발행금액(원)
+  cv_prc: number | null; // 전환/행사가액(원/주)
+  cvisstk_cnt: number | null; // 발행 주식수
+  tisstk_vs: number | null; // 주식총수 대비 비율(%)
+}
+
 export interface OwnershipResponse {
   stock_code: string;
   as_of_year: number | null; // 주주 명부 근거 사업연도
   shareholders: ShareholderRow[];
   subsidiaries: SubsidiaryRow[];
+  subsidiary_total: number; // 전체 출자 수(필터 전)
+  subsidiary_filtered: number; // 필터 후 노출 수
   changes: OwnershipChangeRow[];
   changes_stale: boolean; // true 면 live-fetch 실패 → 짧게 폴링 재시도
+  summary: OwnershipSummaryRow | null; // 분석 배지
+  major_holders: MajorHolderRow[]; // 5%+ 주주
+  dilution: DilutionRow[]; // CB/BW 발행내역
 }
