@@ -41,8 +41,18 @@ function fmtWon(n: number | null | undefined): string {
   return n.toLocaleString("ko-KR");
 }
 
+// 1년 내 0%로 전환된 주주를 찾기 위한 윈도우(밀리초).
+const ZERO_TRANSITION_WINDOW_MS = 365 * 24 * 60 * 60 * 1000;
+
 // 주주 명부를 현재 기준 스냅샷으로 정리 — 동일 주주는 한 줄로, 실제 지분이 있는 주주만 노출.
-function snapshotShareholders(rows: ShareholderRow[]): ShareholderRow[] {
+// 최근 1년 내 0%로 전환된 주주(변동 테이블에서 shares_after=0 인 경우)는 하단 "0% 전환" 서브 섹션에 별도 표시한다.
+function snapshotShareholders(
+  rows: ShareholderRow[],
+  changes: OwnershipChangeRow[],
+): {
+  holders: ShareholderRow[];
+  recentZero: (ShareholderRow & { changedAt: string; position: string; delta: number | null })[];
+} {
   const map = new Map<string, ShareholderRow>();
   for (const s of rows) {
     const existing = map.get(s.holder_name);
@@ -51,9 +61,35 @@ function snapshotShareholders(rows: ShareholderRow[]): ShareholderRow[] {
       map.set(s.holder_name, s);
     }
   }
-  return Array.from(map.values())
-    .filter((s) => (s.stake_pct ?? 0) > 0)
-    .sort((a, b) => (b.stake_pct ?? 0) - (a.stake_pct ?? 0));
+  const all = Array.from(map.values()).sort((a, b) => (b.stake_pct ?? 0) - (a.stake_pct ?? 0));
+  const holders = all.filter((s) => (s.stake_pct ?? 0) > 0);
+
+  const now = Date.now();
+  const changeByName = new Map<string, OwnershipChangeRow>();
+  for (const c of changes) {
+    if (!c.rcept_date || (c.shares_after ?? 0) !== 0) continue;
+    const prev = changeByName.get(c.reporter);
+    if (!prev || (c.rcept_date > (prev.rcept_date ?? ""))) {
+      changeByName.set(c.reporter, c);
+    }
+  }
+
+  const recentZero: (ShareholderRow & { changedAt: string; position: string; delta: number | null })[] = [];
+  for (const s of all) {
+    if ((s.stake_pct ?? 0) !== 0) continue;
+    const ch = changeByName.get(s.holder_name);
+    if (!ch || !ch.rcept_date) continue;
+    const ts = Date.parse(ch.rcept_date);
+    if (Number.isNaN(ts) || now - ts > ZERO_TRANSITION_WINDOW_MS) continue;
+    recentZero.push({
+      ...s,
+      changedAt: ch.rcept_date,
+      position: ch.position || "—",
+      delta: ch.shares_delta,
+    });
+  }
+
+  return { holders, recentZero };
 }
 
 export default function OwnershipStructure({ code }: { code: string }) {
@@ -118,7 +154,12 @@ export default function OwnershipStructure({ code }: { code: string }) {
   const filteredCount = subsidiary_filtered ?? subsidiaries.length;
   const totalCount = subsidiary_total ?? subsidiaries.length;
   const displaySubs = showAllSubs ? subsidiaries : subsidiaries.slice(0, filteredCount);
-  const snapshotHolders = snapshotShareholders(shareholders);
+  const { holders: snapshotHolders, recentZero } = snapshotShareholders(shareholders, changes);
+
+  // 주주 명부에 없는 최근 0% 전환 보고자도 "0% 전환"에 추가 표시.
+  const zeroChangeRows = changes.filter(
+    (c) => c.rcept_date && (c.shares_after ?? 0) === 0 && !snapshotHolders.some((s) => s.holder_name === c.reporter),
+  );
 
   return (
     <div className={styles.wrap}>
@@ -160,6 +201,63 @@ export default function OwnershipStructure({ code }: { code: string }) {
                 ))}
               </tbody>
             </table>
+          )}
+
+          {/* 최근 1년 내 0%로 전환된 주주 (임원·주요주주 소유 전량 처분 등) */}
+          {(recentZero.length > 0 || zeroChangeRows.length > 0) && (
+            <div className={styles.subSection}>
+              <h4 className={styles.subSectionTitle}>최근 1년 내 0% 전환</h4>
+              <div className={styles.scroll}>
+                <table className={styles.table}>
+                  <thead>
+                    <tr>
+                      <th className={styles.nameCol} scope="col">주주</th>
+                      <th scope="col">직위/관계</th>
+                      <th scope="col">전환일</th>
+                      <th scope="col">변동주식수</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recentZero.map((s) => (
+                      <tr key={`zero-${s.holder_name}`}>
+                        <th className={styles.nameCol} scope="row">
+                          {s.related_stock_code ? (
+                            <Link href={`/companies/${s.related_stock_code}`} className={styles.link}>
+                              {s.holder_name}
+                            </Link>
+                          ) : (
+                            <span className={s.is_corporate ? styles.corp : styles.person}>
+                              {s.holder_name}
+                            </span>
+                          )}
+                        </th>
+                        <td>{s.position}</td>
+                        <td>{s.changedAt}</td>
+                        <td className={styles.num}>
+                          {s.delta !== null
+                            ? `${s.delta > 0 ? "+" : ""}${s.delta.toLocaleString("ko-KR")}주`
+                            : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                    {zeroChangeRows.map((c) => (
+                      <tr key={`zero-${c.reporter}-${c.rcept_no}`}>
+                        <th className={styles.nameCol} scope="row">
+                          <span className={styles.person}>{c.reporter}</span>
+                        </th>
+                        <td>{c.position || "—"}</td>
+                        <td>{c.rcept_date ?? "—"}</td>
+                        <td className={styles.num}>
+                          {c.shares_delta !== null
+                            ? `${c.shares_delta > 0 ? "+" : ""}${c.shares_delta.toLocaleString("ko-KR")}주`
+                            : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           )}
 
           {/* 5%+ 대량보유주주 */}
