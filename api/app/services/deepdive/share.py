@@ -20,8 +20,12 @@ from app.services.deepdive.ontology_refs import extract_ontology_refs
 SHARE_TTL = timedelta(minutes=30)
 
 
-def report_to_out(rep: DeepDiveReport) -> DeepDiveReportOut:
-    """DeepDiveReport ORM → 응답/스냅샷 DTO. 라우터·공유 스냅샷이 공유."""
+def report_to_out(rep: DeepDiveReport, db: Session | None = None) -> DeepDiveReportOut:
+    """DeepDiveReport ORM → 응답/스냅샷 DTO. 라우터·공유 스냅샷이 공유.
+
+    db 를 받으면 비즈니스 온톨로지 정준 노드도 ontology_refs 에 함께 싣는다(사업보고서 ingest 시
+    영속화된 그래프). db 없으면 재무 온톨로지 refs 만(하위호환).
+    """
     report_json = {
         "overview": rep.overview_json,
         "redflags": rep.redflags_json,
@@ -30,11 +34,19 @@ def report_to_out(rep: DeepDiveReport) -> DeepDiveReportOut:
         "valuation": rep.valuation_json,
     }
     return DeepDiveReportOut(
-        stock_code=rep.stock_code, model=rep.model,
-        overview=rep.overview_json, redflags=rep.redflags_json, business=rep.business_json,
-        thesis=rep.thesis_json, hitl=rep.hitl_json, valuation=rep.valuation_json,
-        narrative_md=rep.narrative_md, verdict=rep.verdict, upside_pct=rep.upside_pct,
-        ontology_refs=extract_ontology_refs(report_json), as_of=rep.as_of,
+        stock_code=rep.stock_code,
+        model=rep.model,
+        overview=rep.overview_json,
+        redflags=rep.redflags_json,
+        business=rep.business_json,
+        thesis=rep.thesis_json,
+        hitl=rep.hitl_json,
+        valuation=rep.valuation_json,
+        narrative_md=rep.narrative_md,
+        verdict=rep.verdict,
+        upside_pct=rep.upside_pct,
+        ontology_refs=extract_ontology_refs(report_json, db=db, stock_code=rep.stock_code),
+        as_of=rep.as_of,
     )
 
 
@@ -51,7 +63,7 @@ def create_share(db: Session, code: str) -> DeepDiveShare | None:
         token=secrets.token_urlsafe(32),
         stock_code=code,
         stock_name=company_service.resolve_stock_name(db, code),
-        payload_json=report_to_out(rep).model_dump(mode="json"),
+        payload_json=report_to_out(rep, db).model_dump(mode="json"),
         expires_at=now + SHARE_TTL,
     )
     db.add(share)

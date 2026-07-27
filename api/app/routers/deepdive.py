@@ -26,11 +26,18 @@ router = APIRouter(prefix="/api/deepdive", tags=["deepdive"])
 def _status(code: str, job, has: bool) -> DeepDiveStatus:
     """job → 상태 DTO(HITL 필드 포함). job 없으면 status=none."""
     if job is None:
-        return DeepDiveStatus(stock_code=code, status="none", current_stage=0, progress=0, has_report=has)
+        return DeepDiveStatus(
+            stock_code=code, status="none", current_stage=0, progress=0, has_report=has
+        )
     return DeepDiveStatus(
-        stock_code=code, status=job.status, current_stage=job.current_stage,
-        progress=job.progress, error=job.error, has_report=has,
-        hitl_pending=job.hitl_pending, hitl_prompt=job.hitl_prompt,
+        stock_code=code,
+        status=job.status,
+        current_stage=job.current_stage,
+        progress=job.progress,
+        error=job.error,
+        has_report=has,
+        hitl_pending=job.hitl_pending,
+        hitl_prompt=job.hitl_prompt,
     )
 
 
@@ -66,7 +73,7 @@ def deepdive_report(code: str, db: Session = Depends(get_session)) -> DeepDiveRe
     rep = orchestrator.get_report(db, code)
     if rep is None:
         return None
-    return share.report_to_out(rep)
+    return share.report_to_out(rep, db)
 
 
 @router.post("/{code}/share", response_model=DeepDiveShareOut)
