@@ -41,8 +41,20 @@ class ToolTurn:
 
 
 class LLMPort(Protocol):
-    def chat(self, model: str, system: str, user: str, temperature: float = 0.3) -> str:
-        """system·user 프롬프트로 생성한 텍스트. 실패·빈 응답이면 LLMError."""
+    def chat(
+        self,
+        model: str,
+        system: str,
+        user: str,
+        temperature: float = 0.3,
+        *,
+        timeout: int | None = None,
+    ) -> str:
+        """system·user 프롬프트로 생성한 텍스트. 실패·빈 응답이면 LLMError.
+
+        timeout 은 per-call 상회(초) — 구현 기본값(긴 딥다이브용)을 덮어 짧은 분류 호출의
+        병리 hang 을 절단할 때 쓴다. stream 기반이라 토큰이 흐르는 한 전체 응답 길이에 묶이지 않는다.
+        """
         ...
 
     def chat_tools(

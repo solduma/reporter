@@ -239,7 +239,16 @@ class _FakeIndustryLLM:
             return [[1.0] if i == 0 else [0.0] for i in range(len(texts))]
         return [[1.0]]
 
-    def chat(self, model: str, system: str, user: str, temperature: float = 0.3) -> str:
+    def chat(
+        self,
+        model: str,
+        system: str,
+        user: str,
+        temperature: float = 0.3,
+        *,
+        timeout: int | None = None,
+        max_attempts: int = 3,
+    ) -> str:
         return self._pick
 
 
@@ -293,3 +302,28 @@ def test_resolve_industry_keyword_short_circuits_llm(db):
     assert r.matched_via != "llm_classify"
     # 키워드 단락 시 임베딩 캐시 미생성.
     assert len(bo_svc._GICS_EMBED_CACHE) == 0
+
+
+def test_reprocess_industry_parallel_via_settings(db, monkeypatch):
+    """settings 주입 시 industry resolve 병렬 처리 — 다건 동시 판정 → 일괄 승격.
+
+    _get_llm 를 가짜 LLM 으로 monkeypatch 하여 reprocess_pending 의 ThreadPoolExecutor 경로 검증.
+    캐시 키는 embed_model 이라 인스턴스 무관 — 동시 빌드는 _gics_embeddings lock 으로 직렬화.
+    """
+    _clear_gics_cache()
+    llm = _FakeIndustryLLM(pick="1")
+    monkeypatch.setattr(bo_svc, "_get_llm", lambda s: llm)
+
+    class _SettingsStub:
+        ollama_embedding_model = "m"
+        insight_model = "m"
+
+    _add_pending(db, "005930", "industry", "표현A")
+    _add_pending(db, "005930", "industry", "표현B")
+    r = bo_svc.reprocess_pending(db, node_type="industry", settings=_SettingsStub())
+    assert r["promoted"] == 2
+    assert r["still_pending"] == 0
+    # 두 노드 모두 동일 top-1 GICS 로 승격(가짜 LLM pick=1).
+    assert bo_svc.list_pending(db, node_type="industry")["total"] == 0
+    # 임베딩 캐시는 embed_model 키로 1회 빌드(병렬 중복 빌드 없음).
+    assert set(bo_svc._GICS_EMBED_CACHE.keys()) == {"m"}
