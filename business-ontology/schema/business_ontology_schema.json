@@ -37,7 +37,7 @@
         },
         "companies": {
           "type": "object",
-          "patternProperties": {"^CMP_(KRX|DART)_[0-9A-Z]+$": {"$ref": "#/definitions/CompanyNode"}},
+          "patternProperties": {"^CMP_(KRX|DART)_[0-9A-Z]+$|^CMP_GLOBAL_[A-Z][A-Z0-9_]*$": {"$ref": "#/definitions/CompanyNode"}},
           "additionalProperties": false
         },
         "segments": {

@@ -18,7 +18,7 @@ from typing import Literal, Protocol
 
 # 포트 리프 — 패키지의 NodeType 리터럴을 재정의하지 않고 동일 문자열 집합을 alias 로 둔다.
 BusinessNodeType = Literal["company", "industry", "product", "raw_material", "segment"]
-BusinessResolveStatus = Literal["canonical", "pending_review", "unknown"]
+BusinessResolveStatus = Literal["canonical", "pending_review", "rejected", "unknown"]
 
 
 @dataclass(frozen=True)
@@ -118,4 +118,12 @@ class BusinessOntologyPort(Protocol):
 
     def node(self, node_id: str) -> NodeOut | None:
         """단일 정적 노드 조회(ID). 산업 노드도 NodeOut 로 변환해 반환."""
+        ...
+
+    def issue_canonical(self, node_type: BusinessNodeType, name: str) -> str:
+        """이름 기반 자동 canonical_id 발급(정적 사전 node_id 충돌 회피).
+
+        company 비상장 자동 new(CMP_GLOBAL_) 발급을 서비스가 CorpCodeMap 확인 후 주도.
+        product/raw_material/segment 도 동일 slug 규칙 — normalizer 자동 발급과 일치.
+        """
         ...

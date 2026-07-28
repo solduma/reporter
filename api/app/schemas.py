@@ -1088,6 +1088,15 @@ class BusinessPendingActionOut(BaseModel):
     stock_code: str | None = None
 
 
+class BusinessReprocessOut(BaseModel):
+    """pending 일괄 재정규화 결과 — normalizer 개선 후 재투입한 분류 집계."""
+
+    promoted: int  # canonical 로 승격(auto_new/keyword/사전 매칭)
+    rejected: int  # rejected 처리(비엔티티 NER 오분류)
+    still_pending: int  # 여전히 pending_review
+    total: int  # 재처리 대상 pending 행 수
+
+
 # ── 사업 개요(business overview) ──────────────────────────────────────────
 class BusinessTableOut(BaseModel):
     """사업 개요 섹션 내 표."""

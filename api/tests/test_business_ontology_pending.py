@@ -157,3 +157,62 @@ def test_reject_excludes_from_list(db):
     lst = bo_svc.list_pending(db)
     assert lst["total"] == 0
     assert all(item["id"] != p.id for item in lst["pending"])
+
+
+# --- (f) reprocess — 개선된 normalizer로 pending 일괄 재해석 ---
+def test_reprocess_promotes_auto_new_product(db):
+    """정적 사전에 없는 제품명 → 자동 new 발급(PRD_AUTO_<slug>)으로 승격."""
+    p = _add_pending(db, "005930", "product", "Galaxy S24")
+    r = bo_svc.reprocess_pending(db)
+    assert r["promoted"] == 1
+    assert r["still_pending"] == 0
+    assert r["total"] == 1
+    db.refresh(p)
+    assert p.status == "canonical"
+    assert p.canonical_id.startswith("PRD_AUTO_")
+    # pending 목록에서 사라짐.
+    assert bo_svc.list_pending(db)["total"] == 0
+
+
+def test_reprocess_rejects_company_blacklist(db):
+    """회사 NER 오분류(병ㆍ의원) → rejected."""
+    p = _add_pending(db, "005930", "company", "병ㆍ의원")
+    r = bo_svc.reprocess_pending(db)
+    assert r["rejected"] == 1
+    db.refresh(p)
+    assert p.status == "rejected"
+    # reject 는 pending 목록에서 제외.
+    assert bo_svc.list_pending(db)["total"] == 0
+
+
+def test_reprocess_industry_keyword_mapping(db):
+    """industry 자유표현(반도체 시장) → GICS 키워드 매핑으로 canonical."""
+    p = _add_pending(db, "005930", "industry", "메모리 반도체 시장")
+    r = bo_svc.reprocess_pending(db)
+    assert r["promoted"] == 1
+    db.refresh(p)
+    assert p.status == "canonical"
+    assert p.canonical_id.startswith("IND_GICS_")
+
+
+def test_reprocess_node_type_filter(db):
+    """node_type 필터 — company만 재처리 시 product pending 유지."""
+    _add_pending(db, "005930", "company", "병ㆍ의원")
+    pp = _add_pending(db, "005930", "product", "Galaxy S24")
+    r = bo_svc.reprocess_pending(db, node_type="company")
+    assert r["total"] == 1
+    assert r["rejected"] == 1
+    # product pending 은 그대로.
+    assert bo_svc.list_pending(db)["total"] == 1
+    db.refresh(pp)
+    assert pp.status == "pending_review"
+
+
+def test_reprocess_idempotent(db):
+    """이미 승격된 노드는 재처리 대상 아님 — 두 번째 실행 시 total=0."""
+    _add_pending(db, "005930", "product", "Galaxy S24")
+    r1 = bo_svc.reprocess_pending(db)
+    assert r1["promoted"] == 1
+    r2 = bo_svc.reprocess_pending(db)
+    assert r2["total"] == 0
+    assert r2["promoted"] == 0

@@ -37,3 +37,58 @@ ontology:
       korean_name: "수출 매출"
       english_name: "Export Sales"
       aliases: ["수출", "export sales"]
+    # 지리적 지역 부문 — 부문별 매출 국가 분해. region 타입 평면 추가(계층 없음).
+    SEG_REGION_CHINA:
+      id: SEG_REGION_CHINA
+      segment_type: region
+      korean_name: "중국"
+      english_name: "China"
+      aliases: ["중국", "China"]
+    SEG_REGION_VIETNAM:
+      id: SEG_REGION_VIETNAM
+      segment_type: region
+      korean_name: "베트남"
+      english_name: "Vietnam"
+      aliases: ["베트남", "Vietnam"]
+    SEG_REGION_CAMBODIA:
+      id: SEG_REGION_CAMBODIA
+      segment_type: region
+      korean_name: "캄보디아"
+      english_name: "Cambodia"
+      aliases: ["캄보디아", "Cambodia"]
+    SEG_REGION_MYANMAR:
+      id: SEG_REGION_MYANMAR
+      segment_type: region
+      korean_name: "미얀마"
+      english_name: "Myanmar"
+      aliases: ["미얀마", "Myanmar"]
+    SEG_REGION_BOLIVIA:
+      id: SEG_REGION_BOLIVIA
+      segment_type: region
+      korean_name: "볼리비아"
+      english_name: "Bolivia"
+      aliases: ["볼리비아", "Bolivia"]
+    SEG_REGION_ECUADOR:
+      id: SEG_REGION_ECUADOR
+      segment_type: region
+      korean_name: "에콰도르"
+      english_name: "Ecuador"
+      aliases: ["에콰도르", "Ecuador"]
+    SEG_REGION_ETHIOPIA:
+      id: SEG_REGION_ETHIOPIA
+      segment_type: region
+      korean_name: "에티오피아"
+      english_name: "Ethiopia"
+      aliases: ["에티오피아", "Ethiopia"]
+    SEG_REGION_GHANA:
+      id: SEG_REGION_GHANA
+      segment_type: region
+      korean_name: "가나"
+      english_name: "Ghana"
+      aliases: ["가나", "Ghana"]
+    SEG_REGION_USA:
+      id: SEG_REGION_USA
+      segment_type: region
+      korean_name: "미국"
+      english_name: "United States"
+      aliases: ["미국", "USA", "United States", "America"]

@@ -141,6 +141,22 @@ def reject_pending(
     return schemas.BusinessPendingActionOut(**r)
 
 
+@router.post("/pending/reprocess", response_model=schemas.BusinessReprocessOut)
+def reprocess_pending(
+    node_type: str | None = Query(
+        default=None, description="company|industry|product|raw_material|segment. 미지정 시 전체 pending."
+    ),
+    db: Session = Depends(get_session),
+) -> schemas.BusinessReprocessOut:
+    """pending_review 노드를 개선된 normalizer로 일괄 재해석.
+
+    LLM NER 재실행 없이 (korean_name, node_type) 만 재투입 → canonical 승격/거부/유지 분류.
+    normalizer 개선 직후 일회성 운영용. 회사는 resolve_company(시드+CorpCodeMap+자동 new).
+    """
+    r = bo_service.reprocess_pending(db, node_type=node_type)
+    return schemas.BusinessReprocessOut(**r)
+
+
 @router.get("/{code}/graph", response_model=schemas.BusinessGraphOut)
 def company_graph(code: str, db: Session = Depends(get_session)) -> schemas.BusinessGraphOut:
     """회사 비즈니스 그래프 — 노드 + 엣지(operates_in/manufactures/uses_material/...)."""
