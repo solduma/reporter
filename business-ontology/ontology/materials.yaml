@@ -91,3 +91,113 @@ ontology:
       english_name: "Glass Substrate"
       aliases: ["유리기판", "디스플레이 기판"]
       commodity_ref: {taxonomy: "other", code: "GLASS_SUBSTRATE"}
+    # 화합물·생물소재 — 화장품/제약/이차전지 원료. commodity_ref 는 CAS/other 기반.
+    MAT_CHEM_HYALURONIC:
+      id: MAT_CHEM_HYALURONIC
+      korean_name: "히알루론산"
+      english_name: "Hyaluronic Acid"
+      aliases: ["히알루론산", "Hyaluronic Acid", "HA"]
+      commodity_ref: {taxonomy: "CAS", code: "hyaluronic_acid"}
+    MAT_CHEM_COLLAGEN:
+      id: MAT_CHEM_COLLAGEN
+      korean_name: "콜라겐"
+      english_name: "Collagen"
+      aliases: ["콜라겐", "Collagen", "아말리안 필러"]
+      commodity_ref: {taxonomy: "CAS", code: "collagen"}
+    MAT_CHEM_BETA_GLUCAN:
+      id: MAT_CHEM_BETA_GLUCAN
+      korean_name: "베타글루칸"
+      english_name: "Beta-Glucan"
+      aliases: ["베타글루칸", "글루칸류", "베타 글루칸"]
+      commodity_ref: {taxonomy: "CAS", code: "beta_glucan"}
+    MAT_CHEM_EXOSOME:
+      id: MAT_CHEM_EXOSOME
+      korean_name: "엑소좀"
+      english_name: "Exosome"
+      aliases: ["엑소좀", "Exosome"]
+      commodity_ref: {taxonomy: "other", code: "EXOSOME"}
+    MAT_CHEM_PDRN:
+      id: MAT_CHEM_PDRN
+      korean_name: "PDRN"
+      english_name: "Polydeoxyribonucleotide"
+      aliases: ["식물성 PDRN", "PDRN", "Polydeoxyribonucleotide"]
+      commodity_ref: {taxonomy: "other", code: "PDRN"}
+    MAT_CHEM_LISALT:
+      id: MAT_CHEM_LISALT
+      korean_name: "리튬염"
+      english_name: "Lithium Salt"
+      aliases: ["리튬염(LiPF6 등)", "LiPF6", "LiFSI", "LiPO2F2", "LiBOB", "LiFSI 전해질", "LiPO2F2 전해질", "LiBOB 전해질"]
+      commodity_ref: {taxonomy: "other", code: "LITHIUM_SALT"}
+    MAT_CHEM_GINSENG:
+      id: MAT_CHEM_GINSENG
+      korean_name: "홍경천추출물"
+      english_name: "Rhodiola Extract"
+      aliases: ["홍경천추출물", "홍경천", "Rhodiola", "마치현추출물", "홍삼농축액분말"]
+      commodity_ref: {taxonomy: "other", code: "RHODIOLA_EXTRACT"}
+    MAT_CHEM_GINKGO:
+      id: MAT_CHEM_GINKGO
+      korean_name: "은행잎추출물"
+      english_name: "Ginkgo Biloba Extract"
+      aliases: ["은행잎추출물", "은행잎", "Ginkgo Biloba"]
+      commodity_ref: {taxonomy: "other", code: "GINKGO_EXTRACT"}
+    MAT_CHEM_SOY_ISOFLAVONE:
+      id: MAT_CHEM_SOY_ISOFLAVONE
+      korean_name: "대두이소플라본"
+      english_name: "Soy Isoflavone"
+      aliases: ["대두이소플라본", "Soy Isoflavone", "이소플라본"]
+      commodity_ref: {taxonomy: "CAS", code: "soy_isoflavone"}
+    MAT_CHEM_QUANTUM_DOT:
+      id: MAT_CHEM_QUANTUM_DOT
+      korean_name: "퀀텀닷"
+      english_name: "Quantum Dot"
+      aliases: ["퀀텀닷 (Quantum Dot)", "퀀텀닷", "Quantum Dot", "QD"]
+      commodity_ref: {taxonomy: "other", code: "QUANTUM_DOT"}
+    # API(활성 의약품 원료) — 제약사 pending 원료.
+    MAT_CHEM_API_LOXOPROFEN:
+      id: MAT_CHEM_API_LOXOPROFEN
+      korean_name: "록소프로펜나트륨"
+      english_name: "Loxoprofen Sodium"
+      aliases: ["록소프로펜나트륨", "Loxoprofen Sodium"]
+      commodity_ref: {taxonomy: "CAS", code: "loxoprofen_sodium"}
+    MAT_CHEM_API_CLOPIDOGREL:
+      id: MAT_CHEM_API_CLOPIDOGREL
+      korean_name: "클로피도그렐황산염"
+      english_name: "Clopidogrel Sulfate"
+      aliases: ["클로피도그렐황산염", "Clopidogrel Sulfate"]
+      commodity_ref: {taxonomy: "CAS", code: "clopidogrel_sulfate"}
+    MAT_CHEM_API_TULOBUTEROL:
+      id: MAT_CHEM_API_TULOBUTEROL
+      korean_name: "툴로부테롤"
+      english_name: "Tulobuterol"
+      aliases: ["툴로부테롤", "Tulobuterol"]
+      commodity_ref: {taxonomy: "CAS", code: "tulobuterol"}
+    MAT_CHEM_API_VOGLIBOSE:
+      id: MAT_CHEM_API_VOGLIBOSE
+      korean_name: "보글리보스"
+      english_name: "Voglibose"
+      aliases: ["보글리보스", "Voglibose"]
+      commodity_ref: {taxonomy: "CAS", code: "voglibose"}
+    MAT_CHEM_API_RIVASTIGMINE:
+      id: MAT_CHEM_API_RIVASTIGMINE
+      korean_name: "리바스티그민"
+      english_name: "Rivastigmine"
+      aliases: ["리바스티그민", "Rivastigmine"]
+      commodity_ref: {taxonomy: "CAS", code: "rivastigmine"}
+    MAT_CHEM_API_DIACEREIN:
+      id: MAT_CHEM_API_DIACEREIN
+      korean_name: "디아세레인"
+      english_name: "Diacerein"
+      aliases: ["디아세레인", "Diacerein"]
+      commodity_ref: {taxonomy: "CAS", code: "diacerein"}
+    MAT_CHEM_API_PHLOROGLUCINOL:
+      id: MAT_CHEM_API_PHLOROGLUCINOL
+      korean_name: "플로로글루시놀"
+      english_name: "Phloroglucinol"
+      aliases: ["플로로글루시놀", "Phloroglucinol"]
+      commodity_ref: {taxonomy: "CAS", code: "phloroglucinol"}
+    MAT_CHEM_API_VVZ149:
+      id: MAT_CHEM_API_VVZ149
+      korean_name: "VVZ-149"
+      english_name: "VVZ-149"
+      aliases: ["VVZ-149"]
+      commodity_ref: {taxonomy: "other", code: "VVZ_149"}

@@ -44,3 +44,103 @@ ontology:
       korean_name: "LG에너지솔루션"
       english_name: "LG Energy Solution"
       aliases: ["LG에너지솔루션(주)", "LG Energy Solution Ltd."]
+    # 상장사 alias 보강 — CorpCodeMap 이름 불일치 pending 해소용. corp_code 는 인스턴스 영속 시 CorpCodeMap 으로 보완된다.
+    CMP_KRX_005270:
+      id: CMP_KRX_005270
+      corp_code: ""
+      stock_code: "005270"
+      korean_name: "기아"
+      english_name: "Kia Corp"
+      aliases: ["기아자동차", "기아차", "KIA", "Kia Motors"]
+    CMP_KRX_030200:
+      id: CMP_KRX_030200
+      corp_code: ""
+      stock_code: "030200"
+      korean_name: "KT"
+      english_name: "KT Corp"
+      aliases: ["케이티", "한국통신", "KT", "KT Corporation"]
+    CMP_KRX_005490:
+      id: CMP_KRX_005490
+      corp_code: ""
+      stock_code: "005490"
+      korean_name: "POSCO"
+      english_name: "POSCO"
+      aliases: ["포스코", "포항제철", "POSCO Holdings"]
+    # 비상장 글로벌사/주요 자회사 — 자주 반복 등장하는 시드. CMP_GLOBAL_ 체계(corp_code/stock_code 없음).
+    CMP_GLOBAL_HARMAN:
+      id: CMP_GLOBAL_HARMAN
+      corp_code: ""
+      stock_code: null
+      korean_name: "하만"
+      english_name: "Harman International"
+      aliases: ["Harman International Industries, Inc.", "Harman", "Harman International"]
+    CMP_GLOBAL_LOREAL:
+      id: CMP_GLOBAL_LOREAL
+      corp_code: ""
+      stock_code: null
+      korean_name: "L'Oreal"
+      english_name: "L'Oréal"
+      aliases: ["로레알", "L'Oreal", "L'Oréal Group"]
+    CMP_GLOBAL_ESTEE_LAUDER:
+      id: CMP_GLOBAL_ESTEE_LAUDER
+      corp_code: ""
+      stock_code: null
+      korean_name: "Estee Lauder"
+      english_name: "Estée Lauder"
+      aliases: ["에스티로더", "Estée Lauder", "Estee Lauder Companies"]
+    CMP_GLOBAL_LVMH:
+      id: CMP_GLOBAL_LVMH
+      corp_code: ""
+      stock_code: null
+      korean_name: "LVMH"
+      english_name: "LVMH"
+      aliases: ["LVMH Moët Hennessy Louis Vuitton", "루이뷔통모에헤네시"]
+    CMP_GLOBAL_PG:
+      id: CMP_GLOBAL_PG
+      corp_code: ""
+      stock_code: null
+      korean_name: "P&G"
+      english_name: "Procter & Gamble"
+      aliases: ["Procter & Gamble", "P&G", "프록터 앤 갬블"]
+    CMP_GLOBAL_BEIERSDORF:
+      id: CMP_GLOBAL_BEIERSDORF
+      corp_code: ""
+      stock_code: null
+      korean_name: "Beiersdorf"
+      english_name: "Beiersdorf"
+      aliases: ["바이어스도르프", "Beiersdorf AG"]
+    CMP_GLOBAL_NESTLE:
+      id: CMP_GLOBAL_NESTLE
+      corp_code: ""
+      stock_code: null
+      korean_name: "네슬레"
+      english_name: "Nestlé"
+      aliases: ["Nestle", "네슬레", "Nestlé S.A."]
+    CMP_GLOBAL_EMAGIN:
+      id: CMP_GLOBAL_EMAGIN
+      corp_code: ""
+      stock_code: null
+      korean_name: "eMagin"
+      english_name: "eMagin Corporation"
+      aliases: ["eMagin Corporation", "eMagin"]
+    CMP_GLOBAL_SOUND_UNITED:
+      id: CMP_GLOBAL_SOUND_UNITED
+      corp_code: ""
+      stock_code: null
+      korean_name: "Sound United"
+      english_name: "Sound United, LLC"
+      aliases: ["Sound United, LLC", "Sound United"]
+    CMP_GLOBAL_FLAKTGROUP:
+      id: CMP_GLOBAL_FLAKTGROUP
+      corp_code: ""
+      stock_code: null
+      korean_name: "FlaktGroup"
+      english_name: "FläktGroup Holding GmbH"
+      aliases: ["FlaktGroup Holding GmbH", "FläktGroup", "FlaktGroup"]
+    CMP_GLOBAL_SAMSUNG_DISPLAY:
+      id: CMP_GLOBAL_SAMSUNG_DISPLAY
+      corp_code: ""
+      stock_code: null
+      korean_name: "삼성디스플레이"
+      english_name: "Samsung Display"
+      aliases: ["삼성디스플레이㈜", "Samsung Display Co., Ltd.", "SDC"]

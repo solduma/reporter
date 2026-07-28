@@ -71,10 +71,11 @@ def node(node_id: str) -> NodeOut | None:
 
 # ── 회사 해석(포트 + DB) ──────────────────────────────────────────────────
 def resolve_company(db: Session, name: str) -> BusinessNormalizeResult:
-    """회사명 → 정준 ID. 패키지 시드 사전 → CorpCodeMap DB exact → pending_review.
+    """회사명 → 정준 ID. 패키지 시드 사전 → CorpCodeMap DB exact → 비상장 자동 new(CMP_GLOBAL_).
 
     패키지 normalizer 가 접두/접미사 제거한 term 을 그대로 CorpCodeMap exact 에 재사용(중복 strip 회피).
-    정준 매칭 시 canonical_id = CMP_KRX_<stock_code>. DB fuzzy 는 v2.
+    상장사 정준 매칭 시 canonical_id = CMP_KRX_<stock_code>. 시드·상장 모두 아니면 비상장 글로벌사로
+    이름 기반 CMP_GLOBAL_<slug> 자동 발급(회사 고유 엔티티 — 출처 stock_code 와 무관).
     """
     port = _port()
     r = port.resolve(name, "company")
@@ -91,7 +92,18 @@ def resolve_company(db: Session, name: str) -> BusinessNormalizeResult:
             status="canonical",
             confidence=1.0,
         )
-    return r  # 패키지의 pending_review 결과 그대로
+    if r.status == "rejected":
+        return r  # 비엔티티 NER 오분류 — 자동 new 발급 안 함
+    # 비상장 글로벌사 — 이름 기반 자동 new 발급(하만·eMagin 등). stock_code 무관 정체성.
+    cid = port.issue_canonical("company", cleaned or name)
+    return BusinessNormalizeResult(
+        term=name,
+        node_type="company",
+        canonical_id=cid,
+        matched_via="auto_new",
+        status="canonical",
+        confidence=0.7,
+    )
 
 
 # ── 회사 그래프·부문 매출(DB 영속) ────────────────────────────────────────
@@ -663,3 +675,46 @@ def reject_pending(db: Session, node_id: int) -> dict[str, object] | None:
     db.commit()
     db.refresh(n)
     return {"id": n.id, "node_type": n.node_type, "korean_name": n.korean_name, "status": n.status, "stock_code": n.stock_code}
+
+
+def reprocess_pending(db: Session, *, node_type: str | None = None) -> dict[str, object]:
+    """pending_review 노드를 개선된 normalizer로 재해석해 일괄 승격/거부.
+
+    LLM NER 재실행 없이 (korean_name, node_type) 만 normalizer에 재투입 — 라이브 DART/Ollama 소비 없음.
+    - canonical(auto_new/keyword/사전 매칭): canonical_id·status·confidence in-place 갱신
+    - rejected: status='rejected'
+    - 여전히 pending_review: 유지
+    회사는 resolve_company(시드 + CorpCodeMap exact + 자동 new), 비회사는 normalize_one(포트).
+    """
+    conds = [BusinessOntologyNode.status == "pending_review"]
+    if node_type:
+        conds.append(BusinessOntologyNode.node_type == node_type)
+    rows = db.scalars(
+        select(BusinessOntologyNode).where(*conds).order_by(BusinessOntologyNode.id)
+    ).all()
+
+    promoted = 0
+    rejected = 0
+    still_pending = 0
+    for n in rows:
+        if n.node_type == "company":
+            r = resolve_company(db, n.korean_name)
+        else:
+            r = normalize_one(n.korean_name, n.node_type)
+        if r.status == "canonical" and r.canonical_id:
+            n.canonical_id = r.canonical_id
+            n.status = "canonical"
+            n.confidence = r.confidence
+            promoted += 1
+        elif r.status == "rejected":
+            n.status = "rejected"
+            rejected += 1
+        else:
+            still_pending += 1
+    db.commit()
+    return {
+        "promoted": promoted,
+        "rejected": rejected,
+        "still_pending": still_pending,
+        "total": len(rows),
+    }

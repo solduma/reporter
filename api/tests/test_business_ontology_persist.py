@@ -108,8 +108,9 @@ def test_persist_canonical_product_and_pending(db):
     assert len(nodes) == 3
     dram = next(n for n in nodes if n.canonical_id == "PRD_SEMI_DRAM")
     assert dram.status == "canonical" and dram.node_type == "product"
+    # 사전 미매치 제품은 자동 new 발급(PRD_AUTO_<slug>) — normalizer 근본 개선.
     pend = next(n for n in nodes if n.korean_name == "존재안하는제품")
-    assert pend.status == "pending_review" and pend.canonical_id is None
+    assert pend.status == "canonical" and pend.canonical_id.startswith("PRD_AUTO_")
     edges = db.scalars(select(BusinessOntologyEdge)).all()
     assert len(edges) == 2
     assert all(e.edge_type == "manufactures" for e in edges)

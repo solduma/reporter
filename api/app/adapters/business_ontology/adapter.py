@@ -105,6 +105,10 @@ class BusinessOntologyAdapter:
             return _industry_node_out(ont.industries[node_id])
         return None
 
+    def issue_canonical(self, node_type: BusinessNodeType, name: str) -> str:
+        _ont, norm = _ensure()
+        return norm.auto_canonical_id(node_type, name)
+
 
 def _resolution_out(r) -> BusinessNormalizeResult:  # r: business_ontology.Resolution
     return BusinessNormalizeResult(

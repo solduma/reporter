@@ -140,3 +140,137 @@ ontology:
       aliases: ["생명보험", "손해보험", "장기보험", "자동차보험"]
       commodity_type: null
       is_also_material_id: null
+    # generic 카테고리 — NER 이 자주 뽑는 구체 제품군을 추상 카테고리로 정규화.
+    PRD_DISPLAY_TV:
+      id: PRD_DISPLAY_TV
+      korean_name: "TV"
+      english_name: "Television"
+      aliases: ["텔레비전", "스마트 TV", "QLED TV", "OLED TV", "Neo QLED TV", "AI TV", "LCD TV"]
+      commodity_type: "display_panel"
+      is_also_material_id: null
+    PRD_MOBILE_SMARTPHONE:
+      id: PRD_MOBILE_SMARTPHONE
+      korean_name: "스마트폰"
+      english_name: "Smartphone"
+      aliases: ["스마트 폰", "휴대폰", "갤럭시", "Galaxy", "아이폰", "모바일 기기", "스마트폰용 OLED 패널"]
+      commodity_type: null
+      is_also_material_id: null
+    PRD_MEDICAL_DEVICE:
+      id: PRD_MEDICAL_DEVICE
+      korean_name: "의료기기"
+      english_name: "Medical Device"
+      aliases: ["의료기기", "영상진단장비", "의료장비", "의료 설비"]
+      commodity_type: null
+      is_also_material_id: null
+    PRD_MEDICAL_ENDOSCOPE:
+      id: PRD_MEDICAL_ENDOSCOPE
+      korean_name: "내시경"
+      english_name: "Endoscope"
+      aliases: ["위내시경 시스템", "대장내시경 시스템", "내시경 시스템", "위내시경", "대장내시경"]
+      commodity_type: null
+      is_also_material_id: null
+    PRD_MEDICAL_EMR:
+      id: PRD_MEDICAL_EMR
+      korean_name: "EMR"
+      english_name: "Electronic Medical Record"
+      aliases: ["전자의무기록", "전자의무기록(EMR) 시스템", "EMR 시스템", "전자의무기록 시스템", "의료정보 시스템", "의료정보사업부문"]
+      commodity_type: null
+      is_also_material_id: null
+    PRD_ROBOT:
+      id: PRD_ROBOT
+      korean_name: "로봇"
+      english_name: "Robot"
+      aliases: ["산업용 로봇", "산업용로봇", "서비스 로봇", "로봇 제품", "로봇"]
+      commodity_type: null
+      is_also_material_id: null
+    PRD_DRONE:
+      id: PRD_DRONE
+      korean_name: "드론"
+      english_name: "Drone"
+      aliases: ["무인항공기", "무인 비행장치", "무인항공기 및 무인 비행장치"]
+      commodity_type: null
+      is_also_material_id: null
+    PRD_COMM_ANTENNA:
+      id: PRD_COMM_ANTENNA
+      korean_name: "안테나"
+      english_name: "Antenna"
+      aliases: ["기지국안테나", "기지국용안테나", "차량용안테나", "방산용안테나", "레이더안테나", "위성안테나", "통신안테나", "통합안테나", "차량용 통합안테나", "방산용 통신안테나", "항재밍 GPS안테나", "기지국용안테나외", "차량용안테나외", "방산용안테나외"]
+      commodity_type: null
+      is_also_material_id: null
+    PRD_COMM_RF:
+      id: PRD_COMM_RF
+      korean_name: "RF 부품"
+      english_name: "RF Component"
+      aliases: ["RF부품", "RF모듈", "Radio System", "RF 소자", "RF"]
+      commodity_type: null
+      is_also_material_id: null
+    PRD_LEISURE_BICYCLE:
+      id: PRD_LEISURE_BICYCLE
+      korean_name: "자전거"
+      english_name: "Bicycle"
+      aliases: ["자전거 제품", "자전거", "e-bike"]
+      commodity_type: null
+      is_also_material_id: null
+    PRD_LEISURE_CAMPING:
+      id: PRD_LEISURE_CAMPING
+      korean_name: "캠핑 용품"
+      english_name: "Camping Goods"
+      aliases: ["캠핑 용품", "아웃도어 용품", "캠핑장비"]
+      commodity_type: null
+      is_also_material_id: null
+    PRD_APPAREL:
+      id: PRD_APPAREL
+      korean_name: "의류"
+      english_name: "Apparel"
+      aliases: ["의류 제품", "스포츠 의류", "캐주얼 아웃도어 및 라이프 스타일 의류", "스포츠 의류 제품", "의류, 캐리어, 용품", "라이프 스타일 의류"]
+      commodity_type: null
+      is_also_material_id: null
+    PRD_LUGGAGE:
+      id: PRD_LUGGAGE
+      korean_name: "캐리어"
+      english_name: "Luggage"
+      aliases: ["여행용 가방", "캐리어, 용품", "캐리어 라이선스 사업"]
+      commodity_type: null
+      is_also_material_id: null
+    PRD_RAIL:
+      id: PRD_RAIL
+      korean_name: "철도 장비"
+      english_name: "Railway Equipment"
+      aliases: ["철도차량", "철도장비", "철도", "철도산업"]
+      commodity_type: null
+      is_also_material_id: null
+    PRD_ENERGY_WIND:
+      id: PRD_ENERGY_WIND
+      korean_name: "풍력발전기"
+      english_name: "Wind Turbine"
+      aliases: ["풍력 발전", "풍력발전", "풍력 발전기"]
+      commodity_type: null
+      is_also_material_id: null
+    PRD_DEFENSE:
+      id: PRD_DEFENSE
+      korean_name: "방산 제품"
+      english_name: "Defense Product"
+      aliases: ["방산", "방산사업", "방산용", "방산용품", "방산용 통신안테나"]
+      commodity_type: null
+      is_also_material_id: null
+    PRD_HEALTH_FOOD:
+      id: PRD_HEALTH_FOOD
+      korean_name: "건강기능식품"
+      english_name: "Health Supplement"
+      aliases: ["건강기능성식품", "식품 및 식품첨가물", "홍삼농축액분말", "홍삼", "네슬레 브랜드 건강기능식품"]
+      commodity_type: null
+      is_also_material_id: null
+    PRD_COSMETIC:
+      id: PRD_COSMETIC
+      korean_name: "화장품"
+      english_name: "Cosmetic"
+      aliases: ["화장품 의료기기 제조 판매", "화장품", "화장품 산업"]
+      commodity_type: null
+      is_also_material_id: null
+    PRD_BRAND_LICENSE:
+      id: PRD_BRAND_LICENSE
+      korean_name: "브랜드 라이선스"
+      english_name: "Brand License"
+      aliases: ["브랜드 라이선스 사업", "캐리어 라이선스 사업", "의류 라이선스 사업", "브랜드", "라이선스 사업"]
+      commodity_type: null
+      is_also_material_id: null
