@@ -333,3 +333,26 @@ def test_reprocess_industry_batch_via_settings(db, monkeypatch):
     assert bo_svc.list_pending(db, node_type="industry")["total"] == 0
     # 임베딩 캐시는 embed_model 키로 1회 빌드(병렬 중복 빌드 없음).
     assert set(bo_svc._GICS_EMBED_CACHE.keys()) == {"m"}
+
+
+def test_reprocess_industry_batch_chunks(db, monkeypatch):
+    """배치 청크 경계 — 청크 크기보다 많은 표현이 여러 청크로 쪼개져 로컬 번호 1..K 로 판정된다.
+
+    _INDUSTRY_BATCH_CHUNK=2 로 좁혀 5건 → 3청크(2+2+1). 각 청크의 [표현 N] 은 로컬 1..K 이고 파서도
+    로컬 idx 를 chunk_items 에 매핑 — 청크 경계 너머 전체 5건이 누락/중복 없이 승격됨을 검증.
+    """
+    _clear_gics_cache()
+    llm = _FakeIndustryLLM(pick="1")
+    monkeypatch.setattr(bo_svc, "_get_llm", lambda s: llm)
+    monkeypatch.setattr(bo_svc, "_INDUSTRY_BATCH_CHUNK", 2)
+
+    class _SettingsStub:
+        ollama_embedding_model = "m"
+        insight_model = "m"
+
+    for name in ("A", "B", "C", "D", "E"):
+        _add_pending(db, "005930", "industry", f"표현{name}")
+    r = bo_svc.reprocess_pending(db, node_type="industry", settings=_SettingsStub())
+    assert r["promoted"] == 5
+    assert r["still_pending"] == 0
+    assert bo_svc.list_pending(db, node_type="industry")["total"] == 0

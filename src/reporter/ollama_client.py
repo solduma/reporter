@@ -55,25 +55,39 @@ class OllamaClient:
         try:
             resp = self._session.post(self._url, json=payload, timeout=read_gap, stream=True)
             resp.raise_for_status()
-            for line in resp.iter_lines(decode_unicode=True):
+            # iter_lines 대신 iter_content 로 raw byte 를 받아 직접 줄 분할 — deadline 체크를
+            # '완결 줄' 단위가 아닌 'byte 수신' 단위로 한다. 한 줄이 \n 없이 천천히 trickle 되는 hang 은
+            # iter_lines 가 줄을 내놓지 않아 deadline 체크가 안 돌아 bypass 되는 병리를 막는다.
+            buf = b""
+            done = False
+            for chunk in resp.iter_content(chunk_size=None):
                 if deadline is not None and time.monotonic() > deadline:
                     raise OllamaError(f"Ollama {what} 전체 deadline {timeout}s 초과(trickle hang 절단)")
-                if not line:
+                if not chunk:
                     continue
-                try:
-                    chunk = json.loads(line)
-                except (json.JSONDecodeError, ValueError):
-                    continue  # 비정형 줄은 건너뛴다(keep-alive 등)
-                if chunk.get("error"):
-                    raise OllamaError(f"Ollama 스트림 오류: {chunk['error']}")
-                msg = chunk.get("message") or {}
-                if msg.get("role"):
-                    role = msg["role"]
-                if msg.get("content"):
-                    content_parts.append(msg["content"])
-                if msg.get("tool_calls"):
-                    tool_calls = msg["tool_calls"]  # 완결 tool_calls 청크
-                if chunk.get("done"):
+                buf += chunk
+                while b"\n" in buf:
+                    line, buf = buf.split(b"\n", 1)
+                    line_s = line.decode("utf-8", "replace").strip()
+                    if not line_s:
+                        continue
+                    try:
+                        obj = json.loads(line_s)
+                    except (json.JSONDecodeError, ValueError):
+                        continue  # 비정형 줄은 건너뛴다(keep-alive 등)
+                    if obj.get("error"):
+                        raise OllamaError(f"Ollama 스트림 오류: {obj['error']}")
+                    msg = obj.get("message") or {}
+                    if msg.get("role"):
+                        role = msg["role"]
+                    if msg.get("content"):
+                        content_parts.append(msg["content"])
+                    if msg.get("tool_calls"):
+                        tool_calls = msg["tool_calls"]  # 완결 tool_calls 청크
+                    if obj.get("done"):
+                        done = True
+                        break
+                if done:
                     break
         except requests.RequestException as e:
             raise OllamaError(f"Ollama {what} 요청 실패: {e}") from e
