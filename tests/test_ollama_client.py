@@ -8,11 +8,11 @@ from reporter.ollama_client import OllamaClient, OllamaError
 
 
 def _client_with_stream(chunks: list[dict]) -> OllamaClient:
-    """NDJSON 스트리밍 응답을 시뮬레이션(각 chunk 는 한 줄). iter_lines 로 흘려준다."""
+    """NDJSON 스트리밍 응답을 시뮬레이션(각 chunk 는 한 줄). iter_content 로 byte 를 흘려준다."""
     client = OllamaClient("https://ollama.com", "fake-key")
     resp = MagicMock()
     resp.raise_for_status = MagicMock()
-    resp.iter_lines.return_value = iter(json.dumps(c) for c in chunks)
+    resp.iter_content.return_value = iter((json.dumps(c) + "\n").encode() for c in chunks)
     client._session = MagicMock()
     client._session.post.return_value = resp
     return client
@@ -137,3 +137,26 @@ def test_chat_within_deadline_succeeds(monkeypatch):
 
     monkeypatch.setattr("reporter.ollama_client.time.monotonic", fake_monotonic)
     assert client.chat("glm-5.2:cloud", "sys", "user", timeout=90) == "분석 결과"
+
+
+def test_chat_deadline_fires_mid_line_on_trickle(monkeypatch):
+    # trickle hang 의 핵심 병리: \n 없이 byte 가 천천히 흐르는 한 줄. iter_lines 은 줄이 완결되지
+    # 않아 yield 하지 않으므로 per-line deadline 체크가 안 돌아 bypass 된다. iter_content 전환으로
+    # byte 수신마다 deadline 을 검사 → partial line 도 두 번째 byte 수신에서 절단된다.
+    client = OllamaClient("https://ollama.com", "fake-key")
+    resp = MagicMock()
+    resp.raise_for_status = MagicMock()
+    # \n 없는 byte 청크 — 한 줄이 완결되지 않은 채 흘러옴.
+    resp.iter_content.return_value = iter([b'{"message":{"content":"a"', b',"done":false}'])
+    client._session = MagicMock()
+    client._session.post.return_value = resp
+    calls = {"n": 0}
+
+    def fake_monotonic() -> float:
+        v = 0.0 if calls["n"] == 0 else 100.0  # 첫 byte=0(허용), 둘째 byte=100(>90 → 절단)
+        calls["n"] += 1
+        return v
+
+    monkeypatch.setattr("reporter.ollama_client.time.monotonic", fake_monotonic)
+    with pytest.raises(OllamaError):
+        client.chat("glm-5.2:cloud", "sys", "user", timeout=90)

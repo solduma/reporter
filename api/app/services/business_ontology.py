@@ -710,8 +710,11 @@ _INDUSTRY_CLASSIFY_MAX_ATTEMPTS = 1
 
 # 배치 판정 — N개 표현을 1개 chat 호출로 묶어 판정. cloud LLM 이 동시 요청을 직렬화하므로 per-call 병렬화는
 # 무효(N×60s 순차 합산). 배치는 1회 호출로 N건 판정 → N 이 늘어도 ~1회 분량(~60~120s) 유지.
-# 프롬프트·응답이 N에 비례해 커지므로 deadline 은 배치용으로 넉넉히.
+# 프롬프트·응답이 N 에 비례해 커지므로 deadline 은 배치용으로 넉넉히.
 _INDUSTRY_BATCH_TIMEOUT_S = 180
+# 배치 청크 크기 — 한 chat 호출에 담을 표현 수 상한. N 이 클 때(수백 건) 한 덩어리로 보내면 프롬프트가
+# 거대해져 LLM 이 trickle/hang 하고 deadline 도 효과 없다. 청크로 쪼개 순차 호출(청크당 ~수초~수십초).
+_INDUSTRY_BATCH_CHUNK = 20
 
 
 def _cosine(a: list[float], b: list[float]) -> float:
@@ -831,10 +834,12 @@ def _classify_industry_batch(
     judge_model: str,
     items: list[tuple[int, str]],
 ) -> dict[int, BusinessNormalizeResult]:
-    """포트 무매치 industry 표현들을 1회 chat 호출로 일괄 판정 → {node_id: result}.
+    """포트 무매치 industry 표현들을 청크 단위 chat 호출로 일괄 판정 → {node_id: result}.
 
-    cloud LLM 이 동시 요청을 직렬화하므로 per-call 병렬화는 무효 — N건을 한 프롬프트에 나열해
-    한 번에 판정한다. 쿼리 임베딩도 1회 배치(/api/embed input 배열). 실패·미응답·NONE·파싱실패 → pending 강등.
+    cloud LLM 이 동시 요청을 직렬화하므로 per-call 병렬화는 무효 — N건을 한 프롬프트에 나열해 판정.
+    단 한 덩어리로 보내면 N 이 클 때(수백 건) 프롬프트가 거대해져 LLM 이 trickle/hang 하고 deadline 도
+    효과가 없다 → _INDUSTRY_BATCH_CHUNK 청크로 쪼개 순차 호출(청크당 로컬 번호 1..K). 쿼리 임베딩은
+    1회 /api/embed 배치, top-5 후보도 1회 계산해 청크 호출에 재사용. 실패·미응답·NONE·파싱실패 → pending 강등.
     """
     if not items:
         return {}
@@ -851,23 +856,46 @@ def _classify_industry_batch(
     if len(qvecs) != len(items):
         return {nid: _pending_industry(raw) for nid, raw in items}
 
-    # 각 표현의 top-5 후보 블록 조립.
+    # 표현별 top-5 후보 + 표시 텍스트를 미리 계산(임베딩/스코어링은 1회, 청크 호출에 재사용).
     cand_ids_per: list[list[str]] = []
-    blocks: list[str] = []
+    cand_text_per: list[str] = []
     for (_nid, raw), qvec in zip(items, qvecs, strict=False):
         scored = sorted(zip(ids, vecs, strict=False), key=lambda iv: _cosine(qvec, iv[1]), reverse=True)
-        cids: list[str] = []
-        lines: list[str] = []
-        for i, (gid, _) in enumerate(scored[:5], 1):
-            ind = inds.get(gid)
-            if ind is None:
-                continue
-            lines.append(f"{i}:{ind.korean_name}({ind.english_name})")
-            cids.append(gid)
+        cids = [gid for gid, _ in scored[:5] if gid in inds]
         cand_ids_per.append(cids)
-        cands = "\n".join(lines) if lines else "(후보 없음)"
-        blocks.append(f"[표현 {len(blocks) + 1}] {raw}\n후보:\n{cands}")
+        if cids:
+            cands = "\n".join(
+                f"{i}:{inds[gid].korean_name}({inds[gid].english_name})" for i, gid in enumerate(cids, 1)
+            )
+        else:
+            cands = "(후보 없음)"
+        cand_text_per.append(f"{raw}\n후보:\n{cands}")
 
+    results: dict[int, BusinessNormalizeResult] = {}
+    for start in range(0, len(items), _INDUSTRY_BATCH_CHUNK):
+        end = min(start + _INDUSTRY_BATCH_CHUNK, len(items))
+        results.update(
+            _classify_industry_chunk(
+                llm,
+                judge_model,
+                items[start:end],
+                cand_text_per[start:end],
+                cand_ids_per[start:end],
+            )
+        )
+    return results
+
+
+def _classify_industry_chunk(
+    llm: LLMPort,
+    judge_model: str,
+    chunk_items: list[tuple[int, str]],
+    chunk_texts: list[str],
+    chunk_cids: list[list[str]],
+) -> dict[int, BusinessNormalizeResult]:
+    """한 청크(≤ _INDUSTRY_BATCH_CHUNK 표현)를 1회 chat 으로 판정. [표현 N] 은 청크 내 로컬 1..K."""
+    # 청크 내 로컬 번호 부여 — 파서 idx 도 로컬 1..K 를 가리킨다.
+    blocks = [f"[표현 {i + 1}] {t}" for i, t in enumerate(chunk_texts)]
     user = (
         "아래 각 자유표현 산업명에 대해, 제시된 후보 중 가장 잘 어울리는 하나의 후보 번호를 고르거나, "
         "어느 것도 아니면 NONE 이라 답해라. 회사명·고객군·지역·공공 등 산업 분류가 아닌 표현은 NONE. "
@@ -884,7 +912,7 @@ def _classify_industry_batch(
             max_attempts=_INDUSTRY_CLASSIFY_MAX_ATTEMPTS,
         ).strip()
     except LLMError:
-        return {nid: _pending_industry(raw) for nid, raw in items}
+        return {nid: _pending_industry(raw) for nid, raw in chunk_items}
 
     results: dict[int, BusinessNormalizeResult] = {}
     for line in out.splitlines():
@@ -893,10 +921,10 @@ def _classify_industry_batch(
             continue
         idx = int(m.group(1))
         pick = m.group(2).upper()
-        if not (1 <= idx <= len(items)):
+        if not (1 <= idx <= len(chunk_items)):
             continue
-        nid, raw = items[idx - 1]
-        cids = cand_ids_per[idx - 1]
+        nid, raw = chunk_items[idx - 1]
+        cids = chunk_cids[idx - 1]
         if pick == "NONE" or not pick.isdigit() or not (1 <= int(pick) <= len(cids)):
             results[nid] = _pending_industry(raw)
         else:
@@ -909,7 +937,7 @@ def _classify_industry_batch(
                 confidence=0.7,
             )
     # 미응답 표현은 pending 강등(LLM 이 줄을 빼먹거나 포맷 이탈 시).
-    for nid, raw in items:
+    for nid, raw in chunk_items:
         if nid not in results:
             results[nid] = _pending_industry(raw)
     return results
