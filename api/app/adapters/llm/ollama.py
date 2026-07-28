@@ -60,23 +60,36 @@ class OllamaLLMAdapter:
         self._embed_host = embed_host.rstrip("/") if embed_host else ""
         self._embed_session = requests.Session() if self._embed_host else None
 
-    def _with_retry(self, what: str, fn):
-        """fn 을 최대 _MAX_ATTEMPTS 회 시도. OllamaError 만 재시도하고, 마지막 실패는 LLMError 로 승격."""
+    def _with_retry(self, what: str, fn, *, max_attempts: int = _MAX_ATTEMPTS):
+        """fn 을 최대 max_attempts 회 시도. OllamaError 만 재시도하고, 마지막 실패는 LLMError 로 승격."""
         last: OllamaError | None = None
-        for attempt in range(1, _MAX_ATTEMPTS + 1):
+        for attempt in range(1, max_attempts + 1):
             try:
                 return fn()
             except OllamaError as e:
                 last = e
-                if attempt < _MAX_ATTEMPTS:
+                if attempt < max_attempts:
                     wait = _BACKOFF_BASE_S * (2 ** (attempt - 1))
                     logger.warning("Ollama %s 실패(시도 %d/%d): %s — %.0fs 후 재시도",
-                                   what, attempt, _MAX_ATTEMPTS, e, wait)
+                                   what, attempt, max_attempts, e, wait)
                     time.sleep(wait)
         raise LLMError(str(last)) from last
 
-    def chat(self, model: str, system: str, user: str, temperature: float = 0.3) -> str:
-        return self._with_retry("chat", lambda: self._client.chat(model, system, user, temperature))
+    def chat(
+        self,
+        model: str,
+        system: str,
+        user: str,
+        temperature: float = 0.3,
+        *,
+        timeout: int | None = None,
+        max_attempts: int = _MAX_ATTEMPTS,
+    ) -> str:
+        return self._with_retry(
+            "chat",
+            lambda: self._client.chat(model, system, user, temperature, timeout=timeout),
+            max_attempts=max_attempts,
+        )
 
     def chat_tools(
         self, model: str, messages: list[dict], tools: list[dict], temperature: float = 0.2
@@ -91,22 +104,23 @@ class OllamaLLMAdapter:
         )
 
     def embed(self, model: str, texts: list[str]) -> list[list[float]]:
-        """로컬 Ollama /api/embeddings 로 임베딩. cloud 미지원이므로 로컬 인스턴스 사용.
+        """로컬 Ollama /api/embed 로 임베딩. cloud 미지원이므로 로컬 인스턴스 사용.
 
-        prompt 단위 API 라 호출마다 순회. 실패(로컬 미가동·미설정) 시 LLMError — 호출측은 폴백(pending 유지).
+        input 배열 배치(단일 HTTP)로 한 번에 처리 — /api/embeddings 단건 순회(128회·~65s) 대비
+        HTTP 왕복 오버헤드 절감. 실패(로컬 미가동·미설정·구버전) 시 LLMError — 호출측은 폴백(pending 유지).
         model 은 호출측이 settings.ollama_embedding_model 로 전달.
         """
         if not self._embed_host:
             raise LLMError("embedding 미설정(ollama_local_host)")
         if self._embed_session is None:
             raise LLMError("embedding 세션 미초기화")
-        url = f"{self._embed_host}/api/embeddings"
-        out: list[list[float]] = []
-        for t in texts:
-            resp = self._embed_session.post(url, json={"model": model, "prompt": t}, timeout=60)
-            resp.raise_for_status()
-            data = resp.json()
-            if "embedding" not in data:
-                raise LLMError(f"embedding 응답 형식 오류: {str(data)[:80]}")
-            out.append(data["embedding"])
-        return out
+        if not texts:
+            return []
+        url = f"{self._embed_host}/api/embed"
+        resp = self._embed_session.post(url, json={"model": model, "input": texts}, timeout=180)
+        resp.raise_for_status()
+        data = resp.json()
+        embs = data.get("embeddings")
+        if not embs or len(embs) != len(texts):
+            raise LLMError(f"embedding 응답 형식 오류: {str(data)[:80]}")
+        return [list(e) for e in embs]

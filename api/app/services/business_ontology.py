@@ -8,6 +8,8 @@ segment_sales 테이블 — Task #28 생성)를 서비스가 직접 읽는다(�
 
 from __future__ import annotations
 
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict
 from difflib import SequenceMatcher
 from typing import TYPE_CHECKING
@@ -691,13 +693,19 @@ def reject_pending(db: Session, node_id: int) -> dict[str, object] | None:
 # ── industry 자유표현 자동 매핑(임베딩 top-k + LLM 판정 폴백) ─────────────────
 # 정규화(키워드+퍼지)가 잡지 못한 industry 자유표현을 GICS 128 sub-industry 로 의미 매칭.
 # cloud LLM 은 /api/embeddings 미지원 → 임베딩은 로컬 Ollama(qwen3-embedding), 판정은 cloud LLM(chat).
-_GICS_EMBED_CACHE: dict[int, tuple[list[str], list[list[float]]]] = {}
+_GICS_EMBED_CACHE: dict[str, tuple[list[str], list[list[float]]]] = {}
+_GICS_EMBED_LOCK = threading.Lock()
 
 _INDUSTRY_CLASSIFY_SYSTEM = (
     "너는 GICS 산업 분류 전문가다. 주어진 자유표현 산업명과 후보 GICS sub-industry 목록(번호:한국명(영문명))을 보고 "
     "가장 잘 어울리는 하나의 후보 번호만 고르거나, 어느 것도 잘 안 맞으면 NONE 이라고 답해라. "
     "회사명·고객군·지역 등 산업 분류가 아닌 표현이면 NONE. 답은 오직 후보 번호 또는 NONE 만 출력한다."
 )
+
+# 분류 chat 은 짧은 프롬프트/응답 — 딥다이브용 300s timeout 이 병리 hang 을 15min 까지 늘리는 것을 방지.
+# stream 기반이라 토큰이 흐르는 한 정상 응답(40~80s)은 허용하되, 청크 간 30s 정지 시 절단.
+_INDUSTRY_CLASSIFY_TIMEOUT_S = 30
+_INDUSTRY_CLASSIFY_MAX_ATTEMPTS = 2
 
 
 def _cosine(a: list[float], b: list[float]) -> float:
@@ -710,24 +718,30 @@ def _cosine(a: list[float], b: list[float]) -> float:
 
 
 def _gics_embeddings(llm: LLMPort, embed_model: str) -> tuple[list[str], list[list[float]]] | None:
-    """GICS 128 sub-industry 임베딩(프로세스 수명 캐시). korean+english+aliases 합성 텍스트. 실패 시 None."""
-    key = id(llm)
-    if key in _GICS_EMBED_CACHE:
-        return _GICS_EMBED_CACHE[key]
-    inds = _port().list_industries()
-    ids: list[str] = []
-    texts: list[str] = []
-    for ind in inds:
-        ids.append(ind.id)
-        parts = [ind.korean_name, ind.english_name, *ind.aliases]
-        texts.append(" / ".join(p for p in parts if p))
-    try:
-        vecs = llm.embed(embed_model, texts)
-    except LLMError:
-        return None
-    cached = (ids, vecs)
-    _GICS_EMBED_CACHE[key] = cached
-    return cached
+    """GICS 128 sub-industry 임베딩(프로세스 수명 캐시). korean+english+aliases 합성 텍스트. 실패 시 None.
+
+    캐시 키는 embed_model(인스턴스 id 아님) — reprocess 호출마다 새 LLMPort 인스턴스가 와도 동일 모델이면
+    캐시 재사용(53s 빌드 최초 1회). 병렬 resolve_industry 동시 빌드 방지를 위해 double-checked lock.
+    """
+    if embed_model in _GICS_EMBED_CACHE:
+        return _GICS_EMBED_CACHE[embed_model]
+    with _GICS_EMBED_LOCK:
+        if embed_model in _GICS_EMBED_CACHE:  # double-check: 다른 스레드가 이미 빌드했을 수 있음
+            return _GICS_EMBED_CACHE[embed_model]
+        inds = _port().list_industries()
+        ids: list[str] = []
+        texts: list[str] = []
+        for ind in inds:
+            ids.append(ind.id)
+            parts = [ind.korean_name, ind.english_name, *ind.aliases]
+            texts.append(" / ".join(p for p in parts if p))
+        try:
+            vecs = llm.embed(embed_model, texts)
+        except LLMError:
+            return None
+        cached = (ids, vecs)
+        _GICS_EMBED_CACHE[embed_model] = cached
+        return cached
 
 
 def resolve_industry(
@@ -770,7 +784,14 @@ def resolve_industry(
         return r
     user = f"자유표현: {raw}\n후보:\n" + "\n".join(cand_lines)
     try:
-        out = llm.chat(judge_model, _INDUSTRY_CLASSIFY_SYSTEM, user, temperature=0.0).strip()
+        out = llm.chat(
+            judge_model,
+            _INDUSTRY_CLASSIFY_SYSTEM,
+            user,
+            temperature=0.0,
+            timeout=_INDUSTRY_CLASSIFY_TIMEOUT_S,
+            max_attempts=_INDUSTRY_CLASSIFY_MAX_ATTEMPTS,
+        ).strip()
     except LLMError:
         return r
     pick = out.split()[0].strip().upper() if out else "NONE"
@@ -798,6 +819,9 @@ def reprocess_pending(
     - 여전히 pending_review: 유지
     회사는 resolve_company(시드 + CorpCodeMap exact + 자동 new), industry는 resolve_industry(키워드+퍼지,
     settings 주어지면 임베딩 top-k + LLM 판정 폴백), 비회사는 normalize_one(포트).
+
+    industry 노드의 resolve_industry 는 DB 미사용(정적 포트·LLM 만) → ThreadPoolExecutor 로 병렬 처리해
+    cloud LLM 분류 chat(~40~80s/건)을 순차 합산 대신 최대건 시간으로 단축. DB 갱신은 메인 스레드에서 순차.
     """
     llm: LLMPort | None = None
     embed_model = ""
@@ -814,6 +838,27 @@ def reprocess_pending(
         select(BusinessOntologyNode).where(*conds).order_by(BusinessOntologyNode.id)
     ).all()
 
+    # industry resolve 병렬화 — resolve_industry 는 DB 미접근(정적 포트·LLM 만)이라 스레드 안전.
+    # GICS 임베딩 캐시는 _gics_embeddings 내부 lock 으로 동시 빌드 보호.
+    industry_nodes = [n for n in rows if n.node_type == "industry"]
+    ind_results: dict[int, BusinessNormalizeResult] = {}
+    if industry_nodes and llm is not None and embed_model and judge_model:
+        def _resolve(n: BusinessOntologyNode) -> BusinessNormalizeResult:
+            try:
+                return resolve_industry(
+                    db, n.korean_name, llm=llm, embed_model=embed_model, judge_model=judge_model
+                )
+            except Exception:  # 예외 시 pending 유지(LLMError 경로는 함수 내에서 이미 pending 처리)
+                return BusinessNormalizeResult(
+                    term=n.korean_name, node_type="industry", status="pending_review"
+                )
+
+        with ThreadPoolExecutor(max_workers=min(8, len(industry_nodes))) as ex:
+            fut_to_node = {ex.submit(_resolve, n): n for n in industry_nodes}
+            for fut in as_completed(fut_to_node):
+                node = fut_to_node[fut]
+                ind_results[node.id] = fut.result()
+
     promoted = 0
     rejected = 0
     still_pending = 0
@@ -821,8 +866,11 @@ def reprocess_pending(
         if n.node_type == "company":
             r = resolve_company(db, n.korean_name)
         elif n.node_type == "industry":
-            r = resolve_industry(
-                db, n.korean_name, llm=llm, embed_model=embed_model, judge_model=judge_model
+            r = ind_results.get(
+                n.id,
+                resolve_industry(
+                    db, n.korean_name, llm=llm, embed_model=embed_model, judge_model=judge_model
+                ),
             )
         else:
             r = normalize_one(n.korean_name, n.node_type)

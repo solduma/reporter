@@ -32,18 +32,20 @@ class OllamaClient:
         self._session.headers.update({"Authorization": f"Bearer {api_key}"})
         self._timeout = timeout
 
-    def _stream_message(self, payload: dict, what: str) -> dict:
+    def _stream_message(self, payload: dict, what: str, *, timeout: int | None = None) -> dict:
         """stream=True 로 POST 하고 NDJSON 청크를 누적해 최종 message(dict)를 조립한다.
 
         각 줄은 {"message": {"content": "...", "tool_calls": [...]}, "done": false} 형태이고
         마지막 줄이 done=true. content 는 이어붙이고, tool_calls 는 등장한 청크의 것을 취한다
-        (Ollama 는 tool_calls 를 쪼개지 않고 한 청크에 완결해 준다)."""
+        (Ollama 는 tool_calls 를 쪼개지 않고 한 청크에 완결해 준다).
+        timeout 은 per-call 상회(self._timeout 기본값 덮기) — stream=True 이므로 청크 간격에 적용되어
+        전체 응답이 길어도 토큰이 흐르는 한 재생하지 않는다. 짧은 분류 호출의 병리 hang 절단용."""
         payload = {**payload, "stream": True}
         content_parts: list[str] = []
         tool_calls: list = []
         role = "assistant"
         try:
-            resp = self._session.post(self._url, json=payload, timeout=self._timeout, stream=True)
+            resp = self._session.post(self._url, json=payload, timeout=timeout or self._timeout, stream=True)
             resp.raise_for_status()
             for line in resp.iter_lines(decode_unicode=True):
                 if not line:
@@ -70,7 +72,7 @@ class OllamaClient:
             message["tool_calls"] = tool_calls
         return message
 
-    def chat(self, model: str, system: str, user: str, temperature: float = 0.3) -> str:
+    def chat(self, model: str, system: str, user: str, temperature: float = 0.3, *, timeout: int | None = None) -> str:
         payload = {
             "model": model,
             "messages": [
@@ -79,7 +81,7 @@ class OllamaClient:
             ],
             "options": {"temperature": temperature},
         }
-        message = self._stream_message(payload, "요청")
+        message = self._stream_message(payload, "요청", timeout=timeout)
         content = (message.get("content") or "").strip()
         if not content:  # 공백만 있는 응답도 빈 응답으로 간주
             raise OllamaError("Ollama 응답에 content 가 없습니다.")
