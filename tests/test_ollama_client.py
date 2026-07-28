@@ -102,3 +102,38 @@ def test_chat_tools_allows_empty_content():
     client = _client_with_stream([{"message": {"content": ""}, "done": True}])
     msg = client.chat_tools("glm-5.2:cloud", [{"role": "user", "content": "x"}], [])
     assert msg["content"] == ""
+
+
+def test_chat_total_deadline_truncates_trickle(monkeypatch):
+    # trickle hang: 청크는 오지만 전체 elapsed 가 deadline 초과 → OllamaError 로 절단.
+    # read timeout 은 청크 간격만 보므로 trickle 을 못 잡는 것을 전체 deadline 보완.
+    client = _client_with_stream([
+        {"message": {"content": "a"}, "done": False},
+        {"message": {"content": "b"}, "done": True},
+    ])
+    calls = {"n": 0}
+
+    def fake_monotonic() -> float:
+        v = 0.0 if calls["n"] == 0 else 100.0  # deadline 계산=0(→90), 루프=100(>90) → 즉시 절단
+        calls["n"] += 1
+        return v
+
+    monkeypatch.setattr("reporter.ollama_client.time.monotonic", fake_monotonic)
+    with pytest.raises(OllamaError):
+        client.chat("glm-5.2:cloud", "sys", "user", timeout=90)
+
+
+def test_chat_within_deadline_succeeds(monkeypatch):
+    # deadline 내 정상 스트리밍 응답은 그대로 완료.
+    client = _client_with_stream([
+        {"message": {"content": "분석 "}, "done": False},
+        {"message": {"content": "결과"}, "done": True},
+    ])
+    calls = {"n": 0}
+
+    def fake_monotonic() -> float:
+        calls["n"] += 1
+        return float(calls["n"])  # 1,2,3... — deadline=1+90=91 보다 작아 계속 진행
+
+    monkeypatch.setattr("reporter.ollama_client.time.monotonic", fake_monotonic)
+    assert client.chat("glm-5.2:cloud", "sys", "user", timeout=90) == "분석 결과"
