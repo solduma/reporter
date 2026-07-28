@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app import schemas
+from app.config import get_settings
 from app.db.session import get_session
 from app.services import business_ontology as bo_service
 
@@ -151,9 +152,9 @@ def reprocess_pending(
     """pending_review 노드를 개선된 normalizer로 일괄 재해석.
 
     LLM NER 재실행 없이 (korean_name, node_type) 만 재투입 → canonical 승격/거부/유지 분류.
-    normalizer 개선 직후 일회성 운영용. 회사는 resolve_company(시드+CorpCodeMap+자동 new).
+    industry 자유표현은 키워드+퍼지 후 임베딩 top-k + LLM 판정 폴백(settings 경유, 로컬 Ollama+cloud LLM).
     """
-    r = bo_service.reprocess_pending(db, node_type=node_type)
+    r = bo_service.reprocess_pending(db, node_type=node_type, settings=get_settings())
     return schemas.BusinessReprocessOut(**r)
 
 

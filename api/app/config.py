@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     ollama_api_key: str = ""
     summary_model: str = "glm-5.2:cloud"
     insight_model: str = "glm-5.2:cloud"
+    # 임베딩은 cloud 가 /api/embeddings 미지원 → 로컬 Ollama 사용(온톨로지 자유표현→GICS 의미 검색).
+    # API 서버(호스트 launchd)가 도달하는 로컬 인스턴스. worker(docker)는 이 폴백 미사용.
+    ollama_local_host: str = "http://127.0.0.1:11434"
+    ollama_embedding_model: str = "qwen3-embedding"
 
     # 크롤 대상 (Today's Brew 는 종목/산업 + 시황)
     report_categories: tuple[str, ...] = ("company", "industry")
