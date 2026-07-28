@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -1037,6 +1038,54 @@ class BusinessExploreOut(BaseModel):
     focal: BusinessExploreNodeOut
     neighbors: list[BusinessExploreNeighborOut] = Field(default_factory=list)
     edges: list[BusinessEdgeOut] = Field(default_factory=list)
+
+
+# ── pending_review 승격 워크플로 ────────────────────────────────────────────
+class BusinessPendingCandidateOut(BaseModel):
+    """pending 노드의 승격 후보(merge 용) — fuzzy 유사도로 랭킹."""
+
+    canonical_id: str
+    korean_name: str
+    node_type: str
+    score: float
+    stock_code: str | None = None
+
+
+class BusinessPendingNodeOut(BaseModel):
+    """검수 대상 pending 노드 + 후보 목록."""
+
+    id: int
+    node_type: str
+    korean_name: str
+    english_name: str | None = None
+    stock_code: str
+    confidence: float | None = None
+    candidates: list[BusinessPendingCandidateOut] = Field(default_factory=list)
+
+
+class BusinessPendingListOut(BaseModel):
+    """pending 목록(페이지네이션) — total + 현재 페이지."""
+
+    pending: list[BusinessPendingNodeOut] = Field(default_factory=list)
+    total: int
+
+
+class BusinessPromoteIn(BaseModel):
+    """승격 요청 — action=merge(기존 canonical 합류)|new(신규 정준 발급)."""
+
+    canonical_id: str
+    action: Literal["merge", "new"]
+
+
+class BusinessPendingActionOut(BaseModel):
+    """승격·거부 결과 — 갱신된 노드 상태."""
+
+    id: int
+    node_type: str | None = None
+    korean_name: str | None = None
+    canonical_id: str | None = None
+    status: str
+    stock_code: str | None = None
 
 
 # ── 사업 개요(business overview) ──────────────────────────────────────────
