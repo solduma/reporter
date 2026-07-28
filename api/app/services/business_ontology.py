@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from difflib import SequenceMatcher
+from typing import TYPE_CHECKING
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -27,12 +28,22 @@ from app.ports.business_ontology import (
     IndustryNodeOut,
     NodeOut,
 )
+from app.ports.llm import LLMError, LLMPort
+
+if TYPE_CHECKING:
+    from app.config import Settings
 
 
 def _port():
     from app.adapters.business_ontology import get_business_ontology_port
 
     return get_business_ontology_port()
+
+
+def _get_llm(settings: Settings) -> LLMPort | None:
+    from app.adapters.llm.factory import get_llm
+
+    return get_llm(settings)
 
 
 # ── 정적 온톨로지(포트 경유) ──────────────────────────────────────────────
@@ -677,15 +688,125 @@ def reject_pending(db: Session, node_id: int) -> dict[str, object] | None:
     return {"id": n.id, "node_type": n.node_type, "korean_name": n.korean_name, "status": n.status, "stock_code": n.stock_code}
 
 
-def reprocess_pending(db: Session, *, node_type: str | None = None) -> dict[str, object]:
+# ── industry 자유표현 자동 매핑(임베딩 top-k + LLM 판정 폴백) ─────────────────
+# 정규화(키워드+퍼지)가 잡지 못한 industry 자유표현을 GICS 128 sub-industry 로 의미 매칭.
+# cloud LLM 은 /api/embeddings 미지원 → 임베딩은 로컬 Ollama(qwen3-embedding), 판정은 cloud LLM(chat).
+_GICS_EMBED_CACHE: dict[int, tuple[list[str], list[list[float]]]] = {}
+
+_INDUSTRY_CLASSIFY_SYSTEM = (
+    "너는 GICS 산업 분류 전문가다. 주어진 자유표현 산업명과 후보 GICS sub-industry 목록(번호:한국명(영문명))을 보고 "
+    "가장 잘 어울리는 하나의 후보 번호만 고르거나, 어느 것도 잘 안 맞으면 NONE 이라고 답해라. "
+    "회사명·고객군·지역 등 산업 분류가 아닌 표현이면 NONE. 답은 오직 후보 번호 또는 NONE 만 출력한다."
+)
+
+
+def _cosine(a: list[float], b: list[float]) -> float:
+    dot = sum(x * y for x, y in zip(a, b, strict=False))
+    na = sum(x * x for x in a) ** 0.5
+    nb = sum(y * y for y in b) ** 0.5
+    if na == 0 or nb == 0:
+        return 0.0
+    return dot / (na * nb)
+
+
+def _gics_embeddings(llm: LLMPort, embed_model: str) -> tuple[list[str], list[list[float]]] | None:
+    """GICS 128 sub-industry 임베딩(프로세스 수명 캐시). korean+english+aliases 합성 텍스트. 실패 시 None."""
+    key = id(llm)
+    if key in _GICS_EMBED_CACHE:
+        return _GICS_EMBED_CACHE[key]
+    inds = _port().list_industries()
+    ids: list[str] = []
+    texts: list[str] = []
+    for ind in inds:
+        ids.append(ind.id)
+        parts = [ind.korean_name, ind.english_name, *ind.aliases]
+        texts.append(" / ".join(p for p in parts if p))
+    try:
+        vecs = llm.embed(embed_model, texts)
+    except LLMError:
+        return None
+    cached = (ids, vecs)
+    _GICS_EMBED_CACHE[key] = cached
+    return cached
+
+
+def resolve_industry(
+    db: Session,
+    raw: str,
+    *,
+    llm: LLMPort | None = None,
+    embed_model: str = "",
+    judge_model: str = "",
+) -> BusinessNormalizeResult:
+    """industry 자유표현 → 정준 ID. 키워드+퍼지(포트) → pending 시 임베딩 top-k + LLM 판정 폴백.
+
+    LLM/임베딩 미설정·실패 시 포트의 pending 결과 그대로 반환(우아한 강등). LLM 판정은 보수적 —
+    회사군·고객군·지역 등 산업 분류가 아닌 표현은 NONE → pending 유지(HITL 대상).
+    """
+    r = _port().resolve(raw, "industry")
+    if r.resolved:
+        return r
+    if llm is None or not embed_model or not judge_model:
+        return r  # 폴백 불가 → pending 유지
+    cache = _gics_embeddings(llm, embed_model)
+    if cache is None:
+        return r
+    ids, vecs = cache
+    try:
+        qvec = llm.embed(embed_model, [raw])[0]
+    except LLMError:
+        return r
+    scored = sorted(zip(ids, vecs, strict=False), key=lambda iv: _cosine(qvec, iv[1]), reverse=True)
+    inds = {ind.id: ind for ind in _port().list_industries()}
+    cand_lines: list[str] = []
+    cand_ids: list[str] = []
+    for i, (gid, _) in enumerate(scored[:5], 1):
+        ind = inds.get(gid)
+        if ind is None:
+            continue
+        cand_lines.append(f"{i}:{ind.korean_name}({ind.english_name})")
+        cand_ids.append(gid)
+    if not cand_ids:
+        return r
+    user = f"자유표현: {raw}\n후보:\n" + "\n".join(cand_lines)
+    try:
+        out = llm.chat(judge_model, _INDUSTRY_CLASSIFY_SYSTEM, user, temperature=0.0).strip()
+    except LLMError:
+        return r
+    pick = out.split()[0].strip().upper() if out else "NONE"
+    if pick == "NONE" or not pick.isdigit() or not (1 <= int(pick) <= len(cand_ids)):
+        return r  # NONE 또는 파싱 실패 → pending 유지
+    gid = cand_ids[int(pick) - 1]
+    return BusinessNormalizeResult(
+        term=raw,
+        node_type="industry",
+        canonical_id=gid,
+        matched_via="llm_classify",
+        status="canonical",
+        confidence=0.7,
+    )
+
+
+def reprocess_pending(
+    db: Session, *, node_type: str | None = None, settings: Settings | None = None
+) -> dict[str, object]:
     """pending_review 노드를 개선된 normalizer로 재해석해 일괄 승격/거부.
 
     LLM NER 재실행 없이 (korean_name, node_type) 만 normalizer에 재투입 — 라이브 DART/Ollama 소비 없음.
     - canonical(auto_new/keyword/사전 매칭): canonical_id·status·confidence in-place 갱신
     - rejected: status='rejected'
     - 여전히 pending_review: 유지
-    회사는 resolve_company(시드 + CorpCodeMap exact + 자동 new), 비회사는 normalize_one(포트).
+    회사는 resolve_company(시드 + CorpCodeMap exact + 자동 new), industry는 resolve_industry(키워드+퍼지,
+    settings 주어지면 임베딩 top-k + LLM 판정 폴백), 비회사는 normalize_one(포트).
     """
+    llm: LLMPort | None = None
+    embed_model = ""
+    judge_model = ""
+    if settings is not None:
+        llm = _get_llm(settings)
+        embed_model = settings.ollama_embedding_model
+        judge_model = settings.insight_model
+
     conds = [BusinessOntologyNode.status == "pending_review"]
     if node_type:
         conds.append(BusinessOntologyNode.node_type == node_type)
@@ -699,6 +820,10 @@ def reprocess_pending(db: Session, *, node_type: str | None = None) -> dict[str,
     for n in rows:
         if n.node_type == "company":
             r = resolve_company(db, n.korean_name)
+        elif n.node_type == "industry":
+            r = resolve_industry(
+                db, n.korean_name, llm=llm, embed_model=embed_model, judge_model=judge_model
+            )
         else:
             r = normalize_one(n.korean_name, n.node_type)
         if r.status == "canonical" and r.canonical_id:

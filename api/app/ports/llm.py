@@ -58,3 +58,10 @@ class LLMPort(Protocol):
         [{"type":"function","function":{"name","description","parameters"}}]. 응답의 tool_calls 를
         ToolTurn 으로 구조화해 반환. 실패·빈 응답이면 LLMError."""
         ...
+
+    def embed(self, model: str, texts: list[str]) -> list[list[float]]:
+        """텍스트 목록 → 임베딩 벡터 목록(의미 검색용). cloud 미지원 시 로컬 Ollama 구현 사용.
+
+        온톨로지 자유표현→GICS 의미 매칭(industry 자동 매핑 폴백)에 사용. 실패 시 LLMError.
+        """
+        ...

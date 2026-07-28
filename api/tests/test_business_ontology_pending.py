@@ -216,3 +216,80 @@ def test_reprocess_idempotent(db):
     r2 = bo_svc.reprocess_pending(db)
     assert r2["total"] == 0
     assert r2["promoted"] == 0
+
+
+# --- (g) resolve_industry 임베딩 top-k + LLM 판정 폴백 ---
+class _FakeIndustryLLM:
+    """임베딩+판정 목킹 — GICS 배치는 첫 후보만 [1.0], 쿼리는 [1.0] → top-1=첫 GICS.
+
+    chat 은 생성자 지정 pick("1"|"NONE"|...) 을 그대로 반환. embed 실패/미설정 분기는 별도 테스트.
+    """
+
+    def __init__(self, pick: str = "1", *, embed_fail: bool = False) -> None:
+        self._pick = pick
+        self._embed_fail = embed_fail
+
+    def embed(self, model: str, texts: list[str]) -> list[list[float]]:
+        if self._embed_fail:
+            from app.ports.llm import LLMError
+
+            raise LLMError("embed 실패(목킹)")
+        # 다수 텍스트(GICS 배치) → 첫 항목 [1.0], 나머지 [0.0]; 단일(쿼리) → [1.0].
+        if len(texts) > 1:
+            return [[1.0] if i == 0 else [0.0] for i in range(len(texts))]
+        return [[1.0]]
+
+    def chat(self, model: str, system: str, user: str, temperature: float = 0.3) -> str:
+        return self._pick
+
+
+def _clear_gics_cache() -> None:
+    bo_svc._GICS_EMBED_CACHE.clear()
+
+
+def test_resolve_industry_llm_pick_promotes(db):
+    """포트 무매치 industry 자유표현 → LLM 판정(후보 1 선택) → canonical 승격."""
+    _clear_gics_cache()
+    first_id = bo_svc.industries()[0].id
+    llm = _FakeIndustryLLM(pick="1")
+    r = bo_svc.resolve_industry(db, "완전없는산업표현XYZ", llm=llm, embed_model="m", judge_model="m")
+    assert r.status == "canonical"
+    assert r.canonical_id == first_id
+    assert r.matched_via == "llm_classify"
+
+
+def test_resolve_industry_llm_none_keeps_pending(db):
+    """LLM 판정 NONE(산업 분류 아님) → pending 유지(HITL 대상)."""
+    _clear_gics_cache()
+    llm = _FakeIndustryLLM(pick="NONE")
+    r = bo_svc.resolve_industry(db, "글로벌 전자 기업", llm=llm, embed_model="m", judge_model="m")
+    assert r.status == "pending_review"
+    assert r.canonical_id is None
+
+
+def test_resolve_industry_no_llm_keeps_pending(db):
+    """LLM/임베딩 미설정 → 포트 pending 결과 그대로(우아한 강등)."""
+    r = bo_svc.resolve_industry(db, "글로벌 전자 기업")
+    assert r.status == "pending_review"
+    assert r.canonical_id is None
+
+
+def test_resolve_industry_embed_fail_keeps_pending(db):
+    """임베딩 실패 → 포트 pending 결과로 강등(예외 전파 X)."""
+    _clear_gics_cache()
+    llm = _FakeIndustryLLM(pick="1", embed_fail=True)
+    r = bo_svc.resolve_industry(db, "완전없는산업표현XYZ", llm=llm, embed_model="m", judge_model="m")
+    assert r.status == "pending_review"
+    assert r.canonical_id is None
+
+
+def test_resolve_industry_keyword_short_circuits_llm(db):
+    """포트 키워드 매칭 hit → LLM 호출 없이 canonical(임베딩 캐시 미생성 확인)."""
+    _clear_gics_cache()
+    llm = _FakeIndustryLLM(pick="NONE")  # 키워드 hit 이면 chat 미호출이라 pick 무의미
+    r = bo_svc.resolve_industry(db, "메모리 반도체 시장", llm=llm, embed_model="m", judge_model="m")
+    assert r.status == "canonical"
+    assert r.canonical_id.startswith("IND_GICS_")
+    assert r.matched_via != "llm_classify"
+    # 키워드 단락 시 임베딩 캐시 미생성.
+    assert len(bo_svc._GICS_EMBED_CACHE) == 0

@@ -11,6 +11,8 @@ import json
 import logging
 import time
 
+import requests
+
 from app.ports.llm import LLMError, ToolCall, ToolTurn
 from reporter.ollama_client import OllamaClient, OllamaError
 
@@ -45,8 +47,18 @@ class OllamaLLMAdapter:
     상향(300s) — 딥다이브/HITL 의 긴 리서치 프롬프트가 180s 를 넘겨 죽던 것을 완화한다.
     """
 
-    def __init__(self, host: str, api_key: str, timeout: int = 300) -> None:
+    def __init__(
+        self,
+        host: str,
+        api_key: str,
+        timeout: int = 300,
+        *,
+        embed_host: str = "",
+    ) -> None:
         self._client = OllamaClient(host, api_key, timeout)
+        # 임베딩은 cloud 가 /api/embeddings 미지원 → 로컬 Ollama 별도 엔드포인트. 빈 host 시 embed 비활성.
+        self._embed_host = embed_host.rstrip("/") if embed_host else ""
+        self._embed_session = requests.Session() if self._embed_host else None
 
     def _with_retry(self, what: str, fn):
         """fn 을 최대 _MAX_ATTEMPTS 회 시도. OllamaError 만 재시도하고, 마지막 실패는 LLMError 로 승격."""
@@ -77,3 +89,24 @@ class OllamaLLMAdapter:
             tool_calls=_parse_tool_calls(message),
             raw_message=message,
         )
+
+    def embed(self, model: str, texts: list[str]) -> list[list[float]]:
+        """로컬 Ollama /api/embeddings 로 임베딩. cloud 미지원이므로 로컬 인스턴스 사용.
+
+        prompt 단위 API 라 호출마다 순회. 실패(로컬 미가동·미설정) 시 LLMError — 호출측은 폴백(pending 유지).
+        model 은 호출측이 settings.ollama_embedding_model 로 전달.
+        """
+        if not self._embed_host:
+            raise LLMError("embedding 미설정(ollama_local_host)")
+        if self._embed_session is None:
+            raise LLMError("embedding 세션 미초기화")
+        url = f"{self._embed_host}/api/embeddings"
+        out: list[list[float]] = []
+        for t in texts:
+            resp = self._embed_session.post(url, json={"model": model, "prompt": t}, timeout=60)
+            resp.raise_for_status()
+            data = resp.json()
+            if "embedding" not in data:
+                raise LLMError(f"embedding 응답 형식 오류: {str(data)[:80]}")
+            out.append(data["embedding"])
+        return out
