@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 
 import requests
 
@@ -38,16 +39,25 @@ class OllamaClient:
         각 줄은 {"message": {"content": "...", "tool_calls": [...]}, "done": false} 형태이고
         마지막 줄이 done=true. content 는 이어붙이고, tool_calls 는 등장한 청크의 것을 취한다
         (Ollama 는 tool_calls 를 쪼개지 않고 한 청크에 완결해 준다).
-        timeout 은 per-call 상회(self._timeout 기본값 덮기) — stream=True 이므로 청크 간격에 적용되어
-        전체 응답이 길어도 토큰이 흐르는 한 재생하지 않는다. 짧은 분류 호출의 병리 hang 절단용."""
+
+        timeout 은 per-call **전체 deadline**(초). stream=True 이면 requests 의 read timeout 은
+        '청크 사이 간격'에만 적용되어 토큰이 느리게 흐르는(trickle) hang 은 잡지 못한다 — 따라서
+        timeout 이 주어지면 (a) read timeout 을 30s 로 좁혀 청크 간 정지를 빠르게 절단하고,
+        (b) 루프마다 elapsed 를 재어 timeout 전체 초과 시 OllamaError 로 끊는다(분류 호출 병리 hang 절단).
+        timeout=None 이면 기존 동작(self._timeout read timeout, 전체 deadline 없음 — 딥다이브 긴 생성용).
+        """
         payload = {**payload, "stream": True}
         content_parts: list[str] = []
         tool_calls: list = []
         role = "assistant"
+        read_gap = 30 if timeout is not None else self._timeout
+        deadline = time.monotonic() + timeout if timeout is not None else None
         try:
-            resp = self._session.post(self._url, json=payload, timeout=timeout or self._timeout, stream=True)
+            resp = self._session.post(self._url, json=payload, timeout=read_gap, stream=True)
             resp.raise_for_status()
             for line in resp.iter_lines(decode_unicode=True):
+                if deadline is not None and time.monotonic() > deadline:
+                    raise OllamaError(f"Ollama {what} 전체 deadline {timeout}s 초과(trickle hang 절단)")
                 if not line:
                     continue
                 try:

@@ -702,10 +702,11 @@ _INDUSTRY_CLASSIFY_SYSTEM = (
     "회사명·고객군·지역 등 산업 분류가 아닌 표현이면 NONE. 답은 오직 후보 번호 또는 NONE 만 출력한다."
 )
 
-# 분류 chat 은 짧은 프롬프트/응답 — 딥다이브용 300s timeout 이 병리 hang 을 15min 까지 늘리는 것을 방지.
-# stream 기반이라 토큰이 흐르는 한 정상 응답(40~80s)은 허용하되, 청크 간 30s 정지 시 절단.
-_INDUSTRY_CLASSIFY_TIMEOUT_S = 30
-_INDUSTRY_CLASSIFY_MAX_ATTEMPTS = 2
+# 분류 chat 은 짧은 프롬프트/응답 — 딥다이브용 300s timeout 이 병리 hang(trickle)을 15min 까지 늘리는 것을 방지.
+# timeout 은 _stream_message 의 **전체 deadline**: 정상 응답(12~80s)은 허용하되, trickle hang(바이트가
+# 느리게 흘러 read timeout 에 안 걸리는 경우)을 90s 에서 절단. 재시도 1회 — hang 재시도는 무의미(강등=pending 안전).
+_INDUSTRY_CLASSIFY_TIMEOUT_S = 90
+_INDUSTRY_CLASSIFY_MAX_ATTEMPTS = 1
 
 
 def _cosine(a: list[float], b: list[float]) -> float:
