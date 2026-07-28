@@ -8,8 +8,8 @@ segment_sales 테이블 — Task #28 생성)를 서비스가 직접 읽는다(�
 
 from __future__ import annotations
 
+import re
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict
 from difflib import SequenceMatcher
 from typing import TYPE_CHECKING
@@ -708,6 +708,11 @@ _INDUSTRY_CLASSIFY_SYSTEM = (
 _INDUSTRY_CLASSIFY_TIMEOUT_S = 90
 _INDUSTRY_CLASSIFY_MAX_ATTEMPTS = 1
 
+# 배치 판정 — N개 표현을 1개 chat 호출로 묶어 판정. cloud LLM 이 동시 요청을 직렬화하므로 per-call 병렬화는
+# 무효(N×60s 순차 합산). 배치는 1회 호출로 N건 판정 → N 이 늘어도 ~1회 분량(~60~120s) 유지.
+# 프롬프트·응답이 N에 비례해 커지므로 deadline 은 배치용으로 넉넉히.
+_INDUSTRY_BATCH_TIMEOUT_S = 180
+
 
 def _cosine(a: list[float], b: list[float]) -> float:
     dot = sum(x * y for x, y in zip(a, b, strict=False))
@@ -809,6 +814,107 @@ def resolve_industry(
     )
 
 
+# 배치 판정 응답 파서 — "<표현번호>: <후보번호|NONE>" 한 줄씩. 번호 밖의 텍스트·빈 줄 무시.
+_BATCH_LINE_RE = re.compile(r"^\s*(\d+)\s*[:.、]\s*([0-9A-Za-z]+)")
+
+
+def _pending_industry(raw: str) -> BusinessNormalizeResult:
+    return BusinessNormalizeResult(
+        term=raw, node_type="industry", canonical_id=None,
+        matched_via="", status="pending_review", confidence=0.0,
+    )
+
+
+def _classify_industry_batch(
+    llm: LLMPort,
+    embed_model: str,
+    judge_model: str,
+    items: list[tuple[int, str]],
+) -> dict[int, BusinessNormalizeResult]:
+    """포트 무매치 industry 표현들을 1회 chat 호출로 일괄 판정 → {node_id: result}.
+
+    cloud LLM 이 동시 요청을 직렬화하므로 per-call 병렬화는 무효 — N건을 한 프롬프트에 나열해
+    한 번에 판정한다. 쿼리 임베딩도 1회 배치(/api/embed input 배열). 실패·미응답·NONE·파싱실패 → pending 강등.
+    """
+    if not items:
+        return {}
+    cache = _gics_embeddings(llm, embed_model)
+    if cache is None:
+        return {nid: _pending_industry(raw) for nid, raw in items}
+    ids, vecs = cache
+    inds = {ind.id: ind for ind in _port().list_industries()}
+    # 쿼리 임베딩 1회 배치 — N번 round-trip 대신 한 번.
+    try:
+        qvecs = llm.embed(embed_model, [raw for _, raw in items])
+    except LLMError:
+        return {nid: _pending_industry(raw) for nid, raw in items}
+    if len(qvecs) != len(items):
+        return {nid: _pending_industry(raw) for nid, raw in items}
+
+    # 각 표현의 top-5 후보 블록 조립.
+    cand_ids_per: list[list[str]] = []
+    blocks: list[str] = []
+    for (_nid, raw), qvec in zip(items, qvecs, strict=False):
+        scored = sorted(zip(ids, vecs, strict=False), key=lambda iv: _cosine(qvec, iv[1]), reverse=True)
+        cids: list[str] = []
+        lines: list[str] = []
+        for i, (gid, _) in enumerate(scored[:5], 1):
+            ind = inds.get(gid)
+            if ind is None:
+                continue
+            lines.append(f"{i}:{ind.korean_name}({ind.english_name})")
+            cids.append(gid)
+        cand_ids_per.append(cids)
+        cands = "\n".join(lines) if lines else "(후보 없음)"
+        blocks.append(f"[표현 {len(blocks) + 1}] {raw}\n후보:\n{cands}")
+
+    user = (
+        "아래 각 자유표현 산업명에 대해, 제시된 후보 중 가장 잘 어울리는 하나의 후보 번호를 고르거나, "
+        "어느 것도 아니면 NONE 이라 답해라. 회사명·고객군·지역·공공 등 산업 분류가 아닌 표현은 NONE. "
+        "출력: 각 표현마다 한 줄, '<표현번호>: <후보번호|NONE>' 만 출력.\n\n"
+        + "\n\n".join(blocks)
+    )
+    try:
+        out = llm.chat(
+            judge_model,
+            _INDUSTRY_CLASSIFY_SYSTEM,
+            user,
+            temperature=0.0,
+            timeout=_INDUSTRY_BATCH_TIMEOUT_S,
+            max_attempts=_INDUSTRY_CLASSIFY_MAX_ATTEMPTS,
+        ).strip()
+    except LLMError:
+        return {nid: _pending_industry(raw) for nid, raw in items}
+
+    results: dict[int, BusinessNormalizeResult] = {}
+    for line in out.splitlines():
+        m = _BATCH_LINE_RE.match(line)
+        if not m:
+            continue
+        idx = int(m.group(1))
+        pick = m.group(2).upper()
+        if not (1 <= idx <= len(items)):
+            continue
+        nid, raw = items[idx - 1]
+        cids = cand_ids_per[idx - 1]
+        if pick == "NONE" or not pick.isdigit() or not (1 <= int(pick) <= len(cids)):
+            results[nid] = _pending_industry(raw)
+        else:
+            results[nid] = BusinessNormalizeResult(
+                term=raw,
+                node_type="industry",
+                canonical_id=cids[int(pick) - 1],
+                matched_via="llm_classify",
+                status="canonical",
+                confidence=0.7,
+            )
+    # 미응답 표현은 pending 강등(LLM 이 줄을 빼먹거나 포맷 이탈 시).
+    for nid, raw in items:
+        if nid not in results:
+            results[nid] = _pending_industry(raw)
+    return results
+
+
 def reprocess_pending(
     db: Session, *, node_type: str | None = None, settings: Settings | None = None
 ) -> dict[str, object]:
@@ -819,10 +925,11 @@ def reprocess_pending(
     - rejected: status='rejected'
     - 여전히 pending_review: 유지
     회사는 resolve_company(시드 + CorpCodeMap exact + 자동 new), industry는 resolve_industry(키워드+퍼지,
-    settings 주어지면 임베딩 top-k + LLM 판정 폴백), 비회사는 normalize_one(포트).
+    settings 주어지면 임베딩 top-k + LLM 배치 판정 폴백), 비회사는 normalize_one(포트).
 
-    industry 노드의 resolve_industry 는 DB 미사용(정적 포트·LLM 만) → ThreadPoolExecutor 로 병렬 처리해
-    cloud LLM 분류 chat(~40~80s/건)을 순차 합산 대신 최대건 시간으로 단축. DB 갱신은 메인 스레드에서 순차.
+    industry 판정은 _classify_industry_batch — N개 표현을 1회 chat 호출로 묶어 판정(cloud LLM 이 동시
+    요청을 직렬화하므로 per-call 병렬화는 무효). 포트 키워드/퍼지로 즉시 해결되는 것은 배치에서 제외해
+    프롬프트를 줄인다. DB 갱신은 메인 스레드에서 순차.
     """
     llm: LLMPort | None = None
     embed_model = ""
@@ -839,26 +946,23 @@ def reprocess_pending(
         select(BusinessOntologyNode).where(*conds).order_by(BusinessOntologyNode.id)
     ).all()
 
-    # industry resolve 병렬화 — resolve_industry 는 DB 미접근(정적 포트·LLM 만)이라 스레드 안전.
-    # GICS 임베딩 캐시는 _gics_embeddings 내부 lock 으로 동시 빌드 보호.
+    # industry 판정 — 포트(keyword/fuzzy) 즉시 해결은 배치에서 제외, 나머지를 1회 chat 으로 일괄 판정.
     industry_nodes = [n for n in rows if n.node_type == "industry"]
     ind_results: dict[int, BusinessNormalizeResult] = {}
-    if industry_nodes and llm is not None and embed_model and judge_model:
-        def _resolve(n: BusinessOntologyNode) -> BusinessNormalizeResult:
-            try:
-                return resolve_industry(
-                    db, n.korean_name, llm=llm, embed_model=embed_model, judge_model=judge_model
-                )
-            except Exception:  # 예외 시 pending 유지(LLMError 경로는 함수 내에서 이미 pending 처리)
-                return BusinessNormalizeResult(
-                    term=n.korean_name, node_type="industry", status="pending_review"
-                )
-
-        with ThreadPoolExecutor(max_workers=min(8, len(industry_nodes))) as ex:
-            fut_to_node = {ex.submit(_resolve, n): n for n in industry_nodes}
-            for fut in as_completed(fut_to_node):
-                node = fut_to_node[fut]
-                ind_results[node.id] = fut.result()
+    if industry_nodes:
+        pending_for_llm: list[tuple[int, str]] = []
+        for n in industry_nodes:
+            r = _port().resolve(n.korean_name, "industry")
+            if r.resolved:
+                ind_results[n.id] = r
+            elif llm is not None and embed_model and judge_model:
+                pending_for_llm.append((n.id, n.korean_name))
+            else:
+                ind_results[n.id] = r  # 폴백 불가 → pending 유지
+        if pending_for_llm:
+            ind_results.update(
+                _classify_industry_batch(llm, embed_model, judge_model, pending_for_llm)
+            )
 
     promoted = 0
     rejected = 0
@@ -867,12 +971,8 @@ def reprocess_pending(
         if n.node_type == "company":
             r = resolve_company(db, n.korean_name)
         elif n.node_type == "industry":
-            r = ind_results.get(
-                n.id,
-                resolve_industry(
-                    db, n.korean_name, llm=llm, embed_model=embed_model, judge_model=judge_model
-                ),
-            )
+            # ind_results 가 모든 industry 노드를 채운다(포트/배치/폴백). 누락 시 pending 안전 기본.
+            r = ind_results.get(n.id, _pending_industry(n.korean_name))
         else:
             r = normalize_one(n.korean_name, n.node_type)
         if r.status == "canonical" and r.canonical_id:

@@ -222,7 +222,8 @@ def test_reprocess_idempotent(db):
 class _FakeIndustryLLM:
     """임베딩+판정 목킹 — GICS 배치는 첫 후보만 [1.0], 쿼리는 [1.0] → top-1=첫 GICS.
 
-    chat 은 생성자 지정 pick("1"|"NONE"|...) 을 그대로 반환. embed 실패/미설정 분기는 별도 테스트.
+    chat 은 배치 판정 프롬프트([표현 N] 마커 포함)면 각 표현에 '<N>: <pick>' 한 줄씩 반환하고,
+    per-call(resolve_industry 직접) 프롬프트면 pick 문자열 그대로 반환. embed 실패/미설정 분기는 별도 테스트.
     """
 
     def __init__(self, pick: str = "1", *, embed_fail: bool = False) -> None:
@@ -249,7 +250,12 @@ class _FakeIndustryLLM:
         timeout: int | None = None,
         max_attempts: int = 3,
     ) -> str:
-        return self._pick
+        import re
+
+        nums = re.findall(r"\[표현 (\d+)\]", user)
+        if nums:  # 배치 판정 — 표현마다 한 줄.
+            return "\n".join(f"{n}: {self._pick}" for n in nums)
+        return self._pick  # per-call(resolve_industry 직접)
 
 
 def _clear_gics_cache() -> None:
@@ -304,10 +310,10 @@ def test_resolve_industry_keyword_short_circuits_llm(db):
     assert len(bo_svc._GICS_EMBED_CACHE) == 0
 
 
-def test_reprocess_industry_parallel_via_settings(db, monkeypatch):
-    """settings 주입 시 industry resolve 병렬 처리 — 다건 동시 판정 → 일괄 승격.
+def test_reprocess_industry_batch_via_settings(db, monkeypatch):
+    """settings 주입 시 industry resolve 를 1회 chat 배치 판정 — 다건을 한 호출로 일괄 승격.
 
-    _get_llm 를 가짜 LLM 으로 monkeypatch 하여 reprocess_pending 의 ThreadPoolExecutor 경로 검증.
+    _get_llm 를 가짜 LLM 으로 monkeypatch 하여 reprocess_pending 의 _classify_industry_batch 경로 검증.
     캐시 키는 embed_model 이라 인스턴스 무관 — 동시 빌드는 _gics_embeddings lock 으로 직렬화.
     """
     _clear_gics_cache()
