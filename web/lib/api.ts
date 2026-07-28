@@ -4,6 +4,9 @@ import type {
   BroadcastRef,
   BusinessExploreOut,
   BusinessOverview,
+  BusinessPendingActionOut,
+  BusinessPendingList,
+  BusinessPromoteAction,
   CalendarView,
   CandlePoint,
   ChartTimeframe,
@@ -605,5 +608,40 @@ export function fetchSharedDeepDive(token: string): Promise<SharedDeepDive> {
 export function fetchBusinessExplore(nodeId: string): Promise<BusinessExploreOut> {
   return getJson<BusinessExploreOut>(
     `/api/business-ontology/explore?node_id=${encodeURIComponent(nodeId)}`,
+  );
+}
+
+// pending_review 검수 — 정규화 실패 노드 목록 + fuzzy 승격 후보.
+export function fetchBusinessPending(params: {
+  node_type?: string;
+  stock_code?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<BusinessPendingList> {
+  const q = new URLSearchParams();
+  if (params.node_type) q.set("node_type", params.node_type);
+  if (params.stock_code) q.set("stock_code", params.stock_code);
+  if (params.limit) q.set("limit", String(params.limit));
+  if (params.offset) q.set("offset", String(params.offset));
+  return getJson<BusinessPendingList>(`/api/business-ontology/pending?${q.toString()}`);
+}
+
+// pending 노드 → canonical 승격(merge=기존 정준 합류 | new=신규 정준 발급).
+export function promoteBusinessPending(
+  nodeId: number,
+  canonicalId: string,
+  action: BusinessPromoteAction,
+): Promise<BusinessPendingActionOut> {
+  return postJson<BusinessPendingActionOut>(
+    `/api/business-ontology/pending/${nodeId}/promote`,
+    { canonical_id: canonicalId, action },
+  );
+}
+
+// pending 노드 거부 — status='rejected'(노드·엣지 보존, 재검토 가능).
+export function rejectBusinessPending(nodeId: number): Promise<BusinessPendingActionOut> {
+  return postJson<BusinessPendingActionOut>(
+    `/api/business-ontology/pending/${nodeId}/reject`,
+    {},
   );
 }

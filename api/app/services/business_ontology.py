@@ -9,8 +9,9 @@ segment_sales 테이블 — Task #28 생성)를 서비스가 직접 읽는다(�
 from __future__ import annotations
 
 from dataclasses import asdict
+from difflib import SequenceMatcher
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.models import (
@@ -483,3 +484,182 @@ def explore_node(db: Session, node_id: str) -> dict[str, object] | None:
             )
 
     return {"focal": focal, "neighbors": neighbors, "edges": edges_out}
+
+
+# ── pending_review 승격 워크플로(HITL) ──────────────────────────────────────
+# 정규화 실패(canonical_id=NULL, confidence=0) 노드를 사람이 검수해 canonical 로 승격.
+# 자동병합 금지 원칙 — 서비스는 후보만 제안하고 승격 결정은 라우터(HITL) 경유.
+
+_CANON_PREFIX: dict[str, str] = {
+    "company": "CMP_KRX_",
+    "industry": "IND_GICS_",
+    "product": "PRD_",
+    "raw_material": "MAT_",
+    "segment": "SEG_",
+}
+
+
+def _similarity(a: str, b: str) -> float:
+    """문자열 유사도(0~1) — 후보 랭킹용. SequenceMatcher ratio."""
+    return SequenceMatcher(None, a, b).ratio()
+
+
+def _candidates_for(db: Session, node: BusinessOntologyNode, limit: int = 5) -> list[dict[str, object]]:
+    """pending 노드에 대한 승격 후보 — 동일 type 기존 canonical 노드 + (회사면) CorpCodeMap fuzzy.
+
+    merge 용 후보만 제공. 새 canonical 발급은 리뷰어가 직접 ID 를 입력.
+    """
+    name = node.korean_name
+    cands: list[dict[str, object]] = []
+
+    if node.node_type == "company":
+        rows = db.execute(select(CorpCodeMap.stock_code, CorpCodeMap.corp_name)).all()
+        for r in rows:
+            score = _similarity(name, r.corp_name)
+            if score > 0:
+                cands.append(
+                    {
+                        "canonical_id": f"CMP_KRX_{r.stock_code}",
+                        "korean_name": r.corp_name,
+                        "node_type": "company",
+                        "score": round(score, 3),
+                        "stock_code": r.stock_code,
+                    }
+                )
+
+    # 기존 canonical 노드 동일 type — canonical_id 별 1건 dedup.
+    existing = db.scalars(
+        select(BusinessOntologyNode).where(
+            BusinessOntologyNode.node_type == node.node_type,
+            BusinessOntologyNode.status == "canonical",
+            BusinessOntologyNode.canonical_id.is_not(None),
+        )
+    ).all()
+    by_cid: dict[str, BusinessOntologyNode] = {}
+    for n in existing:
+        by_cid.setdefault(n.canonical_id, n)
+    for n in by_cid.values():
+        score = _similarity(name, n.korean_name)
+        if score > 0:
+            cands.append(
+                {
+                    "canonical_id": n.canonical_id,
+                    "korean_name": n.korean_name,
+                    "node_type": n.node_type,
+                    "score": round(score, 3),
+                    "stock_code": n.stock_code if n.node_type == "company" else None,
+                }
+            )
+
+    seen: set[str] = set()
+    out: list[dict[str, object]] = []
+    for c in sorted(cands, key=lambda x: x["score"], reverse=True):
+        cid = str(c["canonical_id"])
+        if cid in seen:
+            continue
+        seen.add(cid)
+        out.append(c)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def list_pending(
+    db: Session,
+    *,
+    node_type: str | None = None,
+    stock_code: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> dict[str, object]:
+    """pending_review 노드 목록 + 승격 후보. status='pending_review'(canonical_id NULL) 만."""
+    conds = [BusinessOntologyNode.status == "pending_review"]
+    if node_type:
+        conds.append(BusinessOntologyNode.node_type == node_type)
+    if stock_code:
+        conds.append(BusinessOntologyNode.stock_code == stock_code)
+
+    total = db.scalar(select(func.count(BusinessOntologyNode.id)).where(*conds)) or 0
+    rows = db.scalars(
+        select(BusinessOntologyNode)
+        .where(*conds)
+        .order_by(BusinessOntologyNode.id)
+        .limit(limit)
+        .offset(offset)
+    ).all()
+    pending = [
+        {
+            "id": n.id,
+            "node_type": n.node_type,
+            "korean_name": n.korean_name,
+            "english_name": n.english_name,
+            "stock_code": n.stock_code,
+            "confidence": n.confidence,
+            "candidates": _candidates_for(db, n),
+        }
+        for n in rows
+    ]
+    return {"pending": pending, "total": total}
+
+
+def promote_pending(
+    db: Session, node_id: int, canonical_id: str, action: str
+) -> dict[str, object] | None:
+    """pending 노드 → canonical 승격(promote-in-place).
+
+    merge: canonical_id 가 기존 canonical 노드에 존재해야 함(해당 정준으로 합류).
+    new: canonical_id 가 미존재해야 함(신규 정준 발급). 둘 다 노드 타입 접두어 검증.
+    승격 시 해당 행의 canonical_id·status 만 갱신 — 엣지는 node PK 기준이라 재포인팅 불필요,
+    explore 가 canonical_id 로 PK 집합을 모아 dedup 하므로 중복 행도 read 시 통합.
+    """
+    n = db.get(BusinessOntologyNode, node_id)
+    if n is None:
+        return None
+    if n.status != "pending_review":
+        raise ValueError(f"node {node_id} is not pending_review (status={n.status})")
+
+    prefix = _CANON_PREFIX.get(n.node_type)
+    if not prefix or not canonical_id.startswith(prefix):
+        raise ValueError(f"canonical_id must start with {prefix!r} for {n.node_type}")
+
+    exists = db.scalar(
+        select(BusinessOntologyNode).where(
+            BusinessOntologyNode.canonical_id == canonical_id,
+            BusinessOntologyNode.status == "canonical",
+        )
+    )
+    if action == "merge":
+        if exists is None:
+            raise ValueError(f"merge target canonical_id not found: {canonical_id}")
+    elif action == "new":
+        if exists is not None:
+            raise ValueError(f"canonical_id already exists: {canonical_id} (use merge)")
+    else:
+        raise ValueError("action must be 'merge' or 'new'")
+
+    n.canonical_id = canonical_id
+    n.status = "canonical"
+    n.confidence = 1.0  # 사람이 검수한 정준 매칑 — 최고 신뢰도
+    db.commit()
+    db.refresh(n)
+    return {
+        "id": n.id,
+        "node_type": n.node_type,
+        "korean_name": n.korean_name,
+        "canonical_id": n.canonical_id,
+        "status": n.status,
+        "stock_code": n.stock_code,
+    }
+
+
+def reject_pending(db: Session, node_id: int) -> dict[str, object] | None:
+    """pending 노드 거부 — status='rejected'(explore·pending 목록에서 모두 제외). 노드·엣지는 보존."""
+    n = db.get(BusinessOntologyNode, node_id)
+    if n is None:
+        return None
+    if n.status != "pending_review":
+        raise ValueError(f"node {node_id} is not pending_review (status={n.status})")
+    n.status = "rejected"
+    db.commit()
+    db.refresh(n)
+    return {"id": n.id, "node_type": n.node_type, "korean_name": n.korean_name, "status": n.status, "stock_code": n.stock_code}

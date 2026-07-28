@@ -90,6 +90,57 @@ def explore_node(
     )
 
 
+# ── pending_review 승격 워크플로(HITL) ──────────────────────────────────────
+@router.get("/pending", response_model=schemas.BusinessPendingListOut)
+def list_pending(
+    node_type: str | None = Query(
+        default=None, description="company|industry|product|raw_material|segment. 미지정 시 전체."
+    ),
+    stock_code: str | None = Query(default=None, description="특정 종목만."),
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_session),
+) -> schemas.BusinessPendingListOut:
+    """정규화 실패(pending_review) 노드 목록 + 승격 후보(fuzzy). 검수 UI 용."""
+    r = bo_service.list_pending(
+        db, node_type=node_type, stock_code=stock_code, limit=limit, offset=offset
+    )
+    return schemas.BusinessPendingListOut(
+        pending=[schemas.BusinessPendingNodeOut(**p) for p in r["pending"]],
+        total=r["total"],
+    )
+
+
+@router.post("/pending/{node_id}/promote", response_model=schemas.BusinessPendingActionOut)
+def promote_pending(
+    node_id: int,
+    req: schemas.BusinessPromoteIn,
+    db: Session = Depends(get_session),
+) -> schemas.BusinessPendingActionOut:
+    """pending 노드 → canonical 승격. action=merge(기존 canonical 합류)|new(신규 정준). 사람이 결정."""
+    try:
+        r = bo_service.promote_pending(db, node_id, req.canonical_id, req.action)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    if r is None:
+        raise HTTPException(status_code=404, detail=f"unknown node: {node_id}")
+    return schemas.BusinessPendingActionOut(**r)
+
+
+@router.post("/pending/{node_id}/reject", response_model=schemas.BusinessPendingActionOut)
+def reject_pending(
+    node_id: int, db: Session = Depends(get_session)
+) -> schemas.BusinessPendingActionOut:
+    """pending 노드 거부 — status='rejected'. 노드·엣지 보존(재검토 가능)."""
+    try:
+        r = bo_service.reject_pending(db, node_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    if r is None:
+        raise HTTPException(status_code=404, detail=f"unknown node: {node_id}")
+    return schemas.BusinessPendingActionOut(**r)
+
+
 @router.get("/{code}/graph", response_model=schemas.BusinessGraphOut)
 def company_graph(code: str, db: Session = Depends(get_session)) -> schemas.BusinessGraphOut:
     """회사 비즈니스 그래프 — 노드 + 엣지(operates_in/manufactures/uses_material/...)."""

@@ -846,6 +846,41 @@ export interface BusinessExploreOut {
   edges: BusinessExploreEdge[];
 }
 
+// ── pending_review 승격 워크플로 ────────────────────────────────────────────
+export interface BusinessPendingCandidate {
+  canonical_id: string;
+  korean_name: string;
+  node_type: BusinessLayer;
+  score: number;
+  stock_code: string | null;
+}
+
+export interface BusinessPendingNode {
+  id: number;
+  node_type: BusinessLayer;
+  korean_name: string;
+  english_name: string | null;
+  stock_code: string;
+  confidence: number | null;
+  candidates: BusinessPendingCandidate[];
+}
+
+export interface BusinessPendingList {
+  pending: BusinessPendingNode[];
+  total: number;
+}
+
+export type BusinessPromoteAction = "merge" | "new";
+
+export interface BusinessPendingActionOut {
+  id: number;
+  node_type: BusinessLayer | null;
+  korean_name: string | null;
+  canonical_id: string | null;
+  status: string;
+  stock_code: string | null;
+}
+
 // 공유 링크 생성 응답 — token 으로 /share/{token} 조립.
 export interface DeepDiveShare {
   token: string;
