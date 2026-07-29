@@ -186,6 +186,35 @@ def test_industry_keyword_no_match_stays_pending():
     assert r.canonical_id is None
 
 
+def test_industry_keyword_expanded_mapping():
+    """확장 키워드 테이블 — 292 잔여 자유표현 중 시드 GICS 가 있는 분야 대표 케이스.
+    시드에 GICS 없는 분류(교육·농업·양식)·비산업(공공/서비스업)은 매핑 제외(아래 None 케이스).
+    """
+    n = _norm()
+    cases = {
+        "정유": "IND_GICS_10205030",
+        "석유화학 산업": "IND_GICS_15101010",
+        "조선": "IND_GICS_20108030",
+        "섬유 산업": "IND_GICS_30302020",
+        "식품산업": "IND_GICS_30201010",
+        "건강기능식품의 제조 및 판매업": "IND_GICS_30201010",
+        "통신판매업": "IND_GICS_25501030",
+        "양돈 산업": None,  # 농업 — 시드에 GICS 없음 → pending
+        "교육사업": None,  # 교육 — 시드에 GICS 없음 → pending
+        "공공기관": None,  # 비산업 → pending
+        "서비스 산업": None,  # 비산업(모호) → pending
+        "전기전자산업": "IND_GICS_45302010",  # "전자" 광범 키워드 대신 "전기전자" 로 매핑
+        "글로벌 전자 기업": None,  # 회사(비산업) — "전자" 제거로 pending 유지
+    }
+    for raw, expected in cases.items():
+        r = n.resolve_industry(raw)
+        if expected is None:
+            assert r.status == "pending_review", f"{raw!r} 기대 pending, 실제 {r.status}({r.canonical_id})"
+            assert r.canonical_id is None
+        else:
+            assert r.canonical_id == expected, f"{raw!r} 기대 {expected}, 실제 {r.canonical_id}"
+
+
 def test_auto_canonical_id_collision_avoidance():
     """정적 사전 node_id 와 충돌 시 접미 _n 회피."""
     n = _norm()
