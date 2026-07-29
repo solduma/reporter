@@ -356,3 +356,62 @@ def test_reprocess_industry_batch_chunks(db, monkeypatch):
     assert r["promoted"] == 5
     assert r["still_pending"] == 0
     assert bo_svc.list_pending(db, node_type="industry")["total"] == 0
+
+
+# --- (h) 비동기 reprocess 백그라운드 ---
+def _reset_reprocess_state() -> None:
+    bo_svc._REPROCESS_STATE["running"] = False
+    bo_svc._REPROCESS_STATE["last"] = None
+    bo_svc._REPROCESS_STATE["error"] = None
+    if bo_svc._REPROCESS_LOCK.locked():
+        bo_svc._REPROCESS_LOCK.release()
+
+
+def test_start_reprocess_background_runs_and_records(monkeypatch):
+    """백그라운드 스레드로 reprocess 실행 — 완료 시 last 에 결과 기록, running 해제.
+
+    SessionLocal 을 가짜로 두어 실제 DB 연결 없이 스레드가 동작. reprocess_pending 자체는 이미
+    다른 테스트에서 검증됐으므로 여기선 비동기 오케스트레이션(start/status/lock)만 검증.
+    """
+    import time
+    from unittest.mock import MagicMock
+
+    _reset_reprocess_state()
+    captured: dict[str, object] = {}
+
+    def _fake_reprocess(db_arg, *, node_type=None, settings=None):
+        captured["node_type"] = node_type
+        return {"promoted": 5, "rejected": 1, "still_pending": 2, "total": 8}
+
+    monkeypatch.setattr(bo_svc, "reprocess_pending", _fake_reprocess)
+    monkeypatch.setattr("app.db.session.SessionLocal", lambda: MagicMock())
+
+    class _SettingsStub:
+        pass
+
+    r = bo_svc.start_reprocess_background(node_type="industry", settings=_SettingsStub())
+    assert r["status"] == "started"
+    for _ in range(200):
+        if not bo_svc.reprocess_status()["running"]:
+            break
+        time.sleep(0.05)
+    else:
+        raise AssertionError("백그라운드 reprocess 완료 대기 시간 초과")
+    s = bo_svc.reprocess_status()
+    assert s["running"] is False
+    assert s["last"]["promoted"] == 5
+    assert s["error"] is None
+    assert captured["node_type"] == "industry"
+    _reset_reprocess_state()
+
+
+def test_start_reprocess_already_running_rejects_overlap():
+    """락 보유 중 두 번째 start 는 already_running — 중복 실행 방지."""
+    _reset_reprocess_state()
+    bo_svc._REPROCESS_LOCK.acquire()
+    try:
+        r = bo_svc.start_reprocess_background(node_type="industry", settings=None)
+        assert r["status"] == "already_running"
+    finally:
+        bo_svc._REPROCESS_LOCK.release()
+    _reset_reprocess_state()

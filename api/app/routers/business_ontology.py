@@ -142,20 +142,33 @@ def reject_pending(
     return schemas.BusinessPendingActionOut(**r)
 
 
-@router.post("/pending/reprocess", response_model=schemas.BusinessReprocessOut)
+@router.post("/pending/reprocess", response_model=schemas.BusinessReprocessStartOut, status_code=202)
 def reprocess_pending(
     node_type: str | None = Query(
         default=None, description="company|industry|product|raw_material|segment. 미지정 시 전체 pending."
     ),
-    db: Session = Depends(get_session),
-) -> schemas.BusinessReprocessOut:
-    """pending_review 노드를 개선된 normalizer로 일괄 재해석.
+) -> schemas.BusinessReprocessStartOut:
+    """pending_review 노드를 백그라운드로 일괄 재해석(비동기).
 
-    LLM NER 재실행 없이 (korean_name, node_type) 만 재투입 → canonical 승격/거부/유지 분류.
-    industry 자유표현은 키워드+퍼지 후 임베딩 top-k + LLM 판정 폴백(settings 경유, 로컬 Ollama+cloud LLM).
+    대규모 pending(수백 건)은 cloud LLM 분류가 ~1.5s/건이라 동기 HTTP 를 수십 분 블로킹한다 → 백그라운드
+    스레드로 실행해 202 로 즉시 반환. 진행은 GET /pending/reprocess/status 로 폴링. 중복 실행은 락으로 차단.
+    LLM NER 재실행 없이 (korean_name, node_type) 만 재투입. industry 자유표현은 키워드+퍼지 후 임베딩
+    top-k + LLM 배치 판정 폴백(settings 경유, 로컬 Ollama+cloud LLM).
     """
-    r = bo_service.reprocess_pending(db, node_type=node_type, settings=get_settings())
-    return schemas.BusinessReprocessOut(**r)
+    r = bo_service.start_reprocess_background(node_type=node_type, settings=get_settings())
+    return schemas.BusinessReprocessStartOut(**r)
+
+
+@router.get("/pending/reprocess/status", response_model=schemas.BusinessReprocessStatusOut)
+def reprocess_status() -> schemas.BusinessReprocessStatusOut:
+    """백그라운드 reprocess 상태 — running 여부 + 직전 완료 결과(last). last 는 None 가능(미완료/미실행)."""
+    s = bo_service.reprocess_status()
+    last = s["last"]
+    return schemas.BusinessReprocessStatusOut(
+        running=s["running"],
+        last=schemas.BusinessReprocessOut(**last) if isinstance(last, dict) and "promoted" in last else None,
+        error=s["error"],
+    )
 
 
 @router.get("/{code}/graph", response_model=schemas.BusinessGraphOut)

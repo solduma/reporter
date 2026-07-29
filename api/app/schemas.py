@@ -1097,6 +1097,21 @@ class BusinessReprocessOut(BaseModel):
     total: int  # 재처리 대상 pending 행 수
 
 
+class BusinessReprocessStartOut(BaseModel):
+    """reprocess 백그라운드 시작 응답 — 대규모 pending(수백 건, 수십 분)은 동기 HTTP 를 블로킹하므로
+    즉시 202 로 반환하고 백그라운드 스레드에서 실행. 진행은 GET /pending/reprocess/status 로 폴링."""
+
+    status: str  # "started" | "already_running"
+
+
+class BusinessReprocessStatusOut(BaseModel):
+    """reprocess 백그라운드 상태 — running 여부와 직전 완료 결과(last). last 는 None 가능(아직 1회도 안 끝)."""
+
+    running: bool
+    last: BusinessReprocessOut | None = None
+    error: str | None = None  # 백그라운드 실행 중 예외 발생 시
+
+
 # ── 사업 개요(business overview) ──────────────────────────────────────────
 class BusinessTableOut(BaseModel):
     """사업 개요 섹션 내 표."""
