@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
+import requests
+
 from app.adapters.llm import OllamaLLMAdapter, get_llm
 from app.config import Settings
 from app.ports.llm import LLMError
@@ -87,3 +91,41 @@ def test_adapter_retries_exhausted_raises(monkeypatch):
     else:
         raise AssertionError("재시도 소진 후 LLMError 를 던져야 함")
     assert calls["n"] == ollama_mod._MAX_ATTEMPTS  # 최대 횟수만큼 시도
+
+
+def test_embed_chunks_large_input(monkeypatch):
+    # 수백 건 입력을 _EMBED_CHUNK 청크로 쪼개 순차 POST — 한 번에 보내면 로컬 Ollama read timeout.
+    from app.adapters.llm import ollama as ollama_mod
+
+    monkeypatch.setattr(ollama_mod, "_EMBED_CHUNK", 64)
+    adapter = OllamaLLMAdapter("https://ollama.test", "k", embed_host="http://ollama.local")
+    calls: list[int] = []
+
+    def _post(url, json=None, timeout=None, **kw):
+        texts = json["input"]
+        calls.append(len(texts))
+        resp = MagicMock()
+        resp.raise_for_status = MagicMock()
+        resp.json.return_value = {"embeddings": [[0.1] for _ in texts]}
+        return resp
+
+    monkeypatch.setattr(adapter._embed_session, "post", _post)
+    out = adapter.embed("m", [f"t{i}" for i in range(150)])
+    assert len(out) == 150
+    assert calls == [64, 64, 22]  # 150 = 64+64+22
+
+
+def test_embed_wraps_request_exception_as_llm_error(monkeypatch):
+    # requests.ReadTimeout 등이 LLMError 로 정규화되어야 — 서비스가 raw requests 예외로 500 나지 않음.
+    adapter = OllamaLLMAdapter("https://ollama.test", "k", embed_host="http://ollama.local")
+
+    def _boom(*a, **k):
+        raise requests.ReadTimeout("timed out")
+
+    monkeypatch.setattr(adapter._embed_session, "post", _boom)
+    try:
+        adapter.embed("m", ["t1"])
+    except LLMError:
+        pass
+    else:
+        raise AssertionError("requests 예외가 LLMError 로 정규화되지 않음")
