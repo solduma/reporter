@@ -23,6 +23,11 @@ logger = logging.getLogger(__name__)
 _MAX_ATTEMPTS = 3
 _BACKOFF_BASE_S = 2.0  # 2s, 4s 대기(지수)
 
+# 임베딩 입력 청크 크기 / per-청크 timeout. 한 번에 수백 건을 보내면 로컬 Ollama 가 worker 등 다른
+# 부하와 경합 시 180s read timeout 을 넘겨 ReadTimeout(→500) 한다. 청크로 쪼개 각 호출을 가볍게.
+_EMBED_CHUNK = 64
+_EMBED_TIMEOUT_S = 120
+
 
 def _parse_tool_calls(message: dict) -> list[ToolCall]:
     """provider message.tool_calls → [ToolCall]. arguments 는 dict 또는 JSON 문자열 모두 허용."""
@@ -106,9 +111,10 @@ class OllamaLLMAdapter:
     def embed(self, model: str, texts: list[str]) -> list[list[float]]:
         """로컬 Ollama /api/embed 로 임베딩. cloud 미지원이므로 로컬 인스턴스 사용.
 
-        input 배열 배치(단일 HTTP)로 한 번에 처리 — /api/embeddings 단건 순회(128회·~65s) 대비
-        HTTP 왕복 오버헤드 절감. 실패(로컬 미가동·미설정·구버전) 시 LLMError — 호출측은 폴백(pending 유지).
-        model 은 호출측이 settings.ollama_embedding_model 로 전달.
+        input 배열을 _EMBED_CHUNK(64) 청크로 쪼개 순차 POST — 한 번에 수백 건을 보내면 로컬 Ollama 가
+        worker 등 다른 부하와 경합 시 read timeout 을 넘겨 실패한다. 청크별로 가볍게 처리해 안정.
+        requests 예외(ReadTimeout·네트워크·HTTPError)·응답 형식 오류는 LLMError 로 정규화 — 호출측은
+        폴백(pending 유지). model 은 호출측이 settings.ollama_embedding_model 로 전달.
         """
         if not self._embed_host:
             raise LLMError("embedding 미설정(ollama_local_host)")
@@ -117,10 +123,19 @@ class OllamaLLMAdapter:
         if not texts:
             return []
         url = f"{self._embed_host}/api/embed"
-        resp = self._embed_session.post(url, json={"model": model, "input": texts}, timeout=180)
-        resp.raise_for_status()
-        data = resp.json()
-        embs = data.get("embeddings")
-        if not embs or len(embs) != len(texts):
-            raise LLMError(f"embedding 응답 형식 오류: {str(data)[:80]}")
-        return [list(e) for e in embs]
+        out: list[list[float]] = []
+        for start in range(0, len(texts), _EMBED_CHUNK):
+            batch = texts[start : start + _EMBED_CHUNK]
+            try:
+                resp = self._embed_session.post(
+                    url, json={"model": model, "input": batch}, timeout=_EMBED_TIMEOUT_S
+                )
+                resp.raise_for_status()
+                data = resp.json()
+            except (requests.RequestException, ValueError) as e:
+                raise LLMError(f"embedding 요청 실패({len(batch)}건 청크): {e}") from e
+            embs = data.get("embeddings")
+            if not embs or len(embs) != len(batch):
+                raise LLMError(f"embedding 응답 형식 오류: {str(data)[:80]}")
+            out.extend(list(e) for e in embs)
+        return out
