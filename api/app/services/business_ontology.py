@@ -8,6 +8,7 @@ segment_sales 테이블 — Task #28 생성)를 서비스가 직접 읽는다(�
 
 from __future__ import annotations
 
+import logging
 import re
 import threading
 from dataclasses import asdict
@@ -34,6 +35,8 @@ from app.ports.llm import LLMError, LLMPort
 
 if TYPE_CHECKING:
     from app.config import Settings
+
+logger = logging.getLogger(__name__)
 
 
 def _port():
@@ -1019,4 +1022,53 @@ def reprocess_pending(
         "rejected": rejected,
         "still_pending": still_pending,
         "total": len(rows),
+    }
+
+
+# --- 비동기 reprocess ---
+# 대규모 pending(수백 건)은 cloud LLM 분류가 ~1.5s/건이라 수십 분 걸려 동기 HTTP 를 블로킹한다.
+# 백그라운드 스레드로 실행해 엔드포인트는 즉시 202 반환, 클라이언트는 status 엔드포인트로 폴링.
+# 락으로 중복 실행 방지(동시 reprocess 는 DB 경합·이중 승격 위험).
+_REPROCESS_LOCK = threading.Lock()
+_REPROCESS_STATE: dict[str, object] = {"running": False, "last": None, "error": None}
+
+
+def start_reprocess_background(
+    *, node_type: str | None = None, settings: Settings | None = None
+) -> dict[str, str]:
+    """reprocess 를 백그라운드 스레드로 시작. 이미 실행 중이면 "already_running".
+
+    락 비획득 시 즉시 반환(중복 실행 방지). 획득 시 데몬 스레드로 _run_reprocess 실행.
+    """
+    if not _REPROCESS_LOCK.acquire(blocking=False):
+        return {"status": "already_running"}
+    _REPROCESS_STATE["running"] = True
+    _REPROCESS_STATE["error"] = None
+
+    def _run() -> None:
+        try:
+            from app.db.session import SessionLocal
+
+            db = SessionLocal()
+            try:
+                _REPROCESS_STATE["last"] = reprocess_pending(db, node_type=node_type, settings=settings)
+            finally:
+                db.close()
+        except Exception:  # 백그라운드 예외는 스레드 죽음 방지용으로 흡수, 상태에 기록
+            logger.exception("reprocess 백그라운드 실행 실패")
+            _REPROCESS_STATE["error"] = "reprocess 백그라운드 실행 실패(로그 확인)"
+        finally:
+            _REPROCESS_STATE["running"] = False
+            _REPROCESS_LOCK.release()
+
+    threading.Thread(target=_run, daemon=True, name="reprocess-pending").start()
+    return {"status": "started"}
+
+
+def reprocess_status() -> dict[str, object]:
+    """백그라운드 reprocess 상태 — running 여부 + 직전 완료 결과(last) + error."""
+    return {
+        "running": _REPROCESS_STATE["running"],
+        "last": _REPROCESS_STATE["last"],
+        "error": _REPROCESS_STATE["error"],
     }
