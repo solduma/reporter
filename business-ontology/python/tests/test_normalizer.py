@@ -289,8 +289,9 @@ def test_industry_llm_none_residual_mapping():
 
 
 def test_industry_ingest_residual_mapping():
-    """신규 ingest 잔여(LG전자 066570 사업보고서) 키워드 승격.
-    기간통신사업→종합 통신 서비스(50101010), 광학솔루션사업→전자 부품(45302030).
+    """신규 ingest 잔여 키워드 승격 — 반복 패턴(ingest가 계속 신규 industry 자유표현 생성).
+    LG전자(066570): 기간통신사업→종합 통신 서비스(50101010), 광학솔루션사업→전자 부품(45302030).
+    SFA반도체(036540): 후공정(Back-end Process)→대규모 반도체 제조(45102010, 반도체 패키징 OSAT).
     '기간통신'은 통신 장비(45301010)·통신 판매(25501030)와 구분되어 서비스(5010)로,
     '광학솔루션'은 '광학' 단독 과매칭 회피용 구체 키워드.
     """
@@ -298,6 +299,7 @@ def test_industry_ingest_residual_mapping():
     cases = {
         "기간통신사업": "IND_GICS_50101010",
         "광학솔루션사업": "IND_GICS_45302030",
+        "후공정 (Back-end Process)": "IND_GICS_45102010",
     }
     for raw, expected in cases.items():
         r = n.resolve_industry(raw)
