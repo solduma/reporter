@@ -195,6 +195,17 @@ def test_reprocess_industry_keyword_mapping(db):
     assert p.canonical_id.startswith("IND_GICS_")
 
 
+def test_reprocess_industry_nonindustry_rejected(db):
+    """비산업(공공/서비스/제조) industry 자유표현 → reject. LLM 폴백 없이 포트 reject 판정 유지."""
+    p = _add_pending(db, "005930", "industry", "공공")
+    r = bo_svc.reprocess_pending(db)
+    assert r["rejected"] == 1
+    assert r["promoted"] == 0
+    db.refresh(p)
+    assert p.status == "rejected"
+    assert p.canonical_id is None
+
+
 def test_reprocess_node_type_filter(db):
     """node_type 필터 — company만 재처리 시 product pending 유지."""
     _add_pending(db, "005930", "company", "병ㆍ의원")

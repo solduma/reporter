@@ -986,6 +986,9 @@ def reprocess_pending(
             r = _port().resolve(n.korean_name, "industry")
             if r.resolved:
                 ind_results[n.id] = r
+            elif r.status == "rejected":
+                # 비산업(공공/서비스/제조)은 포트가 reject 판정 — LLM 폴백 없이 거부.
+                ind_results[n.id] = r
             elif llm is not None and embed_model and judge_model:
                 pending_for_llm.append((n.id, n.korean_name))
             else:
