@@ -261,6 +261,33 @@ def test_industry_ambiguous_stays_pending():
         assert r.canonical_id is None
 
 
+def test_industry_llm_none_residual_mapping():
+    """LLM-NONE 잔여 13건 중 매핑 가능 9건 키워드 승격 — GICS 8건 + 커스텀 교육 1건.
+    나머지 4건(렌탈사업·정보통신·2차 산업·UV)은 모호해 HITL pending 잔류.
+    """
+    n = _norm()
+    cases = {
+        "메탈로센촉매": "IND_GICS_15101020",  # 촉매 → 특수 화학
+        "세라믹 제품의 제조, 혼합 및 판매업": "IND_GICS_15104020",  # 세라믹(스 없이) → 다목적 금속(세라믹스와 동일)
+        "항법": "IND_GICS_20101010",  # 항법 → 항공·국방
+        "프레스금형 제조판매업": "IND_GICS_20106020",  # 프레스금형/금형 → 산업 기계·부품
+        "기타 프레스제품 제조업": "IND_GICS_20106020",  # 프레스제품 → 산업 기계·부품
+        "Display": "IND_GICS_45302030",  # display(영문) → 전자 부품
+        "LED": "IND_GICS_45302030",  # led → 전자 부품
+        "광센서": "IND_GICS_45302030",  # 광센서 → 전자 부품
+        "직업능력개발훈련사업": "IND_KRX_EDU_EDUCATION",  # 직업능력개발/직업훈련 → 커스텀 교육
+    }
+    for raw, expected in cases.items():
+        r = n.resolve_industry(raw)
+        assert r.resolved, f"{raw!r} 미해결: {r.status}"
+        assert r.canonical_id == expected, f"{raw!r} 기대 {expected}, 실제 {r.canonical_id}"
+    # 모호 4건은 pending 잔류(과매칭 회피 — 렌탈=비즈니스모델, 정보통신=서비스/장비 모호, 2차 산업=광범 부문, UV=경화/화장품/인쇄 모호).
+    for raw in ("렌탈사업", "정보통신", "2차 산업", "UV"):
+        r = n.resolve_industry(raw)
+        assert r.status == "pending_review", f"{raw!r} 기대 pending, 실제 {r.status}({r.canonical_id})"
+        assert r.canonical_id is None
+
+
 def test_auto_canonical_id_collision_avoidance():
     """정적 사전 node_id 와 충돌 시 접미 _n 회피."""
     n = _norm()
