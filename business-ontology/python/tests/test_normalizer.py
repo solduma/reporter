@@ -199,20 +199,66 @@ def test_industry_keyword_expanded_mapping():
         "식품산업": "IND_GICS_30201010",
         "건강기능식품의 제조 및 판매업": "IND_GICS_30201010",
         "통신판매업": "IND_GICS_25501030",
-        "양돈 산업": None,  # 농업 — 시드에 GICS 없음 → pending
-        "교육사업": None,  # 교육 — 시드에 GICS 없음 → pending
-        "공공기관": None,  # 비산업 → pending
-        "서비스 산업": None,  # 비산업(모호) → pending
         "전기전자산업": "IND_GICS_45302010",  # "전자" 광범 키워드 대신 "전기전자" 로 매핑
-        "글로벌 전자 기업": None,  # 회사(비산업) — "전자" 제거로 pending 유지
     }
     for raw, expected in cases.items():
         r = n.resolve_industry(raw)
-        if expected is None:
-            assert r.status == "pending_review", f"{raw!r} 기대 pending, 실제 {r.status}({r.canonical_id})"
-            assert r.canonical_id is None
-        else:
-            assert r.canonical_id == expected, f"{raw!r} 기대 {expected}, 실제 {r.canonical_id}"
+        assert r.canonical_id == expected, f"{raw!r} 기대 {expected}, 실제 {r.canonical_id}"
+
+
+def test_industry_custom_namespace_mapping():
+    """GICS 시드에 분류가 없는 한국 특화 산업 → IND_KRX_ 커스텀 노드 매핑.
+    교육(GICS 2023 25101010 이 자동차부품과 충돌)·농업·어업·사료·가축분뇨처리.
+    """
+    n = _norm()
+    cases = {
+        "교육": "IND_KRX_EDU_EDUCATION",
+        "교육사업": "IND_KRX_EDU_EDUCATION",
+        "종합 교육": "IND_KRX_EDU_EDUCATION",
+        "스마트러닝": "IND_KRX_EDU_EDUCATION",
+        "온라인교육서비스업": "IND_KRX_EDU_EDUCATION",
+        "원격교육사업": "IND_KRX_EDU_EDUCATION",
+        "농업경영": "IND_KRX_AGR_FARMING",
+        "양돈 산업": "IND_KRX_AGR_FARMING",
+        "양돈산업": "IND_KRX_AGR_FARMING",
+        "원양어업": "IND_KRX_AGR_FISHERY",
+        "동물용 사료 제조 및 판매업": "IND_KRX_AGR_FEED",
+        "배합사료업": "IND_KRX_AGR_FEED",
+        "가축분뇨 수거 및 기능성액비생산": "IND_KRX_AGR_LIVESTOCK_WASTE",
+    }
+    for raw, expected in cases.items():
+        r = n.resolve_industry(raw)
+        assert r.resolved, f"{raw!r} 미해결: {r.status}"
+        assert r.canonical_id == expected, f"{raw!r} 기대 {expected}, 실제 {r.canonical_id}"
+
+
+def test_industry_custom_not_override_gics():
+    """커스텀 키워드가 GICS 매핑을 덮어쓰지 않는다 — '농약'은 GICS 비료·농약, '농업'은 커스텀.
+    '철강제조업'·'자동차부품제조' 는 비산업 reject(제조) 의 부분문자열 오매칭 없이 GICS 유지.
+    """
+    n = _norm()
+    assert n.resolve_industry("농약제조 판매업").canonical_id == "IND_GICS_15101030"
+    assert n.resolve_industry("농업경영").canonical_id == "IND_KRX_AGR_FARMING"
+    assert n.resolve_industry("철강제조업(전절단가공)").canonical_id == "IND_GICS_15104050"
+    assert n.resolve_industry("자동차부품제조").canonical_id == "IND_GICS_25101010"
+
+
+def test_industry_nonindustry_rejected():
+    """비산업(공공/서비스/제조 포괄 분류) — industry 가 아니므로 reject. 전체 일치라 정상 산업은 안 됨."""
+    n = _norm()
+    for bad in ("공공", "공공기관", "서비스 산업", "서비스업", "제조", "제조업"):
+        r = n.resolve_industry(bad)
+        assert r.status == "rejected", f"{bad!r} 기대 rejected, 실제 {r.status}({r.canonical_id})"
+        assert r.canonical_id is None
+
+
+def test_industry_ambiguous_stays_pending():
+    """모호 약어(AM/ET)·회사(글로벌 전자 기업)·'전자' 단독 — 매핑 없이 pending(HITL)."""
+    n = _norm()
+    for raw in ("AM사업", "ET", "글로벌 전자 기업", "전자"):
+        r = n.resolve_industry(raw)
+        assert r.status == "pending_review", f"{raw!r} 기대 pending, 실제 {r.status}({r.canonical_id})"
+        assert r.canonical_id is None
 
 
 def test_auto_canonical_id_collision_avoidance():

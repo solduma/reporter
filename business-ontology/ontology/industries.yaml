@@ -1,11 +1,12 @@
 version: 0.1.0
 metadata:
   name: GICS 산업 분류
-  description: GICS 2023 — 11 sector / 25 group / 69 industry / 163 sub-industry 시드
+  description: 'GICS 2023 — 11 sector / 25 group / 69 industry / 163 sub-industry 시드 + GICS 분류가 없는 한국 특화 분류(IND_KRX_ 네임스페이스: 교육·농업·어업·사료)'
   standards:
   - GICS
+  - KRX
   created: '2026-07-27'
-  updated: '2026-07-27'
+  updated: '2026-07-30'
 ontology:
   industries:
     IND_GICS_10101010:
@@ -1409,3 +1410,55 @@ ontology:
       english_name: Real Estate Management & Development
       aliases:
       - 부동산개발
+    # --- GICS 분류 부재 한국 특화 분류 (IND_KRX_ 네임스페이스) ---
+    # GICS 2023 Education Services(25101010)는 본 시드의 자동차부품 코드와 충돌,
+    # 농업·어업·사료는 GICS에 sub-industry 자체가 없음 → 비-GICS 커스텀 코드로 정의.
+    IND_KRX_EDU_EDUCATION:
+      id: IND_KRX_EDU_EDUCATION
+      code: EDU_EDUCATION
+      korean_name: 교육 서비스
+      english_name: Education Services
+      aliases:
+      - 교육
+      - 교육사업
+      - 종합 교육
+      - 스마트러닝
+      - 온라인교육서비스
+      - 원격교육
+    IND_KRX_AGR_FARMING:
+      id: IND_KRX_AGR_FARMING
+      code: AGR_FARMING
+      korean_name: 농업·축산
+      english_name: Farming & Livestock
+      aliases:
+      - 농업
+      - 농업경영
+      - 축산
+      - 양돈
+    IND_KRX_AGR_FISHERY:
+      id: IND_KRX_AGR_FISHERY
+      code: AGR_FISHERY
+      korean_name: 어업·양식
+      english_name: Fishery & Aquaculture
+      aliases:
+      - 어업
+      - 양식
+      - 원양어업
+      - 수산양식
+    IND_KRX_AGR_FEED:
+      id: IND_KRX_AGR_FEED
+      code: AGR_FEED
+      korean_name: 사료
+      english_name: Animal Feed
+      aliases:
+      - 사료
+      - 배합사료
+      - 동물용사료
+    IND_KRX_AGR_LIVESTOCK_WASTE:
+      id: IND_KRX_AGR_LIVESTOCK_WASTE
+      code: AGR_LIVESTOCK_WASTE
+      korean_name: 가축분뇨 처리
+      english_name: Livestock Waste Management
+      aliases:
+      - 가축분뇨
+      - 기능성액비

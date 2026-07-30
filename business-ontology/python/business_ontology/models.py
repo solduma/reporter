@@ -52,29 +52,34 @@ CommodityTaxonomy = Literal["LME", "CAS", "BP", "IEA", "other"]
 
 @dataclass(frozen=True)
 class IndustryNode:
-    """GICS 기반 산업 노드. 4단계 rollup(sector/group/industry/sub-industry)을 모두 보관."""
+    """산업 노드. GICS 4단계 rollup(sector/group/industry/sub-industry)을 보관하거나,
+    GICS 에 분류가 없는 한국 특화 분류(교육·농업·어업·사료)는 IND_KRX_ 네임스페이스 + code 로 정의."""
 
     id: str
-    gics_code: str  # 8자리 sub-industry 코드 (예: 45203020)
-    gics_sector: str  # 2자리
-    gics_group: str  # 4자리
-    gics_industry: str  # 6자리
-    gics_sub_industry: str  # 8자리
     korean_name: str
     english_name: str
+    # GICS 노드(IND_GICS_[0-9]{8})만 채움 — 8자리 sub-industry 코드와 4단계 rollup.
+    gics_code: str = ""  # 8자리 sub-industry 코드 (예: 45203020)
+    gics_sector: str = ""  # 2자리
+    gics_group: str = ""  # 4자리
+    gics_industry: str = ""  # 6자리
+    gics_sub_industry: str = ""  # 8자리
+    # 비-GICS 커스텀 노드(IND_KRX_*)만 채움 — 네임스페이스 내 분류 코드(예: EDU_EDUCATION).
+    code: str = ""
     aliases: tuple[str, ...] = ()
 
     @classmethod
     def from_dict(cls, raw: dict) -> IndustryNode:
         return cls(
             id=str(raw["id"]),
-            gics_code=str(raw["gics_code"]),
-            gics_sector=str(raw["gics_sector"]),
-            gics_group=str(raw["gics_group"]),
-            gics_industry=str(raw["gics_industry"]),
-            gics_sub_industry=str(raw["gics_sub_industry"]),
             korean_name=str(raw["korean_name"]),
             english_name=str(raw["english_name"]),
+            gics_code=str(raw.get("gics_code", "")),
+            gics_sector=str(raw.get("gics_sector", "")),
+            gics_group=str(raw.get("gics_group", "")),
+            gics_industry=str(raw.get("gics_industry", "")),
+            gics_sub_industry=str(raw.get("gics_sub_industry", "")),
+            code=str(raw.get("code", "")),
             aliases=tuple(raw.get("aliases") or ()),
         )
 

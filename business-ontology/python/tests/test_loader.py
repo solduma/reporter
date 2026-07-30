@@ -14,10 +14,11 @@ def test_get_ontology_cached():
 
 def test_industries_loaded():
     ont = get_ontology()
-    # GICS 시드: 11 sector / 25 group 보장
+    # GICS 시드(128) + KRX 커스텀(교육·농업·어업·사료 등) ≥ 100
     assert len(ont.industries) >= 100
-    sectors = {n.gics_sector for n in ont.industries.values()}
-    groups = {n.gics_group for n in ont.industries.values()}
+    gics = [n for n in ont.industries.values() if n.gics_sector]
+    sectors = {n.gics_sector for n in gics}
+    groups = {n.gics_group for n in gics}
     assert len(sectors) == 11
     # GICS 그룹 수는 에디션별로 24~25 — 시드는 24개(구조 유효, 확장 가능).
     assert len(groups) >= 24
@@ -26,11 +27,17 @@ def test_industries_loaded():
 def test_industry_gics_code_shape():
     ont = get_ontology()
     for nid, n in ont.industries.items():
-        assert nid == f"IND_GICS_{n.gics_sub_industry}"
-        assert len(n.gics_sub_industry) == 8
-        assert n.gics_sector == n.gics_sub_industry[:2]
-        assert n.gics_group == n.gics_sub_industry[:4]
-        assert n.gics_industry == n.gics_sub_industry[:6]
+        if nid.startswith("IND_GICS_"):
+            assert nid == f"IND_GICS_{n.gics_sub_industry}"
+            assert len(n.gics_sub_industry) == 8
+            assert n.gics_sector == n.gics_sub_industry[:2]
+            assert n.gics_group == n.gics_sub_industry[:4]
+            assert n.gics_industry == n.gics_sub_industry[:6]
+            assert n.code == ""
+        else:  # IND_KRX_ 커스텀 — gics_* 빈 문자열, code 필수.
+            assert nid.startswith("IND_KRX_")
+            assert n.gics_sub_industry == ""
+            assert n.code
 
 
 def test_products_and_materials_loaded():

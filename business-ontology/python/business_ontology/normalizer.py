@@ -75,8 +75,9 @@ _AUTO_NEW_PREFIX = {
 
 # industry 자유표현 → GICS 8자리 코드 매핑. 접미사(시장/산업/사업/제조업/제조) 제거 후 키워드 포함 매칭.
 # 긴 키워드 우선(_keyword_to_gics 가 len desc 정렬) — "자동차용 도료"는 "자동차용"(부품)이 "도료"(화학)보다 먼저.
-# GICS 코드는 시드 industries(128 sub-industry)에 존재하는 코드만 사용. 시드에 없는 분류(교육·농업·양식),
-# 모호 약어(AM/ET), 비산업(공공/서비스업/제조)은 매핑 제외 → pending(HITL). 292 잔여 중 ~250건 자동 승격.
+# GICS 코드는 시드 industries(133 = 128 GICS + 5 KRX 커스텀)에 존재하는 코드만 사용.
+# 시드에 GICS 분류가 없는 한국 특화(교육·농업·어업·사료)는 _INDUSTRY_KEYWORD_TO_CUSTOM(IND_KRX_) 로 매핑.
+# 비산업(공공/서비스업/제조)은 _INDUSTRY_NONINDUSTRY_BLACKLIST reject. 모호 약어(AM/ET)·회사(글로벌 전자 기업)은 pending(HITL).
 _INDUSTRY_KEYWORD_TO_GICS = {
     # 10205030 석유·가스 정제·마케팅 / 10205040 저장·운송
     "윤활유": "10205030", "석유": "10205030", "정유": "10205030", "석유수출입": "10205040",
@@ -176,6 +177,22 @@ _INDUSTRY_KEYWORD_TO_GICS = {
 # industry 자유표현에서 제거할 접미사(정규화 후 키워드 매칭).
 _INDUSTRY_SUFFIX_RE = (" 시장", " 산업", " 사업", " 제조업", " 제조", "업")
 
+# 비산업(NER 오분류·포괄 분류) — industry 가 아니므로 reject. 접미사 제거 후 전체 일치.
+# "제조"/"서비스" 는 부분문자열이 아닌 전체 일치이므로 "철강제조업" 등 정상 산업은 reject 안 함.
+_INDUSTRY_NONINDUSTRY_BLACKLIST = frozenset({"공공", "공공기관", "서비스", "제조"})
+
+# GICS 시드에 분류가 없는 한국 특화 산업 → IND_KRX_ 커스텀 노드 매핑(접미사 제거 후 포함 매칭).
+# 교육(GICS 2023 25101010 이 자동차부품과 충돌)·농업·어업·사료·가축분뇨처리.
+# GICS 키워드 매핑(_INDUSTRY_KEYWORD_TO_GICS)이 먼저 시도되므로 "농약" 등은 GICS 가 선점.
+_INDUSTRY_KEYWORD_TO_CUSTOM = {
+    "교육": "IND_KRX_EDU_EDUCATION", "스마트러닝": "IND_KRX_EDU_EDUCATION",
+    "온라인교육": "IND_KRX_EDU_EDUCATION", "원격교육": "IND_KRX_EDU_EDUCATION",
+    "농업": "IND_KRX_AGR_FARMING", "양돈": "IND_KRX_AGR_FARMING", "축산": "IND_KRX_AGR_FARMING",
+    "어업": "IND_KRX_AGR_FISHERY", "양식": "IND_KRX_AGR_FISHERY", "원양어업": "IND_KRX_AGR_FISHERY",
+    "사료": "IND_KRX_AGR_FEED", "배합사료": "IND_KRX_AGR_FEED",
+    "가축분뇨": "IND_KRX_AGR_LIVESTOCK_WASTE", "액비": "IND_KRX_AGR_LIVESTOCK_WASTE",
+}
+
 
 @dataclass(frozen=True)
 class Resolution:
@@ -221,6 +238,15 @@ def _token_set_ratio(a: str, b: str) -> float:
     # Jaccard 기반 근사. 겹치는 토큰이 많을수록 1에 수렴.
     union = ta | tb
     return len(inter) / len(union)
+
+
+def _strip_industry_suffix(term: str) -> str:
+    """산업명에서 포괄 접미사( 시장/ 산업/ 사업/ 제조업/ 제조/업)를 하나 제거. 비산업 판정용."""
+    t = term.strip()
+    for suf in _INDUSTRY_SUFFIX_RE:
+        if t.endswith(suf):
+            return t[: -len(suf)].strip()
+    return t
 
 
 def _slugify(name: str) -> str:
@@ -341,6 +367,10 @@ class Normalizer:
                     status="canonical",
                     confidence=1.0,
                 )
+        # 비산업(공공/서비스/제조 등 포괄 분류) — industry 가 아니므로 reject.
+        # 접미사 제거 후 전체 일치(부분문자열 아님) → "철강제조업" 등은 reject 안 함.
+        if self._is_nonindustry(raw):
+            return Resolution(raw, "industry", None, "", "rejected", 0.0)
         res = self._resolve_typed(raw, "industry")
         if res.resolved:
             return res
@@ -352,6 +382,12 @@ class Normalizer:
                 return Resolution(
                     raw, "industry", node_id, "keyword", "canonical", _AUTO_NEW_CONFIDENCE
                 )
+        # GICS 시드에 없는 한국 특화 분류(교육·농업·어업·사료) → IND_KRX_ 커스텀 노드.
+        custom = self._keyword_to_custom(raw)
+        if custom and custom in self._ont.industries:
+            return Resolution(
+                raw, "industry", custom, "keyword", "canonical", _AUTO_NEW_CONFIDENCE
+            )
         return res
 
     def _keyword_to_gics(self, raw: str) -> str | None:
@@ -361,6 +397,22 @@ class Normalizer:
             if kw.lower() in norm:
                 return _INDUSTRY_KEYWORD_TO_GICS[kw]
         return None
+
+    def _keyword_to_custom(self, raw: str) -> str | None:
+        """자유표현 산업명 → IND_KRX_ 커스텀 노드 id. 긴 키워드 우선, 대소문자 무관."""
+        norm = raw.strip().lower()
+        for kw in sorted(_INDUSTRY_KEYWORD_TO_CUSTOM, key=len, reverse=True):
+            if kw.lower() in norm:
+                return _INDUSTRY_KEYWORD_TO_CUSTOM[kw]
+        return None
+
+    def _is_nonindustry(self, raw: str) -> bool:
+        """포괄 분류(공공/서비스/제조) 여부 — 접미사 제거 후 전체 일치로 판정(부분문자열 아님)."""
+        term = raw.strip()
+        if term in _INDUSTRY_NONINDUSTRY_BLACKLIST:
+            return True
+        stripped = _strip_industry_suffix(term)
+        return stripped in _INDUSTRY_NONINDUSTRY_BLACKLIST
 
     def auto_canonical_id(self, node_type: NodeType, name: str) -> str:
         """자동 new 발급 canonical_id — 이름 기반 slug. 정적 사전 node_id 충돌 시 접미 _n.
