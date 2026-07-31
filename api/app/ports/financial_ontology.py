@@ -100,6 +100,13 @@ class OntologyPort(Protocol):
         """다수 비율 일괄 평가."""
         ...
 
+    def compute_account(self, account_id: str, values: dict[str, object]) -> RatioResultOut:
+        """계정 formula 를 values 로 평가해 집계 계정값 산출(BS_L_TOTAL/BS_A_TOTAL/BS_EQ_TOTAL 등).
+
+        DART 가 저장하지 않는 최상위 총계를 자식 합산으로 채울 때 사용. ratio 평가 경로 재사용.
+        """
+        ...
+
     def required(self, ratio_id: str) -> list[str]:
         """해 비율의 필수 계정 ID. 공시 데이터 충족 여부 사전 점검용."""
         ...

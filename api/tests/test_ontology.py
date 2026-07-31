@@ -111,6 +111,39 @@ def test_service_calculate_missing():
     assert "missing" in r.reason
 
 
+def test_compute_account_aggregate_total():
+    """port.compute_account 가 account formula 로 총계(BS_L_TOTAL)를 자식 합산해 계산."""
+    port = ontology_service._port()
+    r = port.compute_account("BS_L_TOTAL", {"BS_CL_TOTAL": 120, "BS_NCL_TOTAL": 26})
+    assert r.ok, r.reason
+    assert r.value == Decimal("146")
+
+
+def test_compute_aggregate_accounts_fills_totals():
+    """_compute_aggregate_accounts 가 미결측 총계를 채우고 직접 저장값은 덮어쓰지 않는다."""
+    port = ontology_service._port()
+    values = {
+        "BS_CA_TOTAL": 306220075000000.0, "BS_NCA_TOTAL": 327119529000000.0,  # 자산
+        "BS_CL_TOTAL": 120603778000000.0, "BS_NCL_TOTAL": 26099850000000.0,  # 부채
+        "BS_EQ_PARENT": 473964801000000.0, "BS_EQ_NCI": 671944000000.0,  # 자본
+        # BS_A_TOTAL/BS_L_TOTAL/BS_EQ_TOTAL 은 DART 가 저장하지 않는 총계 — 계산 대상
+    }
+    ontology_service._compute_aggregate_accounts(port, values)
+    assert values["BS_A_TOTAL"] == 633339604000000.0
+    assert values["BS_L_TOTAL"] == 146703628000000.0
+    assert values["BS_EQ_TOTAL"] == 474636745000000.0
+
+
+def test_is_flow_stock_ratio_classification():
+    """flow/stock(IS/CF × BS) 비율만 연환산 대상 — BS/BS·IS/IS 비율은 아니다."""
+    port = ontology_service._port()
+    assert not ontology_service._is_flow_stock_ratio(port, "debt_ratio")  # BS/BS
+    assert not ontology_service._is_flow_stock_ratio(port, "current_ratio")  # BS/BS
+    assert not ontology_service._is_flow_stock_ratio(port, "operating_margin")  # IS/IS
+    assert ontology_service._is_flow_stock_ratio(port, "roe")  # IS/BS
+    assert ontology_service._is_flow_stock_ratio(port, "asset_turnover")  # IS/BS
+
+
 def test_service_list_accounts_statement_filter():
     accs = ontology_service.accounts(statement="balance_sheet")
     assert accs

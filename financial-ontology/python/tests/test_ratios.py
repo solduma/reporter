@@ -87,6 +87,34 @@ def test_composite_ratio_unsupported(engine):
     assert r.reason.startswith("composite_or_manual")
 
 
+def test_compute_account_aggregate_from_children(engine):
+    # BS_L_TOTAL = BS_CL_TOTAL + BS_NCL_TOTAL. DART 는 총계 행을 주지 않으므로
+    # account formula 로 자식 합산이 필요하다.
+    r = engine.compute_account("BS_L_TOTAL", {"BS_CL_TOTAL": 120, "BS_NCL_TOTAL": 26})
+    assert r.ok, r.reason
+    assert r.value == Decimal("146")
+
+
+def test_compute_account_missing_children(engine):
+    r = engine.compute_account("BS_L_TOTAL", {"BS_CL_TOTAL": 120})  # BS_NCL_TOTAL 결측
+    assert not r.ok
+    assert r.reason.startswith("missing_values")
+    assert "BS_NCL_TOTAL" in r.missing
+
+
+def test_compute_account_no_formula(engine):
+    # 잎 계정은 formula 가 없다 → 계산 불가(저장값을 그대로 써야 함).
+    r = engine.compute_account("BS_CA_CASH", {"BS_CA_CASH": 100})
+    assert not r.ok
+    assert r.reason == "no_formula"
+
+
+def test_compute_account_unknown(engine):
+    r = engine.compute_account("BS_NOPE", {})
+    assert not r.ok
+    assert "unknown account" in r.reason
+
+
 def test_unknown_ratio(engine):
     r = engine.calculate("no_such_ratio", {})
     assert not r.ok
