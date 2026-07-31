@@ -8,6 +8,52 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
+from dataclasses import dataclass as dc
+from decimal import Decimal
+
+
+@dc(frozen=True)
+class ValueInputs:
+    """가치 축 스코어링 입력 — 온톨로지 ratio_id → 값 매핑을 스코어링 인자로 변환.
+
+    company_ratios() 출력이나 financial_row_stored_ratios() 출력을 받은 뒤
+    value_score_abs() 에 전달하기 위한 어댑터. Decimal 를 float 로 변환한다.
+    """
+
+    per: float | None = None
+    pbr: float | None = None
+    ev_ebitda: float | None = None
+    roe: float | None = None
+    div_yield: float | None = None
+    eps_yoy: float | None = None
+    net_status: str | None = None
+    net_margin_delta: float | None = None
+
+    @classmethod
+    def from_ratio_map(
+        cls,
+        ratios: Mapping[str, Decimal | float | int | None],
+        growth: object | None = None,
+    ) -> ValueInputs:
+        """Ontology ratio_id → value 매핑(company_ratios() 출력 등)에서 빌드."""
+
+        def _f(v: Decimal | float | int | None) -> float | None:
+            return float(v) if v is not None else None
+
+        def _gv(attr: str):
+            return getattr(growth, attr, None) if growth else None
+
+        return cls(
+            per=_f(ratios.get("per")),
+            pbr=_f(ratios.get("pbr")),
+            ev_ebitda=_f(ratios.get("evebitda")),
+            roe=_f(ratios.get("roe")),
+            div_yield=_f(ratios.get("dividend_yield")),
+            eps_yoy=_gv("eps_yoy"),
+            net_status=_gv("net_status"),
+            net_margin_delta=_gv("net_margin_delta"),
+        )
 
 
 def clamp01(value: float) -> float:
