@@ -504,6 +504,91 @@ def tool_business_overview(ctx: ToolContext, args: dict) -> dict:
     return {"available": True, **payload}
 
 
+# ── 비즈니스 온톨로지 인사이트(③ 사업모델 보강용) ─────────────────────────────
+
+def tool_industry_context(ctx: ToolContext, args: dict) -> dict:
+    """산업 평균 PER/PBR/ROE — operates_in 산업 노드의 GICS 기반 동종업 재무비율 평균."""
+    from app.services import business_ontology as bo
+
+    # 이 회사의 industry 노드 canonical_id 수집
+    rows = bo.company_graph(ctx.db, ctx.code).get("nodes", [])
+    gics_codes: list[str] = []
+    for n in rows:
+        if n.get("node_type") == "industry":
+            nid = n.get("id", "")
+            if nid.startswith("IND_GICS_"):
+                gics_codes.append(nid)
+    if not gics_codes:
+        return {"available": False, "note": "industry 노드 없음"}
+
+    ratios = bo.industry_company_ratios(ctx.db, gics_codes[0])
+    if not ratios or ratios.get("count", 0) == 0:
+        return {"available": False, "note": "동종업 재무 데이터 부족"}
+
+    def _fmt(v):
+        return round(v, 1) if v is not None else None
+
+    return {
+        "available": True,
+        "gics_code": gics_codes[0],
+        "industry_avg_per": _fmt(ratios.get("per")),
+        "industry_avg_pbr": _fmt(ratios.get("pbr")),
+        "industry_avg_roe": _fmt(ratios.get("roe")),
+        "peer_count": ratios.get("count", 0),
+    }
+
+
+def tool_concentration_risk(ctx: ToolContext, args: dict) -> dict:
+    """매출 집중도 HHI — 부문 매출 비율 기반. 집중도 수준(분산/보통/고도) 포함."""
+    from app.services import business_ontology as bo
+
+    result = bo.company_segments_hhi(ctx.db, ctx.code)
+    if result.get("hhi") is None:
+        return {"available": False, "note": "부문 매출 데이터 부족"}
+
+    return {
+        "available": True,
+        "hhi": result["hhi"],
+        "level": result["level"],
+        "segment_count": result["count"],
+    }
+
+
+def tool_material_risk(ctx: ToolContext, args: dict) -> dict:
+    """원재료별 가격 추이 — uses_material 엣지 기반. 웹 검색으로 가격 보충."""
+    from app.services import business_ontology as bo
+
+    materials = bo.company_material_prices(ctx.db, ctx.code, ctx.settings)
+    if not materials:
+        return {"available": False, "note": "원재료 노드 없음"}
+
+    priced = [m for m in materials if m.get("price") is not None]
+    return {
+        "available": True,
+        "materials": materials,
+        "priced_count": len(priced),
+        "total_count": len(materials),
+    }
+
+
+def tool_competitive_position(ctx: ToolContext, args: dict) -> dict:
+    """동일 제품군 shared-peer 종복 → 시장 점유율·PER/PBR 비교."""
+    from app.services import business_ontology as bo
+
+    peers = bo.product_peer_companies(ctx.db, ctx.code)
+    if not peers:
+        return {"available": False, "note": "동일 제품군 peer 종목 없음"}
+
+    def _fmt(v):
+        return round(v, 2) if isinstance(v, float) else v
+
+    return {
+        "available": True,
+        "peers": [{**p, "per": _fmt(p.get("per")), "pbr": _fmt(p.get("pbr"))} for p in peers],
+        "peer_count": len(peers),
+    }
+
+
 # 도구 레지스트리 — LLM 프롬프트에 이름·설명을 노출하고, 이름으로 디스패치.
 TOOLS: dict[str, tuple] = {
     "recent_periodic_report": (tool_recent_periodic_report, "최신 정기보고서(사업/반기/분기) 본문 발췌"),
@@ -519,6 +604,11 @@ TOOLS: dict[str, tuple] = {
     "event_search": (tool_event_search, "미래 이벤트 탐색 — 섹터별 촉매(수주·계약·증설)·리스크"
                      "(소송·유증·우발부채) 뉴스 본문+DART 공시 (args: side, max_queries)"),
     "business_overview": (tool_business_overview, "사업 개요(사업보고서+반기/분기 정리 결과) — 섹션·표"),
+    # 비즈니스 온톨로지 인사이트
+    "industry_context": (tool_industry_context, "산업 평균 PER/PBR/ROE — GICS 기반 동종업 재무비율 평균"),
+    "concentration_risk": (tool_concentration_risk, "매출 집중도 HHI — 부문 매출 비율 기반 집중도 지수"),
+    "material_risk": (tool_material_risk, "원재료별 가격 추이 — uses_material 엣지 기반"),
+    "competitive_position": (tool_competitive_position, "동일 제품군 peer 종목 대비 시장 점유율·PER/PBR 비교"),
 }
 
 
