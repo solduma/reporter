@@ -26,16 +26,14 @@ def ttm_from_discrete(
     """이미 분기 개별 환산된 dict 에서 yq 포함 연속 4개 분기 합(TTM). 결측·불연속이면 None.
 
     환산(1~3Q 그대로·Q4=연간-누적)은 discrete_quarter 로 끝난 뒤의 discrete dict 를 받는다.
-    Q4 discrete 환산 실패 시(분기 누락) annual(.12) 누적으로 fallback — 이미 1년치라 연환산과 동일.
+    annual fallback 은 호출자(_ttm_value) 어댑터가 rawdict 에서 직접 처리한다.
     """
     total = 0.0
     cursor = yq
     for _ in range(4):
         v = discrete.get(cursor)
         if v is None:
-            # Q4 discrete 환산 실패(분기 누락) 시 연간(.12) 누적으로 fallback.
-            annual = discrete.get((cursor[0], 4))
-            return annual if annual is not None else None
+            return None
         total += v
         cursor = prev_yq(cursor)
     return total
@@ -53,8 +51,8 @@ def discrete_quarter(raw: dict[YearQuarter, float | None], yq: YearQuarter) -> f
         return None
     if q != 4:
         return val
-    # Q4: 연간 - (Q1+Q2+Q3). 일부 분기 누락 시(신규상장 등) 연간값을 분기값으로 사용.
+    # Q4: 연간 - (Q1+Q2+Q3). 일부 분기 누락 시(반기누적 등) None 반환.
     parts = [raw.get((year, i)) for i in (1, 2, 3)]
     if any(p is None for p in parts):
-        return val  # 분기 누락 시 연간 누적값을 분기 개별값으로 사용(annual fallback)
+        return None  # 분기 누락 시 discrete 환산 불가 — _ttm_value 어댑터가 annual fallback
     return val - sum(parts)

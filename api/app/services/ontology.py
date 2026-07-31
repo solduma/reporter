@@ -459,7 +459,11 @@ def _ttm_value(
     """
     discrete = {yq: financials.discrete_quarter(raw, yq) for yq in raw}
     ttm = financials.ttm_from_discrete(discrete, latest_yq)
-    return ttm
+    if ttm is not None:
+        return ttm
+    # 4분기 불충족 시 latest_yq 연도 연간(.12) 원시값 fallback
+    annual = raw.get((latest_yq[0], 4))
+    return annual if annual is not None else None
 
 
 def build_ratio_values(
