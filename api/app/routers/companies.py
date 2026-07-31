@@ -189,29 +189,24 @@ def company_analysis(
     )
 
     # 가치 축 — 온톨로지 비율값 기준(C1). company_ratios() 가 CFS→OFS 폴백.
-    ratio_values = {
-        r.ratio_id: float(r.value) if r.value is not None else None
+    ratio_map = {
+        r.ratio_id: r.value
         for r in ontology_service.company_ratios(db, code, fs_div="CFS")
     }
-    per = ratio_values.get("per")
-    pbr = ratio_values.get("pbr")
-    ev = ratio_values.get("evebitda")
-    roe = ratio_values.get("roe")
-    dy = ratio_values.get("dividend_yield")
-    eps_yoy = g.eps_yoy if g else None
-    net_status = g.net_status if g else None
-    net_margin_delta = g.net_margin_delta if g else None
+    vi = analysis_scoring.ValueInputs.from_ratio_map(ratio_map, g)
     value_sc, (per_r, pbr_r, ev_r, peg_r) = analysis_scoring.value_score_abs(
-        per, pbr, ev, roe, dy, eps_yoy, net_status, net_margin_delta
+        vi.per, vi.pbr, vi.ev_ebitda, vi.roe, vi.div_yield,
+        vi.eps_yoy, vi.net_status, vi.net_margin_delta,
     )
-    peg_val = analysis_scoring.peg(per, eps_yoy)
+    peg_val = analysis_scoring.peg(vi.per, vi.eps_yoy)
     peg_display = (
         f"{peg_val:.2f}"
         if peg_val is not None
-        else net_status
-        if net_status in ("흑자전환", "흑자지속") and net_margin_delta is not None
+        else vi.net_status
+        if vi.net_status in ("흑자전환", "흑자지속") and vi.net_margin_delta is not None
         else "—"
     )
+    per, pbr, ev, roe, dy = vi.per, vi.pbr, vi.ev_ebitda, vi.roe, vi.div_yield
     value_axis = AnalysisAxis(
         key="value",
         label="가치",
@@ -237,8 +232,8 @@ def company_analysis(
                 peg_r,
                 peg_val,
                 peg_surrogate_status=(
-                    net_status
-                    if peg_val is None and net_status in ("흑자전환", "흑자지속")
+                    vi.net_status
+                    if peg_val is None and vi.net_status in ("흑자전환", "흑자지속")
                     else None
                 ),
             )
