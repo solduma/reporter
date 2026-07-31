@@ -76,20 +76,8 @@ def _quarter_end_close(db: Session, code: str, year: int, quarter: int) -> float
 
 
 def _ttm_from_discrete(discrete: dict[tuple[int, int], float | None], yq: tuple[int, int]) -> float | None:
-    """이미 분기 개별 환산된 dict 에서 yq 포함 연속 4개 분기 합(TTM). 결측·불연속이면 None.
-
-    환산(1~3Q 그대로·Q4=연간-누적)은 domain.financials.discrete_quarter 공용이고, 여기서는 그
-    결과에 음수-매출 필터를 적용한 뒤의 discrete dict 를 합한다.
-    """
-    total = 0.0
-    cursor = yq
-    for _ in range(4):
-        v = discrete.get(cursor)
-        if v is None:
-            return None
-        total += v
-        cursor = financials.prev_yq(cursor)
-    return total
+    """domain.financials.ttm_from_discrete 위임(음수-매출 필터 적용된 discrete dict)."""
+    return financials.ttm_from_discrete(discrete, yq)
 
 
 def _period_str(year: int, quarter: int) -> str:

@@ -26,13 +26,13 @@ ratios:
   roa:
     name: "ROA (총자산이익률)"
     korean_name: "총자산이익률"
-    formula: "IS_NI_TOTAL / ((BS_A_TOTAL_기초 + BS_A_TOTAL_기말) / 2)"
-    required_accounts: [IS_NI_TOTAL, BS_A_TOTAL]
+    formula: "IS_NI_PARENT / ((BS_A_TOTAL_기초 + BS_A_TOTAL_기말) / 2)"
+    required_accounts: [IS_NI_PARENT, BS_A_TOTAL]
     unit: percentage
     higher_is_better: true
-    depends_on: [IS_NI_TOTAL, BS_A_TOTAL]
+    depends_on: [IS_NI_PARENT, BS_A_TOTAL]
     affects: [ROA, DuPont]
-    description: "총자산 대비 당기순이익. 자산 활용 효율. 평균 자산 사용 권장."
+    description: "총자산 대비 지배순이익. 자산 활용 효율. 평균 자산 사용 권장."
     tags: [core, dupont]
 
   gross_margin:
@@ -62,13 +62,13 @@ ratios:
   net_margin:
     name: "당기순이익률"
     korean_name: "당기순이익률"
-    formula: "IS_NI_TOTAL / IS_REV_TOTAL"
-    required_accounts: [IS_NI_TOTAL, IS_REV_TOTAL]
+    formula: "IS_NI_PARENT / IS_REV_TOTAL"
+    required_accounts: [IS_NI_PARENT, IS_REV_TOTAL]
     unit: percentage
     higher_is_better: true
-    depends_on: [IS_NI_TOTAL, IS_REV_TOTAL]
+    depends_on: [IS_NI_PARENT, IS_REV_TOTAL]
     affects: [Profitability, DuPont]
-    description: "매출 대비 당기순이익. 최종 수익성."
+    description: "매출 대비 지배순이익률. 최종 수익성."
     tags: [margin]
 
   ebitda_margin:

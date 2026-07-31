@@ -614,6 +614,23 @@ class UsFinancialValidationOut(BaseModel):
     items: list[UsFinancialValidationItem]
 
 
+class CompanyRatioValidationItem(BaseModel):
+    """KR 재무 저장 비율 vs 온톨로지 재계산(연환산) 비교(C2)."""
+
+    ratio_id: str
+    stored: float | None
+    calculated: float | None
+    diff_pct: float | None  # %
+    ok: bool
+    reason: str = ""
+
+
+class CompanyRatioValidationOut(BaseModel):
+    stock_code: str
+    fs_div: str
+    items: list[CompanyRatioValidationItem]
+
+
 class UsFinancialRawOntologyItem(BaseModel):
     """SEC companyfacts XBRL 계정의 ontology 정규화 원시 항목(F3b)."""
 
