@@ -45,7 +45,9 @@ def report_to_out(rep: DeepDiveReport, db: Session | None = None) -> DeepDiveRep
         narrative_md=rep.narrative_md,
         verdict=rep.verdict,
         upside_pct=rep.upside_pct,
-        ontology_refs=extract_ontology_refs(report_json, db=db, stock_code=rep.stock_code),
+        ontology_refs=extract_ontology_refs(
+            report_json, db=db, stock_code=rep.stock_code, narrative_md=rep.narrative_md
+        ),
         as_of=rep.as_of,
     )
 

@@ -11,6 +11,8 @@ metric_info 를 통해 정준 라벨/설명을 찾아낸다. 본문(narrative_md
 
 from __future__ import annotations
 
+import re
+
 from sqlalchemy.orm import Session
 
 from app.services import business_ontology as bo_service
@@ -37,6 +39,7 @@ def extract_ontology_refs(
     report: dict,
     db: Session | None = None,
     stock_code: str | None = None,
+    narrative_md: str | None = None,
 ) -> list[dict[str, str | None]]:
     """DeepDiveReport *_json dict 에서 온톨로지와 매핑되는 키를 추출.
 
@@ -44,8 +47,7 @@ def extract_ontology_refs(
     stage 는 현재 키 출처를 구분하기 위한 것 — 동일 키가 여러 stage 에 있을 수 있다.
 
     db·stock_code 가 주어지면 비즈니스 온톨로지 정준 노드(기업/산업/제품/원재료)도 함께 방출한다.
-    사업보고서 ingest 시 영속화된 그래프(business_ontology_node)에서 정준 ID 만 꺼내 온톨로지
-    채널에 싣는다 — pending_review(미정준) 노드는 정준 ID 가 없어 제외.
+    narrative_md 가 주어지면 [[...]] 마커에서 온톨로지 ID 를 파싱해 stage="narrative" 로附加한다.
     """
     refs: list[dict[str, str | None]] = []
     for stage in _STAGE_KEYS:
@@ -70,6 +72,37 @@ def extract_ontology_refs(
                 }
             )
     refs.extend(_business_ontology_refs(db, stock_code))
+    refs.extend(_narrative_ontology_refs(narrative_md))
+    return refs
+
+
+def _narrative_ontology_refs(narrative_md: str | None) -> list[dict[str, str | None]]:
+    """narrative_md 의 [[...]] 마커 → OntologyRef(stage=narrative).
+
+    LLM 이 프롬프트 지시로 [[ontology_id]] 형태의 마커를 본문에 표기하면,
+    이곳에서 파싱해 metric_info 로 라벨/설명을 찾아 OntologyRef 로 방출한다.
+    마커가 없으면 빈 리스트.
+    """
+    if not narrative_md:
+        return []
+    markers = {m.strip() for m in re.findall(r"\[\[(.*?)\]\]", narrative_md)}
+    if not markers:
+        return []
+    infos, _ = ontology_service.metric_info(list(markers))
+    refs: list[dict[str, str | None]] = []
+    for info in infos:
+        ont_id = info.get("ontology_id")
+        if not ont_id:
+            continue
+        refs.append(
+            {
+                "stage": "narrative",
+                "key": str(info["key"]),
+                "ontology_id": str(ont_id),
+                "label": str(info["term"] or info["key"]),
+                "description": str(info["description"] or ""),
+            }
+        )
     return refs
 
 
