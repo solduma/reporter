@@ -1,7 +1,7 @@
 "use client";
 
 import InfoDot from "@/components/InfoDot";
-import Markdown from "@/components/Markdown";
+import OntologyMarkdown from "@/components/OntologyMarkdown";
 import ValuationCard from "@/components/ValuationCard";
 import type { DeepDiveReport, HitlClaim, OntologyRef } from "@/lib/types";
 
@@ -148,7 +148,7 @@ export default function DeepDiveReportView({ report, openByDefault = false }: De
         <details className={styles.rawDetails} {...openProp}>
           <summary className={styles.rawSummary}>보고서</summary>
           <div className={styles.narrative}>
-            <Markdown content={report.narrative_md} />
+            <OntologyMarkdown narrativeMd={report.narrative_md ?? ""} />
           </div>
         </details>
       ) : null}
