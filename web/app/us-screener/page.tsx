@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import InfoDot from "@/components/InfoDot";
 import { fetchUsScreener } from "@/lib/api";
 import type { UsScreenerQuery, UsScreenerRow } from "@/lib/types";
 
@@ -197,8 +198,8 @@ export default function UsScreenerPage() {
               <th className={styles.num}>현재가</th>
               <th className={styles.num}>등락</th>
               <th className={styles.num}>시총</th>
-              <th className={styles.num}>PER</th>
-              <th className={styles.num}>PBR</th>
+              <th className={styles.num}>PER <InfoDot termKey="per" /></th>
+              <th className={styles.num}>PBR <InfoDot termKey="pbr" /></th>
               <th className={styles.num}>모멘텀</th>
               <th>8-K</th>
             </tr>

@@ -21,6 +21,7 @@ import type {
   UsQuote,
 } from "@/lib/types";
 
+import InfoDot from "@/components/InfoDot";
 import styles from "./page.module.css";
 
 // lightweight-charts 는 브라우저 전용이라 SSR 을 끈다(company 페이지와 동일).
@@ -145,10 +146,10 @@ export default function UsCompanyPage({ params }: { params: { ticker: string } }
 
   const metrics = useMemo(
     () => [
-      { label: "PER", value: num(fin?.per ?? null) },
-      { label: "PBR", value: num(fin?.pbr ?? null) },
-      { label: "PSR", value: num(fin?.psr ?? null) },
-      { label: "ROE", value: num(fin?.roe ?? null, "%") },
+      { label: "PER", value: num(fin?.per ?? null), info: "per" as const },
+      { label: "PBR", value: num(fin?.pbr ?? null), info: "pbr" as const },
+      { label: "PSR", value: num(fin?.psr ?? null), info: "psr" as const },
+      { label: "ROE", value: num(fin?.roe ?? null, "%"), info: "roe" as const },
       { label: "시가총액", value: usdShort(fin?.market_cap ?? null) },
       { label: "TTM 매출", value: usdShort(fin?.ttm_revenue ?? null) },
       { label: "TTM 순이익", value: usdShort(fin?.ttm_net_income ?? null) },
@@ -184,7 +185,9 @@ export default function UsCompanyPage({ params }: { params: { ticker: string } }
         <div className={styles.metrics}>
           {metrics.map((m) => (
             <div key={m.label} className={styles.metric}>
-              <span className={styles.metricLabel}>{m.label}</span>
+              <span className={styles.metricLabel}>
+                {m.label}{m.info ? <InfoDot termKey={m.info} /> : null}
+              </span>
               <span className={styles.metricValue}>{m.value}</span>
             </div>
           ))}
