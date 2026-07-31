@@ -159,21 +159,36 @@ def stage_redflags(llm: LLMPort, model: str, ctx: ToolContext, prior: dict) -> d
 # ── 3단계 Business Deep Dive ──────────────────────────────────────────
 def stage_business(llm: LLMPort, model: str, ctx: ToolContext, prior: dict) -> dict:
     # 탐색 순서: 사업보고서 → 리포트(개별+산업+언급) → 웹(네이버 블로그). LLM 이 부족분만 웹으로 보강.
+    # 비즈니스 온톨로지 4개 인사이트를 선주입 — LLM 이 이를 사업모델 분석에 활용.
     context = {
         "periodic_report": dispatch("recent_periodic_report", ctx, {}),
         "reports": dispatch("reports", ctx, {}),
         "overview": prior.get("overview", {}),
+        # 온톨로지 인사이트 4종
+        "industry_context": dispatch("industry_context", ctx, {}),
+        "concentration_risk": dispatch("concentration_risk", ctx, {}),
+        "material_risk": dispatch("material_risk", ctx, {}),
+        "competitive_position": dispatch("competitive_position", ctx, {}),
     }
     goal = (
         "사업모델을 '남에게 완벽히 설명할 수 있을 때까지' 파고든다. 탐색 순서는 사업보고서 → 리포트"
         "(개별 커버가 없으면 산업 리포트·타종목 리포트의 언급 활용) → 부족하면 web_search 로 네이버 "
         "블로그 기업 리서치 글 등 웹 보강. 밸류체인(전방/후방·핵심 공정·소재/제품 용도), 벤더(공급사)와 "
-        "납품처(고객사), 핵심 경쟁사, 과거 대비 사업·아이템 비중 변화를 파악한다."
+        "납품처(고객사), 핵심 경쟁사, 과거 대비 사업·아이템 비중 변화를 파악한다. "
+        "아래 온톨로지 인사이트를 사업모델 분석에 반드시 활용하라:\n"
+        "- industry_context: 이 회사의 산업 평균 PER/PBR/ROE — 이 회사가 산업 평균 대비 저평가/고평가인지 판단.\n"
+        "- concentration_risk: 매출 집중도 HHI — 특정 부문에 매출이 집중될 경우 리스크로 기록.\n"
+        "- material_risk: 주요 원재료별 가격 추이 — 원재료 가격 상승이利润率에 미치는 영향 분석.\n"
+        "- competitive_position: 동일 제품군 peer 종복 — 시장에서 어디에 위치하는지 경쟁 강도 평가."
     )
     schema = (
         '{"value_chain": "전방/후방·공정·소재/제품 용도", "vendors": ["주요 공급사"], '
         '"customers": ["주요 납품처"], "competitors": ["핵심 경쟁사"], '
-        '"item_mix_change": "아이템 비중 변화 추이", "moat": "경쟁우위·해자"}'
+        '"item_mix_change": "아이템 비중 변화 추이", "moat": "경쟁우위·해자", '
+        '"industry_context": "산업 평균 대비 이 회사의 밸류에이션 평가 (industry_context 활용)", '
+        '"concentration_risk": "매출 집중도 HHI 리스크 평가 (concentration_risk 활용)", '
+        '"material_risk": "원재료 가격 상승 영향 분석 (material_risk 활용)", '
+        '"competitive_position": "시장 내 경쟁 위치 평가 (competitive_position 활용)"}'
     )
     return review_loop.run_with_review(
         llm, model,

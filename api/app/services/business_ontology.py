@@ -279,6 +279,242 @@ def industry_companies(db: Session, gics_code: str) -> list[dict[str, object]]:
     return out
 
 
+# ── 비즈니스 인사이트(딥다이브 ③ 사업모델 보강용) ─────────────────────────────────
+
+def industry_company_ratios(db: Session, gics_code: str) -> dict[str, float | None]:
+    """GICS 산업 평균 PER·PBR·ROE — operates_in 하는 company 노드의 재무 데이터 기반.
+
+    industry_companies 로 종목集合을 구하고, 각 종목의 최신 추정 아닌 재무비율을 취해
+    산업 평균을 산출한다. 데이터 부족 시 None 을 반환(우아한 강등).
+    """
+    companies = industry_companies(db, gics_code)
+    if not companies:
+        return {"per": None, "pbr": None, "roe": None, "count": 0}
+    codes = [c["stock_code"] for c in companies if c.get("stock_code")]
+    if not codes:
+        return {"per": None, "pbr": None, "roe": None, "count": 0}
+
+    from app.db.models import Financial
+
+    rows = db.scalars(
+        select(Financial)
+        .where(Financial.stock_code.in_(codes), Financial.is_estimate.is_(False))
+        .order_by(Financial.period.desc())
+    ).all()
+    # 최신 period별 1건만(같은 period 여러 행 방지)
+    latest: dict[str, Financial] = {}
+    for r in rows:
+        if r.stock_code not in latest:
+            latest[r.stock_code] = r
+    vals = list(latest.values())
+    if not vals:
+        return {"per": None, "pbr": None, "roe": None, "count": 0}
+
+    def _avg(attr: str) -> float | None:
+        nums = [getattr(r, attr) for r in vals if getattr(r, attr) is not None]
+        return sum(nums) / len(nums) if nums else None
+
+    return {
+        "per": _avg("per"),
+        "pbr": _avg("pbr"),
+        "roe": _avg("roe"),
+        "count": len(vals),
+    }
+
+
+def company_segments_hhi(db: Session, code: str) -> dict[str, float | None]:
+    """부문 매출 기반 매출 집중도 HHI.
+
+    HHI = Σ(점유율% ²)  (단위: pct^2). 커지면 집중도 ↑ (반독점 규제 대상).
+    - HHI < 1500: 경쟁 분산
+    - 1500 ≤ HHI < 2500: 보통 집중
+    - HHI ≥ 2500: 고도로 집중
+    ratio_pct 있는 항목만 사용. 데이터 부족 시 None.
+    """
+    from app.db.models import SegmentSales
+
+    rows = db.scalars(
+        select(SegmentSales)
+        .where(SegmentSales.stock_code == code, SegmentSales.ratio_pct.is_not(None))
+        .order_by(SegmentSales.bsns_year.desc(), SegmentSales.report_code.desc())
+    ).all()
+    if not rows:
+        return {"hhi": None, "level": None, "count": 0}
+
+    # 최신 year의 ratio_pct 사용
+    latest_year = rows[0].bsns_year
+    segments = [(r.segment_name, r.ratio_pct) for r in rows if r.bsns_year == latest_year and r.ratio_pct is not None]
+    if not segments:
+        return {"hhi": None, "level": None, "count": 0}
+
+    hhi = sum(pct * pct for _, pct in segments)
+    if hhi < 1500:
+        level = "경쟁 분산"
+    elif hhi < 2500:
+        level = "보통 집중"
+    else:
+        level = "고도로 집중"
+    return {"hhi": round(hhi, 1), "level": level, "count": len(segments)}
+
+
+def company_material_prices(
+    db: Session, code: str, settings: Settings | None = None
+) -> list[dict[str, object]]:
+    """uses_material 엣지의 원재료 노드별 가격 참조를 구한다.
+
+    원재료 노드에 commodity_type(Gold, Copper 등 commodity 이름)이 있으면
+    한국거래소/서울물이 대표 가격을 시도한다. 실패 시 None.
+    """
+    materials = company_materials(db, code)
+    if not materials:
+        return []
+
+    out: list[dict[str, object]] = []
+    for m in materials:
+        item: dict[str, object] = {
+            "node_id": m.get("node_id"),
+            "korean_name": m.get("korean_name"),
+            "edge_type": m.get("edge_type"),
+            "share": m.get("share"),
+            "price": None,
+            "price_source": None,
+        }
+        # commodity_type 추출 시도
+        node_id = m.get("node_id", "")
+        static = _port().node(node_id) if node_id.startswith("MAT_") else None
+        commodity_type = static.commodity_type if static and static.node_type == "raw_material" else None
+        if not commodity_type:
+            out.append(item)
+            continue
+
+        price = _fetch_commodity_price(commodity_type, settings)
+        item["price"] = price
+        item["price_source"] = commodity_type
+        out.append(item)
+
+    return out
+
+
+def _fetch_commodity_price(commodity_type: str, settings: Settings | None) -> float | None:
+    """원재료별 대표 현물 가격. 실패 시 None(강화 강등)."""
+    # 한국거래소 API 또는 웹 검색 폴백
+    try:
+        from app.adapters.external import commodity_price
+        p = commodity_price.get_price(commodity_type)
+        if p:
+            return p
+    except Exception:
+        pass
+    # 웹 검색 폴백
+    if settings:
+        return _search_commodity_price(commodity_type, settings)
+    return None
+
+
+def _search_commodity_price(commodity_type: str, settings: Settings) -> float | None:
+    """웹 검색으로 원재료 현물 가격 시도. 성공 시 float, 실패 시 None."""
+    try:
+        import requests as _requests
+
+        from app.adapters.external import naver_search
+
+        session = _requests.Session()
+        query = f"{commodity_type} 현물 가격 원/kg"
+        result = naver_search.search(query, session, sort="date", crawl_bodies=2)
+        for hit in (result.get("bodies") or [])[:2]:
+            text = hit.get("body", "")
+            # "14,200원/kg" 같은 패턴 추출
+            import re as _re
+            m = _re.search(r"[\d,]+(?:\.\d+)?\s*원\s*/\s*kg", text)
+            if m:
+                num = float(m.group().replace(",", "").split("원")[0])
+                return num
+        for snippet in result.get("hits", [])[:3]:
+            text = snippet.get("snippet", "")
+            m = _re.search(r"[\d,]+(?:\.\d+)?\s*원\s*/\s*kg", text)
+            if m:
+                num = float(m.group().replace(",", "").split("원")[0])
+                return num
+    except Exception:
+        pass
+    return None
+
+
+def product_peer_companies(db: Session, code: str) -> list[dict[str, object]]:
+    """동일 제품군 노드 shared-product 관계인他の 종목 + 대표 재무비율.
+
+    이 회사의 manufactures 엣지(제품) 중 canonical_id 가 다른 회사의 manufactures 와 겹치는
+    종목을 찾아, 해당 종목의 시장 점유율· PER/PBR 을 조회한다.
+    """
+    from app.db.models import BusinessOntologyEdge, BusinessOntologyNode
+
+    # 이 회사의 제품 노드 canonical_id 목록
+    product_edges = db.scalars(
+        select(BusinessOntologyEdge).where(
+            BusinessOntologyEdge.stock_code == code,
+            BusinessOntologyEdge.edge_type == "manufactures",
+        )
+    ).all()
+    if not product_edges:
+        return []
+
+    product_ids = list({e.dst_node_id for e in product_edges})
+    if not product_ids:
+        return []
+
+    # 다른 회사의 같은 제품 노드
+    peer_edges = db.scalars(
+        select(BusinessOntologyEdge).where(
+            BusinessOntologyEdge.dst_node_id.in_(product_ids),
+            BusinessOntologyEdge.edge_type == "manufactures",
+            BusinessOntologyEdge.stock_code != code,
+        )
+    ).all()
+    if not peer_edges:
+        return []
+
+    # 같은 제품인 peer stock_code 수집
+    peer_codes = list({e.stock_code for e in peer_edges})
+    peer_names = {
+        c.stock_code: c.korean_name
+        for c in db.scalars(
+            select(BusinessOntologyNode).where(
+                BusinessOntologyNode.stock_code.in_(peer_codes),
+                BusinessOntologyNode.node_type == "company",
+            )
+        ).all()
+    }
+
+    # peer 재무비율 — 최신 추정 아닌 것
+    from app.db.models import Financial
+
+    rows = db.scalars(
+        select(Financial)
+        .where(Financial.stock_code.in_(peer_codes), Financial.is_estimate.is_(False))
+        .order_by(Financial.period.desc())
+    ).all()
+    latest: dict[str, Financial] = {}
+    for r in rows:
+        if r.stock_code not in latest:
+            latest[r.stock_code] = r
+
+    out: list[dict[str, object]] = []
+    for e in peer_edges:
+        sc = e.stock_code
+        if sc in out:
+            continue
+        fin = latest.get(sc)
+        out.append({
+            "stock_code": sc,
+            "stock_name": peer_names.get(sc, ""),
+            "per": fin.per if fin else None,
+            "pbr": fin.pbr if fin else None,
+            "market_cap": fin.market_cap if fin else None,
+            "share": e.share,
+        })
+    return out
+
+
 def node_to_dict(n: NodeOut | IndustryNodeOut) -> dict[str, object]:
     """포트 DTO → 응답 dict(라우터/스키마 변환 공통)."""
     return {k: v for k, v in asdict(n).items() if v not in (None, [], {})} or asdict(n)
