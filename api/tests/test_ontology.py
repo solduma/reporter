@@ -264,3 +264,95 @@ def test_http_metric_info(client: TestClient):
     assert by_key["per"]["description"] is not None
     assert by_key["no_such_column"]["ontology_id"] is None
     assert body["coverage"] == pytest.approx(3 / 4)
+
+
+# --- C2: TTM 연환산 + 단위 정규화 + KR 정합 ---
+def test_period_to_yq():
+    assert ontology_service._period_to_yq("2026.03") == (2026, 1)
+    assert ontology_service._period_to_yq("2025.06") == (2025, 2)
+    assert ontology_service._period_to_yq("2025.09") == (2025, 3)
+    assert ontology_service._period_to_yq("2025.12") == (2025, 4)
+
+
+def test_ttm_value_four_quarters():
+    # TTM at 2024Q4 = 70+80+90+(300-240=60) = 300
+    raw = {(2024, 1): 70.0, (2024, 2): 80.0, (2024, 3): 90.0, (2024, 4): 300.0}
+    assert ontology_service._ttm_value(raw, (2024, 4)) == 300.0
+
+
+def test_ttm_value_insufficient_falls_back_to_annual():
+    # 4분기 불충족 → None. annual fallback 은 quarterly 데이터 없이 annual 만 있는 신규 상장 등에
+    # 의미가 있고, 그 경우 annual 을 그대로 TTM 으로 쓰는 것이 올바름.
+    raw = {(2024, 4): 300.0}
+    assert ontology_service._ttm_value(raw, (2024, 4)) == 300.0  # annual 원시값 → TTM
+
+
+def test_ttm_value_no_data_returns_none():
+    raw = {(2025, 1): 100.0}  # 분기 1개, 연간 없음 → TTM 불가
+    assert ontology_service._ttm_value(raw, (2025, 1)) is None
+
+
+def test_company_ratios_percentage_scaling(monkeypatch):
+    """percentage-unit 계산값은 분수→퍼센트 환산, ratio-unit 은 그대로(저장값과 단위 일치)."""
+    from app.services import company_service
+
+    values = {
+        "IS_NI_PARENT": 10.0, "BS_EQ_PARENT:closing": 100.0, "BS_EQ_PARENT:opening": 100.0,
+        "IS_REV_TOTAL": 1000.0, "BS_A_TOTAL:closing": 500.0, "BS_A_TOTAL:opening": 500.0,
+    }
+    monkeypatch.setattr(
+        ontology_service, "build_ratio_values", lambda db, code, fs_div="CFS": (values, {})
+    )
+    monkeypatch.setattr(company_service, "theme_names", lambda db, code: [])
+    results = {r.ratio_id: r for r in ontology_service.company_ratios(None, "005930")}
+    # roe = 10/((100+100)/2) = 0.1 → ×100 = 10.0 (percentage)
+    assert results["roe"].value == Decimal("10.0")
+    # asset_turnover = 1000/((500+500)/2) = 2.0 (ratio, 환산 X)
+    assert results["asset_turnover"].value == Decimal("2.0")
+
+
+def test_company_ratios_stored_preferred_over_computed(monkeypatch):
+    """저장 비율(roe)은 계산 가능해도 저장값 우선 — 단위(퍼센트) 불변."""
+    from app.services import company_service
+
+    values = {"IS_NI_PARENT": 10.0, "BS_EQ_PARENT:closing": 100.0, "BS_EQ_PARENT:opening": 100.0}
+    monkeypatch.setattr(
+        ontology_service, "build_ratio_values",
+        lambda db, code, fs_div="CFS": (values, {"roe": 19.16}),
+    )
+    monkeypatch.setattr(company_service, "theme_names", lambda db, code: [])
+    results = {r.ratio_id: r for r in ontology_service.company_ratios(None, "005930")}
+    assert float(results["roe"].value) == pytest.approx(19.16)
+    assert results["roe"].reason == "stored"
+
+
+def test_kr_financial_ratio_validation_roe_diff(monkeypatch):
+    """roe 계산(연환산) vs stored 를 퍼센트 단위로 비교 — diff 5.26% → not ok."""
+    values = {"IS_NI_PARENT": 100.0, "BS_EQ_PARENT:closing": 600.0, "BS_EQ_PARENT:opening": 400.0}
+    monkeypatch.setattr(
+        ontology_service, "build_ratio_values",
+        lambda db, code, fs_div="CFS": (values, {"roe": 19.0, "per": 10.0}),
+    )
+    items = ontology_service.kr_financial_ratio_validation(None, "005930")
+    by = {i["ratio_id"]: i for i in items}
+    # roe = 100/((400+600)/2) = 0.2 → ×100 = 20.0 vs stored 19.0 → diff (20-19)/19 ≈ 5.26%
+    assert by["roe"]["calculated"] == pytest.approx(20.0)
+    assert by["roe"]["ok"] is False
+    assert by["roe"]["diff_pct"] == pytest.approx(5.26, abs=0.01)
+    # per 는 시장데이터(market_cap) 필요 → no_market_data
+    assert by["per"]["reason"] == "no_market_data"
+    assert by["per"]["ok"] is True
+
+
+def test_kr_financial_ratio_validation_roe_ok(monkeypatch):
+    """계산 roe 가 stored 와 0.5% 이내 → ok."""
+    values = {"IS_NI_PARENT": 19.0, "BS_EQ_PARENT:closing": 100.0, "BS_EQ_PARENT:opening": 100.0}
+    monkeypatch.setattr(
+        ontology_service, "build_ratio_values",
+        lambda db, code, fs_div="CFS": (values, {"roe": 19.0}),
+    )
+    items = ontology_service.kr_financial_ratio_validation(None, "005930")
+    # roe = 19/100 = 0.19 → ×100 = 19.0 vs stored 19.0 → diff 0
+    assert items[0]["ok"] is True
+    assert items[0]["reason"] == "ok"
+    assert items[0]["calculated"] == pytest.approx(19.0)

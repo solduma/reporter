@@ -21,6 +21,8 @@ from app.schemas import (
     CompanyAnalysis,
     CompanyGrowth,
     CompanyRatiosOut,
+    CompanyRatioValidationItem,
+    CompanyRatioValidationOut,
     CompanySummary,
     CompanyTrend,
     FinancialPeriodOut,
@@ -574,6 +576,23 @@ def company_ratios(
     )
 
 
+@router.get("/{code}/ratios/validation", response_model=CompanyRatioValidationOut)
+def company_ratios_validation(
+    code: str, db: Session = Depends(get_session), fs_div: str = "CFS"
+) -> CompanyRatioValidationOut:
+    """KR Financial 저장 비율 vs 온톨로지 RatioEngine 재계산(연환산) 교차 검증(C2).
+
+    저장 비율 중 엔진이 재무제표만으로 계산 가능한 것(ROE 등)은 0.5% 허용오차로 비교.
+    시장데이터(PER/PBR/PSR/EV·EBITDA/EPS/BPS/배당수익률)는 no_market_data. 노출 전용.
+    """
+    items = ontology_service.kr_financial_ratio_validation(db, code, fs_div=fs_div)
+    return CompanyRatioValidationOut(
+        stock_code=code,
+        fs_div=fs_div,
+        items=[CompanyRatioValidationItem(**i) for i in items],
+    )
+
+
 @router.get("/{code}/financial-statements", response_model=FinancialStatementsOut)
 def company_financial_statements(
     code: str,
@@ -704,7 +723,11 @@ def company_financial_statements(
         CF 는 account_id 기반으로 level 0 을 판정해 name 변형(공백·분기말 등)에 대응한다."""
         for i in raw:
             if i.get("ontology_id") is None and i.get("name", ""):
-                i["ontology_id"] = ontology_service.normalize([i["name"]])[0].id
+                # name 정규화 실패 시 DART account_id(taxonomy) 로 fallback
+                result = ontology_service.normalize([i["name"]])[0]
+                i["ontology_id"] = result.id
+                if i["ontology_id"] is None and i.get("account_id"):
+                    i["ontology_id"] = ontology_service.normalize([i["account_id"]], standard="dart")[0].id
         return [
             FinancialStatementItem(
                 account_id=i.get("account_id", ""),

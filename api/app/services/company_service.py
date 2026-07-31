@@ -13,7 +13,7 @@ from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, attributes
 
 from app.adapters.market import naver_quote as quote
 from app.config import get_settings
@@ -295,8 +295,8 @@ def backfill_financial_statement_ontology_id(
         before = sum(1 for items in data.values() for item in items if item.get("ontology_id") is not None)
         ontology_service.enrich_with_ontology_id(data)
         after = sum(1 for items in data.values() for item in items if item.get("ontology_id") is not None)
-        if after > before:
-            row.data = data  # JSONB 재할당으로 dirty 마킹
+        if after != before:
+            attributes.flag_modified(row, "data")
             updated += 1
     if updated:
         db.commit()
