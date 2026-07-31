@@ -382,6 +382,10 @@ def build_ratio_values(
     - 직전 기간 = :prior / :opening (재무상태표 기초, 기타 기간 비교용).
     amount 는 DART 원문이 문자열일 수 있어 float 변환; 실패 항목은 스킵.
 
+    영속화된 ontology_id 가 없는 항목(A1 백필 누락·신규 별칭)은 normalizer 로 동적 부여한다
+    (/financial-statements 의 in-memory enrichment 와 동일). DART 가 소계정 행만 저장하는
+    최상위 총계(자산·부채·자본총계)는 ontology account formula 로 합산해 채운다(debt_ratio 등).
+
     Financial 저장 계정값(revenue, operating_income, net_income, depreciation, capex)은
     재무제표 JSONB 와 단위(억원)가 동일하므로 병합해 RatioEngine 입력을 보강한다.
     저장 비율값(per/pbr/roe 등)은 RatioEngine 이 시장데이터를 요구해 직접 계산하지 못하므로
@@ -390,6 +394,7 @@ def build_ratio_values(
     # 지연 import — services ↔ company_service 순환 방지.
     from app.services.company_service import financial_statement_rows, latest_valuation
 
+    port = _port()
     values: dict[str, object] = {}
     statements = financial_statement_rows(db, code, fs_div=fs_div)
     if statements:
@@ -407,7 +412,13 @@ def build_ratio_values(
                 for item in section_items:
                     ont_id = item.get("ontology_id")
                     amount = item.get("amount")
-                    if ont_id is None or amount is None:
+                    if amount is None:
+                        continue
+                    # 미영속화 항목은 normalizer 로 정준 ID 동적 부여(백필 없이 기존 행 지원).
+                    if ont_id is None and item.get("name", ""):
+                        r = port.resolve(item["name"])
+                        ont_id = r.id if r.resolved else None
+                    if ont_id is None:
                         continue
                     try:
                         values[f"{ont_id}{suffix}"] = float(amount)
@@ -422,7 +433,47 @@ def build_ratio_values(
         stored_ratios = financial_row_stored_ratios(fin)
         values.update(stored_accounts)
 
+    _compute_aggregate_accounts(port, values)
+
     return values, stored_ratios
+
+
+def _values_for_suffix(values: dict[str, object], suffix: str) -> dict[str, object]:
+    """접미별 leaf namespace — "" 는 colon 없는 키, ":prior"/":opening" 은 해당 접미 키에서 접미 제거."""
+    if not suffix:
+        return {k: v for k, v in values.items() if ":" not in k}
+    n = len(suffix)
+    return {k[:-n]: v for k, v in values.items() if k.endswith(suffix)}
+
+
+def _compute_aggregate_accounts(port: OntologyPort, values: dict[str, object]) -> None:
+    """온톨로지 account formula 로 집계(총계) 계정을 채운다.
+
+    DART 재무제표 JSONB 는 소계정 행만 저장하고 자산총계·부채총계·자본총계 최상위 총계 행은
+    주지 않는다. /financial-statements 의 _add_calculated_totals 가 표시용으로 합산하는 것과
+    동일한 총계를 RatioEngine 입력에도 넣어 debt_ratio/equity_ratio/asset_turnover 가 계산되게 한다.
+    직접 저장된 값(leaf·동적 정규화값)은 덮어쓰지 않고, formula 평가로 결정된 미결측 총계만 추가.
+    기간 접미("", :prior, :opening)별로 독립 평가하며, 의존 체인(BS_EQ_TOTAL ← BS_EQ_PARENT)은
+    위상 정렬 대신 고정 반복(계정 수+1회)으로 수렴시킨다.
+    """
+    formula_accounts = [a for a in port.list_accounts() if a.formula]
+    if not formula_accounts:
+        return
+    suffixes = ("", ":prior", ":opening")
+    for _ in range(len(formula_accounts) + 1):
+        changed = False
+        for suffix in suffixes:
+            ns = _values_for_suffix(values, suffix)
+            for acc in formula_accounts:
+                key = f"{acc.id}{suffix}"
+                if key in values:
+                    continue
+                res = port.compute_account(acc.id, ns)
+                if res.ok and res.value is not None:
+                    values[key] = float(res.value)
+                    changed = True
+        if not changed:
+            break
 
 
 _INDUSTRY_KEYWORDS: dict[str, tuple[str, ...]] = {
@@ -439,6 +490,19 @@ def _detect_financial_industry(themes: list[str]) -> str | None:
         if any(kw in theme for theme in lowered for kw in keywords):
             return industry
     return None
+
+
+def _is_flow_stock_ratio(port: OntologyPort, ratio_id: str) -> bool:
+    """BS 재고(기말 시점값)와 IS/CF 흐름(기간 누적값)을 섞는 비율 여부.
+
+    이런 비율(ROE·ROA·asset_turnover·재고/매출채권 회전율)은 IS/CF 가 연환산(TTM 또는 ×4)
+    되어야 정확하다. 현재 Financial·JSONB 의 IS 값은 분기 누적이고 연환산이 없으므로
+    계산값이 분기 기준으로 과소 평가된다. 연환산은 C2(비율 정합)에서 해결한다.
+    """
+    req = port.required(ratio_id)
+    has_stock = any(a.startswith("BS_") for a in req)
+    has_flow = any(a.startswith("IS_") or a.startswith("CF_") for a in req)
+    return has_stock and has_flow
 
 
 def company_ratios(db: Session, code: str, fs_div: str = "CFS", industry: str | None = None) -> list[RatioResultOut]:
@@ -465,17 +529,18 @@ def company_ratios(db: Session, code: str, fs_div: str = "CFS", industry: str | 
         # 연결 재무제표가 없으면 별도 재무제표로 폴백(기존 latest_valuation 동작과 동일).
         values, stored = build_ratio_values(db, code, fs_div="OFS")
     results = port.calculate_many(ratio_ids, values)
-    return [
-        (
-            replace(
-                r,
-                value=Decimal(stored[r.ratio_id]),
-                ok=True,
-                reason="stored_fallback",
-                missing=[],
+    out: list[RatioResultOut] = []
+    for r in results:
+        # 큐레이션된 저장 비율(per/pbr/roe/psr/evebitda/bvps/eps)은 엔진이 계산 가능해져도
+        # 연환산된 저장값을 우선한다(ROE 등 flow/stock 비율의 분기 미연환 회귀 방지).
+        if r.ratio_id in stored:
+            out.append(
+                replace(r, value=Decimal(stored[r.ratio_id]), ok=True, reason="stored", missing=[])
             )
-            if r.value is None and r.ratio_id in stored
-            else r
-        )
-        for r in results
-    ]
+            continue
+        # flow/stock 비율(저장값 없음)은 연환산(C2) 전까지 계산을 미뤄 잘못된 분기값 회귀 방지.
+        if r.value is not None and _is_flow_stock_ratio(port, r.ratio_id):
+            out.append(replace(r, value=None, ok=False, reason="deferred: requires annualization (C2)"))
+            continue
+        out.append(r)
+    return out

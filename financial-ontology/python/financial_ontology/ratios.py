@@ -112,6 +112,44 @@ class RatioEngine:
     ) -> dict[str, RatioResult]:
         return {rid: self.calculate(rid, values) for rid in ratio_ids}
 
+    def compute_account(self, account_id: str, values: dict[str, object]) -> RatioResult:
+        """계정의 formula 를 values 로 평가해 계정값 산출(집계 계정용).
+
+        DART 재무제표는 소계정(유동자산·비유동자산·유동부채·비유동부채) 행만 저장하고
+        최상위 총계(자산총계·부채총계·자본총계) 행은 저장하지 않는다. 온톨로지 account 의
+        formula(BS_L_TOTAL = BS_CL_TOTAL + BS_NCL_TOTAL 등)로 자식 합산을 재사용한다.
+        ratio formula 평가 경로(sanitize·namespace·safe_eval)를 그대로 쓴다. formula 가 없거나
+        한글 서술·외부 입력을 참조하면 계산 불가 — well-defined 값만 반환한다.
+        """
+        acc = self._ont.account(account_id)
+        if acc is None:
+            return RatioResult(account_id, None, reason=f"unknown account: {account_id}")
+        formula = (acc.formula or "").strip()
+        if not formula:
+            return RatioResult(account_id, None, reason="no_formula")
+        expr, sanitize_warnings, period_keys = self._sanitize(formula)
+        if _HANGUL_RE.search(expr):
+            return RatioResult(
+                account_id, None, warnings=sanitize_warnings,
+                reason="composite_or_manual: account formula references prose/external inputs",
+            )
+        if not expr.strip():
+            return RatioResult(account_id, None, warnings=sanitize_warnings, reason="empty_formula")
+        namespace = self._build_namespace(values, period_keys, sanitize_warnings)
+        try:
+            value, missing = safe_eval(expr, namespace)
+        except SafeEvalError as exc:
+            return RatioResult(account_id, None, warnings=sanitize_warnings, reason=f"eval_error: {exc}")
+        warnings = list(sanitize_warnings)
+        if value is None:
+            if missing:
+                return RatioResult(
+                    account_id, None, missing=missing, warnings=warnings,
+                    reason=f"missing_values (required: {missing})",
+                )
+            return RatioResult(account_id, None, warnings=warnings, reason="divzero_or_unresolved")
+        return RatioResult(account_id, value, warnings=warnings)
+
     def required(self, ratio_id: str) -> list[str]:
         """해 비율의 필수 계정 ID. 공시 데이터 충족 여부 사전 점검용."""
         ratio = self._ont.ratio(ratio_id)

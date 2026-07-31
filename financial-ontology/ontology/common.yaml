@@ -707,7 +707,9 @@ ontology:
       children: [BS_EQ_CS, BS_EQ_PS, BS_EQ_APIC, BS_EQ_OCI, BS_EQ_RE, BS_EQ_TREASURY, BS_EQ_RV]
       formula: "BS_EQ_CS + BS_EQ_PS + BS_EQ_APIC + BS_EQ_OCI + BS_EQ_RE + BS_EQ_RV - BS_EQ_TREASURY"
       ratios: [roe, bvps]
-      aliases: ["자본(지배)", "주주지분"]
+      # DART 공시명 "지배기업의 소유주에게 귀속되는 자본" 은 지배주주지분의 정준 표현.
+      # 이 항목은 BS_EQ_TOTAL 집계의 직접 입력이므로 매핑 누락 시 debt_ratio/equity_ratio 가 결측된다.
+      aliases: ["자본(지배)", "주주지분", "지배기업의 소유주에게 귀속되는 자본"]
       mappings:
         dart: ["ifrs-full_EquityAttributableToOwnersOfParent", "ifrs_EquityAttributableToOwnersOfParent"]
         ifrs: ["EquityAttributableToOwnersOfParent"]

@@ -75,6 +75,10 @@ class OntologyAdapter:
         _ont, _norm, eng = _ensure()
         return [_to_out(r) for r in eng.calculate_many(ratio_ids, values).values()]
 
+    def compute_account(self, account_id: str, values: dict[str, object]) -> RatioResultOut:
+        _ont, _norm, eng = _ensure()
+        return _to_out(eng.compute_account(account_id, values))
+
     def required(self, ratio_id: str) -> list[str]:
         _ont, _norm, eng = _ensure()
         return eng.required(ratio_id)

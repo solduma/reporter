@@ -582,6 +582,7 @@ mappings:
     korean_aliases:
     - 자본(지배)
     - 주주지분
+    - 지배기업의 소유주에게 귀속되는 자본
   BS_EQ_PS:
     korean_name: 자본금(우선주)
     english_name: Preferred Stock
@@ -2936,6 +2937,7 @@ by_korean_name:
   지급미결보험금: BS_NCL_INS_CLAIM_OUTSTANDING
   지급준비금: BS_BANK_RESERVE
   지배기업소유주지분순이익: IS_NI_PARENT
+  지배기업의 소유주에게 귀속되는 자본: BS_EQ_PARENT
   지배기업주주지분: BS_EQ_PARENT
   지배순이익: IS_NI_PARENT
   지분법손익: IS_NONOP_EQ_METHOD
