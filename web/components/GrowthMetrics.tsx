@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 
+import InfoDot from "@/components/InfoDot";
 import { fetchCompanyGrowth } from "@/lib/api";
 import type { CompanyGrowth } from "@/lib/types";
 
@@ -118,7 +119,9 @@ export default function GrowthMetrics({ code }: { code: string }) {
   return (
     <div className={styles.grid}>
       <div className={styles.tile}>
-        <span className={styles.label}>매출 YoY</span>
+        <span className={styles.label}>
+          매출 YoY <InfoDot termKey="revenue_yoy" />
+        </span>
         <span
           className={
             g.revenue_yoy === null

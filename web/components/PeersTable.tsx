@@ -1,3 +1,5 @@
+import InfoDot from "@/components/InfoDot";
+import { GLOSSARY } from "@/lib/glossary";
 import type { Peer } from "@/lib/types";
 
 import styles from "./PeersTable.module.css";
@@ -13,17 +15,18 @@ interface MetricColumn {
     "price" | "market_cap" | "foreign_ratio" | "per" | "pbr" | "psr" | "roe" | "ev_ebitda"
   >;
   label: string;
+  info?: keyof typeof GLOSSARY;
 }
 
 const METRIC_COLUMNS: MetricColumn[] = [
   { key: "price", label: "현재가" },
   { key: "market_cap", label: "시가총액" },
   { key: "foreign_ratio", label: "외국인비율" },
-  { key: "per", label: "PER" },
-  { key: "pbr", label: "PBR" },
-  { key: "psr", label: "PSR" },
-  { key: "roe", label: "ROE" },
-  { key: "ev_ebitda", label: "EV/EBITDA" },
+  { key: "per", label: "PER", info: "per" },
+  { key: "pbr", label: "PBR", info: "pbr" },
+  { key: "psr", label: "PSR", info: "psr" },
+  { key: "roe", label: "ROE", info: "roe" },
+  { key: "ev_ebitda", label: "EV/EBITDA", info: "ev_ebitda" },
 ];
 
 interface ScoreColumn {
@@ -71,6 +74,7 @@ export default function PeersTable({ peers, baseCode }: Props) {
             {METRIC_COLUMNS.map((col) => (
               <th key={col.key} scope="col">
                 {col.label}
+                {col.info ? <InfoDot termKey={col.info} /> : null}
               </th>
             ))}
           </tr>
