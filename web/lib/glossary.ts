@@ -8,8 +8,21 @@ export interface GlossaryEntry {
 }
 
 export const GLOSSARY: Record<string, GlossaryEntry> = {
-  // 재무 비율 — term/what 은 /api/ontology/metric-info 의 정준 description 으로 대체(B2).
-  // guide 는 초보자용 해석 기준으로 유지.
+  dividend_yield: {
+    term: "시가배당률",
+    what: "주가 대비 연간 현금배당금 비율(%). 배당 수익률.",
+    guide: "높을수록 배당 수익이 크지만, 주가 하락으로 높아진 배당收益率도 고려해야 함.",
+  },
+  trading_value: {
+    term: "거래대금",
+    what: "최근 1일 평균 거래대금(원). 유동성 지표.",
+    guide: "매일 10억 이상 거래되면 유동성 문제 없다. 1억 이하면 소형주 특유의流動性リスク 있음.",
+  },
+  market_cap: {
+    term: "시가총액",
+    what: "주가 × 발행주식수. 기업의 순자산 대비 시장이 매긴 총 가치(원).",
+    guide: "대형주(10조↑)는 안정적, 소형주(5천억↓)는 변동성 크지만 성장 가능성 있음.",
+  },
   per: {
     term: "",
     what: "",

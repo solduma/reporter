@@ -189,11 +189,11 @@ interface Column {
 
 // 공통 시세 컬럼(시총·현재가·등락률·거래대금)과 이벤트 컬럼은 모든 전략에서 끝에 붙는다.
 const TAIL_COLUMNS: Column[] = [
-  { label: "시가총액", sort: "market_cap" },
+  { label: "시가총액", sort: "market_cap", info: "market_cap" },
   { label: "현재가" },
   { label: "등락률", sort: "change" },
-  { label: "거래대금", sort: "trading_value" },
-  { label: "이벤트" }, // 최근 공시·리포트·브리핑·뉴스 (별도 탭 제거 → 컬럼으로)
+  { label: "거래대금", sort: "trading_value", info: "trading_value" },
+  { label: "이벤트" },
 ];
 
 // 전략별 컬럼 세트 = 종목명 + 전략 특화 + 공통 꼬리. 스코어 컬럼은 전략별로 이름만 다르다.
@@ -205,7 +205,11 @@ const COLUMNS_BY_STRATEGY: Record<ScreenerStrategy, Column[]> = {
     { label: "가치", info: "score" },
     { label: "추세", info: "rs_rating" },
     { label: "탑다운" },
-    ...TAIL_COLUMNS,
+    { label: "시가총액", sort: "market_cap" },
+    { label: "현재가" },
+    { label: "등락률", sort: "change" },
+    { label: "거래대금", sort: "trading_value" },
+    { label: "이벤트" },
   ],
   growth: [
     { label: "종목명" },
@@ -216,7 +220,11 @@ const COLUMNS_BY_STRATEGY: Record<ScreenerStrategy, Column[]> = {
     { label: "RS", info: "rs_rating" },
     { label: "리포트", sort: "coverage", info: "coverage" },
     { label: "의견" },
-    ...TAIL_COLUMNS,
+    { label: "시가총액", sort: "market_cap" },
+    { label: "현재가" },
+    { label: "등락률", sort: "change" },
+    { label: "거래대금", sort: "trading_value" },
+    { label: "이벤트" },
   ],
   value: [
     { label: "종목명" },
@@ -224,22 +232,34 @@ const COLUMNS_BY_STRATEGY: Record<ScreenerStrategy, Column[]> = {
     { label: "PER", info: "per" },
     { label: "PBR", info: "pbr" },
     { label: "ROE", info: "roe" },
-    { label: "배당률" },
+    { label: "배당률", info: "dividend_yield" },
     { label: "EV/EBITDA", info: "ev_ebitda" },
-    ...TAIL_COLUMNS,
+    { label: "시가총액", sort: "market_cap" },
+    { label: "현재가" },
+    { label: "등락률", sort: "change" },
+    { label: "거래대금", sort: "trading_value" },
+    { label: "이벤트" },
   ],
   trend: [
     { label: "종목명" },
     { label: "추세스코어", sort: "score", info: "score" },
     { label: "RS", info: "rs_rating" },
     { label: "모멘텀", sort: "momentum", info: "momentum" },
-    ...TAIL_COLUMNS,
+    { label: "시가총액", sort: "market_cap" },
+    { label: "현재가" },
+    { label: "등락률", sort: "change" },
+    { label: "거래대금", sort: "trading_value" },
+    { label: "이벤트" },
   ],
   topdown: [
     { label: "종목명" },
     { label: "탑다운스코어", sort: "score", info: "score" },
     { label: "섹터" },
-    ...TAIL_COLUMNS,
+    { label: "시가총액", sort: "market_cap" },
+    { label: "현재가" },
+    { label: "등락률", sort: "change" },
+    { label: "거래대금", sort: "trading_value" },
+    { label: "이벤트" },
   ],
 };
 
