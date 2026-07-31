@@ -28,8 +28,9 @@ def test_discrete_q4_is_annual_minus_first_three():
 
 
 def test_discrete_q4_none_when_missing_prior():
+    # 분기 누락 시 annual 누적값을 분기 개별값으로 사용(annual fallback — 연간은 이미 1년치).
     raw = {(2024, 2): 74.0, (2024, 4): 300.0}  # Q1·Q3 없음
-    assert f.discrete_quarter(raw, (2024, 4)) is None
+    assert f.discrete_quarter(raw, (2024, 4)) == 300.0  # annual → 분기 개별값
 
 
 def test_discrete_then_sum_recovers_annual():
@@ -37,3 +38,22 @@ def test_discrete_then_sum_recovers_annual():
     raw = {(2024, 1): 72.0, (2024, 2): 74.0, (2024, 3): 79.0, (2024, 4): 300.0}
     discrete = [f.discrete_quarter(raw, (2024, q)) for q in (1, 2, 3, 4)]
     assert sum(discrete) == 300.0  # 72+74+79+75
+
+
+def test_ttm_from_discrete_four_quarters():
+    # TTM at 2024Q4 = Q1+Q2+Q3+Q4개별 = 70+80+90+(300-240=60) = 300
+    raw = {(2024, 1): 70.0, (2024, 2): 80.0, (2024, 3): 90.0, (2024, 4): 300.0}
+    discrete = {yq: f.discrete_quarter(raw, yq) for yq in raw}
+    assert f.ttm_from_discrete(discrete, (2024, 4)) == 300.0
+
+
+def test_ttm_from_discrete_cross_year():
+    # TTM at 2025Q1 = Q1'25 + Q4'24 + Q3'24 + Q2'24 = 100+60+90+80 = 330
+    raw = {(2024, 1): 70.0, (2024, 2): 80.0, (2024, 3): 90.0, (2024, 4): 300.0, (2025, 1): 100.0}
+    discrete = {yq: f.discrete_quarter(raw, yq) for yq in raw}
+    assert f.ttm_from_discrete(discrete, (2025, 1)) == 330.0
+
+
+def test_ttm_from_discrete_none_when_gap():
+    discrete = {(2025, 1): 100.0}  # 1개 분기만 → 4분기 불충족
+    assert f.ttm_from_discrete(discrete, (2025, 1)) is None

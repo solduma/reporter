@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy.orm import Session
 
 from app.adapters.financial_ontology import get_ontology_port
+from app.domain import financials
 from app.ports.financial_ontology import (
     AccountMeta,
     NormalizeResult,
@@ -211,6 +212,53 @@ def us_financial_ratio_validation(row: UsFinancial) -> list[dict[str, object]]:
     return results
 
 
+def kr_financial_ratio_validation(
+    db: Session, code: str, fs_div: str = "CFS"
+) -> list[dict[str, object]]:
+    """Financial 저장 비율 vs 온톨로지 RatioEngine 계산값(연환산) 교차 검증(C2, US 와 대칭).
+
+    저장 비율 중 build_ratio_values 출력만으로 계산 가능한 것(roe 등)은 0.5% 허용오차로 비교.
+    시장데이터(market_cap/shares/EV)가 필요한 per/pbr/psr/evebitda/eps/bvps/dividend_yield 는
+    reason="no_market_data" ok=True(비교 불가, 무결점). 노출 전용 — 점수 반영 X.
+    """
+    port = _port()
+    values, stored = build_ratio_values(db, code, fs_div=fs_div)
+    if not values and fs_div == "CFS":
+        values, stored = build_ratio_values(db, code, fs_div="OFS")
+    if not stored:
+        return []
+    unit_map = {m.id: m.unit for m in port.list_ratios()}
+    calculated = {r.ratio_id: r for r in port.calculate_many(list(stored), values)}
+    results: list[dict[str, object]] = []
+    for ratio_id, stored_val in stored.items():
+        calc = calculated.get(ratio_id)
+        calc_val = float(calc.value) if (calc and calc.value is not None) else None
+        # percentage 비율은 엔진이 분수로 반환 → 저장(퍼센트)과 비교 위해 ×100.
+        if calc_val is not None and unit_map.get(ratio_id) == "percentage":
+            calc_val = calc_val * 100
+        diff: float | None = None
+        ok = False
+        if calc_val is None:
+            reason = "no_market_data"
+            ok = True  # 엔진 입력(시장데이터) 부족 → 비교 불가, 계산 자체는 무결점.
+        else:
+            denom = abs(stored_val) if stored_val else 1.0
+            diff = round((calc_val - stored_val) / denom * 100, 2)
+            ok = abs(diff) <= 0.5
+            reason = "ok" if ok else f"diff={diff}%"
+        results.append(
+            {
+                "ratio_id": ratio_id,
+                "stored": stored_val,
+                "calculated": calc_val,
+                "diff_pct": diff,
+                "ok": ok,
+                "reason": reason,
+            }
+        )
+    return results
+
+
 def _port() -> OntologyPort:
     return get_ontology_port()
 
@@ -222,17 +270,32 @@ def normalize(terms: list[str], standard: str | None = None) -> list[NormalizeRe
 def enrich_with_ontology_id(statements: dict[str, list[dict]]) -> dict[str, list[dict]]:
     """재무제표 항목(dict)에 name 정규화 결과 ontology_id 를 주입(인플레이스 mutating).
 
+    Korean name 정규화 실패 시 DART account_id (taxonomy) 로 fallback 하여
+    ifrs-full_* namespace 항목을 온톨로지에 매핑한다.
     수집(writer) 단계에서 호출해 FinancialStatement JSONB 에 ontology_id 를 영속화한다.
     응답 단(companies.py:_build_items)은 영속화된 값을 우선 사용하고, 구버전 행(미보관)은
-    동적 정규화 fallback 한다. 항목 순서 보존 — names 수집과 id 대입을 동일 순회 순서로 수행.
+    동적 정규화 fallback 한다. 항목 순서 보존.
     """
-    names: list[str] = []
+    items_flat: list[tuple[dict, str, str]] = []  # (item, name, account_id)
     for items in statements.values():
         for item in items:
-            names.append(item.get("name", "") or "")
-    if not names:
+            items_flat.append((item, item.get("name", "") or "", item.get("account_id", "") or ""))
+
+    if not items_flat:
         return statements
+
+    # 1차: name 정규화
+    names = [name for _, name, _ in items_flat]
     ont_ids = [r.id for r in normalize(names)]
+
+    # 2차: name 실패 항목 → account_id(taxonomy) 정규화
+    none_indices = {i for i, oid in enumerate(ont_ids) if oid is None}
+    if none_indices:
+        fallback_terms = [items_flat[i][2] for i in none_indices]  # account_id
+        fallback_ids = [r.id for r in normalize(fallback_terms, standard="dart")]
+        for count, i in enumerate(none_indices):
+            ont_ids[i] = fallback_ids[count]
+
     idx = 0
     for items in statements.values():
         for item in items:
@@ -373,23 +436,48 @@ def metric_info(keys: list[str]) -> tuple[list[dict[str, str | None]], float]:
     return out, coverage
 
 
+def _period_to_yq(period: str) -> tuple[int, int]:
+    """'2026.03' → (2026, 1). .03/.06/.09/.12 = Q1/Q2/Q3/Q4."""
+    year, mm = period.split(".")
+    return (int(year), {3: 1, 6: 2, 9: 3, 12: 4}[int(mm)])
+
+
+def _statement_for_yq(statements: list, target_yq: tuple[int, int]):
+    for s in statements:
+        if _period_to_yq(s.period) == target_yq:
+            return s
+    return None
+
+
+def _ttm_value(
+    raw: dict[tuple[int, int], float], latest_yq: tuple[int, int]
+) -> float | None:
+    """DART 원시 시계열(원, Q4=연간누적)에서 latest_yq 기준 TTM(4분기 합).
+
+    4분기가 불충족하면(신규 상장 등) 최신 연간(.12 누적) 원시값 fallback — 연간 누적은
+    이미 1년치라 연환산과 동일 의미. 그것도 없으면 None(비율은 결측 처리).
+    """
+    discrete = {yq: financials.discrete_quarter(raw, yq) for yq in raw}
+    ttm = financials.ttm_from_discrete(discrete, latest_yq)
+    return ttm
+
+
 def build_ratio_values(
     db: Session, code: str, fs_div: str = "CFS"
 ) -> tuple[dict[str, object], dict[str, float]]:
-    """FinancialStatement JSONB + Financial 저장 계정값으로 RatioEngine 입력 구성(C1).
+    """FinancialStatement JSONB 로 RatioEngine 입력 구성(C1+C2 연환산).
 
-    - 최신 기간 = closing/suffix 없음 (BS 는 기말, IS/CF 는 당기 누적).
-    - 직전 기간 = :prior / :opening (재무상태표 기초, 기타 기간 비교용).
+    - IS/CF(흐름) 계정: 최신 4분기를 discrete_quarter(Q4=연간-누적) 후 TTM 합산 → bare namespace.
+      4분기 불충족 시 최신 연간(.12) fallback. 단위는 JSONB 원으로 일관.
+    - BS(재고) 계정: bare=최신 closing, `:opening`=1년 전(4분기 전) closing → `_평균`/`_기초`
+      비율(roa/asset_turnover)이 연환산 분자와 대응.
     amount 는 DART 원문이 문자열일 수 있어 float 변환; 실패 항목은 스킵.
 
-    영속화된 ontology_id 가 없는 항목(A1 백필 누락·신규 별칭)은 normalizer 로 동적 부여한다
-    (/financial-statements 의 in-memory enrichment 와 동일). DART 가 소계정 행만 저장하는
-    최상위 총계(자산·부채·자본총계)는 ontology account formula 로 합산해 채운다(debt_ratio 등).
-
-    Financial 저장 계정값(revenue, operating_income, net_income, depreciation, capex)은
-    재무제표 JSONB 와 단위(억원)가 동일하므로 병합해 RatioEngine 입력을 보강한다.
-    저장 비율값(per/pbr/roe 등)은 RatioEngine 이 시장데이터를 요구해 직접 계산하지 못하므로
-    별도 dict 로 반환; company_ratios() 에서 fallback 으로 사용한다.
+    영속화된 ontology_id 가 없는 항목(A1 백필 누락·신규 별칭)은 normalizer 로 동적 부여한다.
+    DART 가 소계정 행만 저장하는 최상위 총계(자산·부채·자본총계)는 ontology account formula 로
+    합산해 채운다(debt_ratio 등). Financial 저장 계정값(억원)은 단위 불일치를 일으키므로
+    결측 보강(fallback-only)으로만 쓰고 JSONB 원 값을 덮어쓰지 않는다(gross_margin 정합).
+    저장 비율값(per/pbr/roe 등)은 시장데이터가 필요해 직접 계산 불가 — 별도 dict 로 반환.
     """
     # 지연 import — services ↔ company_service 순환 방지.
     from app.services.company_service import financial_statement_rows, latest_valuation
@@ -399,15 +487,22 @@ def build_ratio_values(
     statements = financial_statement_rows(db, code, fs_div=fs_div)
     if statements:
         statements.sort(key=lambda s: s.period)
-        current = statements[-1]
-        prior = statements[-2] if len(statements) >= 2 else None
-        for stmt, suffix in (
-            (current, ""),
-            (prior, ":prior") if prior else (None, ""),
-            (prior, ":opening") if prior else (None, ""),
-        ):
-            if stmt is None:
-                continue
+        latest = statements[-1]
+        latest_yq = _period_to_yq(latest.period)
+        # BS 기초 = 1년 전(4분기 전) statement. `_평균`/`_기초` 비율의 분모.
+        opening_yq = latest_yq
+        for _ in range(4):
+            opening_yq = financials.prev_yq(opening_yq)
+        opening_stmt = _statement_for_yq(statements, opening_yq)
+
+        raw_series: dict[str, dict[tuple[int, int], float]] = {}
+        bs_closing: dict[str, float] = {}
+        bs_opening: dict[str, float] = {}
+
+        for stmt in statements:
+            yq = _period_to_yq(stmt.period)
+            is_closing = stmt is latest
+            is_opening = stmt is opening_stmt
             for section_items in stmt.data.values():
                 for item in section_items:
                     ont_id = item.get("ontology_id")
@@ -415,23 +510,47 @@ def build_ratio_values(
                     if amount is None:
                         continue
                     # 미영속화 항목은 normalizer 로 정준 ID 동적 부여(백필 없이 기존 행 지원).
+                    # normalizer 내부 캐시 처리하므로 port.account 별도 캐시 불필요.
+                    # name 정규화 실패 시 account_id(taxonomy) 로 fallback.
                     if ont_id is None and item.get("name", ""):
                         r = port.resolve(item["name"])
-                        ont_id = r.id if r.resolved else None
+                        ont_id = r.id  # id=None 이면 매핑 실패 → account_id 시도
+                    if ont_id is None and item.get("account_id", ""):
+                        r = port.resolve(item["account_id"], standard="dart")
+                        ont_id = r.id
                     if ont_id is None:
                         continue
                     try:
-                        values[f"{ont_id}{suffix}"] = float(amount)
+                        amt = float(amount)
                     except (TypeError, ValueError):
                         continue
+                    meta = port.account(ont_id)
+                    if meta is None:
+                        continue
+                    statements_of = meta.statement
+                    if "balance_sheet" in statements_of:
+                        # 원 단위 그대로 — aggregate computation 은 원 값으로 수행(debt_ratio 등 비율 정합).
+                        if is_closing:
+                            bs_closing[ont_id] = amt
+                        if is_opening:
+                            bs_opening[ont_id] = amt
+                    elif "income_statement" in statements_of or "cash_flow" in statements_of:
+                        raw_series.setdefault(ont_id, {})[yq] = amt  # 원 단위 — _ttm_value에서 ÷1e8
 
-    stored_accounts: dict[str, float] = {}
+        for ont_id, amt in bs_closing.items():
+            values[ont_id] = amt  # bare: aggregate computation + ratio _기초/_기말 sanitization fallback
+            values[f"{ont_id}:closing"] = amt  # :closing: ratio engine _기말 sanitization
+        for ont_id, amt in bs_opening.items():
+            values[f"{ont_id}:opening"] = amt
+        for ont_id, raw in raw_series.items():
+            ttm = _ttm_value(raw, latest_yq)
+            if ttm is not None:
+                values[ont_id] = ttm
+
     stored_ratios: dict[str, float] = {}
     fin = latest_valuation(db, code, fs_div=fs_div)
     if fin is not None:
-        stored_accounts = financial_row_to_ontology_values(fin)
         stored_ratios = financial_row_stored_ratios(fin)
-        values.update(stored_accounts)
 
     _compute_aggregate_accounts(port, values)
 
@@ -495,9 +614,8 @@ def _detect_financial_industry(themes: list[str]) -> str | None:
 def _is_flow_stock_ratio(port: OntologyPort, ratio_id: str) -> bool:
     """BS 재고(기말 시점값)와 IS/CF 흐름(기간 누적값)을 섞는 비율 여부.
 
-    이런 비율(ROE·ROA·asset_turnover·재고/매출채권 회전율)은 IS/CF 가 연환산(TTM 또는 ×4)
-    되어야 정확하다. 현재 Financial·JSONB 의 IS 값은 분기 누적이고 연환산이 없으므로
-    계산값이 분기 기준으로 과소 평가된다. 연환산은 C2(비율 정합)에서 해결한다.
+    이런 비율(ROE·ROA·asset_turnover·재고/매출채권 회전율)은 IS/CF 가 연환산(TTM)되어야
+    정확하다. build_ratio_values 가 IS/CF 를 TTM 합산하므로 이제 정확히 계산된다.
     """
     req = port.required(ratio_id)
     has_stock = any(a.startswith("BS_") for a in req)
@@ -529,18 +647,20 @@ def company_ratios(db: Session, code: str, fs_div: str = "CFS", industry: str | 
         # 연결 재무제표가 없으면 별도 재무제표로 폴백(기존 latest_valuation 동작과 동일).
         values, stored = build_ratio_values(db, code, fs_div="OFS")
     results = port.calculate_many(ratio_ids, values)
+    unit_map = {m.id: m.unit for m in port.list_ratios()}
     out: list[RatioResultOut] = []
     for r in results:
         # 큐레이션된 저장 비율(per/pbr/roe/psr/evebitda/bvps/eps)은 엔진이 계산 가능해져도
-        # 연환산된 저장값을 우선한다(ROE 등 flow/stock 비율의 분기 미연환 회귀 방지).
+        # 저장값을 우선한다 — DART 공시값이 권위있고, 시장데이터(PER/PBR)는 엔진이 계산 못 함.
         if r.ratio_id in stored:
             out.append(
                 replace(r, value=Decimal(stored[r.ratio_id]), ok=True, reason="stored", missing=[])
             )
             continue
-        # flow/stock 비율(저장값 없음)은 연환산(C2) 전까지 계산을 미뤄 잘못된 분기값 회귀 방지.
-        if r.value is not None and _is_flow_stock_ratio(port, r.ratio_id):
-            out.append(replace(r, value=None, ok=False, reason="deferred: requires annualization (C2)"))
+        # 엔진은 percentage 비율을 분수(0.05)로 반환. 저장 비율은 퍼센트(5.0) 단위이므로
+        # 계산값도 ×100 환산해 표시·정합 단위를 맞춘다(operating_margin·roa·gross_margin 정합).
+        if r.value is not None and unit_map.get(r.ratio_id) == "percentage":
+            out.append(replace(r, value=Decimal(r.value) * 100))
             continue
         out.append(r)
     return out
