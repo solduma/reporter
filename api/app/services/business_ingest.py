@@ -257,26 +257,42 @@ def _gather_for_assembly(
 # ── 조립(LLM 정리정돈) ───────────────────────────────────────────────────
 _ASSEMBLE_SYSTEM = (
     "너는 한국 상장사 사업보고서를 투자자 관점으로 정리하는 애널리스트다. 주어진 정기보고서 원문을 "
-    "원문 그대로 옮기지 말고, 투자자가 회사 사업을 빠르게 파악할 수 있도록 정리정돈한다. **테이블을 "
-    "적극 활용**한다(제품·매출비중·고객·원재료·위험·주주구성 등). 서술은 핵심만 간결한 마크다운. "
+    "원문 그대로 옮기지 말고, 투자자가 회사 사업을 빠르게 파악할 수 있도록 정리정돈한다. "
+    "**테이블을 적극 활용**한다. 서술은 핵심만 간결한 마크다운. "
     "원문에 없는 내용은 추측하지 말고 '정보 없음'으로 둔다. 출처 원문에 근거한다.\n\n"
+    "**핵심 원칙: 모든 산업에 공통 적용** — 제조업이 아닌 기업(IT/금융/서비스/바이오 등)에서는 "
+    "원재료·생산 같은 제조업 전용 섹션 대신 해당 산업에 해당하는 실질 정보를 그 자리에 채워라. "
+    "예: 금융은 '원재료' 대신 '주요 상품별 수신/여신 비율', IT는 '생산' 대신 '플랫폼 규모/R&D 투자', "
+    "바이오는 '원재료' 대신 '파이프라인 단계'.\n\n"
     "출력은 반드시 아래 JSON 스키마만(다른 텍스트 금지):\n"
-    '{"sections": [{"id": "<INVESTOR_SECTIONS 중 하나>", "title": "섹션 제목", '
+    '{"sections": [{"id": "<아래 섹션 ID 중 하나>", "title": "섹션 제목", '
     '"narrative": "마크다운 서술(핵심만)", "tables": [{"title": "표 제목", "headers": ["..."], '
     '"rows": [["...", ...]]}], "updated_by_kind": "annual|half|quarter|null"}]}\n\n'
-    "반드시 포함할 섹션 id: " + ", ".join(bo.INVESTOR_SECTIONS) + ". "
-    "데이터가 없는 섹션도 빈 narrative/tables 로 포함(누락 금지). 'recent_updates' 섹션은 "
-    "반기·분기 원문(updates)에서만 채우고, 갱신분이 없으면 빈 값. updated_by_kind 는 해당 섹션이 "
+    "반드시 포함할 섹션 8개:\n"
+    "1. company_profile — 회사 개요: 법적지위/설립일/상장일/본점/결산월/주요 사업부문/신용등급/ESG 주요 자격\n"
+    "2. revenue_model — 수익 모델: 매출 구성(제품/서비스/상품별), 전년 대비 성장률, 수익 메커니즘(구독/일회성/수수료 등)\n"
+    "3. market_position — 시장 포지션: 시장 규모/점유율/경쟁사 비교/주요 고객사 및 집중도/시장 트렌드\n"
+    "4. value_chain — 밸류체인·파트너십: 핵심 공급자/원재료/기술 파트너, 주요 판매·유통·고객 채널, 계열사·JV·파트너십\n"
+    "5. operating_drivers — 핵심 운영 드라이버: 산업별 2~4개 핵심 KPI. 제조업=생산능력/가동률/설비투자, "
+    "IT/플랫폼=MAU/ARPU/R&D, 금융=AUM/대출잔액/NPL/스프레드, 바이오=파이프라인/ 임상단계, "
+    "물류=차량/물류센터/운송량. 매출총이익률·판관비율 등 재무 대체 지표도 OK\n"
+    "6. financial_highlights — 재무 하이라이트: 최근 3~5개년 매출액/영업이익/당기순이익/영업이익률/ROE/부채비율 추이\n"
+    "7. ownership_governance — 지배구조·주주: 최대주주 및 특수관계인 지분율/주주5대/배당·배당성향/종속회사/이사회 구성\n"
+    "8. catalysts_and_risks — 향후 촉매·리스크: 최근 경영사항 및 공시/예정된 사업 이벤트/산업별 핵심 리스크(원자재·기술·규제·금리 등)와 대응책\n\n"
+    "데이터가 없는 섹션도 빈 narrative/tables 로 포함(누락 금지). updated_by_kind 는 해당 섹션이 "
     "어떤 종류 보고서에서 왔는지(annual 베이스면 'annual', 반기·분기 갱신이면 그 kind)."
 )
 
 _ASSEMBLE_REVIEW = (
     "너는 사업 개요 조립 단계의 절차 감사자다. 다음 절차를 점검한다:\n"
-    "1) 각 INVESTOR_SECTIONS(business_summary, main_products, market_risk, raw_materials, "
-    "production, sales, ownership, recent_updates) 가 모두 포함됐나 — 누락 없이.\n"
-    "2) 표가 적극 활용됐나 — 서술만 있는 섹션이 아닌가(제품·고객·위험·주주는 표 우선).\n"
+    "1) 8개 섹션(company_profile, revenue_model, market_position, value_chain, "
+    "operating_drivers, financial_highlights, ownership_governance, catalysts_and_risks) 모두 포함됐나 — 누락 없이.\n"
+    "2) 표가 적극 활용됐나 — 서술만 있는 섹션이 아닌가(제품·고객·위험·재무·주주는 표 우선).\n"
     "3) 원문에 없는 내용을 추측·일반론으로 채우지 않았나 — '정보 없음' 명시 여부.\n"
-    "4) recent_updates 가 반기·분기 갱신분(updates 원문)에 근거하나 — annual 베이스를 반복하지 않았나."
+    "4) manufacturing industries have operating_drivers with production KPIs, IT/platforms have MAU/R&D, "
+    "finance has AUM/NPL — sector-appropriate content in operating_drivers.\n"
+    "5) catalysts_and_risks covers future catalysts AND sector-specific risks (raw materials for "
+    "manufacturing, tech change for IT, regulation for finance)."
 )
 
 

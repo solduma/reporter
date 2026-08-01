@@ -25,16 +25,18 @@ PERIODIC_KINDS = (ANNUAL, HALF, QUARTER)
 SECTION_BUSINESS_CONTENT = "business_content"
 SECTION_COMPANY_OVERVIEW = "company_overview"
 
-# 사업보고서 '사업의 내용' 내 투자자 관점 하위 섹션 ID(조립 결과가 담을 섹션 구조).
+# 투자자 관점 사업 개요 섹션 ID(조립 결과가 담을 구조).
+# 산업 중립적 — 제조업/IT/금융/바이오 등 모든 산업에 공통 적용.
+# "정보 없음"을 최소화: 해당 산업에 적용되지 않는 개념은 빈 값 대신 산업별 대체 정보를 표기.
 INVESTOR_SECTIONS = (
-    "business_summary",  # 사업 개요 — 무엇을 파는가, 사업 영역, 종속사
-    "main_products",  # 주요 제품·서비스 — 제품군/매출비중/전망 표
-    "market_risk",  # 시장·가격 위험 — 위험요인/영향/대응 표
-    "raw_materials",  # 원재료 — 원재료/조달처/비중 표
-    "production",  # 생산·설비 — 사업장/설비/가동 표
-    "sales",  # 판매 — 고객/매출비중/조건 표
-    "ownership",  # 주주구성·최대주주 — 주주/지분/관계 표
-    "recent_updates",  # 최근 경영사항(반기·분기 반영) — 갱신 표
+    "company_profile",  # 회사 개요 — 법적지위/설립/상장/본점/신용등급/ESG
+    "revenue_model",  # 수익 모델 — 매출 구성(제품/서비스/상품별), 성장률, 인식 기준
+    "market_position",  # 시장 포지션 — 점유율/경쟁사/주요 고객/성장률
+    "value_chain",  # 밸류체인·파트너십 — 공급자/고객/ 계열사/JV 관계
+    "operating_drivers",  # 핵심 운영 드라이버 — 산업별 KPI(설비/R&D/AUM/파이프라인 등)
+    "financial_highlights",  # 재무 하이라이트 — 매출/이익 추이(최근 3~5년)
+    "ownership_governance",  # 지배구조·주주 — 최대주주/종속회사/배당/이사회
+    "catalysts_and_risks",  # 향후 촉매·리스크 — 향후 이벤트/산업별 핵심 리스크
 )
 
 
