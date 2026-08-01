@@ -17,14 +17,14 @@ const POLL_MS = 3000;
 
 // 섹션 id → 표시 라벨(LLM 이 title 을 비워도 표시용 확보).
 const SECTION_LABELS: Record<string, string> = {
-  business_summary: "사업 개요",
-  main_products: "주요 제품·서비스",
-  market_risk: "시장·가격 위험",
-  raw_materials: "원재료",
-  production: "생산·설비",
-  sales: "판매",
-  ownership: "주주구성",
-  recent_updates: "최근 경영사항",
+  company_profile: "회사 개요",
+  revenue_model: "수익 모델",
+  market_position: "시장 포지션",
+  value_chain: "밸류체인·파트너십",
+  operating_drivers: "핵심 운영 드라이버",
+  financial_highlights: "재무 하이라이트",
+  ownership_governance: "지배구조·주주",
+  catalysts_and_risks: "향후 촉매·리스크",
 };
 
 const KIND_LABEL: Record<string, string> = {
@@ -78,7 +78,9 @@ export default function BusinessOverview({ code }: { code: string }) {
 
   // Research+ 상태
   const [researchStatus, setResearchStatus] = useState<ResearchStatus | null>(null);
-  const [guidelineInput, setGuidelineInput] = useState("");
+  const [guidelineInput, setGuidelineInput] = useState(
+    "아래 4항목을 중심으로 분석하세요:\n1. 산업 맥락 — GICS 업종 평균 PER/PBR/ROE와 이 기업의 밸류에이션 비교\n2. 집중도 위험 — 매출 집중도 HHI, 주요 부문 비중\n3. 원재료 리스크 — 주요 원재료별 가격 추이와 수익성 영향\n4. 경쟁 위치 — 동일 제품군 peer 대비 점유율/기술 위치"
+  );
   const [requesting, setRequesting] = useState(false);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
