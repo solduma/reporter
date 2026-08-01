@@ -813,8 +813,12 @@ def promote_research_to_ontology(
 def assemble_overview(db: Session, settings: Settings, code: str) -> dict | None:
     """종목 사업 개요 조립 → BusinessOverviewCache 저장 + 페이로드 반환. 사업보고서 없으면 None.
 
-    1) 대상 정기보고서 발견 → 2) 누락 원문 추출·적재 → 3) LLM 정리정돈(review 루프) → 4) 캐시 저장.
-    LLM 미설정 시 원문만 적재하고 None 반환(조립 불가 — 캐시 미생성).
+    트랜잭션 분리 설계:
+    - Phase 1 (短暂, 즉시 COMMIT): DART 원문 추출·적재. DB 잠금 최소화.
+    - Phase 2 (LLM 2분, 트랜잭션 없음): LLM 호출. DB 잠금 없음.
+    - Phase 3 (短, 즉시 COMMIT): payload + 온톨로지 캐시 저장.
+
+    이렇게 분리하면 LLM 대기 중에도 API 읽기 요청이 차단되지 않는다.
     """
     corp_row = db.execute(
         select(CorpCodeMap.corp_code, CorpCodeMap.induty_code).where(CorpCodeMap.stock_code == code)
@@ -832,28 +836,37 @@ def assemble_overview(db: Session, settings: Settings, code: str) -> dict | None
     if not reports:
         return None
 
-    # 누락 원문 추출·적재(DART 호출). 실패(한도초과)는 전파해 조립 중단.
-    with requests.Session() as session:
-        for rcept, kind, year in reports:
-            if _load_raw(db, code, rcept):
-                continue
-            sections = extract_sections(settings, corp_code, rcept, kind, session)
-            if sections:
-                _store_raw(db, code, rcept, kind, _period_str(year, kind), sections)
+    # ── Phase 1: DART 추출 (짧은 트랜잭션, 즉시 COMMIT) ──────────────────
+    try:
+        with requests.Session() as session:
+            for rcept, kind, year in reports:
+                if _load_raw(db, code, rcept):
+                    continue
+                sections = extract_sections(settings, corp_code, rcept, kind, session)
+                if sections:
+                    _store_raw(db, code, rcept, kind, _period_str(year, kind), sections)
 
-        # 부문별 매출(iotHom3MdQe) — 베이스 사업보고서 연간. 구조화 데이터라 LLM 과 무관하게 영속.
-        # 실패·한도초과는 조립 중단 아님(보강 정보). DART 할당량 소비 — 연간 1회/종목.
-        base_rcept_pre, _base_kind_pre, base_year_pre = reports[0]
-        try:
-            fetch_segment_sales_for(
-                db, settings, code, corp_code, base_year_pre, base_rcept_pre, session
-            )
-        except Exception as e:
-            logger.warning("segment_sales %s skipped: %s", code, e)
+            # 부문별 매출 — 구조화 데이터라 LLM과 무관하게 영속.
+            base_rcept_pre, _base_kind_pre, base_year_pre = reports[0]
+            try:
+                fetch_segment_sales_for(
+                    db, settings, code, corp_code, base_year_pre, base_rcept_pre, session
+                )
+            except Exception as e:
+                logger.warning("segment_sales %s skipped: %s", code, e)
+
+        db.commit()  # ← Phase 1 완료: DART 추출만 커밋, LLM은 트랜잭션 밖
+    except dart.DartQuotaExceeded:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise
 
     if llm is None:
         return None  # 원문만 적재, 조립은 LLM 필요
 
+    # ── Phase 2: LLM 정리 (트랜잭션 없음 — 2분간 DB 잠금 없음) ──────────
     ctx = _build_context(db, code, reports)
     if not ctx["base"]["text"]:
         logger.info("business assemble %s: 베이스 원문 없음 — 조립 생략", code)
@@ -874,8 +887,7 @@ def assemble_overview(db: Session, settings: Settings, code: str) -> dict | None
     base_rcept, _base_kind, _base_year = reports[0]
     name = ctx["stock_name"]
 
-    # 비즈니스 온톨로지 추출·영속 — 조립된 ctx 원문 재사용(추가 DART 호출 없음). 보강 정보라
-    # 실패해도 캐시 생략하지 않고 빈 스냅샷으로 저장(회귀 방지 — segment_sales 와 동일 취급).
+    # ── Phase 3: 캐시 저장 (짧은 트랜잭션, 즉시 COMMIT) ──────────────────
     ontology_snapshot: dict[str, object] = {"nodes": [], "edges": []}
     try:
         mentions = extract_ontology_entities(llm, model, ctx)
@@ -901,6 +913,7 @@ def assemble_overview(db: Session, settings: Settings, code: str) -> dict | None
     _store_cache(
         db, code, name, base_rcept, payload["source_reports"], _inputs_hash(reports), payload
     )
+    db.commit()  # ← Phase 3 완료
     logger.info(
         "business assemble %s: %d 섹션, base=%s, %d updates",
         code,
