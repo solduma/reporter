@@ -56,6 +56,19 @@ services:
   # 수집 스케줄러(launchd 대체). 평일 09-19시 매 30분 ingest. 별도 프로세스라
   # API 재시작·멀티워커와 무관하게 배치 1회를 보장한다. 컨테이너 내부에서는
   # 서비스명:표준포트로 접속한다(호스트 매핑 포트 5433/9010 아님).
+  # Mac localhost Ollama 프록시 포워딩. Docker Desktop은 host.docker.internal이 IPv6로
+  # 해석돼 Mac localhost(127.0.0.1)의 Ollama에 연결不可 → socat이 host.docker.internal:43187
+  # 로 수신 대기하며 Mac 로컬 Ollama로 TCP 포워드한다.
+  socat-bridge:
+    image: alpine:latest
+    container_name: socat-bridge
+    restart: unless-stopped
+    command: >
+      sh -c "apk add --no-cache socat > /dev/null 2>&1 &&
+             socat TCP-LISTEN:43188,fork,reuseaddr TCP:host.docker.internal:43187"
+    networks:
+      - reporter-net
+
   reporter-worker:
     build:
       context: ..
@@ -71,7 +84,8 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-reporter}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-reporter-secret}
       MINIO_BUCKET: reporter-pdfs
-      OLLAMA_HOST: ${OLLAMA_HOST:-https://ollama.com}
+      # socat-bridge 컨테이너가 Mac localhost Ollama를 포워드.
+      OLLAMA_HOST: ${OLLAMA_HOST:-http://socat-bridge:43188}
       OLLAMA_API_KEY: ${OLLAMA_API_KEY:-}
       SUMMARY_MODEL: ${SUMMARY_MODEL:-glm-5.2:cloud}
       INSIGHT_MODEL: ${INSIGHT_MODEL:-glm-5.2:cloud}
