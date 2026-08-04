@@ -109,11 +109,17 @@ _DATA_MIGRATIONS = (
 
 def init_db() -> None:
     Base.metadata.create_all(engine)
+    # Migration DDL은 한 번에 하나만 실행 — batch와 API가 동시에 ALTER하면 deadlock.
+    # Advisory lock은 트랜잭션 커밋 후 해제돼 다른 프로세스가 다음 시작時に 획득 가능.
     with engine.begin() as conn:
-        for stmt in _COLUMN_MIGRATIONS:
-            conn.execute(text(stmt))
-        for stmt in _DATA_MIGRATIONS:
-            conn.execute(text(stmt))
+        conn.execute(text("SELECT pg_advisory_lock(9998887)"))
+        try:
+            for stmt in _COLUMN_MIGRATIONS:
+                conn.execute(text(stmt))
+            for stmt in _DATA_MIGRATIONS:
+                conn.execute(text(stmt))
+        finally:
+            conn.execute(text("SELECT pg_advisory_unlock(9998887)"))
 
 
 def get_session() -> Iterator[Session]:
