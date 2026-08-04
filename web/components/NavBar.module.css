@@ -33,7 +33,7 @@
 .links {
   display: flex;
   align-items: center;
-  flex-wrap: nowrap; /* 데스크톱: 항목이 많아도 한 줄 유지(넘치면 960px 이하에서 햄버거로 전환) */
+  flex-wrap: nowrap;
   gap: 2px;
   list-style: none;
   margin: 0;
@@ -58,7 +58,7 @@
   padding: 7px 11px;
   border-radius: 999px;
   font-size: 0.88rem;
-  white-space: nowrap; /* 링크 라벨 자체가 줄바꿈되지 않게 */
+  white-space: nowrap;
   color: var(--muted);
   transition: background 0.15s ease, color 0.15s ease;
 }
@@ -139,13 +139,89 @@
   color: var(--sell);
 }
 
-/* 태블릿·좁은 데스크톱: 링크를 햄버거 뒤 드롭다운으로. 항목이 많아 960px 이하는 가로배치 시
-   줄바꿈이 나므로 이 폭부터 햄버거로 전환한다. 데스크톱(≥961px)은 위 가로 배치 유지. */
+/* ── 드롭다운 그룹 ─────────────────────────────────────────── */
+
+.group {
+  position: relative;
+}
+
+.groupToggle {
+  display: inline-block;
+  padding: 7px 11px;
+  border-radius: 999px;
+  font-size: 0.88rem;
+  white-space: nowrap;
+  color: var(--muted);
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  font-family: inherit;
+  transition: background 0.15s ease, color 0.15s ease;
+  user-select: none;
+}
+
+.groupToggle::after {
+  content: " ▾";
+  font-size: 0.7rem;
+  vertical-align: 1px;
+}
+
+.groupToggle:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.groupToggle.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.groupToggle.active::after {
+  content: " ▴";
+}
+
+.dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 170px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 6px;
+  z-index: 30;
+  list-style: none;
+  margin: 0;
+}
+
+.dropdownItem {
+  display: block;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  white-space: nowrap;
+  color: var(--muted);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.dropdownItem:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.dropdownItem.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* ── 모바일 ─────────────────────────────────────────────────── */
 @media (max-width: 960px) {
   .menuToggle {
     display: inline-flex;
     align-items: center;
   }
+
   .links {
     display: none;
     position: absolute;
@@ -155,15 +231,17 @@
     flex-direction: column;
     align-items: stretch;
     gap: 2px;
-    /* 좌우 12px + 링크 자체 좌패딩 8px = 브랜드/토글의 20px 인셋과 정렬을 맞춘다. */
     padding: 8px 12px 12px;
     background: var(--surface);
     border-bottom: 1px solid var(--border);
     box-shadow: var(--shadow);
   }
+
   .links.open {
     display: flex;
   }
+
+  /* 단일 링크는 전체 너비. */
   .link,
   .logout {
     display: block;
@@ -173,15 +251,56 @@
     border-radius: 10px;
     font-size: 1rem;
   }
+
   .logout {
     margin-left: 0;
     margin-top: 4px;
+  }
+
+  /* 그룹: 모바일에서 인라인 펼침(absolute 패널 대신). */
+  .group {
+    position: static;
+  }
+
+  .groupToggle {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 12px 8px;
+    border-radius: 10px;
+    font-size: 1rem;
+    position: relative;
+  }
+
+  .groupToggle::after {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+  }
+
+  .groupToggle.active::after {
+    content: " ▴";
+  }
+
+  .dropdown {
+    position: static;
+    box-shadow: none;
+    border: none;
+    border-radius: 0;
+    padding: 0 0 4px 12px;
+    min-width: unset;
+    z-index: unset;
+  }
+
+  .dropdownItem {
+    padding: 10px 8px;
+    font-size: 0.95rem;
   }
 }
 
 @media (max-width: 400px) {
   .brand span:last-child {
-    /* 아주 좁은 화면에서만 브랜드 워드마크를 숨겨 토글 공간 확보. */
     display: none;
   }
 }
