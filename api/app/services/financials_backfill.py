@@ -75,7 +75,9 @@ def _quarter_end_close(db: Session, code: str, year: int, quarter: int) -> float
     )
 
 
-def _ttm_from_discrete(discrete: dict[tuple[int, int], float | None], yq: tuple[int, int]) -> float | None:
+def _ttm_from_discrete(
+    discrete: dict[tuple[int, int], float | None], yq: tuple[int, int]
+) -> float | None:
     """domain.financials.ttm_from_discrete 위임(음수-매출 필터 적용된 discrete dict)."""
     return financials.ttm_from_discrete(discrete, yq)
 
@@ -112,7 +114,9 @@ def backfill_stock(db: Session, settings: Settings, code: str) -> bool:
     stmt_data: dict[tuple[int, int], dict[str, list[dict]]] = {}
     with requests.Session() as session:
         for year, q in yqs:
-            cfs, ofs = dart.fetch_income_and_equity(settings.dart_api_key, corp_code, year, q, session)
+            cfs, ofs = dart.fetch_income_and_equity(
+                settings.dart_api_key, corp_code, year, q, session
+            )
             if cfs is None and ofs is None:
                 continue
             any_data = True
@@ -138,8 +142,9 @@ def backfill_stock(db: Session, settings: Settings, code: str) -> bool:
     if not any_data:
         return True  # 재무 공시 없음 → 완료 처리
 
-    def _store_fs(fs_div: str, rev_raw: dict, op_raw: dict, ni_raw: dict,
-                  eps_raw: dict, equity: dict) -> int:
+    def _store_fs(
+        fs_div: str, rev_raw: dict, op_raw: dict, ni_raw: dict, eps_raw: dict, equity: dict
+    ) -> int:
         """한 fs_div(CFS/OFS)의 분기 개별값 환산 → PER/PBR/PSR 계산 → 저장. 저장한 분기 수 반환."""
         # 분기 개별값 환산(4Q=연간-누적).
         rev_q = {yq: financials.discrete_quarter(rev_raw, yq) for yq in rev_raw}
@@ -174,7 +179,10 @@ def backfill_stock(db: Session, settings: Settings, code: str) -> bool:
             # 표시 단위: 매출·영업이익·순이익은 억원(기존 quote 저장 단위와 일치), EPS/BPS 는 원.
             # 영업이익은 적자(음수)도 유효값이라 클램프하지 않는다.
             _upsert_financial(
-                db, code, _period_str(year, q), fs_div=fs_div,
+                db,
+                code,
+                _period_str(year, q),
+                fs_div=fs_div,
                 revenue=(rev_q_val / 1e8) if rev_q_val is not None else None,
                 operating_income=(op_q_val / 1e8) if op_q_val is not None else None,
                 net_income=(ni_q_val / 1e8) if ni_q_val is not None else None,
@@ -198,7 +206,10 @@ def backfill_stock(db: Session, settings: Settings, code: str) -> bool:
         ontology_service.enrich_with_ontology_id(stmt)
         period = _period_str(year, q)
         stmt_insert = insert(FinancialStatement).values(
-            stock_code=code, period=period, fs_div="CFS", data=stmt,
+            stock_code=code,
+            period=period,
+            fs_div="CFS",
+            data=stmt,
         )
         stmt_insert = stmt_insert.on_conflict_do_update(
             constraint="uq_financial_statement",
@@ -208,9 +219,7 @@ def backfill_stock(db: Session, settings: Settings, code: str) -> bool:
 
     # API 캐시를 날려 새 데이터가 즉시 반영되게 한다(트랜잭션 마지막에 한 번 commit).
     db.execute(
-        FinancialStatementCache.__table__.delete().where(
-            FinancialStatementCache.stock_code == code
-        )
+        FinancialStatementCache.__table__.delete().where(FinancialStatementCache.stock_code == code)
     )
     db.commit()
     logger.info("financials 10y backfill %s: %d periods (shares=%s)", code, updated, shares)
@@ -227,14 +236,14 @@ def _upsert_financial(db: Session, code: str, period: str, fs_div: str = "CFS", 
     present = {k: v for k, v in vals.items() if v is not None}
     if not present:
         return
-    stmt = insert(Financial).values(stock_code=code, period=period, fs_div=fs_div, is_estimate=False, **present)
+    stmt = insert(Financial).values(
+        stock_code=code, period=period, fs_div=fs_div, is_estimate=False, **present
+    )
     stmt = stmt.on_conflict_do_update(
         constraint="uq_financial",
         set_={k: getattr(stmt.excluded, k) for k in present},
     )
     db.execute(stmt)
-
-
 
 
 def _universe_codes(db: Session) -> list[str]:
@@ -302,7 +311,8 @@ def _reconcile_markers(db: Session, codes: list[str], done: set[str]) -> int:
         logger.info(
             "financials 10y backfill: 마커 %d개 복원(psr+OFS 보유·마커 결손), "
             "OFS 누락 %d개는 재처리 대기",
-            len(restore), len(has_both - has_ofs),
+            len(restore),
+            len(has_both - has_ofs),
         )
     return len(restore)
 
@@ -338,7 +348,9 @@ def run_backfill_progressive(
         # 정기공시·온디맨드 몫을 남기려 백필 예산을 넘으면 조기 중단(다음 밤에 이어서 처리).
         if dart_throttle.backfill_budget_exhausted():
             budget_hit = True
-            logger.info("financials 10y backfill: 백필 예산 소진 — 조기 중단(%d 종목 처리 후)", done)
+            logger.info(
+                "financials 10y backfill: 백필 예산 소진 — 조기 중단(%d 종목 처리 후)", done
+            )
             break
         try:
             if backfill_stock(db, settings, code):
@@ -351,7 +363,9 @@ def run_backfill_progressive(
             # 한도초과는 남은 종목도 모두 실패할 뿐 아니라 온디맨드 조회까지 굶긴다 → 배치 즉시 중단.
             db.rollback()
             quota_hit = True
-            logger.warning("financials 10y backfill: DART 한도초과 — 배치 중단(%d 종목 처리 후)", done)
+            logger.warning(
+                "financials 10y backfill: DART 한도초과 — 배치 중단(%d 종목 처리 후)", done
+            )
             break
         except Exception as e:  # 한 종목 실패가 배치를 막지 않도록
             db.rollback()
@@ -362,11 +376,20 @@ def run_backfill_progressive(
     logger.info(
         "financials 10y backfill: done=%d failed=%d reconciled=%d remaining=%d "
         "quota_hit=%s budget_hit=%s",
-        done, failed, reconciled, remaining, quota_hit, budget_hit,
+        done,
+        failed,
+        reconciled,
+        remaining,
+        quota_hit,
+        budget_hit,
     )
     return {
-        "done": done, "failed": failed, "reconciled": reconciled,
-        "remaining": remaining, "quota_hit": quota_hit, "budget_hit": budget_hit,
+        "done": done,
+        "failed": failed,
+        "reconciled": reconciled,
+        "remaining": remaining,
+        "quota_hit": quota_hit,
+        "budget_hit": budget_hit,
     }
 
 
@@ -375,7 +398,9 @@ _OFS_STATEMENTS_DOMAIN = "ofs_statements"
 
 def _ofs_done_codes(db: Session) -> set[str]:
     return set(
-        db.scalars(select(SyncState.stock_code).where(SyncState.domain == _OFS_STATEMENTS_DOMAIN)).all()
+        db.scalars(
+            select(SyncState.stock_code).where(SyncState.domain == _OFS_STATEMENTS_DOMAIN)
+        ).all()
     )
 
 
@@ -406,13 +431,18 @@ def backfill_ofs_stock(db: Session, settings: Settings, code: str) -> bool:
     updated = 0
     with requests.Session() as session:
         for year, q in yqs:
-            full = dart.fetch_full_statements_ofs(settings.dart_api_key, corp_code, year, q, session)
+            full = dart.fetch_full_statements_ofs(
+                settings.dart_api_key, corp_code, year, q, session
+            )
             if not full:
                 continue
             ontology_service.enrich_with_ontology_id(full)
             period = _period_str(year, q)
             stmt_insert = insert(FinancialStatement).values(
-                stock_code=code, period=period, fs_div="OFS", data=full,
+                stock_code=code,
+                period=period,
+                fs_div="OFS",
+                data=full,
             )
             stmt_insert = stmt_insert.on_conflict_do_update(
                 constraint="uq_financial_statement",
@@ -458,7 +488,7 @@ def _run_sce_migration_for_code(
     for period in periods:
         year, month = period.split(".")
         quarter = {"03": 1, "06": 2, "09": 3, "12": 4}[month]
-        full = dart._fetch_full_statements_for_fs_div(
+        full = dart.fetch_full_statements_by_div(
             settings.dart_api_key, corp_code, int(year), quarter, "CFS", session
         )
         sce = full.get("SCE") if full else None
@@ -486,9 +516,7 @@ def _run_sce_migration_for_code(
     return updated
 
 
-def run_sce_migration(
-    db: Session, settings: Settings | None = None, per_run: int = 200
-) -> dict:
+def run_sce_migration(db: Session, settings: Settings | None = None, per_run: int = 200) -> dict:
     """SCE 누락 기간을 점진 마이그레이션. per_run 은 처리할 기간(row) 수.
 
     종목별로 모아 한 세션으로 DART 를 호출해 효율을 높인다. DART 예산/한도 감시.
@@ -531,7 +559,11 @@ def run_sce_migration(
     remaining = len(pending_rows) - done_periods
     logger.info(
         "SCE migration: done=%d failed=%d remaining=%d quota_hit=%s budget_hit=%s",
-        done_periods, failed, remaining, quota_hit, budget_hit,
+        done_periods,
+        failed,
+        remaining,
+        quota_hit,
+        budget_hit,
     )
     return {
         "done": done_periods,
@@ -561,7 +593,9 @@ def run_ofs_statements_backfill(
     for code in batch:
         if dart_throttle.backfill_budget_exhausted():
             budget_hit = True
-            logger.info("ofs statements backfill: 백필 예산 소진 — 조기 중단(%d 종목 처리 후)", done)
+            logger.info(
+                "ofs statements backfill: 백필 예산 소진 — 조기 중단(%d 종목 처리 후)", done
+            )
             break
         try:
             if backfill_ofs_stock(db, settings, code):
@@ -573,7 +607,9 @@ def run_ofs_statements_backfill(
         except dart.DartQuotaExceeded:
             db.rollback()
             quota_hit = True
-            logger.warning("ofs statements backfill: DART 한도초과 — 배치 중단(%d 종목 처리 후)", done)
+            logger.warning(
+                "ofs statements backfill: DART 한도초과 — 배치 중단(%d 종목 처리 후)", done
+            )
             break
         except Exception as e:
             db.rollback()
@@ -583,9 +619,16 @@ def run_ofs_statements_backfill(
     remaining = len(pending) - done
     logger.info(
         "ofs statements backfill: done=%d failed=%d remaining=%d quota_hit=%s budget_hit=%s",
-        done, failed, remaining, quota_hit, budget_hit,
+        done,
+        failed,
+        remaining,
+        quota_hit,
+        budget_hit,
     )
     return {
-        "done": done, "failed": failed, "remaining": remaining,
-        "quota_hit": quota_hit, "budget_hit": budget_hit,
+        "done": done,
+        "failed": failed,
+        "remaining": remaining,
+        "quota_hit": quota_hit,
+        "budget_hit": budget_hit,
     }

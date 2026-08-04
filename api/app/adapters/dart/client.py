@@ -871,6 +871,13 @@ def fetch_full_statements_ofs(
     return _fetch_full_statements_for_fs_div(api_key, corp_code, year, quarter, "OFS", session)
 
 
+def fetch_full_statements_by_div(
+    api_key: str, corp_code: str, year: int, quarter: int, fs_div: str, session: requests.Session
+) -> dict[str, list[dict]] | None:
+    """특정 fs_div(CFS/OFS)의 전체재무제표를 조회."""
+    return _fetch_full_statements_for_fs_div(api_key, corp_code, year, quarter, fs_div, session)
+
+
 @dataclass
 class CorpMapping:
     stock_code: str
