@@ -22,7 +22,7 @@ import threading
 from datetime import UTC, datetime
 from pathlib import Path
 
-from app.admin_paths import HEARTBEAT_FILE_TEMPLATE, LOCK_FILE, PID_FILE_TEMPLATE, RUN_DIR
+from app.admin_paths import HEARTBEAT_FILE_TEMPLATE, PID_FILE_TEMPLATE, RUN_DIR
 from app.config import get_settings
 from app.scheduler import BATCH_FUNCTIONS, BATCH_META
 
@@ -108,10 +108,11 @@ def _utcnow() -> datetime:
     return datetime.now(UTC)
 
 
-def _acquire_lock() -> int:
-    """operation.lock을 non-blocking으로 획득. 실패 시 exit 2."""
+def _acquire_lock(key: str) -> int:
+    """operation_{key}.lock을 non-blocking으로 획득. 실패 시 exit 2."""
     RUN_DIR.mkdir(parents=True, exist_ok=True)
-    fd = os.open(LOCK_FILE, os.O_RDWR | os.O_CREAT)
+    lock_file = RUN_DIR / f"operation_{key}.lock"
+    fd = os.open(lock_file, os.O_RDWR | os.O_CREAT)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
@@ -160,7 +161,7 @@ def main() -> int:
 
     logger.info("batch_runner start: key=%s pid=%s", key, os.getpid())
 
-    lock_fd = _acquire_lock()
+    lock_fd = _acquire_lock(key)
     state = _RunnerState(key)
 
     def _on_sigterm(signum, frame) -> None:
