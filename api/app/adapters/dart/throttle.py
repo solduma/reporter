@@ -117,6 +117,11 @@ def _rotate_on_quota(key: str) -> bool:
         return _active_idx < len(_keyring)
 
 
+def backfill_budget_exhausted() -> bool:
+    """배치 백필 중단 판정. 모든 키 budget이 소진됐으면 True."""
+    return active_key() is None
+
+
 # ─── 020 detection ────────────────────────────────────────────────────────────
 _QUOTA_SIG = b'"status":"020"'
 _QUOTA_SIG_XML = b"<status>020</status>"
