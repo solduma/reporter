@@ -22,6 +22,7 @@ import threading
 from datetime import UTC, datetime
 from pathlib import Path
 
+from app.adapters.dart import throttle as dart_throttle
 from app.admin_paths import HEARTBEAT_FILE_TEMPLATE, PID_FILE_TEMPLATE, RUN_DIR
 from app.config import get_settings
 from app.scheduler import BATCH_FUNCTIONS, BATCH_META
@@ -183,6 +184,7 @@ def main() -> int:
         state.update(meta.get("label", key), 0)
 
         settings = get_settings()
+        dart_throttle.configure_keys(settings.dart_api_key, settings.dart_api_key_backup)
         result = fn(settings)
         state.update("완료", 100)
         logger.info("batch_runner completed: %s", result)
