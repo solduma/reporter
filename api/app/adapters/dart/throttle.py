@@ -1,15 +1,12 @@
-"""DART OpenAPI 요청 스로틀 + 키 폴오버 — 모든 DART HTTP 호출이 이 게이트를 통과한다.
+"""DART OpenAPI 요청 스로틀 + 키별 budget + 키 폴오버 — 모든 DART HTTP 호출이 이 게이트를 통과한다.
 
-DART 는 키당 일일 한도(2만)와 별개로, 짧은 시간에 연속 요청하면 IP 를 TCP 레벨로 차단한다
-(status 020 조차 못 받고 연결이 끊김). 백필이 종목당 수십 콜을 간격 없이 몰아 보내다 IP 밴을
-유발한 사례가 있어, 프로세스 전역으로 최소 요청 간격을 강제해 예방한다.
+DART 는 키당 일일 한도(2만 020)와 별개로 짧은 시간에 연속 요청하면 IP 를 TCP 레벨로 차단한다
+(020 도 못 받고 연결이 끊김). 이를 방지하기 위해:
+  1. 키별 rate limiter — 키마다 초당 ~3건(0.34s 간격) 이상 못 넘기도록.
+  2. 키별 daily budget — 키당 90%(18,000회) 에 도달하면 그 키를 잠그고 다음 키로 폴오버.
+  3. 모든 키가 잠기면 020 응답을 그대로 반환 (호출측이 DartQuotaExceeded 처리).
 
-또한 키 링(primary→backup)을 소유해, 응답 본문이 status 020(한도초과)이면 다음 키로 폴오버한다.
-document.xml(바이너리 엔드포인트)조차 020 시 zip 이 아닌 `<status>020</status>` XML 을 주므로,
-JSON·XML·바이너리를 한 지점(응답 본문)에서 감지해야 견고하다. 모든 키가 소진되면 020 이 그대로
-전파돼 호출측(client)이 DartQuotaExceeded 로 올린다.
-
-전역 락 + 마지막 요청 시각으로 스레드 안전하게 간격을 보장한다(백필·온디맨드 동시 실행 대비).
+전역 락은 키별 간격 check-and-sleep 만mutex로 보호하고, 키 자체는 독립적으로 운영된다.
 """
 
 from __future__ import annotations
@@ -20,83 +17,109 @@ from datetime import UTC, datetime
 
 import requests
 
-# DART 요청 간 최소 간격(초). 보수적으로 잡아 IP 밴을 피한다(초당 ~3건 이하).
+# ─── rate limit ────────────────────────────────────────────────────────────────
+# IP 밴 방지를 위한 키별 최소 간격. 초당 ~3건 (0.34s 간격).
 _MIN_INTERVAL_S = 0.34
 
-_lock = threading.Lock()
-_last_request_at = 0.0
-
-# 일일 콜 카운터 — 백필이 한도(키당 2만)를 독식해 정기공시·온디맨드를 굶기지 않도록,
-# 백필 계열은 예약분을 남기는 soft budget 을 넘으면 스스로 멈춘다. 자정(UTC)에 리셋.
-# DART 한도는 KST 자정 리셋이나, 백필(03:30 KST)·공시(07:40 KST) 모두 UTC 같은 날이라
-# UTC 경계로도 하루 단위 분리가 성립한다(보수적 근사).
-_call_count = 0
-_count_day: str = ""
-_count_lock = threading.Lock()
+# 키별 rate limiter 상태 — 키 해시 → (마지막 요청 시각, threading.Lock).
+# 새 키는 처음 호출 시 동적 등록 (키 문자열은 길고 고정이라 dict 키로 안전).
+_rate_limiter: dict[str, tuple[float, threading.Lock]] = {}
+_rate_limiter_lock = threading.Lock()
 
 
-def _record_call() -> None:
-    """일일 콜 카운터를 1 증가시킨다(날짜 바뀌면 리셋). 모든 DART GET 이 통과."""
-    global _call_count, _count_day
+def _rate_wait(key: str) -> None:
+    """키별 최소 간격이 지나도록 대기. 키별 별도 lock이라 여러 프로세서가
+    서로 다른 키를 쓸 때 서로를 차단하지 않는다."""
+    now = time.monotonic()
+    with _rate_limiter_lock:
+        last_at, key_lock = _rate_limiter.get(key, (0.0, threading.Lock()))
+    with key_lock:
+        gap = now - last_at
+        if gap < _MIN_INTERVAL_S:
+            time.sleep(_MIN_INTERVAL_S - gap)
+    with _rate_limiter_lock:
+        _rate_limiter[key] = (time.monotonic(), key_lock)
+
+
+# ─── daily budget per key ────────────────────────────────────────────────────
+# 키별 일일 budget — 키당 2만 중 90% = 18,000회. 예산 소진 시 해당 키를 잠근다.
+_KEY_BUDGET = 18_000
+
+# 키별 budget 상태 — 키 해시 → (오늘 날짜 str, 남은 횟수 int).
+# 카운터는 프로세스 재시작 시 리셋되지만, budget은 매일 자정(UTC)에 만료된다.
+_budget: dict[str, tuple[str, int]] = {}
+_budget_lock = threading.Lock()
+
+
+def _budget_key(key: str) -> str:
+    """budget dict의 entry를 키로 리턴. 새 키는 _budget_check에서 등록."""
+    return key
+
+
+def _budget_check(key: str) -> bool:
+    """키의 budget 잔량을 검사. 0 이하면 False (호출 제한). budget 매일 자정 만료.
+
+    True 반환 시 이번 budget 소진 전까지 같은 키로 계속 호출 가능."""
     today = datetime.now(UTC).strftime("%Y-%m-%d")
-    with _count_lock:
-        if today != _count_day:
-            _count_day, _call_count = today, 0
-        _call_count += 1
+    with _budget_lock:
+        date_str, remaining = _budget.get(key, (today, _KEY_BUDGET))
+        if date_str != today:  # 날짜 바뀌면 budget 리셋.
+            _budget[key] = (today, _KEY_BUDGET)
+            return True
+        if remaining <= 0:
+            return False
+        _budget[key] = (date_str, remaining - 1)
+        return True
 
 
-def calls_today() -> int:
-    """오늘(UTC) 누적 DART 콜 수. 날짜가 바뀌었으면 0."""
-    today = datetime.now(UTC).strftime("%Y-%m-%d")
-    with _count_lock:
-        return _call_count if today == _count_day else 0
+def _is_exhausted(key: str) -> bool:
+    """키 budget이 오늘 소진됐으면 True."""
+    return not _budget_check(key)
 
 
-# 백필 계열(재무·리포트)이 하루에 쓸 수 있는 DART 콜 상한. 키당 한도 2만 중 예약분을 남겨
-# 정기공시(07:40)·딥다이브·온디맨드 조회가 굶지 않게 한다(백업키 있으면 실질 여유는 더 큼).
-BACKFILL_DAILY_BUDGET = 14000
-
-
-def backfill_budget_exhausted() -> bool:
-    """백필 계열이 오늘 예산(BACKFILL_DAILY_BUDGET)을 소진했으면 True. 백필 루프가 조기 중단용."""
-    return calls_today() >= BACKFILL_DAILY_BUDGET
-
-# 키 링 — 활성 인덱스는 020 폴오버로만 전진한다(성공 시 유지해 재낭비 방지).
+# ─── 키 링 ───────────────────────────────────────────────────────────────────
+# primary → backup 순서의 키 리스트. 020 또는 budget 소진 시 다음 키로 회전.
 _keyring: list[str] = []
 _active_idx = 0
-_keyring_lock = threading.Lock()
-
-# 응답 본문에서 020 을 감지하는 최소 시그니처(JSON/XML 공통). 149바이트 XML 도, JSON 도 매칭.
-_QUOTA_SIG = b'"status":"020"'
-_QUOTA_SIG_XML = b"<status>020</status>"
+_ring_lock = threading.Lock()
 
 
 def configure_keys(*keys: str) -> None:
-    """DART 키 링을 설정한다(primary, backup...). 빈 키는 무시. 활성 인덱스를 primary 로 리셋.
+    """키 링을 설정한다(primary, backup...). 배치 진입 시 호출하면 primary부터 재시도.
 
-    배치·딥다이브 진입 시 호출하면 매 실행마다 primary 부터 재시도한다(자정 한도 회복 반영)."""
+    키 budget은 매일 자정(UTC)에 만료되므로 configure_keys는 키budget을 리셋하지 않는다."""
     global _keyring, _active_idx
-    with _keyring_lock:
+    with _ring_lock:
         _keyring = [k for k in keys if k]
         _active_idx = 0
 
 
 def active_key() -> str | None:
-    """현재 활성 DART 키. 링이 비었으면 None(호출측이 키 미설정 처리)."""
-    with _keyring_lock:
-        return _keyring[_active_idx] if _active_idx < len(_keyring) else None
-
-
-def _rotate_key(exhausted: str) -> bool:
-    """020 을 준 키(exhausted)가 아직 활성이면 다음 키로 전진. 다음 키가 있으면 True.
-
-    동시 요청이 같은 020 을 여럿 봐도 인덱스는 한 번만 전진하도록 현재 활성 키와 대조한다.
-    """
+    """현재 활성 키. budget 소진 키는 건너뛴다."""
     global _active_idx
-    with _keyring_lock:
-        if _active_idx < len(_keyring) and _keyring[_active_idx] == exhausted:
+    with _ring_lock:
+        while _active_idx < len(_keyring):
+            key = _keyring[_active_idx]
+            if not _is_exhausted(key):
+                return key
+            _active_idx += 1
+        return None
+
+
+def _rotate_on_quota(key: str) -> bool:
+    """020(budget 소진 포함)을 받은 키를 활성에서 잠금 처리하고 다음 키로 전진.
+
+    호출 측에서 budget 소진 키가 계속 잡히지 않도록 active_idx를 여기서만 전진한다."""
+    global _active_idx
+    with _ring_lock:
+        if _active_idx < len(_keyring) and _keyring[_active_idx] == key:
             _active_idx += 1
         return _active_idx < len(_keyring)
+
+
+# ─── 020 detection ────────────────────────────────────────────────────────────
+_QUOTA_SIG = b'"status":"020"'
+_QUOTA_SIG_XML = b"<status>020</status>"
 
 
 def _is_quota_body(content: bytes) -> bool:
@@ -104,41 +127,44 @@ def _is_quota_body(content: bytes) -> bool:
     return _QUOTA_SIG in head.replace(b" ", b"") or _QUOTA_SIG_XML in head
 
 
-def _wait_turn() -> None:
-    """마지막 DART 요청 이후 _MIN_INTERVAL_S 가 지나도록 대기한다(전역 직렬화)."""
-    global _last_request_at
-    with _lock:
-        now = time.monotonic()
-        gap = now - _last_request_at
-        if gap < _MIN_INTERVAL_S:
-            time.sleep(_MIN_INTERVAL_S - gap)
-        _last_request_at = time.monotonic()
-
-
+# ─── main gate ──────────────────────────────────────────────────────────────
 def get(session: requests.Session, url: str, **kwargs) -> requests.Response:
-    """스로틀 + 키 폴오버를 적용한 DART GET.
+    """DART GET 게이트 — rate limit + budget check + 020 폴오버.
 
-    params 에 crtfc_key 가 있으면 활성 키로 덮어쓰고, 응답이 020(한도초과)이면 다음 키로
-    회전해 재시도한다. 링이 없거나(키 직접 지정) 모든 키 소진 시엔 마지막 응답을 그대로 반환
-    (client 가 status 020 을 보고 DartQuotaExceeded 를 올린다)."""
+    - rate limit: 키별 0.34s 간격 유지 (IP 밴 방지).
+    - budget check: 키별 18,000회 소진 시 다음 키로 자동 폴오버.
+    - 020 response: 키를 잠그고 다음 키로 회전. 모든 키 소진 시 020 응답 그대로 반환.
+    """
     params = kwargs.get("params")
     ring_has_keys = active_key() is not None
     uses_key = isinstance(params, dict) and "crtfc_key" in params
 
-    # 링을 안 쓰는 호출(키 미설정·params 없음)은 단순 스로틀 GET.
+    # 키 링을 쓰지 않는 호출은 rate limit만.
     if not (ring_has_keys and uses_key):
-        _wait_turn()
-        _record_call()
+        # 호출자가 명시적 crtfc_key를 줄 때만 rate limit 적용 (그 외: 단순 HTTP).
+        key = params.get("crtfc_key") if isinstance(params, dict) else None
+        if key:
+            _rate_wait(key)
         return session.get(url, **kwargs)
 
     while True:
         key = active_key()
+        if key is None:  # 모든 키 budget 소진.
+            return session.get(url, **kwargs)  # 020 응답 반환.
+
         params["crtfc_key"] = key
-        _wait_turn()
-        _record_call()
+        _rate_wait(key)
+
         resp = session.get(url, **kwargs)
+
         if not _is_quota_body(resp.content):
             return resp
-        # 020 — 다음 키로 회전. 남은 키가 없으면 이 응답(020)을 반환해 client 가 예외로 올린다.
-        if not _rotate_key(key):
-            return resp
+
+        # 020 응답 — 해당 키를 budget 소진 처리 후 다음 키로.
+        _budget_lock.acquire()
+        today = datetime.now(UTC).strftime("%Y-%m-%d")
+        _budget[key] = (today, 0)
+        _budget_lock.release()
+
+        if not _rotate_on_quota(key):
+            return resp  # 마지막 키까지 소진 — 020 그대로 반환.
