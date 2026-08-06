@@ -55,7 +55,7 @@ from app.admin_paths import (
 )
 from app.batch_meta import BATCH_KEY_TO_LOG_JOB, BATCH_META
 from app.batch_meta import MANUAL_BATCHES_KEYS as MANUAL_BATCHES
-from app.db.session import SessionLocal, init_db
+from app.db.session import SessionLocal
 from app.services import (
     admin_status,
     company_service,
@@ -634,7 +634,6 @@ class AdminTUI(App):
 
     # ── Lifecycle ──────────────────────────────────────────────────────
     def on_mount(self) -> None:
-        init_db()
         self._detect_option_as_meta()
         if self._option_as_meta_detected is False:
             self._show_meta_warning_banner()

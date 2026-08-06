@@ -45,7 +45,6 @@ def _fake_preview(db, sort="매출YoY↓", limit=50, offset=0):
 
 @pytest.fixture(autouse=True)
 def _stub_services(monkeypatch):
-    monkeypatch.setattr(tui, "init_db", lambda: None)
     monkeypatch.setattr(tui, "SessionLocal", lambda: MagicMock())
 
     class _StubServerControl:
