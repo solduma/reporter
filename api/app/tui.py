@@ -461,8 +461,6 @@ class AdminTUI(App):
     .bar { height: auto; align: left middle; padding: 0 1; }
     .bar Button { margin: 0 1; }
     .hint { width: 1fr; height: auto; content-align: left middle; }
-    #tab_switch_bar { height: auto; padding: 0 1; }
-    #tab_switch_bar Button { margin: 0 1; min-width: 8; }
     #batch_bar { height: auto; padding: 0 1; }
     #batch_bar Button { margin: 0 1; min-width: 16; }
     #server_status { width: 1fr; height: auto; content-align: left middle; }
@@ -535,16 +533,6 @@ class AdminTUI(App):
     def compose(self) -> ComposeResult:
         yield Header()
         yield Static(id="meta_warning")
-        # 탭 전환 버튼
-        with Horizontal(id="tab_switch_bar"):
-            yield Button("1 현황", id="tab_btn_overview", variant="primary")
-            yield Button("2 배치", id="tab_btn_batch")
-            yield Button("3 적재", id="tab_btn_ingest")
-            yield Button("4 모니터링", id="tab_btn_log")
-            yield Button("5 스케줄", id="tab_btn_schedule")
-            yield Button("6 릴리스", id="tab_btn_release")
-            yield Button("7 종목", id="tab_btn_stocks")
-        # 전역 작업 버튼
         with TabbedContent(initial="tab_overview"):
             # Tab 1: 현황
             with TabPane("현황", id="tab_overview"), VerticalScroll():
@@ -2193,14 +2181,8 @@ class AdminTUI(App):
     # ── Button handlers ─────────────────────────────────────────────────
     def on_button_pressed(self, event: Button.Pressed) -> None:
         bid = event.button.id or ""
-        # ── 탭 전환 버튼 ──
-        if bid.startswith("tab_btn_"):
-            tab = bid.replace("tab_btn_", "tab_")
-            self.action_show_tab(tab)
-            return
-        # ── 전역 작업 버튼 ──
         # ── 기존 버튼들 ──
-        elif bid in ("api_restart", "web_restart"):
+        if bid in ("api_restart", "web_restart"):
             key = bid.split("_")[0]
             self._log_line(self._servers.restart(key))
             self._refresh_server_status()
