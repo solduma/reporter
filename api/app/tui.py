@@ -53,8 +53,9 @@ from app.admin_paths import (
     PID_FILE_TEMPLATE,
     RUN_DIR,
 )
+from app.batch_meta import BATCH_KEY_TO_LOG_JOB, BATCH_META
+from app.batch_meta import MANUAL_BATCHES_KEYS as MANUAL_BATCHES
 from app.db.session import SessionLocal, init_db
-from app.scheduler import BATCH_KEY_TO_LOG_JOB, BATCH_META, MANUAL_BATCHES
 from app.services import (
     admin_status,
     company_service,
@@ -1909,13 +1910,13 @@ class AdminTUI(App):
         table.clear()
         # worker 가 ingest_log 에 남긴 각 잡의 최신 결과를 한 번에 조회. 메모리 deque(_last_results)
         # 만 보면 스케줄 실행 결과가 TUI 재시작마다 사라져 '최근상태'가 항상 비어 보인다.
-        log_jobs = [BATCH_KEY_TO_LOG_JOB.get(key, key) for key, _, _ in MANUAL_BATCHES]
+        log_jobs = [BATCH_KEY_TO_LOG_JOB.get(key, key) for key, _ in MANUAL_BATCHES]
         db = SessionLocal()
         try:
             latest = ingest_log.latest_for_jobs(db, log_jobs)
         finally:
             db.close()
-        for key, label, _ in MANUAL_BATCHES:
+        for key, label in MANUAL_BATCHES:
             meta = BATCH_META.get(key, {})
             desc = meta.get("label", label)
             log_job = BATCH_KEY_TO_LOG_JOB.get(key, key)

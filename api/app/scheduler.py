@@ -17,6 +17,7 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 from app.adapters import dart
+from app.batch_meta import BATCH_META
 from app.config import Settings, get_settings
 from app.db.models import DeepDiveJob
 from app.db.session import SessionLocal, init_db
@@ -572,33 +573,8 @@ MANUAL_BATCHES: list[tuple[str, str, object]] = [
 ]
 
 
-# MANUAL_BATCHES key(수동/TUI) → _logged 잡 이름(스케줄러가 ingest_log 에 남기는 job).
-# 대부분은 key 와 동일하지만 4개가 다르다 — TUI 가 최근상태를 ingest_log 에서 찾을 때 쓴다.
-BATCH_KEY_TO_LOG_JOB: dict[str, str] = {
-    "disclosure_batch": "disclosures",
-    "financials_backfill": "financials_10y",
-    "report_backfill": "report_10y",
-    "backfill_progressive": "backfill_10y",
-}
-
-
-# 배치 실행 메타데이터 — heartbeat timeout 등 TUI batch_runner 와 공유한다.
-# label 은 MANUAL_BATCHES 와 동일하지만, release_deploy 는 서버 제어 영역이라 별도 등록.
-_DEFAULT_TIMEOUT_SECONDS = 600
-BATCH_META: dict[str, dict[str, object]] = {
-    key: {"label": label, "heartbeat_timeout_seconds": _DEFAULT_TIMEOUT_SECONDS}
-    for key, label, _ in MANUAL_BATCHES
-}
-# 무거운 백필/배포는 heartbeat timeout을 늘린다.
+# release_deploy 는 서버 제어 영역이라 별도 등록.
 BATCH_META["release_deploy"] = {"label": "release 배포", "heartbeat_timeout_seconds": 1800}
-BATCH_META["ofs_statements"]["heartbeat_timeout_seconds"] = 1800
-BATCH_META["financials_backfill"]["heartbeat_timeout_seconds"] = 1800
-BATCH_META["report_backfill"]["heartbeat_timeout_seconds"] = 1800
-BATCH_META["business_overview_backfill"]["heartbeat_timeout_seconds"] = 1800
-BATCH_META["business_overview_refresh"]["heartbeat_timeout_seconds"] = 1800
-BATCH_META["report_fulltext"]["heartbeat_timeout_seconds"] = 1800
-BATCH_META["us_financials"]["heartbeat_timeout_seconds"] = 1800
-
 
 def _release_deploy_fn(settings: Settings | None = None) -> dict:
     """release 브랜치 push 로 CD 를 트리거한다 — TUI batch_runner 에서 실행."""
