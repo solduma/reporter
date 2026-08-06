@@ -765,7 +765,7 @@ async def test_on_key_edit_modal_allows_alt_s():
 
 
 async def test_on_key_non_edit_modal_allows_tab_switch():
-    """non-edit 모달에서 탭 전환 키가 통과."""
+    """non-edit 모달에서 탭 전환 키는 버튼으로 대체되어 block됨."""
     app = tui.AdminTUI()
     async with app.run_test() as pilot:
         await pilot.pause(0.1)
@@ -790,8 +790,8 @@ async def test_on_key_non_edit_modal_allows_tab_switch():
 
         event = MockEvent()
         app.on_key(event)
-        # Should NOT be prevented (tab switch allowed in non-edit modal)
-        assert not event._prevented
+        # Tab switch keys are now blocked in modals (use buttons instead)
+        assert event._prevented
 
 
 async def test_on_key_non_edit_modal_blocks_random_key():
@@ -1010,9 +1010,8 @@ async def test_confirm_screen_buttons_api():
 
 
 @pytest.mark.asyncio
-async def test_help_screen_has_9_sections():
-    """HelpScreen 에 9개 섹션이 포함되어 있다."""
+async def test_help_screen_has_6_sections():
+    """HelpScreen 에 6개 섹션이 포함되어 있다."""
     text = tui.HelpScreen._help_text()
-    # Count sections (numbered 1-9)
-    for i in range(1, 10):
+    for i in range(1, 7):
         assert f"{i}." in text
