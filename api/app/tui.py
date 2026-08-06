@@ -544,12 +544,12 @@ class AdminTUI(App):
             yield Button("7 종목", id="tab_btn_stocks")
         # 전역 작업 버튼
         with Horizontal(id="global_action_bar"):
-            yield Button("🔃 새로고침(r)", id="btn_refresh", variant="default")
-            yield Button("🔍 검색(/)", id="btn_search")
-            yield Button("⏹ 중단(Ctrl+X)", id="btn_cancel")
+            yield Button("🔃 새로고침", id="btn_refresh", variant="default")
+            yield Button("🔍 검색", id="btn_search")
+            yield Button("⏹ 중단", id="btn_cancel")
             yield Button("⚡ 강제중단", id="btn_force_cancel")
             yield Button("🔓 lock 해제", id="btn_lock_release")
-            yield Button("❓ 도움말(F1)", id="btn_help")
+            yield Button("❓ 도움말", id="btn_help")
         with TabbedContent(initial="tab_overview"):
             # Tab 1: 현황
             with TabPane("현황", id="tab_overview"), VerticalScroll():
@@ -565,7 +565,7 @@ class AdminTUI(App):
             # Tab 2: 배치
             with TabPane("배치", id="tab_batch"), VerticalScroll():
                 yield Static(
-                    "[b]배치 수동 실행[/b]  Alt+/ 검색 | Enter 실행 | Ctrl+X 중단 | r/Alt+R 새로고침",
+                    "[b]배치 수동 실행[/b]",
                     classes="panel-title",
                 )
                 yield Input(placeholder="검색...", id="batch_search", classes="no-search-hint")
@@ -573,7 +573,7 @@ class AdminTUI(App):
             # Tab 3: 적재이력
             with TabPane("적재이력", id="tab_ingest"), VerticalScroll():
                 yield Static(
-                    "[b]적재 이력[/b]  Alt+/ 필터 | r/Alt+R 새로고침",
+                    "[b]적재 이력[/b]",
                     id="ingest_title",
                     classes="panel-title",
                 )
@@ -582,10 +582,10 @@ class AdminTUI(App):
             # Tab 4: 모니터링(로그)
             with TabPane("모니터링(로그)", id="tab_log"), VerticalScroll():
                 yield Static(
-                    "[b]모니터링(로그)[/b]  Alt+/ 검색 | h/Alt+H health", classes="panel-title"
+                    "[b]모니터링(로그)[/b]", classes="panel-title"
                 )
                 with Horizontal(id="log_filter_bar"):
-                    yield Button("health(h)", id="log_health", variant="default")
+                    yield Button("health", id="log_health", variant="default")
                     yield Button("trace", id="log_trace", variant="default")
                     yield Button("debug", id="log_debug", variant="default")
                     yield Button("info", id="log_info", variant="primary")
@@ -595,18 +595,18 @@ class AdminTUI(App):
             # Tab 5: 발송스케줄
             with TabPane("발송스케줄", id="tab_schedule"), VerticalScroll():
                 yield Static(
-                    "[b]발송스케줄[/b]  e/Alt+E 편집 | n/Alt+N 신규 | r/Alt+R 새로고침",
+                    "[b]발송스케줄[/b]",
                     classes="panel-title",
                 )
                 with Horizontal(id="schedule_action_bar"):
-                    yield Button("✏ 편집(e)", id="btn_edit_job")
-                    yield Button("+ 신규(n)", id="btn_new_job")
+                    yield Button("✏ 편집", id="btn_edit_job")
+                    yield Button("+ 신규", id="btn_new_job")
                 yield Static("이 탭은 검색을 지원하지 않습니다", classes="no-search-hint")
                 yield DataTable(id="schedule", classes="tbl")
             # Tab 6: 릴리스
             with TabPane("릴리스", id="tab_release"), VerticalScroll():
                 yield Static(
-                    "[b]릴리스[/b]  b/Alt+B WEB 빌드 | a/Alt+A API 재기동 | w/Alt+W WEB 재기동",
+                    "[b]릴리스[/b]",
                     classes="panel-title",
                 )
                 yield Static("이 탭은 검색을 지원하지 않습니다", classes="no-search-hint")
@@ -746,7 +746,7 @@ class AdminTUI(App):
             "⚠️  macOS 터미널에서 Option 키가 Meta(Alt)로 동작하지 않습니다.  "
             "iTerm2: Preferences → Profiles → Keys → Left Option acts as: +Esc  "
             "Terminal.app: Preferences → Profiles → Keyboard → Use Option as Meta key  "
-            "[Alt+X] 배너 숨기기  [F1] 도움말"
+            "'배너 숨기기' 버튼으로 닫기  '도움말' 버튼으로 가이드 열기"
         )
         banner.styles.display = "block"
 
@@ -1253,7 +1253,7 @@ class AdminTUI(App):
             )
         elif returncode == 2:
             self.notify(
-                "다른 프로세스가 lock을 점유 중입니다 — [Shift+L]로 강제해제 가능",
+                "다른 프로세스가 lock을 점유 중입니다 — 'lock 해제' 버튼으로 강제해제 가능",
                 timeout=TOAST_LONG_SECONDS,
             )
             await audit(action="run_batch", target=key, outcome="lock_busy", detail=msg_detail)
@@ -1311,7 +1311,7 @@ class AdminTUI(App):
                 return
             if await self._is_cross_instance_lock_held():
                 self.notify(
-                    "다른 TUI/프로세스에서 작업 실행 중 — [Shift+L]로 강제해제 가능",
+                    "다른 TUI/프로세스에서 작업 실행 중 — 'lock 해제' 버튼으로 강제해제 가능",
                     timeout=TOAST_LONG_SECONDS,
                 )
                 return
@@ -1366,7 +1366,7 @@ class AdminTUI(App):
                         break
                 if lock_busy:
                     self.notify(
-                        "다른 프로세스가 lock을 점유 중입니다 — [Shift+L]로 강제해제 가능",
+                        "다른 프로세스가 lock을 점유 중입니다 — 'lock 해제' 버튼으로 강제해제 가능",
                         timeout=TOAST_LONG_SECONDS,
                     )
                     await audit(action="run_batch", target=key, outcome="lock_busy")
@@ -1605,7 +1605,7 @@ class AdminTUI(App):
             self.notify("중단할 작업이 없습니다")
             return
         if self._state.status == "cancelling":
-            self.notify("이미 중단 시도 중 — Ctrl+Shift+X로 강제해제", timeout=TOAST_LONG_SECONDS)
+            self.notify("이미 중단 시도 중 — '강제중단' 버튼을 누르세요", timeout=TOAST_LONG_SECONDS)
             return
         confirmed = await self.push_screen_wait(
             ConfirmScreen("실행 중인 작업을 중단할까요?", buttons=[("중단", True), ("취소", False)])
@@ -1618,7 +1618,7 @@ class AdminTUI(App):
         ok = await self._graceful_or_force_kill(proc, use_sigterm_first=True)
         if not ok:
             self.notify(
-                "작업이 응답하지 않습니다 — Ctrl+Shift+X로 강제해제, 또는 20초 후 자동 초기화",
+                "작업이 응답하지 않습니다 — '강제중단' 버튼 또는 20초 후 자동 초기화",
                 timeout=TOAST_LONG_SECONDS,
             )
             self._cancel_failure_auto_reset_task = asyncio.create_task(
@@ -1727,7 +1727,7 @@ class AdminTUI(App):
                 self.notify("고아 프로세스 종료 및 lock 정리 완료")
             else:
                 self.notify(
-                    "고아 프로세스를 종료하지 않았습니다. lock이 해제될 때까지 새 작업은 시작할 수 없습니다. [Shift+L]강제해제",
+                    "고아 프로세스를 종료하지 않았습니다. lock이 해제될 때까지 새 작업은 시작할 수 없습니다. 'lock 해제' 버튼으로 강제해제",
                     timeout=TOAST_LONG_SECONDS,
                 )
 
@@ -1815,7 +1815,7 @@ class AdminTUI(App):
         finally:
             db.close()
         lines = [
-            "[b]시스템 상태[/b]  (Alt+1~7=탭, r=새로고침, q=종료)",
+            "[b]시스템 상태[/b]",
             "테이블 행수: " + "  ".join(f"{k}={v:,}" for k, v in counts.items()),
             f"최신 리포트: {fresh['latest_report_date']}   "
             f"유니버스 스냅샷: {fresh['latest_universe_date']} "
@@ -1860,7 +1860,7 @@ class AdminTUI(App):
         return "웹 로그인  [yellow]○ 꺼짐[/yellow] (LOGIN_PASSWORD 미설정 — 게이트 열림)"
 
     def _check_health(self) -> None:
-        """API/WEB health check (h/Alt+H 단축키 → 버튼)."""
+        """API/WEB health check."""
         self._log_line("▶ health check…")
         try:
             api = self._servers.health("api")
