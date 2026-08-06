@@ -79,22 +79,24 @@ _INTRADAY_CLOSE_CRON = CronTrigger(day_of_week="mon-fri", hour=15, minute=40, ti
 # 몰리고 price_candles 를 함께 변경한다. 깊은 새벽으로 빼 저녁 배치와 확실히 분리한다.
 # 주말도 실행해(장 없어도) 중단분 재개·신규 상장 종목을 채운다. 완료되면 즉시 종료(무부하).
 _BACKFILL_CRON = CronTrigger(hour=2, minute=0, timezone=_TZ)
-# 10년 재무·밸류(PER/PBR/PSR) 점진 백필: 매일 03:30. 종목당 40분기 DART 콜이라 무거워
-# 일봉 백필(02:00)과 시차를 둔다. sync_state 로 재개 가능, 완료되면 즉시 종료.
-_FIN_BACKFILL_CRON = CronTrigger(hour=3, minute=30, timezone=_TZ)
-# 관계사(모/자회사) 수집: 매일 04:30. 종목당 DART 2콜이라 가벼워 재무 백필(03:30) 뒤. 웹서치
+# 10년 재무·밸류(PER/PBR/PSR) 점진 백필: 매일 04:00. 종목당 40분기 DART 콜이라 무거워
+# 일봉 백필(02:00)과 시차를 둔다. business_overview(11:00)보다 나중에 시작해 budget 선점 방지.
+# sync_state 로 재개 가능, 완료되면 즉시 종료.
+_FIN_BACKFILL_CRON = CronTrigger(hour=4, minute=0, timezone=_TZ)
+# 관계사(모/자회사) 수집: 매일 04:30. 종목당 DART 2콜이라 가벼워 재무 백필(04:00) 뒤. 웹서치
 # 관련성 판정 alias 원천. sync_state 로 재개 가능.
 _RELATED_BACKFILL_CRON = CronTrigger(hour=4, minute=30, timezone=_TZ)
-# 별도재무제표(OFS) 전체 라인아이템 점진 백필: 매일 04:45. 재무 백필(03:30)·관계사(04:30) 뒤.
+# 별도재무제표(OFS) 전체 라인아이템 점진 백필: 매일 04:45. 재무 백필(04:00)·관계사(04:30) 뒤.
 # CFS만 저장되던 FinancialStatement 누락분을 채운다. 종목당 40분기 DART 콜.
 _OFS_STATEMENTS_BACKFILL_CRON = CronTrigger(hour=4, minute=45, timezone=_TZ)
-# 보고서 원문 파싱 백필(정밀 감가상각·EV/EBITDA): 매일 05:00. 보고서당 document.xml(수MB)
-# 다운로드라 가장 무거워 재무 백필(03:30) 이후로 뺀다. sync_state 로 재개 가능.
+# 보고서 원문 파싱 백필(정밀 감가상각·EV/EBITDA): 매일 05:00. 완료(remaining=0) — 空실행.
+# sync_state 로 재개 가능.
 _REPORT_BACKFILL_CRON = CronTrigger(hour=5, minute=0, timezone=_TZ)
-# 사업 개요(사업보고서+반기/분기 정리) 점진 백필: 매일 05:15. 리포트 원문 백필(05:00) 직후 —
-# 정기보고서 document.xml 을 같이 받지만 별도 도메인(business_overview). LLM 정리가 들어가
-# 무거워 per_run=50. sync_state 로 재개 가능.
-_BUSINESS_OVERVIEW_BACKFILL_CRON = CronTrigger(hour=5, minute=15, timezone=_TZ)
+# 사업 개요(사업보고서+반기/분기 정리) 점진 백필: 매일 11:00 KST. 야간 batch(18~20시)와 완전 분리.
+# 야간 batch가 같은 DART 키 1을 소진하므로 11시면 새벽 budget으로 완전히 회복된 상태.
+# RegularReports document.xml 도 같이 수신. LLM 정리 무거워 per_run=50.
+# 2개 DART 키 budget(각 18,000콜) 90% 활용 목표 — 야간 consumption 분석 결과 반영.
+_BUSINESS_OVERVIEW_BACKFILL_CRON = CronTrigger(hour=11, minute=0, timezone=_TZ)
 # 리포트 원문(full_text) 소급 적재: 매일 05:30. 컬럼 추가 이전 리포트를 MinIO PDF 에서 회당 60건씩
 # 채운다(재개 가능). 리포트 파싱 백필(05:00) 직후, 뉴스(07:00) 이전.
 _REPORT_FULLTEXT_CRON = CronTrigger(hour=5, minute=30, timezone=_TZ)
