@@ -157,13 +157,14 @@ def _us_done_count(db: Session, domain: str, snap) -> int:
 
 
 def _kr_total_count(db: Session, snap) -> int:
-    """KR 도메인용: latest universe + CorpCodeMap 매핑된 stock만."""
+    """KR 도메인용: latest universe + CorpCodeMap + price_candles존재 (delisted 제외)."""
     if not snap:
         return 0
     return db.scalar(
-        select(func.count())
+        select(func.count(func.distinct(UniverseSnapshot.stock_code)))
         .select_from(UniverseSnapshot)
         .join(CorpCodeMap, CorpCodeMap.stock_code == UniverseSnapshot.stock_code)
+        .join(PriceCandle, PriceCandle.stock_code == UniverseSnapshot.stock_code)
         .where(
             UniverseSnapshot.snapshot_date == snap,
             UniverseSnapshot.stock_type == "stock",
@@ -172,13 +173,14 @@ def _kr_total_count(db: Session, snap) -> int:
 
 
 def _kr_done_count(db: Session, domain: str, snap) -> int:
-    """KR 도메인용: CorpCodeMap + latest universe join으로 unmappable/delisted 제외."""
+    """KR 도메인용: CorpCodeMap + price_candles존재 + latest universe join으로 delisted 제외."""
     if not snap:
         return 0
     return db.scalar(
-        select(func.count())
+        select(func.count(func.distinct(SyncState.stock_code)))
         .select_from(SyncState)
         .join(CorpCodeMap, CorpCodeMap.stock_code == SyncState.stock_code)
+        .join(PriceCandle, PriceCandle.stock_code == SyncState.stock_code)
         .join(
             UniverseSnapshot,
             UniverseSnapshot.stock_code == SyncState.stock_code,
