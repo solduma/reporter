@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import (
     Broadcast,
+    CorpCodeMap,
     DailyMarketInfo,
     Disclosure,
     Financial,
@@ -126,21 +127,38 @@ _BACKFILL_DOMAINS: list[tuple[str, str, int]] = [
 def all_backfill_progress(db: Session) -> list[BackfillStatus]:
     """모든 백필 도메인의 진행률 + 예상 완료일. 완료(pct>=100)는 제외."""
     latest_uni = universe_ingest.latest_snapshot_date(db)
-    total = 0
-    if latest_uni:
-        total = db.scalar(
-            select(func.count()).select_from(UniverseSnapshot).where(
-                UniverseSnapshot.snapshot_date == latest_uni,
-                UniverseSnapshot.stock_type == "stock",
-            )
-        ) or 0
+    if not latest_uni:
+        return []
+
+    # 查询 가능한 stock만 대상: latest universe + CorpCodeMap 매핑된 것만.
+    total = db.scalar(
+        select(func.count())
+        .select_from(UniverseSnapshot)
+        .join(CorpCodeMap, CorpCodeMap.stock_code == UniverseSnapshot.stock_code)
+        .where(
+            UniverseSnapshot.snapshot_date == latest_uni,
+            UniverseSnapshot.stock_type == "stock",
+        )
+    ) or 0
     if not total:
         return []
 
     out: list[BackfillStatus] = []
     for domain, label, per_run in _BACKFILL_DOMAINS:
+        # CorpCodeMap을 거쳐 SyncState를 세면 查询 불가능한(unmappable) phantom 완료를 방지.
         done = db.scalar(
-            select(func.count()).select_from(SyncState).where(SyncState.domain == domain)
+            select(func.count())
+            .select_from(SyncState)
+            .join(CorpCodeMap, CorpCodeMap.stock_code == SyncState.stock_code)
+            .join(
+                UniverseSnapshot,
+                UniverseSnapshot.stock_code == SyncState.stock_code,
+            )
+            .where(
+                SyncState.domain == domain,
+                UniverseSnapshot.snapshot_date == latest_uni,
+                UniverseSnapshot.stock_type == "stock",
+            )
         ) or 0
         pct = done / total * 100
         remaining = total - done
