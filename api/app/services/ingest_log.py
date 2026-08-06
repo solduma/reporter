@@ -19,6 +19,9 @@ from app.db.session import SessionLocal
 
 logger = logging.getLogger(__name__)
 
+# 15초 폴링 queue 잡 — 이력 대신 디버그 용도이므로 recent()에서 제외.
+_QUEUE_JOBS = frozenset(("deepdive_queue", "ir_interview_queue", "business_research_queue"))
+
 # 잡별 표시명(TUI 이력 패널용).
 JOB_LABELS = {
     "ingest_cycle": "리포트 수집",
@@ -125,8 +128,13 @@ class IngestLogRow:
 
 
 def recent(db: Session, limit: int = 30) -> list[IngestLogRow]:
-    """최근 적재 실행 이력을 최신순으로 반환한다."""
-    rows = db.scalars(select(IngestLog).order_by(IngestLog.ts.desc()).limit(limit)).all()
+    """최근 적재 실행 이력을 최신순으로 반환한다. 폴링 queue 잡은 제외."""
+    rows = db.scalars(
+        select(IngestLog)
+        .where(IngestLog.job.not_in(_QUEUE_JOBS))
+        .order_by(IngestLog.ts.desc())
+        .limit(limit)
+    ).all()
     return [
         IngestLogRow(
             ts=r.ts,
