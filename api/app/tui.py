@@ -238,86 +238,47 @@ Admin TUI는 reporter 서비스(API/web/worker)를 터미널에서 관리하는 
 | 릴리스 | API/WEB 재기동, WEB 빌드, 릴리스 배포/롤백을 수행합니다. |
 | 종목 | 보유 종목의 테크노펀더멘탈/밸류 스코어를 조회합니다. |
 
-[b]2. 단축키 지도[/b]
-
-| 범주 | 단축키 | 설명 |
+[b]2. 주요 버튼[/b]
+| 위치 | 버튼 | 설명 |
 |---|---|---|
-| 탭 | Alt+1~Alt+7 | 현황/배치/적재이력/모니터링(로그)/발송스케줄/릴리스/종목 |
-| 탭(fallback) | Ctrl+1~Ctrl+7 | Alt가 Meta로 설정 안 됐을 때 대체 |
-| 탭(보조) | F2~F8 | macOS에서는 F1~F4가 시스템 단축키로 안 들어올 수 있음 |
-| 탭(보조) | Ctrl+Tab / Ctrl+Shift+Tab | 다음/이전 탭; tmux에서 가로채질 수 있음 |
-| 전역(긴급) | Esc | 모달/ConfirmScreen 닫기; Input 포커스 해제 |
-| 전역(긴급) | q / Alt+Q | 종료 ConfirmScreen (모달에서도 종료) |
-| 전역(긴급) | Ctrl+X | 실행 중인 작업 취소 시도 |
-| 전역(긴급) | Ctrl+Shift+X | 취소 실패 상태에서 강제 해제 |
-| 전역(긴급) | Shift+L | cross-instance lock 강제 해제 |
-| 전역 | F1 / Alt+Shift+/ / Ctrl+? | 도움말 |
-| 전역 | r / Alt+R | 현재 탭 새로고침 |
-| 전역 | / / Alt+/ | 검색 Input 포커스 |
-| 전역 | Alt+U | Input 필터 초기화(포커스+비우기). 편집 모달에서도 동작. |
-| 전역 | Alt+X | warning banner 숨기기 |
-| 로그 탭 | h / Alt+H | API/WEB health check |
-| 로그 탭 | t/d/i/w/e 또는 Alt+T/D/I/W/E | trace/debug/info/warn/error 레벨 토글 |
-| 발송스케줄 | e/Alt+E | 선택 행 편집 |
-| 발송스케줄 | n/Alt+N | 신규 추가 |
-| 릴리스 | b/Alt+B | WEB 빌드 |
-| 릴리스 | a/Alt+A | API 재기동 |
-| 릴리스 | w/Alt+W | WEB 재기동 |
-| 릴리스 | Shift+D/Alt+Shift+D | 릴리스 배포 |
-| 릴리스 | Shift+R/Alt+Shift+R | 마지막 배포 태그로 롤백 |
-| 편집 | Tab / Shift+Tab | 필드/버튼 이동 |
-| 편집 | Enter / Space | 선택/토글 |
-| 편집(모달 전용) | Alt+S | 편집 모달에서 저장 |
+| Header 아래 | 1~7 현황/배치/.../종목 | 탭 전환 |
+| Header 아래 | 새로고침(r) | 현재 탭 새로고침 |
+| Header 아래 | 검색(/) | 검색 Input에 포커스 |
+| Header 아래 | 중단(Ctrl+X) | 실행 중인 작업 취소 시도 |
+| Header 아래 | 강제중단 | 취소 실패 시 강제 해제 |
+| Header 아래 | lock 해제 | cross-instance lock 강제 해제 |
+| Header 아래 | 도움말(F1) | 이 화면 열기 |
+| 모니터링 탭 | health(h) | API/WEB health check |
+| 모니터링 탭 | trace/debug/info/warn/error | 로그 레벨 토글 |
+| 스케줄 탭 | 편집(e) | 선택 행 편집 |
+| 스케줄 탭 | 신규(n) | 신규 추가 |
+| 릴리스 탭 | WEB 빌드 / API 재기동 / WEB 재기동 / 배포 / 롤백 | 버튼 클릭 |
 
-[b]3. 단축키 원칙 요약[/b]
-- 긴급/안전 단축키(Esc, q, Alt+Q, Shift+L, Alt+U, Alt+X, F1, Alt+Shift+/, Ctrl+?): Input 포커스/모달과 무관하게 항상 동작.
-- 전역 작업 제어(Ctrl+X, Ctrl+Shift+X, Shift+L): Input 포커스 중에도 동작. 편집 모달에서는 차단되고 토스트 안내.
-- 탭 전환(Alt+1~7, Ctrl+1~7, F2~F8, Ctrl+Tab/Ctrl+Shift+Tab): Input 포커스 중에도 동작. 편집 모달에서는 차단되고 토스트 안내.
-- 편집 모달 전용 단축키(Alt+S): 편집 모달이 열렸을 때만 저장 동작.
-- 일반 단축키(r, /, h, t, d, i, w, e, b, a, Shift+D, Shift+R, n 등): Input 포커스 중에는 Input에 전달.
+[b]3. 남은 키보드 단축키[/b]
+| 단축키 | 동작 |
+|---|---|
+| Esc | 모달/ConfirmScreen 닫기 |
+| q / Alt+Q | 종료 ConfirmScreen 열기 |
+| Ctrl+X | 실행 중인 작업 취소 시도 |
+| Ctrl+Shift+X | 취소 실패 시 강제 해제 |
+| F1 | 도움말 열기 |
 
-[b]4. Lock 모델 설명[/b]
+[b]4. Lock 모델[/b]
 - operation.lock은 한 번에 하나의 batch_runner만 소유할 수 있습니다.
 - TUI는 lock을 직접 걸지 않고 batch_runner가 획득했는지 감시합니다.
 - lock이 점유 중이면 새 배치를 시작할 수 없습니다.
-- [Shift+L]로 lock을 강제 해제할 때, TUI는 먼저 lock 소유자인 batch_runner를 종료한 뒤 lock을 해제합니다.
 
-[b]5. detach(TUI만 종료) 설명[/b]
-- 실행 중인 작업이 있을 때 q 또는 SIGTERM/SIGINT를 받으면 "TUI만 종료(작업계속)" 옵션이 표시됩니다.
+[b]5. detach(TUI만 종료)[/b]
+- 실행 중인 작업이 있을 때 q를 누르면 "TUI만 종료(작업계속)" 옵션이 표시됩니다.
 - 이 옵션을 선택하면 TUI는 닫히지만 batch_runner 프로세스는 백그라운드에서 계속 실행됩니다.
 
-[b]6. 배치 exit code 의미[/b]
+[b]6. 배치 exit code[/b]
 | 코드 | 의미 |
 |---|---|
 | 0 | 정상 완료 |
 | 2 | lock 점유로 인해 시작 불가 |
 | 143 | SIGTERM에 의한 중단(취소) |
-| 그 외 | 비정상 종료 |
-
-[b]7. macOS 단축키 설정[/b]
-- iTerm2: Preferences → Profiles → Keys → Left Option acts as: +Esc (또는 Meta)
-- Terminal.app: Preferences → Profiles → Keyboard → Use Option as Meta key 체크
-- 설정 후 Alt+1~Alt+7이 탭 전환으로 동작합니다.
-- 설정 전에는 Ctrl+1~Ctrl+7을 사용하세요.
-- F5~F8은 macOS Touch Bar 또는 Fn 키 설정에 따라 기능키로 동작하지 않을 수 있습니다.
-- tmux에서 Ctrl+Tab/Ctrl+Shift+Tab이 창/패널 전환으로 가로채질 수 있습니다.
-- 한국어 키보드 레이아웃에서는 Alt+Shift+/가 Alt+Shift+7 등으로 입력될 수 있습니다.
-
-[b]8. macOS 한글 IME 주의사항[/b]
-- 한글 입력 모드(IME 활성) 상태에서는 단일 영문자 단축키(q, r, x, e, n, / 등)가 한글 자모로 변환되어 Textual에 도달하지 않습니다.
-- 중요 단축키에는 Alt 조합 이중 단축키가 항상 등록되어 있습니다:
-  - 종료: q 또는 Alt+Q
-  - 새로고침: r 또는 Alt+R
-  - 검색: / 또는 Alt+/
-  - 배너 숨김: Alt+X
-  - 편집: e 또는 Alt+E
-  - 신규: n 또는 Alt+N
-- 한글 IME 상태에서는 Alt 조합(Alt+Q, Alt+R, Alt+/ 등)을 사용하세요.
-
-[b]9. 시작 시 Option-as-Meta 경고[/b]
-- TUI는 macOS에서 Option 키가 Meta(Alt)로 동작하는지 감지합니다.
-- 배너는 Alt+X로 숨길 수 있으며, 다음 실행 시 다시 감지됩니다.
-- Alt 조합이 정상 수신되면 배너가 자동으로 사라집니다."""
+| 그 외 | 비정상 종료 |"""
 
 
 class ScheduleEditScreen(ModalScreen):
@@ -860,54 +821,27 @@ class AdminTUI(App):
                 event.stop()
             return
 
-        # 3. Non-edit modal: allow tab switch / help / quit / emergency, block rest
-        if isinstance(self.screen, ModalScreen) and not isinstance(self.screen, ScheduleEditScreen):
+        # 3. Non-edit modal: allow navigation / quit, block rest
+        if isinstance(self.screen, ModalScreen):
             if key in ("tab", "shift+tab", "up", "down", "left", "right", "enter", "space"):
                 return
             if key in (
-                "alt+1",
-                "alt+2",
-                "alt+3",
-                "alt+4",
-                "alt+5",
-                "alt+6",
-                "alt+7",
-                "ctrl+1",
-                "ctrl+2",
-                "ctrl+3",
-                "ctrl+4",
-                "ctrl+5",
-                "ctrl+6",
-                "ctrl+7",
-                "ctrl+tab",
-                "ctrl+shift+tab",
-                "f2",
-                "f3",
-                "f4",
-                "f5",
-                "f6",
-                "f7",
-                "f8",
+                "q",
+                "alt+q",
+                "escape",
                 "f1",
                 "alt+shift+slash",
                 "ctrl+question",
-                "q",
-                "alt+q",
-                "alt+u",
-                "alt+x",
-                "ctrl+x",
-                "ctrl+shift+x",
-                "shift+l",
             ):
                 return
             event.prevent_default()
             event.stop()
             return
 
-        # 4. Main screen: Input focus
+        # 4. Main screen: Input focus — pass most keys to Input widget
         if isinstance(self.screen.focused, Input):
-            # Job control / search focus keys: dispatch action, not input
-            if key in ("ctrl+x", "ctrl+shift+x", "alt+slash"):
+            # Ctrl+X / Ctrl+Shift+X: job control, not search
+            if key in ("ctrl+x", "ctrl+shift+x"):
                 return
             # All other keys pass to Input widget
             return
