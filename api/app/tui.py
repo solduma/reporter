@@ -461,6 +461,10 @@ class AdminTUI(App):
     .bar { height: auto; align: left middle; padding: 0 1; }
     .bar Button { margin: 0 1; }
     .hint { width: 1fr; height: auto; content-align: left middle; }
+    #tab_switch_bar { height: auto; padding: 0 1; }
+    #tab_switch_bar Button { margin: 0 1; min-width: 8; }
+    #global_action_bar { height: auto; padding: 0 1; }
+    #global_action_bar Button { margin: 0 1; min-width: 10; }
     #batch_bar { height: auto; padding: 0 1; }
     #batch_bar Button { margin: 0 1; min-width: 16; }
     #server_status { width: 1fr; height: auto; content-align: left middle; }
