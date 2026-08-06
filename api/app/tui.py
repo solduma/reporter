@@ -571,6 +571,23 @@ class AdminTUI(App):
     def compose(self) -> ComposeResult:
         yield Header()
         yield Static(id="meta_warning")
+        # 탭 전환 버튼
+        with Horizontal(id="tab_switch_bar"):
+            yield Button("1 현황", id="tab_btn_overview", variant="primary")
+            yield Button("2 배치", id="tab_btn_batch")
+            yield Button("3 적재", id="tab_btn_ingest")
+            yield Button("4 모니터링", id="tab_btn_log")
+            yield Button("5 스케줄", id="tab_btn_schedule")
+            yield Button("6 릴리스", id="tab_btn_release")
+            yield Button("7 종목", id="tab_btn_stocks")
+        # 전역 작업 버튼
+        with Horizontal(id="global_action_bar"):
+            yield Button("🔃 새로고침(r)", id="btn_refresh", variant="default")
+            yield Button("🔍 검색(/)", id="btn_search")
+            yield Button("⏹ 중단(Ctrl+X)", id="btn_cancel")
+            yield Button("⚡ 강제중단", id="btn_force_cancel")
+            yield Button("🔓 lock 해제", id="btn_lock_release")
+            yield Button("❓ 도움말(F1)", id="btn_help")
         with TabbedContent(initial="tab_overview"):
             # Tab 1: 현황
             with TabPane("현황", id="tab_overview"), VerticalScroll():
@@ -606,6 +623,7 @@ class AdminTUI(App):
                     "[b]모니터링(로그)[/b]  Alt+/ 검색 | h/Alt+H health", classes="panel-title"
                 )
                 with Horizontal(id="log_filter_bar"):
+                    yield Button("health(h)", id="log_health", variant="default")
                     yield Button("trace", id="log_trace", variant="default")
                     yield Button("debug", id="log_debug", variant="default")
                     yield Button("info", id="log_info", variant="primary")
@@ -618,6 +636,9 @@ class AdminTUI(App):
                     "[b]발송스케줄[/b]  e/Alt+E 편집 | n/Alt+N 신규 | r/Alt+R 새로고침",
                     classes="panel-title",
                 )
+                with Horizontal(id="schedule_action_bar"):
+                    yield Button("✏ 편집(e)", id="btn_edit_job")
+                    yield Button("+ 신규(n)", id="btn_new_job")
                 yield Static("이 탭은 검색을 지원하지 않습니다", classes="no-search-hint")
                 yield DataTable(id="schedule", classes="tbl")
             # Tab 6: 릴리스
@@ -1904,6 +1925,22 @@ class AdminTUI(App):
             return "웹 로그인  [green]● 켜짐[/green] (LOGIN_PASSWORD 설정됨)"
         return "웹 로그인  [yellow]○ 꺼짐[/yellow] (LOGIN_PASSWORD 미설정 — 게이트 열림)"
 
+    def _check_health(self) -> None:
+        """API/WEB health check (h/Alt+H 단축키 → 버튼)."""
+        self._log_line("▶ health check…")
+        try:
+            api = self._servers.health("api")
+            web = self._servers.health("web")
+            api_ok = api.get("ok", False)
+            web_ok = web.get("ok", False)
+            msg = (
+                f"API: {'✓ OK' if api_ok else '✗ FAIL'} | "
+                f"WEB: {'✓ OK' if web_ok else '✗ FAIL'}"
+            )
+        except Exception as e:
+            msg = f"✗ health check 실패: {e}"
+        self._log_line(msg)
+
     def _load_lock_status(self) -> None:
         async def _update():
             held = await self._is_cross_instance_lock_held()
@@ -2227,7 +2264,30 @@ class AdminTUI(App):
     # ── Button handlers ─────────────────────────────────────────────────
     def on_button_pressed(self, event: Button.Pressed) -> None:
         bid = event.button.id or ""
-        if bid in ("api_restart", "web_restart"):
+        # ── 탭 전환 버튼 ──
+        if bid.startswith("tab_btn_"):
+            tab = bid.replace("tab_btn_", "tab_")
+            self.action_show_tab(tab)
+            return
+        # ── 전역 작업 버튼 ──
+        if bid == "btn_refresh":
+            self.action_refresh()
+        elif bid == "btn_search":
+            tabs = self.query_one(TabbedContent)
+            if tabs.active == "tab_batch":
+                self.query_one("#batch_search", Input).focus()
+            elif tabs.active == "tab_ingest":
+                self.query_one("#ingest_filter", Input).focus()
+            elif tabs.active == "tab_stocks":
+                self.query_one("#search_input", Input).focus()
+        elif bid == "btn_cancel":
+            self.action_cancel_global()
+        elif bid in ("btn_force_cancel", "btn_lock_release"):
+            self.action_force_release_global()
+        elif bid == "btn_help":
+            self.push_screen(HelpScreen())
+        # ── 기존 버튼들 ──
+        elif bid in ("api_restart", "web_restart"):
             key = bid.split("_")[0]
             self._log_line(self._servers.restart(key))
             self._refresh_server_status()
@@ -2243,9 +2303,19 @@ class AdminTUI(App):
             self.action_next_page()
         elif bid == "prev":
             self.action_prev_page()
+        # ── 스케줄 탭 버튼 ──
+        elif bid == "btn_edit_job":
+            self.action_edit_job()
+        elif bid == "btn_new_job":
+            self.action_new_job()
+        # ── 모니터링 탭 버튼 ──
+        elif bid == "log_health":
+            self._check_health()
+        # ── 로그레벨 토글 ──
         elif bid.startswith("log_"):
             level = bid.split("_", 1)[1]
-            self._toggle_log_level(level)
+            if level != "health":
+                self._toggle_log_level(level)
 
     # ── WEB build ───────────────────────────────────────────────────────
     @work(thread=True, exclusive=True, group="busy")
