@@ -1973,17 +1973,16 @@ class AdminTUI(App):
             db.close()
         lines = ["[b]DB 적재 현황[/b]  (최신순)"]
         for b in backfills:
-            pct_str = f"{b.pct:.1f}%" if b.pct < 100 else "[green]100% ✔[/green]"
-            bar_len = 20
-            filled = int(b.pct / 100 * bar_len) if b.pct < 100 else bar_len
-            bar = "█" * filled + "░" * (bar_len - filled)
-            if b.remaining > 0:
-                est_days = b.remaining / b.per_run
-                est = (
-                    f"  ~{est_days:.0f}일 후" if est_days >= 1 else f"  ~{est_days * 24:.0f}시간 후"
-                )
-            else:
+            if b.remaining == 0:
+                bar = "█" * 20
+                pct_str = "[green]100% ✔[/green]"
                 est = ""
+            else:
+                filled = int(b.pct / 100 * 20)
+                bar = "█" * filled + "░" * (20 - filled)
+                pct_str = f"{b.pct:.1f}%"
+                est_days = b.remaining / b.per_run
+                est = f"  ~{est_days:.0f}일 후" if est_days >= 1 else f"  ~{est_days * 24:.0f}시간 후"
             detail = f"  [dim]{b.detail}[/dim]" if b.detail else ""
             lines.append(
                 f"  {b.label:12s} {bar} {pct_str:>8s}  {b.done:,}/{b.total:,}{est}{detail}"
