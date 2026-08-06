@@ -463,8 +463,6 @@ class AdminTUI(App):
     .hint { width: 1fr; height: auto; content-align: left middle; }
     #tab_switch_bar { height: auto; padding: 0 1; }
     #tab_switch_bar Button { margin: 0 1; min-width: 8; }
-    #global_action_bar { height: auto; padding: 0 1; }
-    #global_action_bar Button { margin: 0 1; min-width: 10; }
     #batch_bar { height: auto; padding: 0 1; }
     #batch_bar Button { margin: 0 1; min-width: 16; }
     #server_status { width: 1fr; height: auto; content-align: left middle; }
@@ -547,13 +545,6 @@ class AdminTUI(App):
             yield Button("6 릴리스", id="tab_btn_release")
             yield Button("7 종목", id="tab_btn_stocks")
         # 전역 작업 버튼
-        with Horizontal(id="global_action_bar"):
-            yield Button("🔃 새로고침", id="btn_refresh", variant="default")
-            yield Button("🔍 검색", id="btn_search")
-            yield Button("⏹ 중단", id="btn_cancel")
-            yield Button("⚡ 강제중단", id="btn_force_cancel")
-            yield Button("🔓 lock 해제", id="btn_lock_release")
-            yield Button("❓ 도움말", id="btn_help")
         with TabbedContent(initial="tab_overview"):
             # Tab 1: 현황
             with TabPane("현황", id="tab_overview"), VerticalScroll():
@@ -2208,22 +2199,6 @@ class AdminTUI(App):
             self.action_show_tab(tab)
             return
         # ── 전역 작업 버튼 ──
-        if bid == "btn_refresh":
-            self.action_refresh()
-        elif bid == "btn_search":
-            tabs = self.query_one(TabbedContent)
-            if tabs.active == "tab_batch":
-                self.query_one("#batch_search", Input).focus()
-            elif tabs.active == "tab_ingest":
-                self.query_one("#ingest_filter", Input).focus()
-            elif tabs.active == "tab_stocks":
-                self.query_one("#search_input", Input).focus()
-        elif bid == "btn_cancel":
-            self.action_cancel_global()
-        elif bid in ("btn_force_cancel", "btn_lock_release"):
-            self.action_force_release_global()
-        elif bid == "btn_help":
-            self.push_screen(HelpScreen())
         # ── 기존 버튼들 ──
         elif bid in ("api_restart", "web_restart"):
             key = bid.split("_")[0]
