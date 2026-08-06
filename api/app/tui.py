@@ -1973,7 +1973,8 @@ class AdminTUI(App):
             db.close()
         lines = ["[b]DB 적재 현황[/b]  (최신순)"]
         for b in backfills:
-            if b.remaining == 0:
+            # delisted 등으로 실제 백필 불가인 소량 잔존(총 0.1% 미만)도 완료로 표시.
+            if b.remaining == 0 or (b.remaining > 0 and b.pct >= 99.9):
                 bar = "█" * 20
                 pct_str = "[green]100% ✔[/green]"
                 est = ""
