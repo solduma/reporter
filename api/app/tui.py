@@ -631,8 +631,6 @@ class AdminTUI(App):
         if self._option_as_meta_detected is False:
             self._show_meta_warning_banner()
 
-        pass
-
         self.query_one("#preview", DataTable).add_columns("종목", "시총(억)", "매출YoY", "모멘텀")
         sched = self.query_one("#schedule", DataTable)
         sched.add_columns("ID", "시각", "채널", "내용요약", "활성")
@@ -652,7 +650,9 @@ class AdminTUI(App):
             self._cleanup_audit_periodically(), name="audit-cleanup"
         )
         self.run_worker(self._cleanup_stale_run_files_worker, group="startup", exclusive=True)
-        self.action_refresh()
+        # DB 쿼리 ~50개가 메인 스레드를阻塞하는 것을 방지するため、
+        # action_refresh를非同期ワーカーに逃がし、Textualが先に画面を描画できるようにする。
+        self.run_worker(self._async_refresh(), group="refresh", exclusive=True)
         self.set_interval(3.0, self._refresh_server_status)
 
     def on_unmount(self) -> None:
@@ -764,6 +764,7 @@ class AdminTUI(App):
             "f1",
             "alt+shift+slash",
             "ctrl+question",
+            "ctrl+c",
         ):
             return
 
@@ -926,6 +927,11 @@ class AdminTUI(App):
             except (ValueError, KeyError, FileNotFoundError, OSError):
                 pass
         return killed_any
+
+    # ── CancelService override (Ctrl+C → quit dialog) ─────────────────
+    def action_help_quit(self) -> None:
+        """Textual 기본 ctrl+c 동작을 가로채서 종료 확인 다이얼로그를 표시한다."""
+        self._on_shutdown_signal()
 
     # ── Signal handlers ────────────────────────────────────────────────
     def _register_signal_handlers(self) -> None:
@@ -1800,7 +1806,8 @@ class AdminTUI(App):
         tabs.active = ids[prev_idx]
 
     # ── Refresh ─────────────────────────────────────────────────────────
-    def action_refresh(self) -> None:
+    async def _async_refresh(self) -> None:
+        """on_mount 시 호출되는 비동기 refresh. 화면이 먼저 렌더된 후 DB/I/O를后台에서 완료한다."""
         db = SessionLocal()
         try:
             counts = admin_status.table_counts(db)
@@ -1825,6 +1832,10 @@ class AdminTUI(App):
         self._load_lock_status()
         self._load_progress()
         self._load_release_info()
+
+    def action_refresh(self) -> None:
+        """수동 새로고침 (버튼/단축키). worker를 통해 비동기로 실행."""
+        self.run_worker(self._async_refresh(), group="refresh", exclusive=True)
 
     def _refresh_all_tabs(self) -> None:
         self.action_refresh()
