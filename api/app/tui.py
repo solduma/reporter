@@ -650,14 +650,21 @@ class AdminTUI(App):
             self._cleanup_audit_periodically(), name="audit-cleanup"
         )
         self.run_worker(self._cleanup_stale_run_files_worker, group="startup", exclusive=True)
-        # DB 쿼리 ~50개가 메인 스레드를阻塞하는 것을 방지するため、
-        # action_refresh를非同期ワーカーに逃がし、Textualが先に画面を描画できるようにする。
-        self.run_worker(self._async_refresh(), group="refresh", exclusive=True)
+        # thread=True: _async_refresh() 전체를 백그라운드 스레드로 돌린다.
+        # 이렇게 해야 DB 쿼리/subprocess/HTTP health-check가 메인 이벤트 루프를
+        # 블록하지 않아 Ctrl+C 시IGNAL이 제때 처리되고, 화면이 즉시 렌더된다.
+        self.run_worker(
+            self._async_refresh(),
+            group="refresh",
+            exclusive=True,
+            thread=True,
+        )
         self.set_interval(3.0, self._refresh_server_status)
 
     def on_unmount(self) -> None:
         if not self._shutdown_event.is_set():
             self._shutdown_event.set()
+            # 이벤트 루프가 닫혔으면 task/worker 생성 자체가 실패한다 — 무시.
             with contextlib.suppress(RuntimeError):
                 t = asyncio.create_task(
                     audit(
@@ -669,7 +676,8 @@ class AdminTUI(App):
                 )
                 self._background_tasks.add(t)
                 t.add_done_callback(self._background_tasks.discard)
-            self.run_worker(self._background_shutdown, group="shutdown", exclusive=True)
+            with contextlib.suppress(RuntimeError):
+                self.run_worker(self._background_shutdown, group="shutdown", exclusive=True)
 
     async def _background_shutdown(self) -> None:
         try:
@@ -1008,9 +1016,12 @@ class AdminTUI(App):
             self.notify("종료 취소됨")
 
     async def _unregister_signal_handlers(self) -> None:
-        loop = asyncio.get_event_loop()
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return  # 루프 없음 — signal handler 조작 불필요
         for sig in self._registered_signals:
-            with contextlib.suppress(ValueError, NotImplementedError, OSError):
+            with contextlib.suppress(ValueError, NotImplementedError, OSError, RuntimeError):
                 loop.remove_signal_handler(sig)
             prev = self._original_signal_handlers.get(sig)
             if prev is not None:
