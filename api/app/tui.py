@@ -1831,11 +1831,26 @@ class AdminTUI(App):
             return await loop.run_in_executor(executor, lambda: fn(*args, **kwargs))
 
         # ── Phase 1: 병렬 실행 가능한 것들 동시 시작 ──
+        # DB 세션은 스레드마다 독립 생성(공유 불가).
+        def _counts():
+            db = SessionLocal()
+            try:
+                return admin_status.table_counts(db)
+            finally:
+                db.close()
+
+        def _fresh():
+            db = SessionLocal()
+            try:
+                return admin_status.freshness(db)
+            finally:
+                db.close()
+
         server_future = run_in_thread(self._servers.status)
         schedule_future = run_in_thread(lambda: self._schedule.jobs())
         release_future = run_in_thread(self._collect_release_info)
-        counts_future = run_in_thread(admin_status.table_counts)
-        fresh_future = run_in_thread(admin_status.freshness)
+        counts_future = run_in_thread(_counts)
+        fresh_future = run_in_thread(_fresh)
 
         # Phase 1 병렬 완료까지 대기
         statuses, jobs_cache, release_lines, counts, fresh = await asyncio.gather(
