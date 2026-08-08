@@ -223,6 +223,35 @@ class FinancialStatement(Base):
     )
 
 
+class FsParseGap(Base):
+    """FinancialStatement 원문(JSONB) → IncomeEquity 파싱 실패 이력.
+
+    파이프라인 원칙: FS 원문 먼저 파싱 → 실패 필드는 DART 폴백으로 채우되, 어떤
+    필드/매핑(account_id) 이 빠졌는지 기록해 온톨로지 매핑 보완 워크플로우를 제공한다.
+    (stock_code, period, fs_div, field) 유일 — 같은 갭은 갱신만(중복 적재 방지).
+    """
+
+    __tablename__ = "fs_parse_gaps"
+    __table_args__ = (
+        UniqueConstraint("stock_code", "period", "fs_div", "field", name="uq_fs_parse_gap"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    stock_code: Mapped[str] = mapped_column(String(6), index=True)
+    period: Mapped[str] = mapped_column(String(16))
+    fs_div: Mapped[str] = mapped_column(String(3))
+    field: Mapped[str] = mapped_column(String(32))  # revenue|operating_income|capex|...
+    # 기대한 온톨로지 매핑 account_id 집합(파싱 시도한). 매핑 보완의 단서.
+    expected_aids: Mapped[str] = mapped_column(Text, default="")
+    # FS 원문에 실제 있던 account_id 중 매칭된 것(빈 문자열=아예 매칭 없음).
+    found_aids: Mapped[str] = mapped_column(Text, default="")
+    reason: Mapped[str] = mapped_column(String(64), default="")  # no_match|amount_none|no_fs
+    fallback: Mapped[str] = mapped_column(String(16), default="")  # dart|skip — 폴백 처리 결과
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class Peer(Base):
     """동일업종비교 한 종목. 표시값을 JSON 유사 컬럼 대신 정규 컬럼으로 저장."""
 

@@ -22,7 +22,6 @@ from sqlalchemy.orm import Session
 from app.adapters import dart
 from app.adapters.dart import report_parser as dart_report_parser
 from app.adapters.dart import throttle as dart_throttle
-from app.adapters.dart.client import _parse_income_equity
 from app.adapters.dart.disclosure_adapter import DartDisclosureAdapter
 from app.adapters.external import krx
 from app.config import Settings, get_settings
@@ -38,6 +37,7 @@ from app.db.models import (
 )
 from app.ports.disclosure import KrDisclosurePort
 from app.services import sync_state, universe_ingest
+from app.services.fs_parse import parse_income_equity_from_fs, record_gaps
 
 logger = logging.getLogger(__name__)
 
@@ -202,6 +202,15 @@ def backfill_stock(
     disc = _disclosures(settings)
     # 연간 period → (EBITDA 원, 순차입 원|None). EV/EBITDA 재산출용(annual 만).
     annual_ev: dict[str, tuple[float, float | None]] = {}
+    # ── 파이프라인 원칙: FinancialStatement 원문 우선 파싱 → DART 폴백 ──
+    # 이 종목의 FS 행을 (period, fs_div) → data 로 맵핑. fetch_income_and_equity 는 같은
+    # fnlttSinglAcntAll 응답을 쓰므로 FS 에 있으면 DART 0건 파싱. 없는 분기만 폴백.
+    fs_map: dict[tuple[str, str], dict] = {
+        (r.period, r.fs_div): r.data
+        for r in db.execute(
+            select(FinancialStatement).where(FinancialStatement.stock_code == code)
+        ).all()
+    }
     with requests.Session() as session:
         for year, kind in _target_reports(today):
             rcept_no = disc.find_periodic_report(corp_code, year, kind, session)
@@ -209,7 +218,23 @@ def backfill_stock(
                 continue
             # 손익·자본(구조화 API) — annual 은 연간, half/quarter 는 보고 기간 누적.
             q = 4 if kind == "annual" else (2 if kind == "half" else 1)
-            cfs, ofs = dart.fetch_income_and_equity(settings.dart_api_key, corp_code, year, q, session)
+            period = _period_str(year, kind)
+            # 1) FS 원문 우선 파싱(DART 0건). CFS/OFS 둘 다 있어야 annual 양쪽 upsert 가능.
+            cfs_fs = fs_map.get((period, "CFS"))
+            ofs_fs = fs_map.get((period, "OFS"))
+            if cfs_fs is not None and (kind != "annual" or ofs_fs is not None):
+                cfs = parse_income_equity_from_fs(cfs_fs) if cfs_fs else None
+                ofs = parse_income_equity_from_fs(ofs_fs) if (ofs_fs and kind == "annual") else None
+                # 파싱 실패 필드 기록(온톨로지 매핑 보완). FS 가 원천이라 폴백=skip.
+                if cfs is not None:
+                    record_gaps(db, code, period, "CFS", cfs, cfs_fs, fallback="skip")
+                if ofs is not None:
+                    record_gaps(db, code, period, "OFS", ofs, ofs_fs or {}, fallback="skip")
+            else:
+                # 2) DART 폴백: FS 행이 불충분하면 fnlttSinglAcntAll 직접 호출.
+                cfs, ofs = dart.fetch_income_and_equity(
+                    settings.dart_api_key, corp_code, year, q, session
+                )
             fin = cfs if cfs is not None else ofs
             if fin is None:
                 continue
@@ -218,7 +243,6 @@ def backfill_stock(
             raw = dart_report_parser.fetch_report_zip(settings.dart_api_key, rcept_no, session)
             dep = dart_report_parser.parse_cf_depreciation(raw) if raw else None
             dep = dart_report_parser.plausible_depreciation(dep, fin.revenue)
-            period = _period_str(year, kind)
             if kind == "annual":
                 # 연간: 연결(CFS)·별도(OFS) 각각 upsert.
                 for f, div in ((cfs, "CFS"), (ofs, "OFS")):
@@ -455,30 +479,7 @@ def run_backfill_progressive(
 # ── WACC·FCFF 재료 경량 백필(capex·D&A·실효세율·부채비용) ─────────────────
 # 모두 구조화 API(fnlttSinglAcntAll) 한 응답에서 파싱(D&A 원문 재다운로드 불필요, 추가 호출 0).
 # financials 에 capex·세율·부채비용 중 하나라도 결측인 연간행을 채운다.
-def _parse_fin_from_fs_data(fs_data: dict):
-    """FinancialStatement.data JSONB → dart.IncomeEquity (capex + WACC 재료).
-
-    data 는 sj_div 그룹({BS:[],IS:[],CIS:[],CF:[],SCE:[]}). 각 항목은
-    {account_id, name, amount, sj_div, level}. dart._parse_income_equity 는 평평한 rows
-    에서 account_id + sj_div 로 매칭하므로, amount→thstrm_amount, name→account_nm 로 합성해
-    동일 파서를 재사용한다(차입금/현금→부채비용 까지 그대로 산출). capex 가 없으면 None.
-    """
-    rows = []
-    for items in fs_data.values():
-        for item in items or []:
-            amt = item.get("amount")
-            if amt is None:
-                continue
-            rows.append({
-                "account_id": item.get("account_id", ""),
-                "account_nm": item.get("name", ""),
-                "sj_div": item.get("sj_div", ""),
-                "thstrm_amount": str(amt),
-            })
-    if not rows:
-        return None
-    fin = _parse_income_equity(rows)
-    return fin if fin.capex is not None else None
+# FS 원문 파싱은 app.services.fs_parse (공유 파서) 로 통일.
 
 
 def backfill_capex(
@@ -561,25 +562,30 @@ def backfill_capex(
         if cap is None and (c, p) not in filled_pairs
     ][:db_limit]
     if fs_needed:
-        # FS 행을 CFS 우선, 없으면 OFS 로 배치 조회.
+        # FS 행을 CFS 우선, 없으면 OFS 로 배치 조회. (code,period) → (fs_div, data)
         need_keys = [(c, p) for c, p, _ in fs_needed]
-        fs_map: dict[tuple[str, str], dict] = {}
+        fs_map: dict[tuple[str, str], tuple[str, dict]] = {}
         fs_rows = db.execute(
-            select(FinancialStatement.stock_code, FinancialStatement.period, FinancialStatement.data)
+            select(FinancialStatement.stock_code, FinancialStatement.period,
+                   FinancialStatement.fs_div, FinancialStatement.data)
             .where(
                 tuple_(FinancialStatement.stock_code, FinancialStatement.period).in_(need_keys),
                 FinancialStatement.fs_div.in_(("CFS", "OFS")),
             )
         ).all()
-        for c, p, data in fs_rows:
+        for c, p, fs_div, data in fs_rows:
             # CFS 가 이미 들어있으면 OFS 로 덮어쓰지 않는다(연결 우선).
-            fs_map.setdefault((c, p), data)
+            if (c, p) not in fs_map or fs_div == "CFS":
+                fs_map[(c, p)] = (fs_div, data)
         for code, period, dep in fs_needed:
-            fs_data = fs_map.get((code, period))
-            if fs_data is None:
+            entry = fs_map.get((code, period))
+            if entry is None:
                 continue
-            fin = _parse_fin_from_fs_data(fs_data)
-            if fin is None:
+            fs_div, fs_data = entry
+            fin = parse_income_equity_from_fs(fs_data)
+            if fin is None or fin.capex is None:
+                # 파싱 실패(또는 capex 매핑 없음) 기록 — 온톨로지 매핑 보완용. 폴백=DART 단계.
+                record_gaps(db, code, period, fs_div, fin, fs_data, fallback="dart")
                 continue
             fvals: dict = {"capex": fin.capex / 1e8}
             if dep is not None:
