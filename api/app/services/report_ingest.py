@@ -15,19 +15,21 @@ import logging
 from datetime import UTC, date, datetime, timedelta
 
 import requests
-from sqlalchemy import select
+from sqlalchemy import select, tuple_
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.adapters import dart
 from app.adapters.dart import report_parser as dart_report_parser
 from app.adapters.dart import throttle as dart_throttle
+from app.adapters.dart.client import _parse_income_equity
 from app.adapters.dart.disclosure_adapter import DartDisclosureAdapter
 from app.adapters.external import krx
 from app.config import Settings, get_settings
 from app.db.models import (
     CorpCodeMap,
     Financial,
+    FinancialStatement,
     PriceCandle,
     ReportFinancial,
     SyncState,
@@ -453,16 +455,46 @@ def run_backfill_progressive(
 # ── WACC·FCFF 재료 경량 백필(capex·D&A·실효세율·부채비용) ─────────────────
 # 모두 구조화 API(fnlttSinglAcntAll) 한 응답에서 파싱(D&A 원문 재다운로드 불필요, 추가 호출 0).
 # financials 에 capex·세율·부채비용 중 하나라도 결측인 연간행을 채운다.
-def backfill_capex(db: Session, settings: Settings | None = None, limit: int = 200) -> dict:
-    """FCFF·WACC 재료(capex·D&A·실효세율·부채비용)를 financials 에 채운다(경량, 추가 호출 0).
+def _parse_fin_from_fs_data(fs_data: dict):
+    """FinancialStatement.data JSONB → dart.IncomeEquity (capex + WACC 재료).
 
-    2단계:
-      1) 복사 단계 — report_financials 에 capex 원값이 이미 있으면(=report_backfill 이 파싱) DART
-         호출 없이 financials 로 복사. 저비용이라 limit 없이 전량 처리.
-      2) DART 단계 — report_financials 에도 capex 가 없는 연간행만 fetch_income_and_equity 로 보충
-         (한 응답에서 capex·세율·부채비용, D&A 는 report_financials 원값 복사). limit 제한.
+    data 는 sj_div 그룹({BS:[],IS:[],CIS:[],CF:[],SCE:[]}). 각 항목은
+    {account_id, name, amount, sj_div, level}. dart._parse_income_equity 는 평평한 rows
+    에서 account_id + sj_div 로 매칭하므로, amount→thstrm_amount, name→account_nm 로 합성해
+    동일 파서를 재사용한다(차입금/현금→부채비용 까지 그대로 산출). capex 가 없으면 None.
+    """
+    rows = []
+    for items in fs_data.values():
+        for item in items or []:
+            amt = item.get("amount")
+            if amt is None:
+                continue
+            rows.append({
+                "account_id": item.get("account_id", ""),
+                "account_nm": item.get("name", ""),
+                "sj_div": item.get("sj_div", ""),
+                "thstrm_amount": str(amt),
+            })
+    if not rows:
+        return None
+    fin = _parse_income_equity(rows)
+    return fin if fin.capex is not None else None
 
-    완료 판정은 capex 단독 기준. 세율·부채비용은 capex 와 같은 DART 응답에서만 얻을 수 있어
+
+def backfill_capex(
+    db: Session, settings: Settings | None = None, limit: int = 200, db_limit: int = 2000
+) -> dict:
+    """FCFF·WACC 재료(capex·D&A·실효세율·부채비용)를 financials 에 채운다.
+
+    3단계:
+      1) 복사 단계 — report_financials 에 capex 원값이 이미 있으면 financials 로 복사 (DART 0건).
+      2) DB 파싱 단계 — report_financials 에 capex 가 없어도 financial_statements 원문(JSONB)에
+         CF 계정이 있으면 거기서 capex·세율·부채비용을 파싱 (DART 0건). 동일 fnlttSinglAcntAll
+         응답이 이미 DB 에 있으므로 DART 재호출 없이 동일값 산출. 저비용이라 limit 없이 전량.
+      3) DART 폴백 — financial_statements 행이 없거나 매핑된 capex 계정이 없는 연간행만
+         fetch_income_and_equity 로 보충. limit 제한.
+
+    완료 판정은 capex 단독 기준. 세율·부채비용은 capex 와 같은 응답에서만 얻을 수 있어
     capex 를 채운 후 재시도해도 추가되지 않는다. 과거 3-필드(capex AND 실효세율 AND 부채비용)
     AND 판정은 capex 만 채워지고 나머지 결측인 행을 매번 pending 에 남겨 같은 ~limit 행을 무한
     재처리했다(DART 할당만 소진, 진전 없음).
@@ -500,6 +532,7 @@ def backfill_capex(db: Session, settings: Settings | None = None, limit: int = 2
     # ── 1) 복사 단계: report_financials capex 원값 → financials (DART 0건, 저비용 전량) ──
     copied = 0
     copy_codes: set[str] = set()
+    filled_pairs: set[tuple[str, str]] = set()
     for code, period, dep, rf_capex, _tax, _pre, _intr in todo:
         if rf_capex is None:
             continue
@@ -513,18 +546,82 @@ def backfill_capex(db: Session, settings: Settings | None = None, limit: int = 2
         )
         copied += 1
         copy_codes.add(code)
+        filled_pairs.add((code, period))
     if copied:
         db.commit()
 
-    # ── 2) DART 단계: report_financials 에도 capex 없는 행만 보충 (limit 제한) ──
+    # ── 2) DB 파싱 단계: financial_statements.data JSONB → financials (DART 0건, 전량) ──
+    # 복사 단계를 거친 후에도 capex 가 없는 (종목,기간) 중 financial_statements 원문이 DB 에 있으면
+    # 거기서 capex·세율·부채비용을 파싱. 동일 DART 응답이 이미 영속화되어 있어 API 재호출 불필요.
+    db_parsed = 0
+    db_codes: set[str] = set()
+    fs_needed = [
+        (c, p, dep)
+        for c, p, dep, cap, _tax, _pre, _intr in todo
+        if cap is None and (c, p) not in filled_pairs
+    ][:db_limit]
+    if fs_needed:
+        # FS 행을 CFS 우선, 없으면 OFS 로 배치 조회.
+        need_keys = [(c, p) for c, p, _ in fs_needed]
+        fs_map: dict[tuple[str, str], dict] = {}
+        fs_rows = db.execute(
+            select(FinancialStatement.stock_code, FinancialStatement.period, FinancialStatement.data)
+            .where(
+                tuple_(FinancialStatement.stock_code, FinancialStatement.period).in_(need_keys),
+                FinancialStatement.fs_div.in_(("CFS", "OFS")),
+            )
+        ).all()
+        for c, p, data in fs_rows:
+            # CFS 가 이미 들어있으면 OFS 로 덮어쓰지 않는다(연결 우선).
+            fs_map.setdefault((c, p), data)
+        for code, period, dep in fs_needed:
+            fs_data = fs_map.get((code, period))
+            if fs_data is None:
+                continue
+            fin = _parse_fin_from_fs_data(fs_data)
+            if fin is None:
+                continue
+            fvals: dict = {"capex": fin.capex / 1e8}
+            if dep is not None:
+                fvals["depreciation"] = dep / 1e8
+            etr = _effective_tax_rate(fin)
+            if etr is not None:
+                fvals["effective_tax_rate"] = etr
+            cod = _cost_of_debt(fin)
+            if cod is not None:
+                fvals["cost_of_debt"] = cod
+            db.execute(
+                insert(Financial)
+                .values(stock_code=code, period=period, fs_div="OFS", is_estimate=False, **fvals)
+                .on_conflict_do_update(constraint="uq_financial", set_=fvals)
+            )
+            # report_financials 에도 capex 원값을 남겨 다음 run 부턴 복사 단계가 즉시 처리.
+            db.execute(
+                insert(ReportFinancial)
+                .values(stock_code=code, period=period, fs_div="OFS", report_kind="annual",
+                        rcept_no="", capex=fin.capex, income_tax=fin.income_tax,
+                        pretax_income=fin.pretax_income, interest_expense=fin.interest_expense)
+                .on_conflict_do_update(constraint="uq_report_financial", set_={
+                    "capex": fin.capex, "income_tax": fin.income_tax,
+                    "pretax_income": fin.pretax_income, "interest_expense": fin.interest_expense,
+                })
+            )
+            db_parsed += 1
+            db_codes.add(code)
+            filled_pairs.add((code, period))
+        if db_parsed:
+            db.commit()
+
+    # ── 3) DART 폴백: financial_statements 행이 없거나 매핑된 capex 계정이 없는 행만 보충 ──
     # 이미 DART 를 호출했으나 capex 만 비어있는 행(income_tax/pretax/interest 는 채워짐)은
-    # 재시도해도 같은 응답이 돌아오므로 skip → 16,921 미시도 행으로 전진.
+    # 재시도해도 같은 응답이 돌아오므로 skip → 미시도 행으로 전진.
     dart_pending = [
         (c, p, dep)
         for c, p, dep, cap, tax, pre, intr in todo
-        if cap is None and tax is None and pre is None and intr is None
+        if cap is None and (c, p) not in filled_pairs
+        and tax is None and pre is None and intr is None
     ][:limit]
-    filled = copied
+    filled = copied + db_parsed
     quota_hit = False
     if dart_pending:
         by_code: dict[str, list[tuple[str, float | None]]] = {}
@@ -582,10 +679,11 @@ def backfill_capex(db: Session, settings: Settings | None = None, limit: int = 2
                 except Exception as e:
                     db.rollback()
                     logger.warning("wacc/fcff backfill failed for %s: %s", code, e)
-    all_codes = copy_codes | (set(by_code.keys()) if dart_pending else set())
+    all_codes = copy_codes | db_codes | (set(by_code.keys()) if dart_pending else set())
     return {
         "filled": filled,
         "copied": copied,
+        "db_parsed": db_parsed,
         "codes": len(all_codes),
         "quota_hit": quota_hit,
     }
