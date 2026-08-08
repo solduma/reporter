@@ -1,0 +1,108 @@
+.wrap {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.table th,
+.table td {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.thDate,
+.tdDate {
+  width: 88px;
+  color: var(--muted);
+}
+
+.thTitle {
+  min-width: 200px;
+}
+
+.tdTitle {
+  white-space: normal;
+  max-width: 420px;
+  line-height: 1.4;
+}
+
+.thParty,
+.tdParty {
+  width: 120px;
+  color: var(--muted);
+}
+
+.thSenti,
+.tdSenti {
+  width: 64px;
+  text-align: center;
+}
+
+.thLink,
+.tdLink {
+  width: 56px;
+  text-align: center;
+}
+
+.tdLink a {
+  color: var(--buy);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.tdLink a:hover {
+  text-decoration: underline;
+}
+
+.senti {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 5px;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.sentiBuy {
+  background: var(--buy-bg);
+  color: var(--buy);
+}
+
+.sentiSell {
+  background: var(--sell-bg);
+  color: var(--sell);
+}
+
+.sentiHold {
+  background: var(--hold-bg, #f0f0f0);
+  color: var(--muted);
+}
+
+.status,
+.error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 80px;
+  font-size: 0.92rem;
+}
+
+.status {
+  color: var(--muted);
+}
+
+.error {
+  color: var(--sell);
+}
+
+@media (max-width: 720px) {
+  .tdTitle {
+    max-width: 180px;
+  }
+}
