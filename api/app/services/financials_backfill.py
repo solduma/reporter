@@ -39,6 +39,7 @@ from app.db.models import (
 from app.domain import financials
 from app.services import ontology as ontology_service
 from app.services import sync_state, universe_ingest
+from app.services.fs_parse import parse_income_equity_from_fs, record_gaps
 
 logger = logging.getLogger(__name__)
 
@@ -111,32 +112,64 @@ def backfill_stock(db: Session, settings: Settings, code: str) -> bool:
     ofs_equity: dict[tuple[int, int], float | None] = {}
     any_data = False
     # 전체 재무제표 라인아이템 수집(FinancialStatement 저장용)
-    stmt_data: dict[tuple[int, int], dict[str, list[dict]]] = {}
+    stmt_data: dict[tuple[int, int, str], dict[str, list[dict]]] = {}
+
+    # ── 파이프라인 원칙: FinancialStatement 원문 우선 파싱 → DART 폴백 ──
+    # 과거 분기 FS 행은 이미 DB 에 영속화되어 있으면 DART 0건으로 파싱. 없는 분기만
+    # fetch_full_statements_by_div 로 CFS/OFS 각 1회 호출해 FS 저장 + 파싱(과거엔 매
+    # 분기마다 fetch_income_and_equity + fetch_full_statements 중복 2~4회 호출).
+    existing_fs: dict[tuple[int, int, str], dict] = {
+        (int(r.period.split(".")[0]), int(r.period.split(".")[1]), r.fs_div): r.data
+        for r in db.execute(
+            select(FinancialStatement).where(FinancialStatement.stock_code == code)
+        ).all()
+        if r.period and "." in r.period
+    }
+
+    def _collect_fin(fin, target: dict, fs_div: str, year: int, q: int, full: dict) -> None:
+        if fin is None:
+            return
+        yq = (year, q)
+        target_rev = cfs_rev if fs_div == "CFS" else ofs_rev
+        target_op = cfs_op if fs_div == "CFS" else ofs_op
+        target_ni = cfs_ni if fs_div == "CFS" else ofs_ni
+        target_eps = cfs_eps if fs_div == "CFS" else ofs_eps
+        target_eq = cfs_equity if fs_div == "CFS" else ofs_equity
+        if fin.revenue is not None:
+            target_rev[yq] = fin.revenue
+        if fin.operating_income is not None:
+            target_op[yq] = fin.operating_income
+        if fin.net_income is not None:
+            target_ni[yq] = fin.net_income
+        if fin.eps is not None:
+            target_eps[yq] = fin.eps
+        if fin.equity is not None:
+            target_eq[yq] = fin.equity
+        # 파싱 실패 필드 기록(온톨로지 매핑 보완용). 여기선 FS 가 원천이라 폴백=skip.
+        record_gaps(db, code, _period_str(year, q), fs_div, fin, full, fallback="skip")
+
     with requests.Session() as session:
         for year, q in yqs:
-            cfs, ofs = dart.fetch_income_and_equity(
-                settings.dart_api_key, corp_code, year, q, session
-            )
-            if cfs is None and ofs is None:
-                continue
-            any_data = True
-            if cfs is not None:
-                cfs_rev[(year, q)] = cfs.revenue
-                cfs_op[(year, q)] = cfs.operating_income
-                cfs_ni[(year, q)] = cfs.net_income
-                cfs_eps[(year, q)] = cfs.eps
-                cfs_equity[(year, q)] = cfs.equity
-            if ofs is not None:
-                ofs_rev[(year, q)] = ofs.revenue
-                ofs_op[(year, q)] = ofs.operating_income
-                ofs_ni[(year, q)] = ofs.net_income
-                ofs_eps[(year, q)] = ofs.eps
-                ofs_equity[(year, q)] = ofs.equity
-            # 전체 재무제표 라인아이템 수집(FinancialStatement 저장용).
-            # fetch_income_and_equity 와 동일한 API 를 호출하지만 파싱이 달라 별도 호출.
-            full = dart.fetch_full_statements(settings.dart_api_key, corp_code, year, q, session)
-            if full:
-                stmt_data[(year, q)] = full
+            period = _period_str(year, q)
+            for fs_div in ("CFS", "OFS"):
+                # 1) FS 원문 우선(DB 에 있으면 DART 0건 파싱)
+                cached = existing_fs.get((year, q, fs_div))
+                if cached is not None:
+                    fin = parse_income_equity_from_fs(cached)
+                    if fin is not None:
+                        any_data = True
+                        _collect_fin(fin, None, fs_div, year, q, cached)
+                    continue
+                # 2) DART 폴백: FS 행이 없으면 fnlttSinglAcntAll 1회 호출로 FS 저장 + 파싱
+                full = dart.fetch_full_statements_by_div(
+                    settings.dart_api_key, corp_code, year, q, fs_div, session
+                )
+                if not full:
+                    continue
+                any_data = True
+                stmt_data[(year, q, fs_div)] = full
+                fin = parse_income_equity_from_fs(full)
+                _collect_fin(fin, None, fs_div, year, q, full)
         shares = quote.fetch_shares_outstanding(code, session)
 
     if not any_data:
@@ -201,14 +234,14 @@ def backfill_stock(db: Session, settings: Settings, code: str) -> bool:
     if ofs_rev:
         updated += _store_fs("OFS", ofs_rev, ofs_op, ofs_ni, ofs_eps, ofs_equity)
 
-    # 전체 재무제표 라인아이템 저장(FinancialStatement).
-    for (year, q), stmt in stmt_data.items():
+    # 전체 재무제표 라인아이템 저장(FinancialStatement) — CFS/OFS 각각.
+    for (year, q, fs_div), stmt in stmt_data.items():
         ontology_service.enrich_with_ontology_id(stmt)
         period = _period_str(year, q)
         stmt_insert = insert(FinancialStatement).values(
             stock_code=code,
             period=period,
-            fs_div="CFS",
+            fs_div=fs_div,
             data=stmt,
         )
         stmt_insert = stmt_insert.on_conflict_do_update(
