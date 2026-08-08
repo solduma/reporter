@@ -753,10 +753,14 @@ def parse_full_statements(rows: list[dict]) -> dict[str, list[dict]]:
         if amt is None:
             continue
         # 소계·합계 행 제외(account_nm 끝에 '합계'/'총계'/'소계'/'계').
-        if any(nm.endswith(kw) for kw in _TOTAL_KEYWORDS):
+        # 단 account_id 가 실제 IFRS/dart 표준 요소면(미사용/빈값 아니면) 보존 — '자본총계'
+        # (ifrs-full_Equity) 처럼 총계 이름의 공식 요소는 파싱·표시에 필요하기 때문.
+        aid = (row.get("account_id") or "").strip()
+        has_real_aid = bool(aid) and aid != "-표준계정코드 미사용-"
+        if any(nm.endswith(kw) for kw in _TOTAL_KEYWORDS) and not has_real_aid:
             continue
         item: dict = {
-            "account_id": row.get("account_id") or "",
+            "account_id": aid,
             "name": nm,
             "amount": amt,
             "sj_div": sj,
