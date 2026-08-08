@@ -8,6 +8,7 @@ import AnalysisPanel from "@/components/AnalysisPanel";
 import { MA_DEFS } from "@/components/CandleChart";
 import type { ChartRange } from "@/components/CandleChart";
 import BusinessOverview from "@/components/BusinessOverview";
+import CapexHistory from "@/components/CapexHistory";
 import CompanySnapshot from "@/components/CompanySnapshot";
 import CompanyTimeline from "@/components/CompanyTimeline";
 import DateRangeSlider from "@/components/DateRangeSlider";
@@ -15,6 +16,7 @@ import DeepDivePanel from "@/components/DeepDivePanel";
 import FinancialStatements from "@/components/FinancialStatements";
 import GrowthMetrics from "@/components/GrowthMetrics";
 import InfoDot from "@/components/InfoDot";
+import MajorDisclosures from "@/components/MajorDisclosures";
 import OwnershipStructure from "@/components/OwnershipStructure";
 import PeersTable from "@/components/PeersTable";
 import RealtimeQuoteBadge from "@/components/RealtimeQuoteBadge";
@@ -738,6 +740,17 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
         <FinancialStatements code={code} onFsDivInfo={setFsDivInfo} />
       </section>
 
+      {/* 시설투자(CAPEX) 이력 — 재무제표 아래. financials 응답의 capex(억원) 연간 막대. */}
+      {financials.status === "ready" && financials.data.length > 0 ? (
+        <section className={styles.chartCard}>
+          <div className={styles.growthHead}>
+            <h2 className={styles.sectionTitle}>시설투자(CAPEX) 이력</h2>
+            <span className={styles.growthTag}>연간 자본적지출</span>
+          </div>
+          <CapexHistory data={financials.data} />
+        </section>
+      ) : null}
+
       {/* 종목 딥다이브 — 온디맨드 5단계 심층 분석(worker 큐 실행·상태폴링). 종목 정보 다음, 가장 깊은 분석. */}
       <section className={styles.chartCard}>
         <div className={styles.growthHead}>
@@ -892,6 +905,12 @@ export default function CompanyDetailPage({ params }: { params: { code: string }
       <section className={styles.chartCard}>
         <h2 className={styles.sectionTitle}>동일업종비교</h2>
         {peersArea}
+      </section>
+
+      {/* 주요공시 내역 — 주요사항보고서(공급계약·수주·유상증자·소송·합병 등). 타임라인 앞. */}
+      <section className={styles.chartCard}>
+        <h2 className={styles.sectionTitle}>주요공시 내역</h2>
+        <MajorDisclosures code={code} />
       </section>
 
       {/* 타임라인은 근거(리포트·공시·브리핑)라 분석·차트를 본 뒤 맨 끝에 배치. */}

@@ -29,6 +29,7 @@ import type {
   IrInterviewStatus,
   LookbackPeriod,
   Industry,
+  MajorDisclosure,
   MarketBrief,
   MarketOverview,
   OwnershipResponse,
@@ -453,6 +454,13 @@ export function fetchCompanyRatios(
 
 export function fetchPeers(code: string): Promise<Peer[]> {
   return getJson<Peer[]>(`/api/companies/${encodeURIComponent(code)}/peers`);
+}
+
+// 주요사항보고서(공급계약·수주·유상증자·소송·합병 등) 공시 최신순 목록.
+export function fetchMajorDisclosures(code: string): Promise<MajorDisclosure[]> {
+  return getJson<MajorDisclosure[]>(
+    `/api/companies/${encodeURIComponent(code)}/major-disclosures?limit=50`,
+  );
 }
 
 // 지분구조 — 주주 명부(좌) + 자회사·출자사(우) + 최근 지분변동(하단). DB 영속분 + elestock 12h 캐시.

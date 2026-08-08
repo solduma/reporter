@@ -631,8 +631,6 @@ class AdminTUI(App):
         if self._option_as_meta_detected is False:
             self._show_meta_warning_banner()
 
-        pass
-
         self.query_one("#preview", DataTable).add_columns("종목", "시총(억)", "매출YoY", "모멘텀")
         sched = self.query_one("#schedule", DataTable)
         sched.add_columns("ID", "시각", "채널", "내용요약", "활성")
@@ -652,12 +650,21 @@ class AdminTUI(App):
             self._cleanup_audit_periodically(), name="audit-cleanup"
         )
         self.run_worker(self._cleanup_stale_run_files_worker, group="startup", exclusive=True)
-        self.action_refresh()
+        # thread=True: _async_refresh() 전체를 백그라운드 스레드로 돌린다.
+        # 이렇게 해야 DB 쿼리/subprocess/HTTP health-check가 메인 이벤트 루프를
+        # 블록하지 않아 Ctrl+C 시IGNAL이 제때 처리되고, 화면이 즉시 렌더된다.
+        self.run_worker(
+            self._async_refresh(),
+            group="refresh",
+            exclusive=True,
+            thread=True,
+        )
         self.set_interval(3.0, self._refresh_server_status)
 
     def on_unmount(self) -> None:
         if not self._shutdown_event.is_set():
             self._shutdown_event.set()
+            # 이벤트 루프가 닫혔으면 task/worker 생성 자체가 실패한다 — 무시.
             with contextlib.suppress(RuntimeError):
                 t = asyncio.create_task(
                     audit(
@@ -669,7 +676,8 @@ class AdminTUI(App):
                 )
                 self._background_tasks.add(t)
                 t.add_done_callback(self._background_tasks.discard)
-            self.run_worker(self._background_shutdown, group="shutdown", exclusive=True)
+            with contextlib.suppress(RuntimeError):
+                self.run_worker(self._background_shutdown, group="shutdown", exclusive=True)
 
     async def _background_shutdown(self) -> None:
         try:
@@ -764,6 +772,7 @@ class AdminTUI(App):
             "f1",
             "alt+shift+slash",
             "ctrl+question",
+            "ctrl+c",
         ):
             return
 
@@ -927,6 +936,11 @@ class AdminTUI(App):
                 pass
         return killed_any
 
+    # ── CancelService override (Ctrl+C → quit dialog) ─────────────────
+    def action_help_quit(self) -> None:
+        """Textual 기본 ctrl+c 동작을 가로채서 종료 확인 다이얼로그를 표시한다."""
+        self._on_shutdown_signal()
+
     # ── Signal handlers ────────────────────────────────────────────────
     def _register_signal_handlers(self) -> None:
         loop = asyncio.get_event_loop()
@@ -1002,9 +1016,12 @@ class AdminTUI(App):
             self.notify("종료 취소됨")
 
     async def _unregister_signal_handlers(self) -> None:
-        loop = asyncio.get_event_loop()
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return  # 루프 없음 — signal handler 조작 불필요
         for sig in self._registered_signals:
-            with contextlib.suppress(ValueError, NotImplementedError, OSError):
+            with contextlib.suppress(ValueError, NotImplementedError, OSError, RuntimeError):
                 loop.remove_signal_handler(sig)
             prev = self._original_signal_handlers.get(sig)
             if prev is not None:
@@ -1800,13 +1817,61 @@ class AdminTUI(App):
         tabs.active = ids[prev_idx]
 
     # ── Refresh ─────────────────────────────────────────────────────────
-    def action_refresh(self) -> None:
-        db = SessionLocal()
-        try:
-            counts = admin_status.table_counts(db)
-            fresh = admin_status.freshness(db)
-        finally:
-            db.close()
+    async def _async_refresh(self) -> None:
+        """on_mount 시 호출되는 비동기 refresh. 독립 작업을 병렬로 실행해 속도를 높인다."""
+        import asyncio
+        import concurrent.futures
+
+        # 스레드풀: DB 쿼리와 subprocess를 백그라운드에서 돌린다.
+        # Textual의 run_worker(thread=True)는 스레드풀 1개를 쓰므로 직접 executor를 만든다.
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=6)
+
+        async def run_in_thread(fn, *args, **kwargs):
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(executor, lambda: fn(*args, **kwargs))
+
+        # ── Phase 1: 병렬 실행 가능한 것들 동시 시작 ──
+        # DB 세션은 스레드마다 독립 생성(공유 불가).
+        def _counts():
+            db = SessionLocal()
+            try:
+                return admin_status.table_counts(db)
+            finally:
+                db.close()
+
+        def _fresh():
+            db = SessionLocal()
+            try:
+                return admin_status.freshness(db)
+            finally:
+                db.close()
+
+        server_future = run_in_thread(self._servers.status)
+        schedule_future = run_in_thread(lambda: self._schedule.jobs())
+        release_future = run_in_thread(self._collect_release_info)
+        counts_future = run_in_thread(_counts)
+        fresh_future = run_in_thread(_fresh)
+
+        # Phase 1 병렬 완료까지 대기
+        statuses, jobs_cache, release_lines, counts, fresh = await asyncio.gather(
+            server_future,
+            schedule_future,
+            release_future,
+            counts_future,
+            fresh_future,
+        )
+
+        # ── Phase 2: DB heavy — 별도 스레드 ──
+        db_future = run_in_thread(self._load_db_status_heavy)
+        ingest_future = run_in_thread(self._load_ingest_history_heavy)
+        preview_future = run_in_thread(self._load_preview_heavy)
+        batch_future = run_in_thread(self._load_batch_table_heavy)
+
+        db_status, ingest_rows, preview_page, batch_data = await asyncio.gather(
+            db_future, ingest_future, preview_future, batch_future
+        )
+
+        # ── UI 업데이트 (순서 의존성이 있는 것만) ──
         lines = [
             "[b]시스템 상태[/b]",
             "테이블 행수: " + "  ".join(f"{k}={v:,}" for k, v in counts.items()),
@@ -1815,16 +1880,199 @@ class AdminTUI(App):
             f"({fresh['universe_today_rows']}종목)",
         ]
         self.query_one("#status", Static).update("\n".join(lines))
-        self._refresh_server_status()
-        self._load_schedule()
-        self._load_db_status()
-        self._load_ingest_history()
-        self._load_preview()
-        self._load_batch_table()
+
+        # server status
+        self._render_server_status(statuses)
+        # schedule
+        self._render_schedule(jobs_cache)
+        # db status
+        self._render_db_status(db_status)
+        # ingest history
+        self._render_ingest_history(ingest_rows)
+        # preview
+        self._render_preview(preview_page)
+        # batch table
+        self._render_batch_table(batch_data)
+        # results (in-memory)
         self._load_results_table()
+        # lock status
         self._load_lock_status()
+        # progress
         self._load_progress()
-        self._load_release_info()
+        # release info
+        self.query_one("#release_info", Static).update("\n".join(release_lines))
+
+        executor.shutdown(wait=False)
+
+    # ── Heavy helpers (스레드풀에서 실행) ────────────────────────────────
+    def _collect_release_info(self) -> list[str]:
+        try:
+            git = sc.git_info()
+            deploy = sc.last_deploy_info()
+            lines = []
+            if git.get("branch"):
+                lines.append(f"현재 브랜치: {git['branch']}  커밋: {git.get('commit', '—')}")
+                ahead = git.get("ahead", 0)
+                behind = git.get("behind", 0)
+                lines.append(f"origin/main 대비: +{ahead}/-{behind}")
+            if deploy.get("tag"):
+                lines.append(f"마지막 배포: {deploy['tag']} @ {deploy.get('ts', '—')}")
+            if deploy.get("branch"):
+                lines.append(f"롤백 대상: {deploy['branch']}")
+            api_health = self._servers.health("api")
+            web_health = self._servers.health("web")
+            api_mark = "✓" if api_health.get("ok") else "✗"
+            web_mark = "✓" if web_health.get("ok") else "✗"
+            lines.append(f"health: API {api_mark}  WEB {web_mark}")
+            return lines
+        except Exception as exc:
+            return [f"[dim]릴리스 정보 로드 실패: {exc}[/dim]"]
+
+    def _render_server_status(self, statuses: list) -> None:
+        lines = ["[b]로컬(dev) 서버[/b] (launchd 관리)"]
+        for s in statuses:
+            if not s.loaded:
+                mark = f"[red]✗ 미등록[/red]  {s.url} (./launchd/install.sh 필요)"
+            elif s.running:
+                mark = f"[green]●[/green] 실행중(pid {s.pid})  {s.url}"
+            else:
+                mark = f"[yellow]○ 대기(재시작 중)  {s.url}[/yellow]"
+            lines.append(f"{s.label}  {mark}")
+        lines.append(self._login_gate_line())
+        with contextlib.suppress(Exception):
+            self.query_one("#server_status", Static).update("\n".join(lines))
+
+    def _render_schedule(self, jobs_cache: list) -> None:
+        table = self.query_one("#schedule", DataTable)
+        prev_row = table.cursor_row if table.row_count else 0
+        table.clear()
+        for job in jobs_cache:
+            if not job.enabled:
+                state = "[dim]⏸ 꺼짐[/dim]"
+            elif job.loaded:
+                state = "[green]● 켜짐[/green]"
+            else:
+                state = "[yellow]○ 미로드[/yellow]"
+            table.add_row(job.suffix, job.time_label, job.desc, job.desc[:20], state)
+        if jobs_cache:
+            table.move_cursor(row=min(prev_row, len(jobs_cache) - 1))
+
+    def _load_db_status_heavy(self) -> tuple:
+        db = SessionLocal()
+        try:
+            statuses = admin_status.db_status(db)
+            backfills = admin_status.all_backfill_progress(db)
+        finally:
+            db.close()
+        return statuses, backfills
+
+    def _render_db_status(self, data: tuple) -> None:
+        statuses, backfills = data
+        lines = ["[b]DB 적재 현황[/b]  (최신순)"]
+        for b in backfills:
+            if b.remaining == 0 or (b.remaining > 0 and b.pct >= 99.9):
+                bar = "█" * 20
+                pct_str = "[green]100% ✔[/green]"
+                est = ""
+            else:
+                filled = int(b.pct / 100 * 20)
+                bar = "█" * filled + "░" * (20 - filled)
+                pct_str = f"{b.pct:.1f}%"
+                est_days = b.remaining / b.per_run
+                if est_days >= 1:
+                    est = f"  ~{est_days:.0f}일 후"
+                else:
+                    est = f"  ~{est_days * 24:.0f}시간 후"
+            detail = f"  [dim]{b.detail}[/dim]" if b.detail else ""
+            row = f"  {b.label:12s} {bar} {pct_str:>8s}  {b.done:,}/{b.total:,}{est}{detail}"
+            lines.append(row)
+        self.query_one("#db_title", Static).update("\n".join(lines))
+        table = self.query_one("#db_status", DataTable)
+        table.clear()
+        for s in statuses:
+            table.add_row(s.name, f"{s.rows:,}", s.latest)
+
+    def _load_ingest_history_heavy(self) -> tuple:
+        db = SessionLocal()
+        try:
+            rows = ingest_log.recent(db, limit=30)
+            fail_24h = ingest_log.recent_failure_count(db, since_hours=24)
+        finally:
+            db.close()
+        return rows, fail_24h
+
+    def _render_ingest_history(self, data: tuple) -> None:
+        rows, fail_24h = data
+        if fail_24h > 0:
+            title = f"[b]적재 이력[/b]  [red]최근 24h 실패 {fail_24h}건 ✖[/red]  (최근 30건)"
+        else:
+            title = "[b]적재 이력[/b]  [green]최근 24h 실패 없음 ✔[/green]  (최근 30건)"
+        self.query_one("#ingest_title", Static).update(title)
+        table = self.query_one("#ingest_history", DataTable)
+        table.clear()
+        for r in rows:
+            ts = r.ts.astimezone().strftime("%m-%d %H:%M") if r.ts else "—"
+            label = ingest_log.JOB_LABELS.get(r.job, r.job)
+            ok = r.status == "ok"
+            mark = "[green]✔[/green]" if ok else "[red]✖[/red]"
+            dur = f"{r.duration_ms / 1000:.1f}s" if r.duration_ms else "—"
+            job_cell = f"{mark} {label}" if ok else f"{mark} [red b]{label}[/red b]"
+            detail_cell = r.detail[:48] if ok else f"[red]{r.detail[:48]}[/red]"
+            table.add_row(ts, job_cell, detail_cell, f"{r.rows:,}", dur)
+
+    def _load_preview_heavy(self) -> tuple:
+        sort = self._sort_keys[self._sort_idx]
+        db = SessionLocal()
+        try:
+            page = admin_status.screener_preview(
+                db, sort=sort, limit=_PREVIEW_LIMIT, offset=self._page * _PREVIEW_LIMIT
+            )
+        finally:
+            db.close()
+        self._total = page.total
+        return page
+
+    def _render_preview(self, page) -> None:
+        table = self.query_one("#preview", DataTable)
+        table.clear()
+        for r in page.rows:
+            cap = f"{r.market_cap / 1e8:,.0f}" if r.market_cap else "—"
+            ry = f"{r.revenue_yoy * 100:+.0f}%" if r.revenue_yoy is not None else "—"
+            mm = f"{r.momentum_3m:+.0f}%" if r.momentum_3m is not None else "—"
+            table.add_row(r.stock_name, cap, ry, mm)
+        total_pages = max(1, -(-self._total // _PREVIEW_LIMIT))
+        start = self._page * _PREVIEW_LIMIT + 1 if page.rows else 0
+        end = start + len(page.rows) - 1 if page.rows else 0
+        self.query_one("#preview_info", Static).update(
+            f"[b]스몰캡 성장주[/b]  {start}-{end} / {self._total}  "
+            f"(페이지 {self._page + 1}/{total_pages}, 정렬: {self._sort_keys[self._sort_idx]})"
+        )
+        self.query_one("#prev", Button).disabled = self._page <= 0
+        self.query_one("#next", Button).disabled = (self._page + 1) >= total_pages
+
+    def _load_batch_table_heavy(self) -> dict:
+        log_jobs = [BATCH_KEY_TO_LOG_JOB.get(key, key) for key, _ in MANUAL_BATCHES]
+        db = SessionLocal()
+        try:
+            latest = ingest_log.latest_for_jobs(db, log_jobs)
+        finally:
+            db.close()
+        return latest
+
+    def _render_batch_table(self, latest: dict) -> None:
+        table = self.query_one("#batch_table", DataTable)
+        table.clear()
+        for key, label in MANUAL_BATCHES:
+            meta = BATCH_META.get(key, {})
+            desc = meta.get("label", label)
+            log_job = BATCH_KEY_TO_LOG_JOB.get(key, key)
+            status = self._fmt_batch_status(key, log_job, latest)
+            table.add_row(label, desc, status)
+        table.add_row("릴리스 배포", "release_deploy", "-")
+
+    def action_refresh(self) -> None:
+        """수동 새로고침 (버튼/단축키). worker를 통해 비동기로 실행."""
+        self.run_worker(self._async_refresh(), group="refresh", exclusive=True)
 
     def _refresh_all_tabs(self) -> None:
         self.action_refresh()

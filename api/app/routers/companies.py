@@ -31,6 +31,7 @@ from app.schemas import (
     FinancialStatementPeriod,
     FinancialStatementsOut,
     JudgmentOut,
+    MajorDisclosureOut,
     OwnershipOut,
     PeerOut,
     RatioOut,
@@ -514,6 +515,8 @@ def company_financials(
             ev_ebitda=r.ev_ebitda,
             dps=r.dps,
             div_yield=r.div_yield,
+            capex=r.capex,
+            depreciation=r.depreciation,
         )
         for r in rows
     ]
@@ -1180,6 +1183,25 @@ def company_coverage_reports(code: str, db: Session = Depends(get_session)) -> l
             has_pdf=bool(r.pdf_object_key),
         )
         for r, a in company_service.coverage_reports(db, code, since)
+    ]
+
+
+@router.get("/{code}/major-disclosures", response_model=list[MajorDisclosureOut])
+def company_major_disclosures(
+    code: str, limit: int = 50, db: Session = Depends(get_session)
+) -> list[MajorDisclosureOut]:
+    """주요사항보고서(공급계약·수주·유상증자·소송·합병 등) 공시 최신순 목록."""
+    return [
+        MajorDisclosureOut(
+            rcept_no=d.rcept_no,
+            rcept_dt=d.rcept_dt,
+            report_nm=d.report_nm,
+            flr_nm=d.flr_nm,
+            dart_url=d.dart_url,
+            sentiment=d.sentiment.value,
+            rationale=d.rationale,
+        )
+        for d in company_service.major_disclosures(db, code, limit=limit)
     ]
 
 

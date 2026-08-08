@@ -341,6 +341,8 @@ export interface FinancialPeriod {
   psr?: number | null;
   roe: number | null;
   ev_ebitda?: number | null;
+  capex?: number | null; // 자본적지출(억원)
+  depreciation?: number | null; // 감가상각(억원)
 }
 
 // 재무 백필 진행상태(GET /api/companies/{code}/financials/status). 가용분은 즉시 표시하고
@@ -482,6 +484,17 @@ export interface ScreenerRatioFilter {
 }
 
 export type TimelineItemType = "report" | "disclosure" | "broadcast";
+
+// 주요사항보고서 공시 (/api/companies/{code}/major-disclosures)
+export interface MajorDisclosure {
+  rcept_no: string;
+  rcept_dt: string; // YYYY-MM-DD
+  report_nm: string;
+  flr_nm: string;
+  dart_url: string;
+  sentiment: string; // BUY | SELL | HOLD
+  rationale: string;
+}
 
 export interface TimelineItem {
   type: TimelineItemType;

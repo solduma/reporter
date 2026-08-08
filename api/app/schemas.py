@@ -287,6 +287,8 @@ class FinancialPeriodOut(BaseModel):
     ev_ebitda: float | None = None
     dps: float | None = None  # 주당배당금(원)
     div_yield: float | None = None  # 시가배당률(%)
+    capex: float | None = None  # 자본적지출(억원) — 시설투자 이력용
+    depreciation: float | None = None  # 감가상각(억원) — FCFF/CAPEX 맥락용
 
 
 class FinancialsStatusOut(BaseModel):
@@ -518,6 +520,18 @@ class MarketOverview(BaseModel):
     brief_summary: str
     hot_sectors: list[dict]  # {sector, report_count, avg_sentiment}
     trade_spark: list[dict]  # {hs, period, export_usd}
+
+
+class MajorDisclosureOut(BaseModel):
+    """주요사항보고서(공급계약·수주·유상증자·소송·합병 등) 공시 1건."""
+
+    rcept_no: str
+    rcept_dt: date
+    report_nm: str
+    flr_nm: str
+    dart_url: str
+    sentiment: str
+    rationale: str
 
 
 class TimelineItem(BaseModel):
