@@ -81,13 +81,225 @@ def _found_aids(fs_data: dict, expected: set[str]) -> str:
 def parse_income_equity_from_fs(fs_data: dict) -> IncomeEquity | None:
     """FinancialStatement.data JSONB → IncomeEquity. FS 데이터 없으면 None.
 
-    capex 가 None 이더라도 다른 필드(revenue 등)는 채워진 IncomeEquity 를 반환할 수 있다.
-    호출측은 필요한 필드별로 None 여부를 판정해 폴백을 결정한다.
+    account_id 매칭(_parse_income_equity) 후 누락 필드는 한글 계정명 폴백으로 채운다.
+    많은 한국 기업이 핵심 항목(유형자산취득·법인세비용·매출)을 '-표준계정코드 미사용-'
+    (IFRS account_id 없음) 으로 보고해 account_id 매칭이 빗나가기 때문.
     """
     rows = _flatten(fs_data)
     if not rows:
         return None
-    return _parse_income_equity(rows)
+    fin = _parse_income_equity(rows)
+    _name_fallback(fin, fs_data)
+    return fin
+
+
+# ── 한글 계정명 폴백(account_id 미매칭 필드 보완) ───────────────────────────
+# sj_div 제약으로 오탐 방지(매출↔매출원가, 취득↔자기주식취득 등). 온톨로지 매핑이
+# '-표준계정코드 미사용-' 행을 못 잡는 회사를 커버. 갭 기반 분석으로 도출한 규칙.
+def _name_fallback(fin: IncomeEquity, fs_data: dict) -> None:
+    items_by_div = fs_data  # {BS:[], IS:[], CIS:[], CF:[], SCE:[]}
+
+    def _amount_of(item) -> float | None:
+        a = item.get("amount")
+        return a if isinstance(a, (int, float)) and a is not None else None
+
+    def _is_bs(item) -> bool:
+        return item.get("sj_div") == "BS"
+
+    def _is_cf(item) -> bool:
+        return item.get("sj_div") == "CF"
+
+    def _is_income(item) -> bool:
+        return item.get("sj_div") in ("IS", "CIS")
+
+    # capex: CF 투자활동 유형/무형자산 취득(abs 합). 처분·자기주식·사업결합 제외.
+    if fin.capex is None:
+        total = 0.0
+        got = False
+        for item in items_by_div.get("CF", []) or []:
+            nm = (item.get("name") or "").replace(" ", "")
+            if not ("유형자산의취득" in nm or "무형자산의취득" in nm):
+                continue
+            if any(x in nm for x in ("처분", "자기주식", "사업결합", "처분등")):
+                continue
+            a = _amount_of(item)
+            if a is not None:
+                total += abs(a)
+                got = True
+        if got:
+            fin.capex = total
+
+    # revenue: 손익 '매출'/'영업수익' 정확히(매출원가·매출총이익·매출채권 제외).
+    if fin.revenue is None:
+        for item in (items_by_div.get("IS", []) or []) + (items_by_div.get("CIS", []) or []):
+            if not _is_income(item):
+                continue
+            nm = (item.get("name") or "").replace(" ", "")
+            if nm in ("매출", "영업수익", "매출액", "수익"):
+                a = _amount_of(item)
+                if a is not None:
+                    fin.revenue = a
+                    break
+
+    # operating_income: 손익 '영업이익' 정확히.
+    if fin.operating_income is None:
+        for item in (items_by_div.get("IS", []) or []) + (items_by_div.get("CIS", []) or []):
+            if not _is_income(item):
+                continue
+            nm = (item.get("name") or "").replace(" ", "")
+            if nm in ("영업이익", "영업이익(손실)"):
+                a = _amount_of(item)
+                if a is not None:
+                    fin.operating_income = a
+                    break
+
+    # net_income: 손익 '당기순이익' 정확히(지배주주 우선).
+    if fin.net_income is None:
+        for item in (items_by_div.get("IS", []) or []) + (items_by_div.get("CIS", []) or []):
+            if not _is_income(item):
+                continue
+            nm = (item.get("name") or "").replace(" ", "")
+            if "지배" in nm and "순이익" in nm:
+                a = _amount_of(item)
+                if a is not None:
+                    fin.net_income = a
+                    break
+        if fin.net_income is None:
+            for item in (items_by_div.get("IS", []) or []) + (items_by_div.get("CIS", []) or []):
+                if not _is_income(item):
+                    continue
+                nm = (item.get("name") or "").replace(" ", "")
+                if nm in ("당기순이익", "당기순이익(손실)", "순이익"):
+                    a = _amount_of(item)
+                    if a is not None:
+                        fin.net_income = a
+                        break
+
+    # eps: account_id EarningsPerShare(희석 폴백) 또는 '기본주당'/'주당순이익' 이름.
+    if fin.eps is None:
+        for item in (items_by_div.get("IS", []) or []) + (items_by_div.get("CIS", []) or []):
+            if not _is_income(item):
+                continue
+            aid = item.get("account_id") or ""
+            nm = (item.get("name") or "").replace(" ", "")
+            if "EarningsPerShare" in aid and "Diluted" not in aid:
+                a = _amount_of(item)
+                if a is not None:
+                    fin.eps = a
+                    break
+        if fin.eps is None:
+            for item in (items_by_div.get("IS", []) or []) + (items_by_div.get("CIS", []) or []):
+                if not _is_income(item):
+                    continue
+                nm = (item.get("name") or "").replace(" ", "")
+                if ("기본주당" in nm and "순이익" in nm) or nm in ("주당순이익", "주당순손실"):
+                    a = _amount_of(item)
+                    if a is not None:
+                        fin.eps = a
+                        break
+
+    # equity: BS '자본총계'/'지배주주지분'(지배 우선).
+    if fin.equity is None:
+        for item in items_by_div.get("BS", []) or []:
+            if not _is_bs(item):
+                continue
+            nm = (item.get("name") or "").replace(" ", "")
+            if "지배" in nm and "지분" in nm:
+                a = _amount_of(item)
+                if a is not None:
+                    fin.equity = a
+                    break
+        if fin.equity is None:
+            for item in items_by_div.get("BS", []) or []:
+                if not _is_bs(item):
+                    continue
+                nm = (item.get("name") or "").replace(" ", "")
+                if nm in ("자본총계", "총자본", "자본총계(순자산)"):
+                    a = _amount_of(item)
+                    if a is not None:
+                        fin.equity = a
+                        break
+
+    # income_tax: 손익 '법인세'+'비용'(차감전/환급/납부 제외). account_id ifrs*_CurrentTax 등.
+    if fin.income_tax is None:
+        for item in (items_by_div.get("IS", []) or []) + (items_by_div.get("CIS", []) or []):
+            if not _is_income(item):
+                continue
+            nm = (item.get("name") or "").replace(" ", "")
+            if "법인세" not in nm and "소득세" not in nm:
+                continue
+            if any(x in nm for x in ("차감전", "환급", "납부", "미수", "선급", "부채")):
+                continue
+            a = _amount_of(item)
+            if a is not None:
+                fin.income_tax = abs(a)
+                break
+
+    # pretax_income: 손익 '법인세비용차감전순이익' 정확히.
+    if fin.pretax_income is None:
+        for item in (items_by_div.get("IS", []) or []) + (items_by_div.get("CIS", []) or []):
+            if not _is_income(item):
+                continue
+            nm = (item.get("name") or "").replace(" ", "")
+            if nm in ("법인세비용차감전순이익", "법인세비용차감전순이익(손실)", "법인세차감전순이익"):
+                a = _amount_of(item)
+                if a is not None:
+                    fin.pretax_income = a
+                    break
+
+    # interest_expense: 손익 '금융비용'/'이자비용'(account_id ifrs_FinanceCosts), CF '이자지급' 폴백.
+    if fin.interest_expense is None:
+        for item in (items_by_div.get("IS", []) or []) + (items_by_div.get("CIS", []) or []):
+            if not _is_income(item):
+                continue
+            aid = item.get("account_id") or ""
+            nm = (item.get("name") or "").replace(" ", "")
+            if aid == "ifrs_FinanceCosts" or nm in ("금융비용", "이자비용", "금융원가", "지급이자"):
+                a = _amount_of(item)
+                if a is not None:
+                    fin.interest_expense = abs(a)
+                    break
+        if fin.interest_expense is None:
+            for item in items_by_div.get("CF", []) or []:
+                if not _is_cf(item):
+                    continue
+                nm = (item.get("name") or "").replace(" ", "")
+                if "이자지급" in nm or "이자의지급" in nm:
+                    a = _amount_of(item)
+                    if a is not None:
+                        fin.interest_expense = abs(a)
+                        break
+
+    # borrowings: BS 차입금 계정(증가/상환/감소 CF 제외).
+    if fin.borrowings is None:
+        total = 0.0
+        got = False
+        for item in items_by_div.get("BS", []) or []:
+            if not _is_bs(item):
+                continue
+            nm = (item.get("name") or "").replace(" ", "")
+            if not any(k in nm for k in ("단기차입금", "장기차입금", "사채", "유동성장기부채", "차입금")):
+                continue
+            if any(x in nm for x in ("증가", "상환", "감소", "유입")):
+                continue
+            a = _amount_of(item)
+            if a is not None:
+                total += abs(a)
+                got = True
+        if got:
+            fin.borrowings = total
+
+    # cash: BS '현금및현금성자산' 정확히(이름 유사 변형 포함).
+    if fin.cash is None:
+        for item in items_by_div.get("BS", []) or []:
+            if not _is_bs(item):
+                continue
+            nm = (item.get("name") or "").replace(" ", "")
+            if nm in ("현금및현금성자산", "현금및현금성자산등", "현금및예금"):
+                a = _amount_of(item)
+                if a is not None:
+                    fin.cash = a
+                    break
 
 
 def record_gaps(
