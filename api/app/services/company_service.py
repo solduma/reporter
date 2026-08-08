@@ -558,6 +558,28 @@ def timeline_disclosures(db: Session, code: str, begin: date, end: date) -> list
     )
 
 
+# 주요사항보고서(공급계약·수주·유상증자·소송·합병 등) report_nm 부분일치 키워드.
+# event_keywords 의 _COMMON_DISCLOSURE 와 동일 세트 — 도메인 공통 정의를 여기서 재선언하지
+# 않고 import 하면 순환 참조(도메인→서비스)가 생기므로, 서비스에서 직접 쓴다.
+_MAJOR_DISCLOSURE_KW: tuple[str, ...] = (
+    "공급계약", "단일판매", "타법인주식", "유상증자", "전환사채", "소송", "영업정지",
+    "감자", "자기주식", "합병", "분할", "수주",
+)
+
+
+def major_disclosures(db: Session, code: str, limit: int = 50) -> list[Disclosure]:
+    """주요사항보고서 공시 — report_nm 에 주요 키워드가 포함된 최신순 목록."""
+    kw_cond = or_(*(Disclosure.report_nm.ilike(f"%{kw}%") for kw in _MAJOR_DISCLOSURE_KW))
+    return list(
+        db.scalars(
+            select(Disclosure)
+            .where(Disclosure.stock_code == code, kw_cond)
+            .order_by(Disclosure.rcept_dt.desc())
+            .limit(limit)
+        ).all()
+    )
+
+
 def timeline_broadcasts(db: Session, code: str, begin: date, end: date) -> list[Broadcast]:
     return list(
         db.scalars(
