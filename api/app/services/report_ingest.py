@@ -474,6 +474,9 @@ def backfill_capex(db: Session, settings: Settings | None = None, limit: int = 2
             ReportFinancial.period,
             ReportFinancial.depreciation,
             ReportFinancial.capex,
+            ReportFinancial.income_tax,
+            ReportFinancial.pretax_income,
+            ReportFinancial.interest_expense,
         )
         .where(ReportFinancial.report_kind == "annual")
         .order_by(ReportFinancial.stock_code)
@@ -486,14 +489,18 @@ def backfill_capex(db: Session, settings: Settings | None = None, limit: int = 2
             )
         ).all()
     }
-    todo = [(c, p, dep, cap) for c, p, dep, cap in rows if (c, p) not in done]
+    todo = [
+        (c, p, dep, cap, tax, pre, intr)
+        for c, p, dep, cap, tax, pre, intr in rows
+        if (c, p) not in done
+    ]
     if not todo:
         return {"filled": 0, "codes": 0}
 
     # ── 1) 복사 단계: report_financials capex 원값 → financials (DART 0건, 저비용 전량) ──
     copied = 0
     copy_codes: set[str] = set()
-    for code, period, dep, rf_capex in todo:
+    for code, period, dep, rf_capex, _tax, _pre, _intr in todo:
         if rf_capex is None:
             continue
         vals: dict = {"capex": rf_capex / 1e8}
@@ -510,7 +517,13 @@ def backfill_capex(db: Session, settings: Settings | None = None, limit: int = 2
         db.commit()
 
     # ── 2) DART 단계: report_financials 에도 capex 없는 행만 보충 (limit 제한) ──
-    dart_pending = [(c, p, dep) for c, p, dep, cap in todo if cap is None][:limit]
+    # 이미 DART 를 호출했으나 capex 만 비어있는 행(income_tax/pretax/interest 는 채워짐)은
+    # 재시도해도 같은 응답이 돌아오므로 skip → 16,921 미시도 행으로 전진.
+    dart_pending = [
+        (c, p, dep)
+        for c, p, dep, cap, tax, pre, intr in todo
+        if cap is None and tax is None and pre is None and intr is None
+    ][:limit]
     filled = copied
     quota_hit = False
     if dart_pending:
