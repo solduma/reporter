@@ -57,7 +57,7 @@ def test_status_not_loaded(fake_launchctl):
     assert st["api"].loaded is False
     assert st["api"].running is False
     assert st["api"].pid is None
-    assert st["api"].url == "http://127.0.0.1:8010"
+    assert st["api"].url == "http://127.0.0.1:38010"
 
 
 def test_status_loaded_and_running(fake_launchctl):

@@ -3,7 +3,7 @@
 // 브라우저가 same-origin /api/... 를 호출하면 Next 서버가 loopback FastAPI 로 프록시한다.
 // 배열 형태 rewrites 는 afterFiles 단계라 Next 소유 라우트(/api/login, /api/logout)가
 // 먼저 매칭되고, 나머지 /api/* 만 FastAPI 로 넘어간다.
-const API_PROXY_TARGET = process.env.API_PROXY_TARGET ?? "http://127.0.0.1:8010";
+const API_PROXY_TARGET = process.env.API_PROXY_TARGET ?? "http://127.0.0.1:38010";
 
 const nextConfig = {
   reactStrictMode: true,

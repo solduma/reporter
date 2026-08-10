@@ -156,7 +156,7 @@ _wait_http() {
 log "헬스체크"
 fail=0
 # API 부팅이 ~3분까지 걸려 120회(4분)까지 폴링. 정상 응답 시 즉시 반환.
-[[ $WANT_API -eq 1 ]] && { _wait_http "api" "http://127.0.0.1:8010/api/screener?limit=1" "200" 120 || fail=1; }
+[[ $WANT_API -eq 1 ]] && { _wait_http "api" "http://127.0.0.1:38010/api/screener?limit=1" "200" 120 || fail=1; }
 # web 은 로그인 게이트로 307 리다이렉트가 정상(200 도 허용). 60회(2분).
 [[ $WANT_WEB -eq 1 ]] && { _wait_http "web" "http://127.0.0.1:43000/" "200 307" 60 || fail=1; }
 if [[ $WANT_WORKER -eq 1 ]]; then

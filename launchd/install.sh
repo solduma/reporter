@@ -55,7 +55,7 @@ JOBS=(
 # 상시 실행 서버(웹/API) — 예약(cron) 잡과 달리 RunAtLoad+KeepAlive 로 항상 떠 있게 한다.
 # label 접미사 | 서브디렉터리 | 실행커맨드(공백구분) | 사전조건파일(없으면 등록 스킵)
 SERVERS=(
-  "server.api|api|uv run uvicorn app.main:app --host 127.0.0.1 --port 8010|"
+  "server.api|api|uv run uvicorn app.main:app --host 127.0.0.1 --port 38010|"
   "server.web|web|pnpm start -p 43000|web/.next/BUILD_ID"
 )
 

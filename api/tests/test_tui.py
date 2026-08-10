@@ -50,7 +50,7 @@ def _stub_services(monkeypatch):
     class _StubServerControl:
         def status(self):
             return [
-                ServerStatus("api", "API", 8010, loaded=True, running=True, pid=111),
+                ServerStatus("api", "API", 38010, loaded=True, running=True, pid=111),
                 ServerStatus("web", "WEB", 43000, loaded=True, running=True, pid=222),
             ]
 
@@ -373,7 +373,7 @@ async def test_server_buttons_and_status(monkeypatch):
 
         def status(self):
             return [
-                ServerStatus("api", "API", 8010, loaded=True, running=True, pid=111),
+                ServerStatus("api", "API", 38010, loaded=True, running=True, pid=111),
                 ServerStatus("web", "WEB", 43000, loaded=True, running=True, pid=222),
             ]
 

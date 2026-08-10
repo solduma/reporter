@@ -11,12 +11,12 @@
 ## 런타임 포트
 | 서비스 | 실행 | 포트 |
 |---|---|---|
-| API | launchd `com.reporter.server.api` (uvicorn 직접 실행) | 8010 |
+| API | launchd `com.reporter.server.api` (uvicorn 직접 실행) | 38010 |
 | web(프로덕션) | launchd `com.reporter.server.web` (`pnpm start`, 로그인 게이트) | 43000 |
 | web(로컬 검수용) | `LOGIN_PASSWORD= pnpm run start -p 43100` (게이트 열림) | 43100 |
 | worker | docker `reporter-worker` (APScheduler) | — |
 
-web은 API를 `127.0.0.1:8010`으로 프록시(`web/next.config.mjs`). `.env`에 라이브 자격증명(DART/Telegram/KIS/Ollama) — worker 재빌드/배치는 실동작이므로 주의.
+web은 API를 `127.0.0.1:38010`으로 프록시(`web/next.config.mjs`). `.env`에 라이브 자격증명(DART/Telegram/KIS/Ollama) — worker 재빌드/배치는 실동작이므로 주의.
 
 ## 배포 (대상별 상이)
 - **worker**: 코드가 이미지에 내장 → **재빌드 필수**. `cd infra && docker compose --env-file .env up -d --build reporter-worker`.
