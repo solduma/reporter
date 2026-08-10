@@ -4,7 +4,9 @@
 Centralized on_key filter, Option-as-Meta detection, lock model,
 subprocess batch orchestration, audit, signal handling.
 
-Run: cd api && uv run reporter-tui
+Run: cd api && .venv/bin/reporter-tui
+    (uv run reporter-tui 도 가능하나, 종료 후 uv run 부모 프로세스가 좀비로 남아
+     uv env lock을 잡고 launchd API 부팅을 블록할 수 있어 .venv 직접 실행 권장)
 """
 
 from __future__ import annotations
