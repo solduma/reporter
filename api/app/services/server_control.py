@@ -71,7 +71,7 @@ class ServerSpec:
 
 
 SERVERS: dict[str, ServerSpec] = {
-    "api": ServerSpec(key="api", label="API", port=8010),
+    "api": ServerSpec(key="api", label="API", port=38010),
     "web": ServerSpec(key="web", label="WEB", port=43000),
 }
 

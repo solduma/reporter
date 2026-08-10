@@ -5,7 +5,7 @@ import { AUTH_COOKIE, signToken } from "@/lib/auth";
 const PASSWORD = process.env.LOGIN_PASSWORD;
 const MAX_AGE = 60 * 60 * 24 * 30; // 30일
 // 로그인 서버 핸들러는 same-origin rewrite 대상이 아니라 API 를 직접 호출한다.
-const API_TARGET = process.env.API_PROXY_TARGET ?? "http://127.0.0.1:8010";
+const API_TARGET = process.env.API_PROXY_TARGET ?? "http://127.0.0.1:38010";
 
 // 로그인 직후 지수 시세·일봉 캐시를 백그라운드로 데운다(대시보드 첫 로드의 외부 왕복 제거).
 // fire-and-forget: 실패해도 로그인엔 영향 없음.

@@ -31,7 +31,7 @@ docker compose ps         # 3개 healthy 확인
 cd api
 cp .env.example .env      # 인프라 포트 + OLLAMA_API_KEY 등 채우기
 uv sync
-uv run uvicorn app.main:app --port 8010 --reload
+uv run uvicorn app.main:app --port 38010 --reload
 ```
 
 - `POST /api/admin/ingest?date=YY.MM.DD` — 당일(또는 지정일) 종목·산업 리포트 크롤→PDF(MinIO)→GLM 요약·센티먼트→Postgres 적재 + 시황 브리핑 생성 + 브로드캐스트 스풀 흡수. 수동 백필용(정기 수집은 워커가 담당).
@@ -77,7 +77,7 @@ cd api && uv run reporter-tui
 ```
 
 - **상태 패널**: 테이블 행수(reports/universe/growth/…)·최신 스냅샷 날짜 (`r` 새로고침).
-- **서버 제어**: API(:8010)·WEB(:43000) 은 **launchd 서비스**(`com.reporter.server.*`)로 상시
+- **서버 제어**: API(:38010)·WEB(:43000) 은 **launchd 서비스**(`com.reporter.server.*`)로 상시
   실행·유지된다(RunAtLoad+KeepAlive, 재부팅 후 자동). TUI 는 그 서비스의 상태 모니터링(로드/
   실행/PID·URL)과 **재기동**(launchctl kickstart)만 담당한다 — 직접 프로세스를 띄우지 않으므로
   TUI 를 꺼도 서버는 유지된다. 서비스 등록: `./launchd/install.sh` (web 은 `pnpm build` 필요).
@@ -92,7 +92,7 @@ cd api && uv run reporter-tui
 
 ```bash
 cd web
-cp .env.local.example .env.local   # NEXT_PUBLIC_API_BASE=http://127.0.0.1:8010
+cp .env.local.example .env.local   # NEXT_PUBLIC_API_BASE=http://127.0.0.1:38010
 pnpm install
 pnpm dev -p 43000                   # http://localhost:43000
 ```
