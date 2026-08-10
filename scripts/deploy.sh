@@ -130,12 +130,16 @@ deploy_web() {
 [[ $WANT_WEB -eq 1 ]]    && deploy_web
 
 # ── 헬스체크 ─────────────────────────────────────────────────────────────
-# launchctl kickstart 후 서비스(특히 web=pnpm start)가 뜨는 데 수 초 걸린다. 고정 sleep 은
-# 타이밍에 취약해 정상 배포도 오탐 실패로 표시됐다 → 최대 ~30초 재시도 폴링으로 바꾼다.
-# want_codes: 성공으로 인정할 HTTP 코드(공백구분). 하나라도 맞으면 OK.
+# launchctl kickstart 후 서비스가 뜨는 데 수 초~수 분 걸린다. 고정 sleep 은 타이밍에 취약해
+# 정상 배포도 오탐 실패로 표시됐다 → 재시도 폴링으로 바꾼다. 서비스가 응답하면 즉시 반환(빠른
+# 부팅은 빨리 끝남). want_codes: 성공으로 인정할 HTTP 코드(공백구분). 하나라도 맞으면 OK.
+#
+# API(uvicorn)는 lifespan(init_db·DART 구성·캐시 워밍) + uv run env 확인 + worker 동시
+# init_db 의 advisory lock 경합으로 부팅이 ~3분까지 걸린다 → 4분(120회×2초) 여유.
+# web(pnpm start)은 Next 부팅으로 ~1분 → 2분(60회×2초) 여유.
 _wait_http() {
-  local label="$1" url="$2" want_codes="$3" code
-  for _ in $(seq 1 15); do  # 2초 x 15 = 최대 30초
+  local label="$1" url="$2" want_codes="$3" tries="${4:-15}" code
+  for _ in $(seq 1 "$tries"); do  # 2초 간격, tries 회
     code="$(curl -s -m 10 -o /dev/null -w '%{http_code}' "$url" 2>/dev/null || echo 000)"
     for want in $want_codes; do
       if [[ "$code" == "$want" ]]; then
@@ -151,9 +155,10 @@ _wait_http() {
 
 log "헬스체크"
 fail=0
-[[ $WANT_API -eq 1 ]] && { _wait_http "api" "http://127.0.0.1:8010/api/screener?limit=1" "200" || fail=1; }
-# web 은 로그인 게이트로 307 리다이렉트가 정상(200 도 허용).
-[[ $WANT_WEB -eq 1 ]] && { _wait_http "web" "http://127.0.0.1:43000/" "200 307" || fail=1; }
+# API 부팅이 ~3분까지 걸려 120회(4분)까지 폴링. 정상 응답 시 즉시 반환.
+[[ $WANT_API -eq 1 ]] && { _wait_http "api" "http://127.0.0.1:8010/api/screener?limit=1" "200" 120 || fail=1; }
+# web 은 로그인 게이트로 307 리다이렉트가 정상(200 도 허용). 60회(2분).
+[[ $WANT_WEB -eq 1 ]] && { _wait_http "web" "http://127.0.0.1:43000/" "200 307" 60 || fail=1; }
 if [[ $WANT_WORKER -eq 1 ]]; then
   status="$(docker inspect -f '{{.State.Status}}' reporter-worker 2>/dev/null || echo missing)"
   [[ "$status" == "running" ]] && log "worker OK ($status)" || { warn "worker 상태 이상 ($status)"; fail=1; }
