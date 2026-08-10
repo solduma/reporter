@@ -153,74 +153,105 @@ def _name_fallback(fin: IncomeEquity, fs_data: dict) -> None:
                     fin.operating_income = a
                     break
 
-    # net_income: 손익 '당기순이익' 정확히(지배주주 우선).
+    # net_income: 손익 순이익(지배주주·연결·당기 우선; 차감전/공제전/주당 제외).
     if fin.net_income is None:
-        for item in (items_by_div.get("IS", []) or []) + (items_by_div.get("CIS", []) or []):
-            if not _is_income(item):
-                continue
-            nm = (item.get("name") or "").replace(" ", "")
-            if "지배" in nm and "순이익" in nm:
-                a = _amount_of(item)
-                if a is not None:
-                    fin.net_income = a
-                    break
+        def _ni_match(nm: str) -> bool:
+            if any(x in nm for x in ("차감전", "공제전", "주당", "EarningsPerShare")):
+                return False
+            if "순이익" not in nm and "순손실" not in nm:
+                return False
+            return any(k in nm for k in ("지배", "연결당기", "당기순", "순이익", "순손실"))
+
+        for pref in ("지배", "연결당기", "당기순"):
+            for item in (items_by_div.get("IS", []) or []) + (items_by_div.get("CIS", []) or []):
+                if not _is_income(item):
+                    continue
+                nm = (item.get("name") or "").replace(" ", "")
+                if pref in nm and _ni_match(nm):
+                    a = _amount_of(item)
+                    if a is not None:
+                        fin.net_income = a
+                        break
+            if fin.net_income is not None:
+                break
         if fin.net_income is None:
             for item in (items_by_div.get("IS", []) or []) + (items_by_div.get("CIS", []) or []):
                 if not _is_income(item):
                     continue
                 nm = (item.get("name") or "").replace(" ", "")
-                if nm in ("당기순이익", "당기순이익(손실)", "순이익"):
+                if _ni_match(nm) and nm in ("당기순이익", "당기순이익(손실)", "연결당기순이익",
+                                            "연결당기순이익(손실)", "순이익", "당기순손실"):
                     a = _amount_of(item)
                     if a is not None:
                         fin.net_income = a
                         break
 
-    # eps: account_id EarningsPerShare(희석 폴백) 또는 '기본주당'/'주당순이익' 이름.
+    # eps: account_id EarningsPerShare/EarningsLossPerShare(기본 우선), 희석 폴백.
+    # DART는 BasicEarningsLossPerShare(ContinuingOperations) 처럼 'EarningsPerShare' 가 아닌
+    # 'EarningsLossPerShare' 태그도 쓴다. 기본이 없으면 희석으로 폴백.
     if fin.eps is None:
         for item in (items_by_div.get("IS", []) or []) + (items_by_div.get("CIS", []) or []):
             if not _is_income(item):
                 continue
             aid = item.get("account_id") or ""
             nm = (item.get("name") or "").replace(" ", "")
-            if "EarningsPerShare" in aid and "Diluted" not in aid:
+            is_basic_aid = ("EarningsPerShare" in aid or "EarningsLossPerShare" in aid) and "Diluted" not in aid
+            is_basic_nm = ("기본" in nm and "주당" in nm and "희석" not in nm) or nm in ("주당순이익", "주당순손실")
+            if is_basic_aid or is_basic_nm:
                 a = _amount_of(item)
                 if a is not None:
                     fin.eps = a
                     break
-        if fin.eps is None:
+        if fin.eps is None:  # 기본 없으면 희석·기본/희석 통합 행으로 폴백
             for item in (items_by_div.get("IS", []) or []) + (items_by_div.get("CIS", []) or []):
                 if not _is_income(item):
                     continue
+                aid = item.get("account_id") or ""
                 nm = (item.get("name") or "").replace(" ", "")
-                if ("기본주당" in nm and "순이익" in nm) or nm in ("주당순이익", "주당순손실"):
+                if "DilutedEarnings" in aid or ("기본" in nm and "희석" in nm and "주당" in nm):
                     a = _amount_of(item)
                     if a is not None:
                         fin.eps = a
                         break
 
-    # equity: BS '자본총계'/'지배주주지분'(지배 우선).
+    # equity: BS 총계(지배주주지분·자본총계) 우선, 없으면 자본 구성요소 합산(부호 유지).
+    # 총계 행이 없는 회사는 자본금+자본잉여금+이익잉여금+기타자본+자본조정 합이 자본총계.
     if fin.equity is None:
         for item in items_by_div.get("BS", []) or []:
             if not _is_bs(item):
                 continue
             nm = (item.get("name") or "").replace(" ", "")
-            if "지배" in nm and "지분" in nm:
+            if ("지배" in nm and "지분" in nm) or nm in ("자본총계", "총자본", "자본총계(순자산)"):
                 a = _amount_of(item)
                 if a is not None:
                     fin.equity = a
                     break
-        if fin.equity is None:
-            for item in items_by_div.get("BS", []) or []:
-                if not _is_bs(item):
-                    continue
-                nm = (item.get("name") or "").replace(" ", "")
-                if nm in ("자본총계", "총자본", "자본총계(순자산)"):
-                    a = _amount_of(item)
-                    if a is not None:
-                        fin.equity = a
-                        break
+    if fin.equity is None:
+        # 자본 구성요소(account_id 기준) 부호 합산. 차입·부채 계정은 제외.
+        _EQ_AIDS = {"ifrs-full_IssuedCapital", "dart_IssuedCapitalOfCommonStock", "dart_ContributedEquity",
+                    "dart_CapitalSurplus", "dart_OtherCapitalSurplus",
+                    "dart_ElementsOfOtherStockholdersEquity", "dart_OtherCapitalAdjustments"}
+        _EQ_NAMES = ("자본금", "자본잉여금", "이익잉여금", "미처분이익잉여금", "결손금",
+                     "기타자본", "기타자본구성요소", "기타자본조정", "자본조정")
+        total = 0.0
+        got = False
+        for item in items_by_div.get("BS", []) or []:
+            if not _is_bs(item):
+                continue
+            nm = (item.get("name") or "").replace(" ", "")
+            aid = item.get("account_id") or ""
+            if aid not in _EQ_AIDS and not any(nm == n or nm.startswith(n) for n in _EQ_NAMES):
+                continue
+            if "기초" in nm:  # 기초자본(기수원) 제외
+                continue
+            a = _amount_of(item)
+            if a is not None:
+                total += a  # 부호 유지(적자 음수)
+                got = True
+        if got:
+            fin.equity = total
 
-    # income_tax: 손익 '법인세'+'비용'(차감전/환급/납부 제외). account_id ifrs*_CurrentTax 등.
+    # income_tax: 손익 '법인세'+'비용'(차감전/환급/납부/자산 제외). account_id ifrs*_CurrentTax 등.
     if fin.income_tax is None:
         for item in (items_by_div.get("IS", []) or []) + (items_by_div.get("CIS", []) or []):
             if not _is_income(item):
@@ -228,20 +259,20 @@ def _name_fallback(fin: IncomeEquity, fs_data: dict) -> None:
             nm = (item.get("name") or "").replace(" ", "")
             if "법인세" not in nm and "소득세" not in nm:
                 continue
-            if any(x in nm for x in ("차감전", "환급", "납부", "미수", "선급", "부채")):
+            if any(x in nm for x in ("차감전", "환급", "납부", "미수", "선급", "부채", "자산")):
                 continue
             a = _amount_of(item)
             if a is not None:
                 fin.income_tax = abs(a)
                 break
 
-    # pretax_income: 손익 '법인세비용차감전순이익' 정확히.
+    # pretax_income: 손익 '법인세차감전/공제전 순이익'(포함 매칭, 변형 대응).
     if fin.pretax_income is None:
         for item in (items_by_div.get("IS", []) or []) + (items_by_div.get("CIS", []) or []):
             if not _is_income(item):
                 continue
             nm = (item.get("name") or "").replace(" ", "")
-            if nm in ("법인세비용차감전순이익", "법인세비용차감전순이익(손실)", "법인세차감전순이익"):
+            if ("차감전" in nm or "공제전" in nm) and "순이익" in nm:
                 a = _amount_of(item)
                 if a is not None:
                     fin.pretax_income = a
@@ -315,16 +346,23 @@ def record_gaps(
     """파싱 실패한 필드를 fs_parse_gaps 에 upsert — 온톨로지 매핑 보완 워크플로우용.
 
     fin 이 None(데이터 없음)이면 field='__all__' no_fs/no_rows 로 기록. 그 외엔
-    _PARSE_FIELDS 중 None 인 필드를 기록. 이미 같은 갭이 있으면 updated_at 갱신.
+    _PARSE_FIELDS 중 None 인 필드를 기록, **채워진(회복된) 필드의 과거 갭 기록은 삭제**한다
+    — 테이블이 항상 '현재 미해결 갭' 만 담도록(과거 실패가 회복 후에도 누적되는 스테일 방지).
     폴백(fallback)은 호출측이 지정(dart|skip) — 이 필드를 어떻게 메웠는지.
     """
     if fin is None:
         _upsert_gap(db, stock_code, period, fs_div, "__all__", "", "", "no_rows", fallback)
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
         return
     any_gap = False
+    resolved: list[str] = []
     for field in _PARSE_FIELDS:
         val = getattr(fin, field, None)
         if val is not None:
+            resolved.append(field)  # 회복 — 과거 갭 기록이 있으면 삭제
             continue
         any_gap = True
         expected = _FIELD_AIDS.get(field, set())
@@ -334,7 +372,17 @@ def record_gaps(
         # found 가 있는데 파싱 실패면 amount 가 None 이었을 가능(거의 안 됨).
         reason = "no_match" if not found else "amount_none"
         _upsert_gap(db, stock_code, period, fs_div, field, expected_str, found, reason, fallback)
-    if any_gap:
+    # 회복된 필드의 과거 갭 기록 삭제 — 현재 상태 반영.
+    if resolved:
+        db.execute(
+            FsParseGap.__table__.delete().where(
+                FsParseGap.stock_code == stock_code,
+                FsParseGap.period == period,
+                FsParseGap.fs_div == fs_div,
+                FsParseGap.field.in_(resolved),
+            )
+        )
+    if any_gap or resolved:
         try:
             db.commit()
         except Exception:
