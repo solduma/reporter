@@ -283,7 +283,12 @@ export interface ScreenerQuery {
   mktcapMax?: number;
   mktcapMin?: number;
   revYoyMin?: number;
+  opYoyMin?: number;
+  revQoqMin?: number;
+  opQoqMin?: number;
   opGrowth?: ScreenerOpGrowth;
+  opStatus?: string;
+  netStatus?: string;
   momMin?: number;
   momMax?: number;
   liqMin?: number;
@@ -314,7 +319,12 @@ export function fetchScreener(query: ScreenerQuery): Promise<ScreenerResult> {
   set("mktcap_max", query.mktcapMax);
   set("mktcap_min", query.mktcapMin);
   set("rev_yoy_min", query.revYoyMin);
+  set("op_yoy_min", query.opYoyMin);
+  set("rev_qoq_min", query.revQoqMin);
+  set("op_qoq_min", query.opQoqMin);
   set("op_growth", query.opGrowth);
+  set("op_status", query.opStatus);
+  set("net_status", query.netStatus);
   set("mom_min", query.momMin);
   set("mom_max", query.momMax);
   set("liq_min", query.liqMin);

@@ -74,6 +74,9 @@ _COLUMN_MIGRATIONS = (
     "ALTER TABLE related_company ADD COLUMN IF NOT EXISTS sub_net_profit BIGINT",
     # DART 표준산업분류코드(corpCode.xml induty_code) — 무료 산업분류 → GICS 2차 anchor.
     "ALTER TABLE corp_code_map ADD COLUMN IF NOT EXISTS induty_code VARCHAR(16)",
+    # 스크리너 QoQ 필터(전 분기 대비 매출·영업이익 성장률).
+    "ALTER TABLE growth_metric ADD COLUMN IF NOT EXISTS revenue_qoq DOUBLE PRECISION",
+    "ALTER TABLE growth_metric ADD COLUMN IF NOT EXISTS op_qoq DOUBLE PRECISION",
 )
 
 # 데이터 정합성 정규화(멱등) — 스키마가 아닌 값 보정. init_db 마다 실행되나 조건절이 이미 보정된

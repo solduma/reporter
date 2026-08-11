@@ -618,6 +618,9 @@ class GrowthMetric(Base):
     op_yoy: Mapped[float | None] = mapped_column(Float)
     op_turnaround: Mapped[bool] = mapped_column(default=False)
     op_status: Mapped[str | None] = mapped_column(String(8))  # 흑자전환|흑자지속|적자전환|적자지속
+    # QoQ: 전 분기 대비 분기 성장률. 스크리너에서 "30%↑" 같은 가파른 성장 필터용.
+    revenue_qoq: Mapped[float | None] = mapped_column(Float)
+    op_qoq: Mapped[float | None] = mapped_column(Float)
     # 영업이익률 변화(당기-직전동기, 비율). 영업이익 성장 축(상태+마진 pp) + 흑전 규모.
     op_margin_delta: Mapped[float | None] = mapped_column(Float)
     eps_yoy: Mapped[float | None] = mapped_column(Float)  # 주당순이익 YoY(스냅샷 표시·PEG 산출)
