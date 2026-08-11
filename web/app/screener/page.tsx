@@ -26,7 +26,7 @@ import type {
 
 import styles from "./page.module.css";
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 20;
 const EOK = 100_000_000; // 1억 = 1e8원
 
 interface Preset<T> {
@@ -102,12 +102,19 @@ const LIQ_PRESETS: Preset<number>[] = [
   { label: "100억", value: 10_000_000_000 },
 ];
 
-// undefined = 하한 없음 → rev_yoy_min 생략. 값은 비율(0.15 = +15%).
+// undefined = 하한 없음 → rev_yoy_min 생략. 값은 비율(0.1 = +10%). 10% 단위.
 const REV_YOY_PRESETS: Preset<number | undefined>[] = [
   { label: "없음", value: undefined },
-  { label: "+15%", value: 0.15 },
+  { label: "+10%", value: 0.1 },
+  { label: "+20%", value: 0.2 },
   { label: "+30%", value: 0.3 },
+  { label: "+40%", value: 0.4 },
   { label: "+50%", value: 0.5 },
+  { label: "+60%", value: 0.6 },
+  { label: "+70%", value: 0.7 },
+  { label: "+80%", value: 0.8 },
+  { label: "+90%", value: 0.9 },
+  { label: "+100%", value: 1.0 },
 ];
 
 // undefined = 조건 없음 → op_growth 생략.
@@ -120,20 +127,22 @@ const OP_GROWTH_PRESETS: Preset<ScreenerOpGrowth | undefined>[] = [
 // 영업이익 YoY 최소 — 매출과 동일 프리셋.
 const OP_YOY_PRESETS: Preset<number | undefined>[] = REV_YOY_PRESETS;
 
-// QoQ 프리셋 — 분기 성장률.
+// QoQ 프리셋 — 분기 성장률. YoY와 동일하게 10% 단위.
 const REV_QOQ_PRESETS: Preset<number | undefined>[] = [
   { label: "없음", value: undefined },
   { label: "+10%", value: 0.1 },
   { label: "+20%", value: 0.2 },
   { label: "+30%", value: 0.3 },
-];
-
-const OP_QOQ_PRESETS: Preset<number | undefined>[] = [
-  { label: "없음", value: undefined },
-  { label: "+30%", value: 0.3 },
+  { label: "+40%", value: 0.4 },
   { label: "+50%", value: 0.5 },
+  { label: "+60%", value: 0.6 },
+  { label: "+70%", value: 0.7 },
+  { label: "+80%", value: 0.8 },
+  { label: "+90%", value: 0.9 },
   { label: "+100%", value: 1.0 },
 ];
+
+const OP_QOQ_PRESETS: Preset<number | undefined>[] = REV_QOQ_PRESETS;
 
 // 손익 상태 필터(흑자전환·적자전환 등).
 type ProfitStatusKey = "" | "흑자전환" | "흑자지속" | "적자전환" | "적자지속";
