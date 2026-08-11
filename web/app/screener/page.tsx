@@ -541,20 +541,24 @@ function ScreenerContent() {
 
   // 전략 전환: 정렬·페이지 리셋 + 전략 전용 필터 초기화. 안 그러면 숨겨진 필터가 다른 전략에
   // 새어 들어간다(예: 성장 탭의 rev_yoy_min 이 가치 결과를 걸러버림).
+  // 종합(overall)과 성장(growth)은 같은 성장 필터를 노출하므로, 둘 사이 전환 시엔 필터를 보존한다.
+  const isGrowthFamily = (s: ScreenerStrategy) => s === "growth" || s === "overall";
   function changeStrategy(next: ScreenerStrategy) {
     setStrategy(next);
     setSort("score");
     setOffset(0);
-    // 성장 전용
-    setRevYoyMin(undefined);
-    setOpYoyMin(undefined);
-    setRevQoqMin(undefined);
-    setOpQoqMin(undefined);
-    setOpGrowth(undefined);
-    setOpStatus("");
-    setNetStatus("");
-    setMom("none");
-    setCoverage("none");
+    // 성장·종합 전용: overall↔growth 전환은 필터 보존, 그 외 전환은 초기화.
+    if (!(isGrowthFamily(next) && isGrowthFamily(strategy))) {
+      setRevYoyMin(undefined);
+      setOpYoyMin(undefined);
+      setRevQoqMin(undefined);
+      setOpQoqMin(undefined);
+      setOpGrowth(undefined);
+      setOpStatus("");
+      setNetStatus("");
+      setMom("none");
+      setCoverage("none");
+    }
     // 가치 전용
     setPerMax(undefined);
     setPbrMax(undefined);
@@ -575,7 +579,12 @@ function ScreenerContent() {
     market !== "KOSDAQ",
     sector !== "",
     revYoyMin !== undefined,
+    opYoyMin !== undefined,
+    revQoqMin !== undefined,
+    opQoqMin !== undefined,
     opGrowth !== undefined,
+    opStatus !== "",
+    netStatus !== "",
     mom !== "none",
     coverage !== "none",
     perMax !== undefined,
@@ -732,8 +741,8 @@ function ScreenerContent() {
           {renderChips(LIQ_PRESETS, liqMin, setLiqMin)}
         </div>
 
-        {/* 성장 전략 전용 필터 */}
-        {strategy === "growth" ? (
+        {/* 성장·종합 전략 필터: 종합 탭에서도 YoY/QoQ/흑자·적자전환 조건을 쓸 수 있게 노출 */}
+        {strategy === "growth" || strategy === "overall" ? (
           <>
             <div className={styles.filterGroup}>
               <span className={styles.filterLabel}>매출 성장률(YoY) 최소</span>
