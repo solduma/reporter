@@ -23,7 +23,7 @@ from reporter import sector_etf
 # compute_flows 는 섹터 ETF ~17종(KR/US 각각)의 일봉을 외부 조회해 ~1초 걸린다. 섹터 ETF 는
 # PriceCandle 에 저장돼 있지 않고, flow 스코어는 일봉 기반이라 분 단위로 안 바뀐다. /analysis·
 # /api/sectors/flow 가 매 요청 재조회하지 않도록 시장별로 프로세스 인메모리 TTL 캐시를 둔다.
-_FLOW_TTL_S = 300.0  # 5분
+_FLOW_TTL_S = 600.0  # 10분 — 주기 워머(5분)와 병행해 실효 freshness는 5분 유지, 워머 실패 시 여유
 _flow_cache: dict[str, tuple[float, list]] = {}
 _flow_lock = threading.Lock()
 

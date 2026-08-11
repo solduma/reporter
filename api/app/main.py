@@ -47,22 +47,35 @@ async def lifespan(app: FastAPI):
     # KIS 실시간 시세 WebSocket 상시 연결(키 없으면 자동 비활성).
     realtime_manager.start()
     # 섹터·지수 flow 캐시 워밍 — 종목 analysis·스크리너 첫 요청이 cold ETF 봉 읽기(수백ms~수초)를
-    # 물지 않도록 기동 직후 백그라운드 스레드로 데운다(startup 블로킹 방지). 실패는 무시(다음
-    # 온디맨드 호출이 채움).
-    threading.Thread(target=_warm_flow_cache, name="flow-warm", daemon=True).start()
+    # 물지 않도록 기동 직후 즉시 1회 + 이후 5분마다 백그라운드로 데운다. TTL(600s)보다 짧은 주기로
+    # 캐시가 만료되는 순간이 없어, 5분 TTL 만료 직후 첫 요청의 콜드 스파이크를 원천 차단한다.
+    # 실패는 무시(다음 주기가 재시도, 온디맨드 호출도 폴백).
+    flow_warm_stop = threading.Event()
+    threading.Thread(
+        target=_warm_flow_cache_periodically,
+        args=(flow_warm_stop,),
+        name="flow-warm-periodic",
+        daemon=True,
+    ).start()
     try:
         yield
     finally:
+        flow_warm_stop.set()
         await realtime_manager.stop()
 
 
-def _warm_flow_cache() -> None:
+_FLOW_WARM_INTERVAL_S = 300.0  # 5분 — _FLOW_TTL_S(600s)보다 짧아 항상 데운 상태 유지
+
+
+def _warm_flow_cache_periodically(stop_event: threading.Event) -> None:
     from app.services import sector_flow
 
-    try:
-        sector_flow.warm_cache()
-    except Exception as e:  # 워밍 실패는 치명적 아님(온디맨드가 폴백)
-        logging.getLogger(__name__).warning("flow cache warm failed: %s", e)
+    while not stop_event.is_set():
+        try:
+            sector_flow.warm_cache()
+        except Exception as e:  # 워밍 실패는 치명적 아님(온디맨드가 폴백)
+            logging.getLogger(__name__).warning("flow cache warm failed: %s", e)
+        stop_event.wait(_FLOW_WARM_INTERVAL_S)
 
 
 app = FastAPI(title="reporter web API", lifespan=lifespan)
