@@ -28,6 +28,7 @@ from app.adapters.market import naver_quote as quote
 from app.config import Settings, get_settings
 from app.db.models import (
     CorpCodeMap,
+    Disclosure,
     Financial,
     FinancialStatement,
     FinancialStatementCache,
@@ -280,65 +281,59 @@ def _upsert_financial(db: Session, code: str, period: str, fs_div: str = "CFS", 
 
 
 def _universe_codes(db: Session) -> list[str]:
+    """공시일 내림차순 → 시총 내림차순. 최근 공시한 종목이 먼저 백필된다."""
     as_of = universe_ingest.latest_snapshot_date(db)
     if as_of is None:
         return []
-    # 시총 내림차순(대형주 우선) — 대형주가 DART 예산 안에서 확실히 처리되도록.
-    # 과거 오름차순(소형주 우선)이면 대형주가 배치 끝에 밀려 예산 소진 시 미처리.
+    latest_disc = (
+        select(Disclosure.stock_code, func.max(Disclosure.rcept_dt).label("latest_disc"))
+        .group_by(Disclosure.stock_code)
+        .subquery()
+    )
     return list(
         db.scalars(
-            select(UniverseSnapshot.stock_code).where(
+            select(UniverseSnapshot.stock_code)
+            .outerjoin(latest_disc, latest_disc.c.stock_code == UniverseSnapshot.stock_code)
+            .where(
                 UniverseSnapshot.snapshot_date == as_of,
                 UniverseSnapshot.stock_type == "stock",
                 ~UniverseSnapshot.stock_name.op("~")(r"우[A-C]?$"),
-            ).order_by(UniverseSnapshot.market_cap.desc())
+            )
+            .order_by(latest_disc.c.latest_disc.desc().nullslast(), UniverseSnapshot.market_cap.desc())
         ).all()
     )
 
 
 def _done_codes(db: Session) -> set[str]:
-    """sync_state 마킹 + 최근 분기 재무 데이터가 있는 종목만 '완료'로 본다.
+    """sync_state 마킹 + 최근 6개월 내 revenue 있는 종목만 '완료'로 본다.
 
-    sync_state에 있어도 최근 분기(최신 2분기)의 revenue가 None이면 미완료 → 재처리.
+    sync_state에 있어도 최근 분기의 revenue가 None이면 미완료 → 재처리.
     빈 결과를 done으로 마킹해 최신 분기를 못 채우는 회귀 방지.
+    SQL 조인으로 일괄 처리(대량 IN 파라미터 회피).
     """
-    marked = set(
-        db.scalars(select(SyncState.stock_code).where(SyncState.domain == _BACKFILL_DOMAIN)).all()
-    )
-    if not marked:
-        return set()
-    # 최근 2분기 중 revenue가 있는 종목만 진짜 완료
-    recent = set(
-        db.scalars(
-            select(Financial.stock_code)
-            .where(
-                Financial.stock_code.in_(marked),
-                Financial.is_estimate.is_(False),
-                Financial.revenue.is_not(None),
-            )
-            .order_by(Financial.period.desc())
-            .distinct()
-        ).all()
-    )
-    # 최신 분기가 최근 6개월 이내인지 확인 — 너무 오래된 데이터도 미완료
-    from datetime import UTC, datetime, timedelta
     cutoff = (datetime.now(UTC) - timedelta(days=180)).strftime("%Y.%m")
     has_recent = set(
         db.scalars(
-            select(Financial.stock_code)
-            .where(
-                Financial.stock_code.in_(recent),
-                Financial.is_estimate.is_(False),
-                Financial.revenue.is_not(None),
-                Financial.period >= cutoff,
+            select(SyncState.stock_code)
+            .where(SyncState.domain == _BACKFILL_DOMAIN)
+            .join(
+                Financial,
+                (Financial.stock_code == SyncState.stock_code)
+                & Financial.is_estimate.is_(False)
+                & Financial.revenue.is_not(None)
+                & (Financial.period >= cutoff),
             )
             .distinct()
         ).all()
     )
-    # sync_state는 있으나 최근 재무 없는 종목 → 미완료(재처리 대상)
-    stale = marked - has_recent
-    if stale:
-        logger.info("financials 10y: %d종목 sync_state 있으나 최근 재무 결측 → 재처리 대상", len(stale))
+    marked_count = db.scalar(
+        select(func.count()).select_from(SyncState).where(SyncState.domain == _BACKFILL_DOMAIN)
+    ) or 0
+    stale = marked_count - len(has_recent)
+    if stale > 0:
+        logger.info(
+            "financials 10y: %d종목 sync_state 있으나 최근 재무 결측 → 재처리 대상", stale
+        )
     return has_recent
 
 
