@@ -90,6 +90,7 @@ def compute_growth(
     latest = actuals[-1]
     ly, lm = _key(latest.period)
     prior = next((p for p in actuals if _key(p.period) == (ly - 1, lm)), None)
+    prev_q = actuals[-2] if len(actuals) >= 2 else None  # 직전 분기
 
     prior_rev = prior.revenue if prior else None
 
@@ -109,6 +110,9 @@ def compute_growth(
         op_yoy=_yoy(latest.operating_income, prior.operating_income) if prior else None,
         op_turnaround=op_status == "흑자전환",
         op_status=op_status,
+        # QoQ: 직전 분기 대비 매출·영업이익 성장률.
+        revenue_qoq=_yoy(latest.revenue, prev_q.revenue) if prev_q else None,
+        op_qoq=_yoy(latest.operating_income, prev_q.operating_income) if prev_q else None,
         op_margin_delta=_margin_delta(
             latest.operating_income, latest.revenue, prior.operating_income, prior_rev
         ) if prior else None,

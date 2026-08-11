@@ -117,6 +117,35 @@ const OP_GROWTH_PRESETS: Preset<ScreenerOpGrowth | undefined>[] = [
   { label: "YoY성장", value: "growth" },
 ];
 
+// 영업이익 YoY 최소 — 매출과 동일 프리셋.
+const OP_YOY_PRESETS: Preset<number | undefined>[] = REV_YOY_PRESETS;
+
+// QoQ 프리셋 — 분기 성장률.
+const REV_QOQ_PRESETS: Preset<number | undefined>[] = [
+  { label: "없음", value: undefined },
+  { label: "+10%", value: 0.1 },
+  { label: "+20%", value: 0.2 },
+  { label: "+30%", value: 0.3 },
+];
+
+const OP_QOQ_PRESETS: Preset<number | undefined>[] = [
+  { label: "없음", value: undefined },
+  { label: "+30%", value: 0.3 },
+  { label: "+50%", value: 0.5 },
+  { label: "+100%", value: 1.0 },
+];
+
+// 손익 상태 필터(흑자전환·적자전환 등).
+type ProfitStatusKey = "" | "흑자전환" | "흑자지속" | "적자전환" | "적자지속";
+
+const PROFIT_STATUS_PRESETS: Preset<ProfitStatusKey>[] = [
+  { label: "전체", value: "" },
+  { label: "흑자전환", value: "흑자전환" },
+  { label: "흑자지속", value: "흑자지속" },
+  { label: "적자전환", value: "적자전환" },
+  { label: "적자지속", value: "적자지속" },
+];
+
 // 모멘텀 프리셋: 단일 선택 키를 mom_min/mom_max 조합으로 환산한다.
 type MomKey = "none" | "up20" | "cut60";
 
@@ -390,7 +419,12 @@ function ScreenerContent() {
   const [mktcapMin, setMktcapMin] = usePersistentState<number | undefined>("screener.mktcapMin", undefined);
   const [liqMin, setLiqMin] = usePersistentState<number>("screener.liqMin", 0);
   const [revYoyMin, setRevYoyMin] = usePersistentState<number | undefined>("screener.revYoyMin", undefined);
+  const [opYoyMin, setOpYoyMin] = usePersistentState<number | undefined>("screener.opYoyMin", undefined);
+  const [revQoqMin, setRevQoqMin] = usePersistentState<number | undefined>("screener.revQoqMin", undefined);
+  const [opQoqMin, setOpQoqMin] = usePersistentState<number | undefined>("screener.opQoqMin", undefined);
   const [opGrowth, setOpGrowth] = usePersistentState<ScreenerOpGrowth | undefined>("screener.opGrowth", undefined);
+  const [opStatus, setOpStatus] = usePersistentState<ProfitStatusKey>("screener.opStatus", "");
+  const [netStatus, setNetStatus] = usePersistentState<ProfitStatusKey>("screener.netStatus", "");
   const [mom, setMom] = usePersistentState<MomKey>("screener.mom", "none");
   const [coverage, setCoverage] = usePersistentState<CoverageKey>("screener.coverage", "none");
   // 가치 전략 필터
@@ -459,7 +493,12 @@ function ScreenerContent() {
           mktcapMin,
           liqMin: liqMin > 0 ? liqMin : undefined,
           revYoyMin,
+          opYoyMin,
+          revQoqMin,
+          opQoqMin,
           opGrowth,
+          opStatus: opStatus || undefined,
+          netStatus: netStatus || undefined,
           momMin,
           momMax,
           perMax,
@@ -493,7 +532,7 @@ function ScreenerContent() {
     return () => {
       active = false;
     };
-  }, [strategy, market, sector, mktcapMax, mktcapMin, liqMin, revYoyMin, opGrowth, mom, coverage, perMax, pbrMax, roeMin, divMin, ratioFilters, sort, offset]);
+  }, [strategy, market, sector, mktcapMax, mktcapMin, liqMin, revYoyMin, opYoyMin, revQoqMin, opQoqMin, opGrowth, opStatus, netStatus, mom, coverage, perMax, pbrMax, roeMin, divMin, ratioFilters, sort, offset]);
 
   // 필터 변경 시 첫 페이지로 되돌린다.
   function resetPaging() {
@@ -508,7 +547,12 @@ function ScreenerContent() {
     setOffset(0);
     // 성장 전용
     setRevYoyMin(undefined);
+    setOpYoyMin(undefined);
+    setRevQoqMin(undefined);
+    setOpQoqMin(undefined);
     setOpGrowth(undefined);
+    setOpStatus("");
+    setNetStatus("");
     setMom("none");
     setCoverage("none");
     // 가치 전용
@@ -694,6 +738,26 @@ function ScreenerContent() {
             <div className={styles.filterGroup}>
               <span className={styles.filterLabel}>매출 성장률(YoY) 최소</span>
               {renderChips(REV_YOY_PRESETS, revYoyMin, setRevYoyMin)}
+            </div>
+            <div className={styles.filterGroup}>
+              <span className={styles.filterLabel}>영업이익 성장률(YoY) 최소</span>
+              {renderChips(OP_YOY_PRESETS, opYoyMin, setOpYoyMin)}
+            </div>
+            <div className={styles.filterGroup}>
+              <span className={styles.filterLabel}>매출 성장률(QoQ) 최소</span>
+              {renderChips(REV_QOQ_PRESETS, revQoqMin, setRevQoqMin)}
+            </div>
+            <div className={styles.filterGroup}>
+              <span className={styles.filterLabel}>영업이익 성장률(QoQ) 최소</span>
+              {renderChips(OP_QOQ_PRESETS, opQoqMin, setOpQoqMin)}
+            </div>
+            <div className={styles.filterGroup}>
+              <span className={styles.filterLabel}>영업이익 상태</span>
+              {renderChips(PROFIT_STATUS_PRESETS, opStatus, setOpStatus)}
+            </div>
+            <div className={styles.filterGroup}>
+              <span className={styles.filterLabel}>순이익 상태</span>
+              {renderChips(PROFIT_STATUS_PRESETS, netStatus, setNetStatus)}
             </div>
             <div className={styles.filterGroup}>
               <span className={styles.filterLabel}>영업이익</span>

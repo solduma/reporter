@@ -51,7 +51,12 @@ _SCREENER_FILTER_ONTOLOGY: list[dict[str, object]] = [
     {"key": "roe_min", "ontology_id": "roe", "column": "Financial.roe", "category": "value", "param_type": "float_min"},
     {"key": "div_min", "ontology_id": "dividend_yield", "column": "Financial.div_yield", "category": "value", "param_type": "float_min"},
     {"key": "rev_yoy_min", "ontology_id": "IS_REV_TOTAL", "column": "GrowthMetric.revenue_yoy", "category": "growth", "param_type": "float_min"},
+    {"key": "op_yoy_min", "ontology_id": "IS_OP_INCOME", "column": "GrowthMetric.op_yoy", "category": "growth", "param_type": "float_min"},
+    {"key": "rev_qoq_min", "ontology_id": None, "column": "GrowthMetric.revenue_qoq", "category": "growth", "param_type": "float_min"},
+    {"key": "op_qoq_min", "ontology_id": None, "column": "GrowthMetric.op_qoq", "category": "growth", "param_type": "float_min"},
     {"key": "op_growth", "ontology_id": None, "column": "GrowthMetric.op_status", "category": "growth", "param_type": "choice", "choices": ["turnaround", "growth"]},
+    {"key": "op_status", "ontology_id": None, "column": "GrowthMetric.op_status", "category": "growth", "param_type": "choice", "choices": ["흑자전환", "흑자지속", "적자전환", "적자지속"]},
+    {"key": "net_status", "ontology_id": None, "column": "GrowthMetric.net_status", "category": "growth", "param_type": "choice", "choices": ["흑자전환", "흑자지속", "적자전환", "적자지속"]},
     {"key": "mom_min", "ontology_id": None, "column": "UniverseSnapshot.momentum_3m", "category": "trend", "param_type": "float_min"},
     {"key": "mom_max", "ontology_id": None, "column": "UniverseSnapshot.momentum_3m", "category": "trend", "param_type": "float_max"},
     {"key": "mktcap_max", "ontology_id": None, "column": "UniverseSnapshot.market_cap", "category": "common", "param_type": "int_max"},
@@ -213,7 +218,12 @@ def screen(
     mktcap_min: int | None,
     liq_min: int | None,
     rev_yoy_min: float | None,
+    op_yoy_min: float | None,
+    rev_qoq_min: float | None,
+    op_qoq_min: float | None,
     op_growth: str | None,
+    op_status: str | None,
+    net_status: str | None,
     mom_min: float | None,
     mom_max: float | None,
     per_max: float | None,
@@ -269,10 +279,20 @@ def screen(
         conds.append(~U.stock_name.op("~")(r"우[A-C]?$"))  # 우선주 제외
     if rev_yoy_min is not None:
         conds.append(G.revenue_yoy >= rev_yoy_min)
+    if op_yoy_min is not None:
+        conds.append(G.op_yoy >= op_yoy_min)
+    if rev_qoq_min is not None:
+        conds.append(G.revenue_qoq >= rev_qoq_min)
+    if op_qoq_min is not None:
+        conds.append(G.op_qoq >= op_qoq_min)
     if op_growth == "turnaround":
         conds.append(G.op_turnaround.is_(True))
     elif op_growth == "growth":
         conds.append(G.op_yoy > 0)
+    if op_status is not None:
+        conds.append(G.op_status == op_status)
+    if net_status is not None:
+        conds.append(G.net_status == net_status)
     if mom_min is not None:
         conds.append(U.momentum_3m >= mom_min)
     if mom_max is not None:
