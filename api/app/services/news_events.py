@@ -157,12 +157,18 @@ def _purge_old(db: Session, now: datetime) -> int:
     """보존기간(_RETENTION_DAYS) 지난 이벤트·뉴스를 삭제한다. 스크리너 윈도우(14일)보다 넉넉히.
 
     StockEvent 는 매일 쌓이는데 스크리너는 최근 14일만 보므로, 오래된 행은 사표(dead weight).
+    news_article.published_at(datetime)과 stock_event.event_date(date)의 경계가 달라
+    같은 날 발행된 뉴스가 삭제될 때 event_date==cutoff인 이벤트가 참조해 FK 위반이 난다.
+    그래서 삭제 대상 뉴스를 참조하는 stock_event를 먼저 cascade 삭제한 뒤 뉴스를 지운다.
     """
-    cutoff = (now - timedelta(days=_RETENTION_DAYS)).date()
-    n = db.execute(delete(StockEvent).where(StockEvent.event_date < cutoff)).rowcount
-    db.execute(
-        delete(NewsArticle).where(NewsArticle.published_at < now - timedelta(days=_RETENTION_DAYS))
-    )
+    retention = now - timedelta(days=_RETENTION_DAYS)
+    # 1) 삭제 대상 뉴스(published_at < retention)를 참조하는 stock_event 먼저 삭제(안전)
+    old_news_ids = select(NewsArticle.id).where(NewsArticle.published_at < retention)
+    n = db.execute(delete(StockEvent).where(StockEvent.news_id.in_(old_news_ids))).rowcount
+    # 2) event_date가 retention보다 오래된 stock_event도 삭제(스크리너 윈도우 정리)
+    db.execute(delete(StockEvent).where(StockEvent.event_date < retention.date()))
+    # 3) 이제 참조자가 없으니 오래된 뉴스 삭제
+    db.execute(delete(NewsArticle).where(NewsArticle.published_at < retention))
     db.commit()
     return n or 0
 
