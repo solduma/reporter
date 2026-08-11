@@ -21,6 +21,9 @@ class GrowthMetric:
     op_yoy: float | None  # 영업이익 YoY
     op_turnaround: bool  # 직전 동기 영업적자 → 당기 흑자(스크리너 필터용)
     op_status: str | None  # 흑자전환|흑자지속|적자전환|적자지속 (영업손익 상태)
+    # QoQ: 전 분기 대비 분기 성장률(스크리너 "30%↑" 필터용).
+    revenue_qoq: float | None = None
+    op_qoq: float | None = None
     # 영업이익률 변화(당기 - 직전동기, 비율). 매출로 나눈 이익률이라 회사 규모 무관하게 마진 개선
     # 폭을 비교한다(0.559 = +55.9pp). 영업이익 성장 축(상태+마진 pp)에 쓴다.
     op_margin_delta: float | None = None
