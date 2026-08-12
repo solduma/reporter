@@ -611,6 +611,10 @@ def _dart_account_ids(*ontology_ids: str) -> set[str]:
 # 과거(≤2018경) 공시는 구 태그(ifrs_*, 언더스코어), 최근은 ifrs-full_* (하이픈)을 쓴다 —
 # 둘 다 ontology dart mapping 에 포함되어 있어 별도 하드코딩 불필요.
 _AID_REVENUE = _dart_account_ids("IS_REV_TOTAL")
+# CIS(금융업)에서 합산에서 제외할 일반 매출 계정: ifrs-full_Revenue(영업수익)는 수수료·
+# 이자·기타영업수익 구성요소의 합계라 함께 합산하면 이중계상된다(현대차증권 Q1 4,254억).
+# 구성요소가 없는 CIS 문장(CIS-only 1,976종목)은 _parse_income_equity 후반부에서 폴백으로 사용.
+_CIS_REVENUE_EXCLUDE = {"ifrs-full_Revenue", "ifrs_Revenue"}
 _AID_OP = _dart_account_ids("IS_OP_INCOME")
 _AID_NI_OWNERS = _dart_account_ids("IS_NI_PARENT")
 _AID_NI = _dart_account_ids("IS_NI_TOTAL")  # 지배주주 항목 없을 때 폴백
@@ -683,6 +687,8 @@ def _is_cis_statement(rows: list[dict]) -> bool:
 def _parse_income_equity(rows: list[dict]) -> IncomeEquity:
     """손익·자본은 account_id(안정), 차입금·현금은 계정명(표준태그 불안정)으로 함께 뽑는다."""
     fin = IncomeEquity()
+    is_cis = _is_cis_statement(rows)  # 금융업(CIS 기반) 여부 — revenue 합산 스코프.
+    cis_rev_fallback = None  # CIS에 구성요소가 없을 때 쓸 ifrs-full_Revenue(영업수익) 후보.
     borrowings = 0.0
     got_borrowing = False
     capex = 0.0
@@ -713,8 +719,16 @@ def _parse_income_equity(rows: list[dict]) -> IncomeEquity:
             continue
         # 지배주주 항목을 우선하되(덮어쓰기), 없으면 전체 항목으로 채운다(setdefault 성격).
         if aid in _AID_REVENUE and fin.revenue is None:
-            fin.revenue = amt
-        elif aid in _AID_REVENUE and _is_cis_statement(rows):
+            if is_cis and aid in _CIS_REVENUE_EXCLUDE:
+                # CIS(금융업): ifrs-full_Revenue(영업수익 합계)는 구성요소와 이중계상 →
+                # 합산에서 제외하고 폴백 후보로만 보관한다.
+                if cis_rev_fallback is None:
+                    cis_rev_fallback = amt
+            else:
+                fin.revenue = amt
+        elif aid in _AID_REVENUE and is_cis:
+            if aid in _CIS_REVENUE_EXCLUDE:
+                continue  # 영업수익 합계 행 — 구성요소와 이중계상이라 제외.
             # 증권·금융업(CIS 기반)은 단일 매출액 항목이 없어 구성요소(수수료·이자·
             # 기타영업수익)를 합산한다. 일반 제조업(IS 기반)은 매출 계정 1개만 매칭되므로
             # 합산해도 동일값 — 전역 회귀 없음.
@@ -745,6 +759,9 @@ def _parse_income_equity(rows: list[dict]) -> IncomeEquity:
         fin.borrowings = borrowings
     if got_capex:
         fin.capex = capex
+    if fin.revenue is None and cis_rev_fallback is not None:
+        # CIS에 구성요소가 없으면 영업수익 합계로 폴백(CIS-only 문장 회귀 방지).
+        fin.revenue = cis_rev_fallback
     if fin.interest_expense is None and interest_cf is not None:
         fin.interest_expense = interest_cf  # 손익 이자비용 없으면 CF 이자지급으로 폴백
     return fin
