@@ -852,7 +852,9 @@ ontology:
       affects: [RevenueBase]
       aliases: ["매출액", "Revenue"]
       mappings:
-        dart: ["ifrs-full_Revenue", "ifrs_Revenue", "ifrs-full_InsuranceRevenue"]
+        dart: ["ifrs-full_Revenue", "ifrs_Revenue", "ifrs-full_InsuranceRevenue",
+               "ifrs-full_FeeAndCommissionIncome", "ifrs-full_RevenueFromInterest",
+               "dart_OtherOperatingIncome"]
         ifrs: ["Revenue"]
         usgaap: ["Revenues"]
       description: "기간 중 인식한 총 매출(상품·용역 매출 + 기타 매출)."
