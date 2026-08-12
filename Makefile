@@ -10,7 +10,7 @@ help: ## 사용 가능한 타깃 목록
 		| awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 
 tui: ## Admin TUI 실행 (api 서비스 계층 직접 호출)
-	cd api && uv run reporter-tui
+	cd api && .venv/bin/reporter-tui
 
 api: ## API 서버 실행 (:8010, reload)
 	cd api && uv run uvicorn app.main:app --host 127.0.0.1 --port 8010 --reload
