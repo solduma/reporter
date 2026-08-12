@@ -7,7 +7,7 @@ metadata:
   generated_from: ontology/*.yaml
   generated: '2026-07-22'
   account_count: 190
-  taxonomy_concept_count: 108
+  taxonomy_concept_count: 110
 mappings:
   BS_A_TOTAL:
     korean_name: 자산총계
@@ -2379,6 +2379,9 @@ mappings:
     - ifrs-full_Revenue
     - ifrs_Revenue
     - ifrs-full_InsuranceRevenue
+    - ifrs-full_FeeAndCommissionIncome
+    - ifrs-full_RevenueFromInterest
+    - dart_OtherOperatingIncome
     korean_aliases:
     - 매출액
     - Revenue
@@ -2504,6 +2507,7 @@ mappings:
 by_taxonomy:
   dart_InterestExpenseFinanceExpense: IS_NONOP_INT_EXP
   dart_OperatingIncomeLoss: IS_OP_INCOME
+  dart_OtherOperatingIncome: IS_REV_TOTAL
   ifrs-full_Assets: BS_A_TOTAL
   ifrs-full_BasicEarningsLossPerShare: IS_EPS_BASIC
   ifrs-full_BondsPayable: BS_NCL_BOND
@@ -2590,6 +2594,7 @@ by_taxonomy:
   ifrs-full_RetainedEarnings: BS_EQ_RE
   ifrs-full_RevaluationReserves: BS_EQ_RV
   ifrs-full_Revenue: IS_REV_TOTAL
+  ifrs-full_RevenueFromInterest: IS_REV_TOTAL
   ifrs-full_RevenueFromSalesOfGoods: IS_REV_SALES
   ifrs-full_RightofuseAssets: BS_NCA_ROU
   ifrs-full_ShareOfProfitLossOfAssociatesAndJointVenturesAccountedForUsingEquityMethod: IS_NONOP_EQ_METHOD

@@ -668,6 +668,18 @@ def fetch_income_and_equity(
     return cfs_result, ofs_result
 
 
+def _is_cis_statement(rows: list[dict]) -> bool:
+    """CIS 기반(금융업) 문장인지. 증권·보험·은행은 IS 대신 CIS 로 손익을 보고한다.
+
+    revenue 구성요소 합산을 금융업에만 적용하기 위한 스코프 판정. IS 도 함께 있으면
+    (일반 제조업) 합산하지 않는다 — 매출 계정 1개만 매칭되므로 합산해도 동일값이지만
+    이자수익 등 영업외 항목이 매출에 섞이는 것을 방지한다.
+    """
+    has_cis = any(r.get("sj_div") == "CIS" for r in rows)
+    has_is = any(r.get("sj_div") == "IS" for r in rows)
+    return has_cis and not has_is
+
+
 def _parse_income_equity(rows: list[dict]) -> IncomeEquity:
     """손익·자본은 account_id(안정), 차입금·현금은 계정명(표준태그 불안정)으로 함께 뽑는다."""
     fin = IncomeEquity()
@@ -702,6 +714,11 @@ def _parse_income_equity(rows: list[dict]) -> IncomeEquity:
         # 지배주주 항목을 우선하되(덮어쓰기), 없으면 전체 항목으로 채운다(setdefault 성격).
         if aid in _AID_REVENUE and fin.revenue is None:
             fin.revenue = amt
+        elif aid in _AID_REVENUE and _is_cis_statement(rows):
+            # 증권·금융업(CIS 기반)은 단일 매출액 항목이 없어 구성요소(수수료·이자·
+            # 기타영업수익)를 합산한다. 일반 제조업(IS 기반)은 매출 계정 1개만 매칭되므로
+            # 합산해도 동일값 — 전역 회귀 없음.
+            fin.revenue += amt
         elif aid in _AID_OP and fin.operating_income is None:
             fin.operating_income = amt
         elif aid in _AID_NI_OWNERS:

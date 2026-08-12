@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from app.adapters.dart.client import _parse_income_equity
 from app.domain import financials
 from app.services import financials_backfill as fb
 
@@ -89,6 +90,37 @@ def test_backfill_writes_operating_income(monkeypatch):
     # 2024.03 개별 op = 10억 → 억원 단위 10.0
     q1 = next((v for p, v in op_written if p == "2024.03"), None)
     assert q1 == 10.0
+
+
+def test_securities_cis_revenue_sums_components():
+    # 회귀: 증권사(CIS 기반)는 단일 매출액이 없어 구성요소(수수료·이자·기타영업수익)를
+    # 합산해야 한다. SK증권 값: 708+429+215 = 1,352억.
+    rows = [
+        {"account_id": "ifrs-full_FeeAndCommissionIncome", "account_nm": "수수료수익", "sj_div": "CIS", "thstrm_amount": "70800000000"},
+        {"account_id": "ifrs-full_RevenueFromInterest", "account_nm": "이자수익", "sj_div": "CIS", "thstrm_amount": "42900000000"},
+        {"account_id": "dart_OtherOperatingIncome", "account_nm": "기타영업수익", "sj_div": "CIS", "thstrm_amount": "21500000000"},
+    ]
+    fin = _parse_income_equity(rows)
+    assert fin.revenue == 1352e8
+
+
+def test_is_based_company_revenue_not_summed_with_interest():
+    # 회귀: 일반 제조업(IS 기반)의 이자수익은 매출에 섞이면 안 된다. 매출 1,000억만.
+    rows = [
+        {"account_id": "ifrs-full_Revenue", "account_nm": "매출액", "sj_div": "IS", "thstrm_amount": "100000000000"},
+        {"account_id": "ifrs-full_RevenueFromInterest", "account_nm": "이자수익", "sj_div": "IS", "thstrm_amount": "5000000000"},
+    ]
+    fin = _parse_income_equity(rows)
+    assert fin.revenue == 1000e8
+
+
+def test_insurance_cis_revenue_single_line():
+    # 회귀: 보험사는 단일 보험수익 항목 — 합산 없이 그대로.
+    rows = [
+        {"account_id": "ifrs-full_InsuranceRevenue", "account_nm": "보험수익", "sj_div": "CIS", "thstrm_amount": "150000000000"},
+    ]
+    fin = _parse_income_equity(rows)
+    assert fin.revenue == 1500e8
 
 
 def test_backfill_stock_handles_existing_fs_rows(monkeypatch):
