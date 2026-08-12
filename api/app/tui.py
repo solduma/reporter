@@ -994,7 +994,13 @@ class AdminTUI(App):
                 await self._shutdown_orchestrator(detach_only=(choice == "detach"))
             self.exit()
 
-    async def action_quit(self) -> None:
+    def action_quit(self) -> None:
+        # push_screen_wait 는 worker 컨텍스트에서만 호출 가능(Textual≥8.2) — 신호 핸들러
+        # (_show_signal_quit_dialog)와 동일하게 run_worker 로 감싼다. Ctrl+C 는 action_help_quit
+        # 가 _on_shutdown_signal 경유로 같은 패턴의 다이얼로그를 띄운다.
+        self.run_worker(self._show_quit_dialog, group="shutdown", exclusive=True)
+
+    async def _show_quit_dialog(self) -> None:
         async with self._operation_lock:
             if self._state is not None:
                 msg = (
