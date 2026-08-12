@@ -2378,6 +2378,7 @@ mappings:
     dart:
     - ifrs-full_Revenue
     - ifrs_Revenue
+    - ifrs-full_InsuranceRevenue
     korean_aliases:
     - 매출액
     - Revenue
