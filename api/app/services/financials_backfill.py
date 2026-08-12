@@ -119,11 +119,13 @@ def backfill_stock(db: Session, settings: Settings, code: str) -> bool:
     # 과거 분기 FS 행은 이미 DB 에 영속화되어 있으면 DART 0건으로 파싱. 없는 분기만
     # fetch_full_statements_by_div 로 CFS/OFS 각 1회 호출해 FS 저장 + 파싱(과거엔 매
     # 분기마다 fetch_income_and_equity + fetch_full_statements 중복 2~4회 호출).
+    # db.scalars 로 엔티티를 직접 받는다 — select(Entity) 의 Row 는 키가 엔티티명 하나뿐이라
+    # r.period 같은 컬럼 접근이 AttributeError 난다(08-12 백필 97.5% 정지 원인).
     existing_fs: dict[tuple[int, int, str], dict] = {
         (int(r.period.split(".")[0]), int(r.period.split(".")[1]), r.fs_div): r.data
-        for r in db.execute(
+        for r in db.scalars(
             select(FinancialStatement).where(FinancialStatement.stock_code == code)
-        ).all()
+        )
         if r.period and "." in r.period
     }
 
