@@ -314,16 +314,27 @@ async def test_refresh_action_reloads():
         assert app.query_one("#preview", DataTable).row_count == 50
 
 
-async def test_action_quit_shows_confirm_dialog():
-    """Ctrl+Q(action_quit)는 worker 컨텍스트에서 ConfirmScreen 을 띄운다.
-
-    Textual≥8.2 는 push_screen_wait 를 worker 밖에서 호출하면 NoActiveWorker 를 던진다.
-    action_quit 이 run_worker 로 감싸는 회귀 방지 테스트.
-    """
+async def test_action_quit_no_longer_quits():
+    """Ctrl+Q(action_quit)는 종료하지 않는다 — 안내 토스트만 띄우고 앱은 계속 실행."""
     app = tui.AdminTUI()
     async with app.run_test() as pilot:
         await pilot.pause(0.3)
         app.action_quit()
+        await pilot.pause(0.5)
+        assert not isinstance(app.screen, tui.ConfirmScreen)
+        assert app.is_running
+
+
+async def test_action_help_quit_shows_confirm_dialog():
+    """Ctrl+C(action_help_quit)는 worker 컨텍스트에서 ConfirmScreen 을 띄운다.
+
+    Textual≥8.2 는 push_screen_wait 를 worker 밖에서 호출하면 NoActiveWorker 를 던진다.
+    action_help_quit 이 run_worker 로 감싸는 회귀 방지 테스트.
+    """
+    app = tui.AdminTUI()
+    async with app.run_test() as pilot:
+        await pilot.pause(0.3)
+        app.action_help_quit()
         await pilot.pause(0.5)
         assert isinstance(app.screen, tui.ConfirmScreen)
         # 취소(escape)로 닫히고 앱은 계속 실행
