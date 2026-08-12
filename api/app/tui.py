@@ -940,8 +940,8 @@ class AdminTUI(App):
 
     # ── CancelService override (Ctrl+C → quit dialog) ─────────────────
     def action_help_quit(self) -> None:
-        """Textual 기본 ctrl+c 동작을 가로채서 종료 확인 다이얼로그를 표시한다."""
-        self._on_shutdown_signal()
+        """Ctrl+C → 종료 확인 다이얼로그. Textual 기본(help 화면)을 quit 로 재정의한다."""
+        self.run_worker(self._show_quit_dialog, group="shutdown", exclusive=True)
 
     # ── Signal handlers ────────────────────────────────────────────────
     def _register_signal_handlers(self) -> None:
@@ -995,10 +995,8 @@ class AdminTUI(App):
             self.exit()
 
     def action_quit(self) -> None:
-        # push_screen_wait 는 worker 컨텍스트에서만 호출 가능(Textual≥8.2) — 신호 핸들러
-        # (_show_signal_quit_dialog)와 동일하게 run_worker 로 감싼다. Ctrl+C 는 action_help_quit
-        # 가 _on_shutdown_signal 경유로 같은 패턴의 다이얼로그를 띄운다.
-        self.run_worker(self._show_quit_dialog, group="shutdown", exclusive=True)
+        # Textual 기본 바인딩 ctrl+q → quit 를 무력화한다. 종료는 Ctrl+C(action_help_quit)만.
+        self.notify("종료는 Ctrl+C로 할 수 있습니다", timeout=TOAST_SHORT_SECONDS)
 
     async def _show_quit_dialog(self) -> None:
         async with self._operation_lock:
