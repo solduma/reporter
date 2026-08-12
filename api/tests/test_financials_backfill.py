@@ -123,6 +123,30 @@ def test_insurance_cis_revenue_single_line():
     assert fin.revenue == 1500e8
 
 
+def test_cis_revenue_excludes_aggregate_revenue_line():
+    # 회귀: 증권사 CIS에 ifrs-full_Revenue(영업수익 합계)가 있으면 구성요소와 이중계상된다.
+    # 현대차증권 2025.03 값: 영업수익 4,254억(합계) + 구성요소 1,644억(389+878+377).
+    # 합계 행은 제외 → 1,644억(합계 포함 5,898억이 아님).
+    rows = [
+        {"account_id": "ifrs-full_Revenue", "account_nm": "영업수익", "sj_div": "CIS", "thstrm_amount": "425400000000"},
+        {"account_id": "ifrs-full_FeeAndCommissionIncome", "account_nm": "수수료수익", "sj_div": "CIS", "thstrm_amount": "38900000000"},
+        {"account_id": "ifrs-full_RevenueFromInterest", "account_nm": "이자수익", "sj_div": "CIS", "thstrm_amount": "87800000000"},
+        {"account_id": "dart_OtherOperatingIncome", "account_nm": "기타영업수익", "sj_div": "CIS", "thstrm_amount": "37700000000"},
+    ]
+    fin = _parse_income_equity(rows)
+    assert fin.revenue == 1644e8
+
+
+def test_cis_revenue_falls_back_to_aggregate_when_no_components():
+    # 회귀: CIS-only 문장(CIS 있고 IS 없음)에 구성요소가 없으면 영업수익 합계로 폴백.
+    # 경농(002100) 스타일 — 합계 행을 제외해 버리면 매출이 None 이 되는 회귀 방지.
+    rows = [
+        {"account_id": "ifrs-full_Revenue", "account_nm": "영업수익", "sj_div": "CIS", "thstrm_amount": "339200000000"},
+    ]
+    fin = _parse_income_equity(rows)
+    assert fin.revenue == 3392e8
+
+
 def test_backfill_stock_handles_existing_fs_rows(monkeypatch):
     """회귀: existing_fs 로딩이 Row 가 아닌 엔티티를 다뤄야 한다.
 
