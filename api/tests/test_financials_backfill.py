@@ -68,10 +68,16 @@ def test_backfill_writes_operating_income(monkeypatch):
         (2024, 3): IncomeEquity(revenue=340e8, operating_income=39e8, net_income=30e8, eps=340, equity=520e8),
         (2024, 4): IncomeEquity(revenue=480e8, operating_income=56e8, net_income=45e8, eps=480, equity=530e8),
     }
-    monkeypatch.setattr(
-        fb.dart, "fetch_income_and_equity",
-        lambda key, corp, year, q, sess: (cum.get((year, q)), None),
-    )
+    # 새 파이프라인(FS 원문 우선): fetch_full_statements_by_div 가 원문을 주고
+    # parse_income_equity_from_fs 가 IncomeEquity 로 환원한다. 파서 매핑은 목킹.
+    current: dict = {}
+
+    def _fake_fetch(key, corp, year, q, fs_div, sess):
+        current["yq"] = (year, q)
+        return {"IS": []}
+
+    monkeypatch.setattr(fb.dart, "fetch_full_statements_by_div", _fake_fetch)
+    monkeypatch.setattr(fb, "parse_income_equity_from_fs", lambda fs_data: cum.get(current["yq"]))
     db = MagicMock()
     db.scalar.return_value = "00000000"  # corp_code
     settings = MagicMock()
@@ -83,3 +89,44 @@ def test_backfill_writes_operating_income(monkeypatch):
     # 2024.03 개별 op = 10억 → 억원 단위 10.0
     q1 = next((v for p, v in op_written if p == "2024.03"), None)
     assert q1 == 10.0
+
+
+def test_backfill_stock_handles_existing_fs_rows(monkeypatch):
+    """회귀: existing_fs 로딩이 Row 가 아닌 엔티티를 다뤄야 한다.
+
+    select(FinancialStatement) 는 Row 키가 엔티티명 하나뿐이라 r.period 접근이
+    AttributeError 난다(08-12 재무 10년 백필 97.5% 정지 원인). db.scalars 로
+    엔티티를 직접 받아야 FS 행이 있는 종목도 크래시 없이 처리된다.
+    """
+    from unittest.mock import MagicMock
+
+    from sqlalchemy import create_engine
+    from sqlalchemy.dialects.postgresql import JSONB
+    from sqlalchemy.ext.compiler import compiles
+    from sqlalchemy.orm import sessionmaker
+
+    from app.db.models import Base, CorpCodeMap, FinancialStatement
+
+    # SQLite 는 JSONB 를 모른다 — 테스트 방언에서만 JSON 으로 렌더.
+    @compiles(JSONB, "sqlite")
+    def _compile_jsonb_sqlite(type_, compiler, **kw):
+        return "JSON"
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(
+        engine, tables=[CorpCodeMap.__table__, FinancialStatement.__table__]
+    )
+    db = sessionmaker(bind=engine)()
+    db.add(CorpCodeMap(stock_code="000001", corp_code="00123456", corp_name="테스트"))
+    db.add(FinancialStatement(
+        stock_code="000001", period="2023.09", fs_div="CFS", data={"IS": []}
+    ))
+    db.commit()
+
+    # DART·주식수 호출은 모킹 — FS 원문 우선 경로(existing_fs)만 검증.
+    monkeypatch.setattr(fb.dart, "fetch_full_statements_by_div", lambda *a, **k: None)
+    monkeypatch.setattr(fb.quote, "fetch_shares_outstanding", lambda *a, **k: None)
+    try:
+        assert fb.backfill_stock(db, MagicMock(), "000001") is True
+    finally:
+        db.close()

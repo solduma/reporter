@@ -207,9 +207,9 @@ def backfill_stock(
     # fnlttSinglAcntAll 응답을 쓰므로 FS 에 있으면 DART 0건 파싱. 없는 분기만 폴백.
     fs_map: dict[tuple[str, str], dict] = {
         (r.period, r.fs_div): r.data
-        for r in db.execute(
+        for r in db.scalars(
             select(FinancialStatement).where(FinancialStatement.stock_code == code)
-        ).all()
+        )
     }
     with requests.Session() as session:
         for year, kind in _target_reports(today):
