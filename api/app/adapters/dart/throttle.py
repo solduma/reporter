@@ -122,6 +122,23 @@ def backfill_budget_exhausted() -> bool:
     return active_key() is None
 
 
+def remaining_budget() -> int:
+    """오늘 남은 DART 예산 합계(전 키). 배치 백필의 동적 per_run 계산용.
+
+    _budget_check 와 달리 잔량을 소비하지 않는다. 키링이 비어 있으면 0.
+    budget 은 매일 자정(UTC)에 리셋되므로, 어제 등록된 잔량은 오늘 몫으로 재계산한다.
+    """
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
+    with _budget_lock:
+        total = 0
+        for key in _keyring:
+            date_str, remaining = _budget.get(key, (today, _KEY_BUDGET))
+            if date_str != today:
+                remaining = _KEY_BUDGET
+            total += remaining
+        return total
+
+
 # ─── 020 detection ────────────────────────────────────────────────────────────
 _QUOTA_SIG = b'"status":"020"'
 _QUOTA_SIG_XML = b"<status>020</status>"
