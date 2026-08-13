@@ -392,9 +392,25 @@ def _reconcile_markers(db: Session, codes: list[str], done: set[str]) -> int:
 
 
 # ── 야간 점진 백필 (재개 가능) ─────────────────────────────────────────
-# 종목당 ~40분기 DART 콜 x dart_throttle(0.34s) ≈ 14s/종목. per_run=100 이면 하룻밤 ~25분,
-# 일일 콜 ~4k~6k(2만 한도 내). soft budget(14k)을 남겨 정기공시·온디맨드 조회를 보호한다.
-_PER_RUN = 100
+# 종목당 ~40분기 DART 콜 x dart_throttle(0.34s) ≈ 14s/종목. per_run=300 이면 하룻밤 ~70분,
+# 일일 콜 ~12k(2만 한도 내). 배치 진입 시 남은 예산으로 자동 축소(_budget_aware_per_run)하므로
+# 정기공시·온디맨드 몫을 지킨다.
+_PER_RUN = 300
+_PER_RUN_CAP = 300  # 예산이 넉넉해도 하룻밤 상한(과도한 DART 부하 방지).
+_CALLS_PER_STOCK = 40  # 종목당 DART 콜 추정치(10년 x 4분기).
+
+
+def _budget_aware_per_run(per_run: int) -> int:
+    """남은 DART 예산 기준 per_run 보정 — 예산 부족 시 자동 축소, 여유 시 상한까지.
+
+    remaining_budget() 은 키별 잔량 합계. 남은 예산으로 처리 가능한 종목 수 =
+    remaining // _CALLS_PER_STOCK. 예산이 소진됐으면 0을 반환해 배치를 건너뛴다.
+    """
+    if per_run <= 0:
+        return per_run
+    remaining = dart_throttle.remaining_budget()
+    budget_run = remaining // _CALLS_PER_STOCK if remaining else 0
+    return min(per_run, _PER_RUN_CAP, budget_run)
 
 
 def run_backfill_progressive(
@@ -415,6 +431,7 @@ def run_backfill_progressive(
     done_codes = _done_codes(db)
     reconciled = _reconcile_markers(db, codes, done_codes)  # 마커 결손분 복원(재조회 낭비 방지)
     pending = [c for c in codes if c not in done_codes]
+    per_run = _budget_aware_per_run(per_run)  # 남은 예산으로 상한 보정(부족 시 축소).
     batch = pending[:per_run]
     done = failed = 0
     quota_hit = budget_hit = False
@@ -661,6 +678,7 @@ def run_ofs_statements_backfill(
         return {"done": 0, "failed": 0, "remaining": 0}
 
     pending = _ofs_pending_codes(db, codes)
+    per_run = _budget_aware_per_run(per_run)  # 남은 예산으로 상한 보정(부족 시 축소).
     batch = pending[:per_run]
     done = failed = 0
     quota_hit = budget_hit = False
