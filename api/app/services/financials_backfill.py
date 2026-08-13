@@ -156,7 +156,9 @@ def backfill_stock(db: Session, settings: Settings, code: str) -> bool:
             period = _period_str(year, q)
             for fs_div in ("CFS", "OFS"):
                 # 1) FS 원문 우선(DB 에 있으면 DART 0건 파싱)
-                cached = existing_fs.get((year, q, fs_div))
+                # existing_fs 키는 period "YYYY.MM" 에서 뽑은 (연도, 월) — 분기 q 를
+                # _QUARTER_MONTH 로 월로 환산해 조회해야 q=3(9월)이 March 캐시에 hit 하지 않는다.
+                cached = existing_fs.get((year, _QUARTER_MONTH[q], fs_div))
                 if cached is not None:
                     fin = parse_income_equity_from_fs(cached)
                     if fin is not None:
