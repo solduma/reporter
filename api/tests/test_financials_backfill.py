@@ -186,3 +186,72 @@ def test_backfill_stock_handles_existing_fs_rows(monkeypatch):
         assert fb.backfill_stock(db, MagicMock(), "000001") is True
     finally:
         db.close()
+
+
+def test_q3_cache_hits_september_not_march(monkeypatch):
+    """회귀: existing_fs 조회가 (연도, 분기)로 March 캐시에 hit 하는 버그.
+
+    period 문자열이 "YYYY.MM" 이라 existing_fs 키는 (연도, 월)인데 조회는 (연도, q)로
+    해 q=3(9월)이 (year, 3)로 March 캐시를 hit → YYYY.09 행에 YYYY.03 매출이 저장됐다
+    (08-12 활성화, 증권사 17종목 Q3==Q1 오염). _QUARTER_MONTH[q] 로 월을 맞춰 조회해야
+    September 캐시가 hit한다.
+    """
+    from unittest.mock import MagicMock
+
+    from sqlalchemy import create_engine, select
+    from sqlalchemy.dialects.postgresql import JSONB
+    from sqlalchemy.ext.compiler import compiles
+    from sqlalchemy.orm import sessionmaker
+
+    from app.db.models import (
+        Base,
+        CorpCodeMap,
+        Financial,
+        FinancialStatement,
+        FinancialStatementCache,
+        FsParseGap,
+        PriceCandle,
+    )
+
+    @compiles(JSONB, "sqlite")
+    def _compile_jsonb_sqlite(type_, compiler, **kw):
+        return "JSON"
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(
+        engine,
+        tables=[
+            CorpCodeMap.__table__, FinancialStatement.__table__, Financial.__table__,
+            PriceCandle.__table__, FsParseGap.__table__, FinancialStatementCache.__table__,
+        ],
+    )
+    db = sessionmaker(bind=engine)()
+    db.add(CorpCodeMap(stock_code="000001", corp_code="00123456", corp_name="테스트"))
+    # FS 원문: 2023.03 매출 100억, 2023.09 매출 200억 — 두 캐시가 다르게 세팅돼야
+    # q=3 이 어느 캐시를 hit 했는지 판별된다.
+    db.add(FinancialStatement(
+        stock_code="000001", period="2023.03", fs_div="CFS",
+        data={"IS": [{"account_id": "ifrs-full_Revenue", "name": "매출액",
+                      "amount": 100e8, "sj_div": "IS", "level": 0}]},
+    ))
+    db.add(FinancialStatement(
+        stock_code="000001", period="2023.09", fs_div="CFS",
+        data={"IS": [{"account_id": "ifrs-full_Revenue", "name": "매출액",
+                      "amount": 200e8, "sj_div": "IS", "level": 0}]},
+    ))
+    db.commit()
+
+    monkeypatch.setattr(fb.dart, "fetch_full_statements_by_div", lambda *a, **k: None)
+    monkeypatch.setattr(fb.quote, "fetch_shares_outstanding", lambda *a, **k: None)
+    try:
+        assert fb.backfill_stock(db, MagicMock(), "000001") is True
+        q3 = db.execute(
+            select(Financial).where(
+                Financial.stock_code == "000001",
+                Financial.period == "2023.09",
+                Financial.fs_div == "CFS",
+            )
+        ).scalar_one()
+        assert q3.revenue == 200.0  # 200억 — March(100억) 캐시 오염이면 100.0 이 나온다
+    finally:
+        db.close()
