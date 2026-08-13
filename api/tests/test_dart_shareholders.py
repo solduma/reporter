@@ -102,3 +102,51 @@ def test_fetch_hyslr_rows_bad_quarter_returns_none():
     session = MagicMock()
     assert dart.fetch_hyslr_rows("key", "x", 2024, 9, session) is None
     session.get.assert_not_called()
+
+
+def test_fetch_major_shareholders_parses_contract_concluded_fields(monkeypatch):
+    # 가비아(079940) 디씨케이인베스트먼트 2026-07-20 — 전액 주요체결(주식매매계약 체결,
+    # 이전 미완료). stkrt==ctr_stkrt==24.37, stkqy==ctr_stkqy → 실제 지분 0, 계약 분만.
+    # 일반 보유자(GumshoeMasterFundLP)는 ctr 필드가 '-' → None.
+    from app.adapters.dart import throttle as dart_throttle
+
+    payload = {
+        "status": "000",
+        "list": [
+            {
+                "rcept_dt": "20260720",
+                "repror": "디씨케이인베스트먼트",
+                "stkqy": "3,270,248",
+                "stkrt": "24.37",
+                "stkqy_irds": "3,270,248",
+                "stkrt_irds": "24.37",
+                "ctr_stkqy": "3,270,248",
+                "ctr_stkrt": "24.37",
+                "report_resn": "- 주식매매계약 체결",
+            },
+            {
+                "rcept_dt": "20260813",
+                "repror": "GumshoeMasterFundLP",
+                "stkqy": "763,967",
+                "stkrt": "5.69",
+                "stkqy_irds": "763,967",
+                "stkrt_irds": "5.69",
+                "ctr_stkqy": "-",
+                "ctr_stkrt": "-",
+                "report_resn": "신규보고의무 발생",
+            },
+        ],
+    }
+    resp = MagicMock()
+    resp.json.return_value = payload
+    resp.raise_for_status = MagicMock()
+    monkeypatch.setattr(dart_throttle, "get", lambda s, url, **kw: resp)
+
+    holders = dart.fetch_major_shareholders("key", "00506294")
+    assert len(holders) == 2
+    dck = next(h for h in holders if h.repror == "디씨케이인베스트먼트")
+    assert dck.stkrt == 24.37 and dck.stkqy == 3_270_248
+    assert dck.ctr_stkrt == 24.37 and dck.ctr_stkqy == 3_270_248  # 전액 주요체결
+    gumshoe = next(h for h in holders if h.repror == "GumshoeMasterFundLP")
+    assert gumshoe.stkrt == 5.69
+    assert gumshoe.ctr_stkqy is None and gumshoe.ctr_stkrt is None  # 일반 보유

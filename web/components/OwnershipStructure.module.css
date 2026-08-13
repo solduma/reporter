@@ -260,6 +260,27 @@
   border-bottom: 1px solid var(--border);
 }
 
+/* 5%+ 주주 중 계약 체결(이전 미완료) 그룹 — 실보유와 시각 분리 */
+.contractGroup {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+
+.contractLabel {
+  margin-bottom: 6px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--warn, #c47b00);
+}
+
+.contractNote {
+  margin-top: 6px;
+  font-size: 0.74rem;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
 .changeList {
   list-style: none;
   margin: 0;

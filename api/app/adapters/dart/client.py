@@ -443,6 +443,8 @@ class MajorHolder:
     stkrt: float | None = None  # 보유비율(%)
     stkqy_irds: int | None = None  # 증감
     stkrt_irds: float | None = None  # 증감(%)
+    ctr_stkqy: int | None = None  # 주요체결 주식수(주식매매계약 체결, 이전 미완료 분)
+    ctr_stkrt: float | None = None  # 주요체결 보유비율(%)
     report_resn: str = ""  # 보고사유
 
 
@@ -469,6 +471,8 @@ def fetch_major_shareholders(
                     stkrt=_float_field(r, "stkrt"),
                     stkqy_irds=_int_field(r, "stkqy_irds"),
                     stkrt_irds=_float_field(r, "stkrt_irds"),
+                    ctr_stkqy=_int_field(r, "ctr_stkqy"),
+                    ctr_stkrt=_float_field(r, "ctr_stkrt"),
                     report_resn=(r.get("report_resn") or "").strip(),
                 )
             )

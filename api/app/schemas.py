@@ -1257,6 +1257,8 @@ class MajorHolderOut(BaseModel):
     repror: str = ""  # 대표보고자(주주명)
     stkrt: float | None = None  # 보유비율(%)
     stkqy: int | None = None  # 보유주식수
+    ctr_stkrt: float | None = None  # 주요체결 보유비율(%)(주식매매계약 체결, 이전 미완료 분)
+    ctr_stkqy: int | None = None  # 주요체결 주식수
     report_resn: str = ""  # 보고사유
 
 
