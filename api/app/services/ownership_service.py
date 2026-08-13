@@ -228,6 +228,8 @@ def _get_major_holders(
             "repror": h.repror,
             "stkrt": h.stkrt,
             "stkqy": h.stkqy,
+            "ctr_stkrt": h.ctr_stkrt,
+            "ctr_stkqy": h.ctr_stkqy,
             "report_resn": h.report_resn,
         }
         for h in raw

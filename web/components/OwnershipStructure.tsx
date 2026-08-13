@@ -54,6 +54,7 @@ function groupMajorHolders(rows: MajorHolderRow[]): {
   stkrt: number | null;
   stkqy: number | null;
   history: string;
+  isContractOnly: boolean; // 최신 보고서 보유 전액이 주요체결(주식매매계약 체결, 이전 미완료)
 }[] {
   const groups = new Map<string, MajorHolderRow[]>();
   for (const r of rows) {
@@ -61,7 +62,13 @@ function groupMajorHolders(rows: MajorHolderRow[]): {
     arr.push(r);
     groups.set(r.repror, arr);
   }
-  const out: { repror: string; stkrt: number | null; stkqy: number | null; history: string }[] = [];
+  const out: {
+    repror: string;
+    stkrt: number | null;
+    stkqy: number | null;
+    history: string;
+    isContractOnly: boolean;
+  }[] = [];
   for (const [repror, arr] of groups) {
     const sorted = arr
       .slice()
@@ -76,7 +83,10 @@ function groupMajorHolders(rows: MajorHolderRow[]): {
       const l = latest.stkrt !== null ? `${latest.stkrt.toFixed(2)}%` : "—";
       history = `${sorted.length}건 · ${f}→${l} (${fmtDate(latest.rcept_dt)})`;
     }
-    out.push({ repror, stkrt: latest.stkrt, stkqy: latest.stkqy, history });
+    // 보고된 보유 전액이 주요체결이면 이전(명의개서)이 아직 안 된 계약 분.
+    const isContractOnly =
+      (latest.ctr_stkqy ?? 0) > 0 && (latest.ctr_stkqy ?? 0) >= (latest.stkqy ?? 0);
+    out.push({ repror, stkrt: latest.stkrt, stkqy: latest.stkqy, history, isContractOnly });
   }
   return out.sort((a, b) => (b.stkrt ?? 0) - (a.stkrt ?? 0));
 }
@@ -248,6 +258,9 @@ export default function OwnershipStructure({ code }: { code: string }) {
   orphanReporters.sort((a, b) => (b.latest.rcept_date ?? "").localeCompare(a.latest.rcept_date ?? ""));
 
   const groupedMajor = groupMajorHolders(major_holders);
+  // 계약 체결(이전 미완료) 전액 주요체결 그룹을 실보유와 분리 — 혼동 방지.
+  const majorActual = groupedMajor.filter((h) => !h.isContractOnly);
+  const majorContract = groupedMajor.filter((h) => h.isContractOnly);
   const toggleRow = (key: string) => setExpanded((p) => toggleInSet(p, key));
   const toggleSection = (key: string) => setOpenSections((p) => toggleInSet(p, key));
 
@@ -427,7 +440,8 @@ export default function OwnershipStructure({ code }: { code: string }) {
             </CollapsibleSection>
           )}
 
-          {/* 5%+ 대량보유주주 — 섹션 디폴트 collapsed, 행 클릭 시 개별 보고 상세 확장 */}
+          {/* 5%+ 대량보유주주 — 섹션 디폴트 collapsed, 행 클릭 시 개별 보고 상세 확장.
+              계약 체결(이전 미완료) 전액 주요체결 주주는 실보유와 섞이면 혼동되므로 별도 그룹으로 분리. */}
           {major_holders.length > 0 && (
             <CollapsibleSection
               title="5%+ 대량보유주주"
@@ -436,45 +450,96 @@ export default function OwnershipStructure({ code }: { code: string }) {
               open={openSections.has("major")}
               onToggle={toggleSection}
             >
-              <div className={styles.scroll}>
-                <table className={styles.table}>
-                  <thead>
-                    <tr>
-                      <th className={styles.nameCol} scope="col">보고자</th>
-                      <th scope="col">보유비율</th>
-                      <th scope="col">보유주식</th>
-                      <th scope="col">변경 이력</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {groupedMajor.map((h) => {
-                      const key = `mh-${h.repror}`;
-                      const detail = majorByName.get(h.repror) ?? [];
-                      const isOpen = expanded.has(key);
-                      return (
-                        <Fragment key={key}>
-                          <tr className={styles.clickable} onClick={() => toggleRow(key)}>
-                            <th className={styles.nameCol} scope="row">
-                              {h.repror}
-                              <span className={styles.rowArrow}>{isOpen ? "▾" : "▸"}</span>
-                            </th>
-                            <td className={styles.num}>{fmtStake(h.stkrt)}</td>
-                            <td className={styles.num}>{fmtShares(h.stkqy)}</td>
-                            <td className={styles.historyCell}>{h.history}</td>
-                          </tr>
-                          {isOpen ? (
-                            <tr className={styles.detailRow}>
-                              <td colSpan={4}>
-                                <MajorHolderDetail rows={detail} />
-                              </td>
+              {majorActual.length > 0 ? (
+                <div className={styles.scroll}>
+                  <table className={styles.table}>
+                    <thead>
+                      <tr>
+                        <th className={styles.nameCol} scope="col">보고자</th>
+                        <th scope="col">보유비율</th>
+                        <th scope="col">보유주식</th>
+                        <th scope="col">변경 이력</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {majorActual.map((h) => {
+                        const key = `mh-${h.repror}`;
+                        const detail = majorByName.get(h.repror) ?? [];
+                        const isOpen = expanded.has(key);
+                        return (
+                          <Fragment key={key}>
+                            <tr className={styles.clickable} onClick={() => toggleRow(key)}>
+                              <th className={styles.nameCol} scope="row">
+                                {h.repror}
+                                <span className={styles.rowArrow}>{isOpen ? "▾" : "▸"}</span>
+                              </th>
+                              <td className={styles.num}>{fmtStake(h.stkrt)}</td>
+                              <td className={styles.num}>{fmtShares(h.stkqy)}</td>
+                              <td className={styles.historyCell}>{h.history}</td>
                             </tr>
-                          ) : null}
-                        </Fragment>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                            {isOpen ? (
+                              <tr className={styles.detailRow}>
+                                <td colSpan={4}>
+                                  <MajorHolderDetail rows={detail} />
+                                </td>
+                              </tr>
+                            ) : null}
+                          </Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
+              {majorContract.length > 0 ? (
+                <div className={styles.contractGroup}>
+                  <div className={styles.contractLabel}>
+                    ⚠ 계약 체결 (이전 미완료)
+                  </div>
+                  <div className={styles.scroll}>
+                    <table className={styles.table}>
+                      <thead>
+                        <tr>
+                          <th className={styles.nameCol} scope="col">보고자</th>
+                          <th scope="col">계약 비율</th>
+                          <th scope="col">계약 주식</th>
+                          <th scope="col">변경 이력</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {majorContract.map((h) => {
+                          const key = `mh-${h.repror}`;
+                          const detail = majorByName.get(h.repror) ?? [];
+                          const isOpen = expanded.has(key);
+                          return (
+                            <Fragment key={key}>
+                              <tr className={styles.clickable} onClick={() => toggleRow(key)}>
+                                <th className={styles.nameCol} scope="row">
+                                  {h.repror}
+                                  <span className={styles.rowArrow}>{isOpen ? "▾" : "▸"}</span>
+                                </th>
+                                <td className={styles.num}>{fmtStake(h.stkrt)}</td>
+                                <td className={styles.num}>{fmtShares(h.stkqy)}</td>
+                                <td className={styles.historyCell}>{h.history}</td>
+                              </tr>
+                              {isOpen ? (
+                                <tr className={styles.detailRow}>
+                                  <td colSpan={4}>
+                                    <MajorHolderDetail rows={detail} />
+                                  </td>
+                                </tr>
+                              ) : null}
+                            </Fragment>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className={styles.contractNote}>
+                    주식매매계약 체결분으로 명의개서(이전)가 완료되지 않아 실제 지분이 아닙니다.
+                  </div>
+                </div>
+              ) : null}
             </CollapsibleSection>
           )}
 
@@ -764,6 +829,11 @@ function MajorHolderDetail({ rows }: { rows: MajorHolderRow[] }) {
           <span className={styles.changeDate}>{fmtDate(h.rcept_dt)}</span>
           <span className={styles.changeAfter}>보유 {fmtStake(h.stkrt)}</span>
           <span className={styles.changeAfter}>{fmtShares(h.stkqy)}주</span>
+          {(h.ctr_stkqy ?? 0) > 0 ? (
+            <span className={styles.changeReason}>
+              계약 체결 {fmtStake(h.ctr_stkrt)} · {fmtShares(h.ctr_stkqy)}주 (이전 미완료)
+            </span>
+          ) : null}
           {h.report_resn ? <span className={styles.changeReason}>{h.report_resn}</span> : null}
         </li>
       ))}

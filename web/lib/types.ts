@@ -1134,6 +1134,8 @@ export interface MajorHolderRow {
   repror: string; // 대표보고자(주주명)
   stkrt: number | null; // 보유비율(%)
   stkqy: number | null; // 보유주식수
+  ctr_stkrt: number | null; // 주요체결 보유비율(%)(주식매매계약 체결, 이전 미완료)
+  ctr_stkqy: number | null; // 주요체결 주식수
   report_resn: string; // 보고사유
 }
 
