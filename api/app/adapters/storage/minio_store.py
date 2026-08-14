@@ -29,6 +29,15 @@ def _client() -> Minio:
 
 def put_pdf(object_key: str, data: bytes) -> str:
     """PDF 바이트를 저장하고 객체 키를 반환한다."""
+    return put_bytes(object_key, data, content_type="application/pdf")
+
+
+def get_pdf(object_key: str) -> bytes | None:
+    return get_bytes(object_key)
+
+
+def put_bytes(object_key: str, data: bytes, content_type: str = "application/octet-stream") -> str:
+    """임의 바이트를 저장하고 객체 키를 반환한다. DART 원문 zip 캐시 등에 사용."""
     import io
 
     s = get_settings()
@@ -37,12 +46,12 @@ def put_pdf(object_key: str, data: bytes) -> str:
         object_key,
         io.BytesIO(data),
         length=len(data),
-        content_type="application/pdf",
+        content_type=content_type,
     )
     return object_key
 
 
-def get_pdf(object_key: str) -> bytes | None:
+def get_bytes(object_key: str) -> bytes | None:
     s = get_settings()
     try:
         resp = _client().get_object(s.minio_bucket, object_key)

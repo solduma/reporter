@@ -25,19 +25,48 @@ import zipfile
 import requests
 
 from app.adapters.dart import throttle as dart_throttle
+from app.adapters.storage import minio_store
 
 logger = logging.getLogger(__name__)
 
 _DOCUMENT_URL = "https://opendart.fss.or.kr/api/document.xml"
 
+# MinIO 원문 zip 캐시 키 접두사. rcept_no 원문은 불변이므로 append-only(TTL 불필요).
+_DOC_CACHE_PREFIX = "dart-doc/"
+
+
+def _doc_cache_get(rcept_no: str) -> bytes | None:
+    """MinIO 원문 zip 캐시 조회. 캐시 미설정·오류는 None(fail-open)."""
+    try:
+        return minio_store.get_bytes(f"{_DOC_CACHE_PREFIX}{rcept_no}.zip")
+    except Exception as e:  # 캐시 장애가 수집을 막지 않는다(fail-open)
+        logger.warning("dart doc cache get failed %s: %s", rcept_no, e)
+        return None
+
+
+def _doc_cache_put(rcept_no: str, data: bytes) -> None:
+    try:
+        minio_store.put_bytes(f"{_DOC_CACHE_PREFIX}{rcept_no}.zip", data)
+    except Exception as e:
+        logger.warning("dart doc cache put failed %s: %s", rcept_no, e)
+
 
 def fetch_report_zip(api_key: str, rcept_no: str, session: requests.Session) -> bytes | None:
-    """document.xml zip 원문(bytes)을 받는다. 실패 시 None."""
+    """document.xml zip 원문(bytes)을 받는다. 실패 시 None.
+
+    MinIO(dart-doc/{rcept_no}.zip) 캐시-aside — hit 시 DART 호출 없이 반환, miss 시
+    다운로드 후 저장. 캐시 오류는 fail-open(다운로드만)이라 캐시 장애가 수집을 막지 않는다.
+    """
+    cached = _doc_cache_get(rcept_no)
+    if cached is not None:
+        return cached
     try:
         resp = dart_throttle.get(
             session, _DOCUMENT_URL, params={"crtfc_key": api_key, "rcept_no": rcept_no}, timeout=60
         )
         resp.raise_for_status()
+        if resp.content:
+            _doc_cache_put(rcept_no, resp.content)
         return resp.content
     except requests.RequestException as e:
         logger.warning("dart document fetch failed %s: %s", rcept_no, e)
