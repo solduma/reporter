@@ -603,10 +603,14 @@ def _bs_balance_map(bs_items: list[dict]) -> dict[str, float]:
 
 
 def _sce_balance_map(sce_items: list[dict]) -> dict[str, float]:
-    """SCE 기말자본 행 → (구성요소 leaf → amount). 합계·연결/별도재무제표 열 제외."""
+    """SCE 기말자본 행 → (구성요소 leaf → amount). 합계·연결/별도재무제표 열 제외.
+
+    행 라벨 변형: 기말자본·분기말자본·반기말자본(대형사)·기말(삼성전기)·분기말금액
+    (011170) — 접미사 매칭.
+    """
     out: dict[str, float] = {}
     for it in sce_items:
-        if (it.get("name") or "") != "기말자본":
+        if not re.search(r"(?:분|반)?기말(?:자본|금액)?$", it.get("name") or ""):
             continue
         detail = it.get("detail") or ""
         if detail in ("연결재무제표 [member]", "별도재무제표 [member]"):
@@ -628,21 +632,30 @@ def _match_sce_table(
     행의 구성요소 값이 CFS BS 와 정확히 일치하는 개수로 판별한다(포인트인타임 값 — 분기 포함
     전 기간에서 정합). 1개 이상 일치 필수. 동점 시 CFS BS 에 비지배지분(연결 증거)이 있으면
     연결 테이블을 우선한다.
+
+    BS 는 DART 응답 단위(원·천원·백만원) 그대로 저장되고 SCE 파싱은 항상 원으로 정규화한다
+    (008700 실측: BS 자본금 34,501,614백만 vs SCE 34,501,614,000,000원). 단위가 어긋나면
+    값 비교가 전부 실패하므로 공통 스케일을 시도한다.
     """
     if not candidates:
         return candidates
     bs = _bs_balance_map(bs_items)
     has_nci = any(_norm_comp(it.get("name") or "") == "비지배자본" for it in bs_items)
+    _SCALES = (1.0, 1e3, 1e6, 1e-3, 1e-6)
     scored: list[tuple[int, str, list[tuple[tuple[int, int, int], list[dict]]]]] = []
     for table_type, blocks in candidates:
         matches = 0
         for _end_date, items in blocks:
+            sce = _sce_balance_map(items)
             matches = max(
                 matches,
-                sum(
-                    1
-                    for leaf, amt in _sce_balance_map(items).items()
-                    if leaf in bs and abs(bs[leaf] - amt) < 0.5
+                max(
+                    sum(
+                        1
+                        for leaf, amt in sce.items()
+                        if leaf in bs and abs(bs[leaf] * scale - amt) < 0.5
+                    )
+                    for scale in _SCALES
                 ),
             )
         if matches:

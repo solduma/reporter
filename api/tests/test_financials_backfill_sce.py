@@ -91,6 +91,44 @@ def test_match_sce_table_no_match_returns_empty():
     # BS 값이 어떤 테이블과도 일치하지 않으면 빈 리스트(판별 불가 — 저장 안 함).
     bs = [{"name": "자본금", "amount": 1}, {"name": "이익잉여금(결손금)", "amount": 2}]
     assert fb._match_sce_table(_sep_candidates(), bs) == []
+
+
+def test_match_sce_table_bs_in_millions_sce_in_won():
+    """BS 가 백만원 단위로 저장된 회사(008700 실측) — SCE 파싱(원)과 단위가 달라도
+    스케일 정규화로 연결/별도를 판별해야 한다. 자본금 34,501,614백만 = 34,501,614,000,000원."""
+    bs = [
+        {"name": "자본금", "amount": 34_501_614},  # 백만원
+        {"name": "자본잉여금", "amount": 1_724_124},
+        {"name": "기타자본구성요소", "amount": -163_350},
+        {"name": "기타포괄손익누계액", "amount": 415},
+        {"name": "이익잉여금(결손금)", "amount": 54_042_132},
+    ]
+    sce_items = [
+        {"name": "기말자본", "amount": 34_501_614_000_000, "detail": "자본금 [member]", "sj_div": "SCE"},
+        {"name": "기말자본", "amount": 1_724_124_000_000, "detail": "자본잉여금 [member]", "sj_div": "SCE"},
+        {"name": "기말자본", "amount": -163_350_000_000, "detail": "기타자본구성요소 [member]", "sj_div": "SCE"},
+        {"name": "기말자본", "amount": 415_000_000, "detail": "기타포괄손익누계액 [member]", "sj_div": "SCE"},
+        {"name": "기말자본", "amount": 54_042_132_000_000, "detail": "이익잉여금 [member]", "sj_div": "SCE"},
+        {"name": "기말자본", "amount": 90_104_935_000_000, "detail": "연결재무제표 [member]", "sj_div": "SCE"},
+    ]
+    candidates = [("consolidated", [((2026, 3, 31), sce_items)])]
+    matched = fb._match_sce_table(candidates, bs)
+    assert [t for t, _b in matched] == ["consolidated"]
+
+
+def test_match_sce_table_quarterly_kind_label():
+    # 대형사 분기 보고서는 '(분기말자본)' 라벨 — _sce_balance_map 이 접미사로 인식해
+    # BS 와 매칭해야 한다(삼성전자 2026.03 실측: 자본금·기타자본항목·비지배지분 일치).
+    q = _SEP_XML.replace("2025.09.30 (기말자본)", "2025.09.30 (분기말자본)")
+    blocks = rp.parse_sce_blocks(q, want_consolidated=False)
+    assert blocks is not None
+    items = blocks[0][1]
+    bal = fb._sce_balance_map(items)
+    assert bal["자본금"] == 69_572_819_500
+    assert bal["이익잉여금"] == 10_037_350_331
+    # BS 와 매칭되어 별도 SCE 가 선택된다.
+    matched = fb._match_sce_table([("separate", blocks)], _bs_000890_2025_09())
+    assert [t for t, _b in matched] == ["separate"]
     assert fb._match_sce_table([], _bs_000890_2025_09()) == []
 
 
