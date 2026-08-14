@@ -185,3 +185,16 @@ def test_parse_sce_tables_from_zip_no_table_returns_empty():
     # SCE 테이블이 없는 문서(예: 정정공시 부속서류)는 빈 리스트 — 호출측 skip.
     assert p.parse_sce_tables_from_zip(_zip("<DOCUMENT><P>재무제표 본문 없음</P></DOCUMENT>")) == []
     assert p.parse_sce_tables_from_zip(b"not a zip") == []
+
+
+def test_parse_sce_blocks_roman_numeral_kind_prefix():
+    """구식 보고서(2016년경)는 기초/기말자본 라벨에 로마숫자 접두사를 단다."""
+    old = _SEP_XML.replace("2025.01.01 (기초자본)", "2015.01.01 (Ⅰ.기초자본)").replace(  # noqa: RUF001 (로마숫자 접두사 매칭 의도)
+        "2025.09.30 (기말자본)", "2015.12.31 (Ⅲ.기말자본)"
+    )
+    blocks = p.parse_sce_blocks(old, want_consolidated=False)
+    assert blocks is not None
+    end_dates = [d for d, _items in blocks]
+    assert end_dates == [(2015, 12, 31)]  # 기말자본 블록만 — 로마숫자여도 인식
+    items = blocks[0][1]
+    assert _item(items, "기말자본", "별도재무제표 [member]")["amount"] == 88_762_871_568

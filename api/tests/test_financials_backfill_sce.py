@@ -265,3 +265,37 @@ def test_run_sce_migration_zip_fetch_failure_skips(monkeypatch):
     updated = fb._run_sce_migration_for_code(db, settings, "000890", ["2025.09"], MagicMock())
     assert updated == 0
     db.commit.assert_not_called()
+
+
+def test_run_sce_migration_keep_all_blocks_picks_bs_matching(monkeypatch):
+    """후기 보고서의 전기 블록이 오파싱(자본금 가비지)이어도, 본인 보고서의 정상 기말 블록을
+    BS 매칭으로 골라 채운다. 최신 접수만 취하면 가비지가 정상 블록을 가려 skip 된다(001080 실측)."""
+    garbage = _SEP_XML.replace("69,572,819,500", "999,999,999,999")  # 자본금 오파싱
+    correct = _SEP_XML  # 2025.09 분기보고서 — 정상 기말 블록
+
+    def _fake_list(api_key, corp_code, bgn_de, session):
+        # 접수 최신 우선: 후기 보고서(2025.12)가 먼저 온다.
+        return [
+            {"rcept_no": "20260219002720", "report_nm": "반기보고서 (2025.12)"},
+            {"rcept_no": "20251114003027", "report_nm": "분기보고서 (2025.09)"},
+        ]
+
+    def _fake_zip(api_key, rcept_no, session):
+        return _zip(garbage if rcept_no == "20260219002720" else correct)
+
+    db = MagicMock()
+    db.scalar.return_value = "00000000"
+    row = SimpleNamespace(data={"BS": _bs_000890_2025_09(), "CIS": []})
+    db.scalars.return_value.first.return_value = row
+    settings = MagicMock(dart_api_key="key")
+
+    monkeypatch.setattr(fb.dart, "find_all_periodic_reports", _fake_list)
+    monkeypatch.setattr(fb, "fetch_report_zip", _fake_zip)
+
+    updated = fb._run_sce_migration_for_code(db, settings, "000890", ["2025.09"], MagicMock())
+    assert updated == 1
+    end = next(
+        i for i in row.data["SCE"]
+        if i["name"] == "기말자본" and i["detail"] == "별도재무제표 [member]"
+    )
+    assert end["amount"] == 88_762_871_568  # 정상(본인 보고서) 값 — 가비지 아님
