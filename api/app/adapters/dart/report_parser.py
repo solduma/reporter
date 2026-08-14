@@ -282,7 +282,8 @@ def _note_da_fallback(cells: list[tuple[int, bool, str]], xml: str, scope_start:
 
 _SCE_TITLE_RE = re.compile(r"자\s*본\s*변\s*동\s*표")
 # 구식 보고서(2016년경)는 기초/기말자본 라벨에 로마숫자 접두사를 단다 — 선택 허용(실측).
-_SCE_KIND_RE = re.compile(r"(\d{4}\.\d{1,2}\.\d{1,2})\s*[\(（]\s*(?:[Ⅰ-Ⅹ]+\.?)?\s*(기초자본|기말자본)\s*[\)）]")  # noqa: RUF001 (로마숫자 접두사 매칭 의도)
+# 대형사(삼성전자 등) 분기/반기 보고서는 '(분기말자본)'·'(반기말자본)' — '분'/'반' 접두 허용.
+_SCE_KIND_RE = re.compile(r"(\d{4}\.\d{1,2}\.\d{1,2})\s*[\(（]\s*(?:[Ⅰ-Ⅹ]+\.?)?\s*((?:분|반)?기초자본|(?:분|반)?기말자본)\s*[\)）]")  # noqa: RUF001 (로마숫자 접두사 매칭 의도)
 _SCE_TH_RE = re.compile(r"<TH([^>]*)>(.*?)</TH>", re.DOTALL)
 _SCE_TR_RE = re.compile(r"<TR([^>]*)>(.*?)</TR>", re.DOTALL)
 
@@ -344,6 +345,11 @@ def _parse_sce_header(xml: str, tstart: int, tend: int, ncols: int) -> list[str]
     그룹 행은 COLSPAN 으로 여러 leaf 열을 묶고 '과목' 라벨 열을 왼쪽에 둔다(000890 실측:
     헤더 폭 8 = 과목 1 + 데이터 7). 헤더 폭(H)이 데이터 값 수(ncols)보다 넓으면 왼쪽 초과
     열은 라벨 열이라 버리고, 최하위 TR 은 라벨 열 다음(데이터 열 0)부터 정렬한다.
+
+    행은 **아래→위(innermost-wins)** 로 처리한다. 최상단 그룹 행이 전체를 아우르는 범용
+    라벨(삼성전자: '자본' COLSPAN=7)을 달면 top-down 은 그 값이 모든 열을 먼저 채워
+    비지배지분·자본합계 같은 구체 라벨을 가린다 — 아래쪽(구체)부터 채우고 위쪽은 빈 셀만
+    메운다.
     """
     table = xml[tstart:tend]
     rows: list[list[tuple[str, int]]] = []
@@ -364,14 +370,14 @@ def _parse_sce_header(xml: str, tstart: int, tend: int, ncols: int) -> list[str]
     header_width = max(sum(sp for _, sp in row) for row in rows)
     start = max(0, header_width - ncols)  # 과목 등 라벨 열 폭
     leaves = [""] * ncols
-    for ri, row in enumerate(rows):
-        if ri == len(rows) - 1:
+    for ri, row in enumerate(reversed(rows)):
+        if ri == 0:  # 최하위 leaf 행: 라벨 열 다음(데이터 열 0)부터
             idx = start
             for txt, span in row:
                 for j in range(idx, min(idx + span, start + ncols)):
                     leaves[j - start] = txt
                 idx += span
-        else:
+        else:  # 그룹 행: 오른쪽부터, 빈 셀만 채운다(innermost-wins)
             idx = header_width
             for txt, span in reversed(row):
                 for j in range(max(0, idx - span), idx):

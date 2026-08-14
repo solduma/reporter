@@ -198,3 +198,42 @@ def test_parse_sce_blocks_roman_numeral_kind_prefix():
     assert end_dates == [(2015, 12, 31)]  # 기말자본 블록만 — 로마숫자여도 인식
     items = blocks[0][1]
     assert _item(items, "기말자본", "별도재무제표 [member]")["amount"] == 88_762_871_568
+
+
+def test_parse_sce_blocks_quarterly_kind_label():
+    """대형사(삼성전자 등) 분기/반기 보고서는 '(분기말자본)'·'(반기말자본)' 라벨을 쓴다."""
+    q = _SEP_XML.replace("2025.09.30 (기말자본)", "2025.09.30 (분기말자본)")
+    blocks = p.parse_sce_blocks(q, want_consolidated=False)
+    assert blocks is not None
+    assert blocks[0][0] == (2025, 9, 30)
+    items = blocks[0][1]
+    assert _item(items, "분기말자본", "별도재무제표 [member]")["amount"] == 88_762_871_568
+    # 반기 보고서 변형도 동일하게 인식.
+    h = _SEP_XML.replace("2025.09.30 (기말자본)", "2025.06.30 (반기말자본)")
+    blocks = p.parse_sce_blocks(h, want_consolidated=False)
+    assert blocks is not None and blocks[0][0] == (2025, 6, 30)
+
+
+def test_parse_sce_header_generic_top_span_innermost_wins():
+    """최상단 그룹 행이 전체를 아우르는 범용 라벨('자본' COLSPAN=7)이어도 아래쪽 구체
+    라벨(비지배지분·자본 합계)이 이긴다 — 삼성전자 연결 SCE 헤더 실측."""
+    xml = """<DOCUMENT>
+<TABLE>
+<TR><TH></TH><TH COLSPAN="7">자본</TH></TR>
+<TR><TH COLSPAN="5">지배기업 소유주지분</TH><TH>비지배지분</TH><TH>자본 합계</TH></TR>
+<TR><TH>자본금</TH><TH>주식발행초과금</TH><TH>이익잉여금</TH><TH>기타자본항목</TH><TH>지배기업 소유주지분 합계</TH></TR>
+</TABLE>
+</DOCUMENT>
+"""
+    tstart = xml.find("<TABLE")
+    tend = xml.find("</TABLE>") + len("</TABLE>")
+    leaves = p._parse_sce_header(xml, tstart, tend, 7)
+    assert leaves == [
+        "자본금",
+        "주식발행초과금",
+        "이익잉여금",
+        "기타자본항목",
+        "지배기업 소유주지분 합계",
+        "비지배지분",
+        "자본 합계",
+    ]
