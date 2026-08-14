@@ -327,13 +327,16 @@ def _find_sce_table(xml: str, want_consolidated: bool) -> tuple[int, int] | None
 
 
 def _sce_rows(xml: str, tstart: int, tend: int) -> list[tuple[str, list[str]]]:
-    """자본변동표 데이터 행 재구성 — 좌정렬=새 행 라벨, 우정렬=값(빈 셀 포함, 위치 보존)."""
+    """자본변동표 데이터 행 재구성 — 좌정렬=새 행 라벨, 우정렬=값(빈 셀 포함, 위치 보존).
+
+    우정렬 빈 셀('')도 값으로 남긴다 — 비지배지분이 없는 발행사(008700 실측)는 해당 열이
+    빈 셀로 존재해, 건너뛰면 뒤 값들이 한 열씩 밀려 자본합계가 비지배지분으로 오정렬된다.
+    """
     rows: list[tuple[str, list[str]]] = []
     for _pos, right, txt in _parse_cells(xml[tstart:tend]):
-        if not txt:
-            continue
         if not right:
-            rows.append((txt, []))
+            if txt:  # 좌정렬 빈 셀은 라벨이 아니므로 스킵
+                rows.append((txt, []))
         elif rows:
             rows[-1][1].append(txt)
     return rows
