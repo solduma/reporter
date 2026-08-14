@@ -1150,6 +1150,52 @@ def find_periodic_report(
     return max(matches, key=lambda r: r.get("rcept_no", "")).get("rcept_no")
 
 
+def find_all_periodic_reports(
+    api_key: str, corp_code: str, bgn_de: str, session: requests.Session
+) -> list[dict]:
+    """기간 내 모든 사업·반기·분기보고서 공시 목록. 최신 접수(정정 반영) 우선.
+
+    SCE 마이그레이션용: 종목당 1회 list.json 호출로 전체 보고서를 받아 rcept_no·report_nm
+    (대상기간 'YYYY.MM' 태그) 을 취한다. end_de 는 오늘(호출 측에서 결정). status != 000 은
+    빈 리스트로 돌려 조회 실패를 건너뛰게 한다.
+    """
+    params = {
+        "crtfc_key": api_key,
+        "corp_code": corp_code,
+        "bgn_de": bgn_de,
+        "end_de": date.today().strftime("%Y%m%d"),
+        "pblntf_ty": "A",  # 정기공시(사업/반기/분기보고서)
+        "page_count": 100,
+    }
+    reports: list[dict] = []
+    page = 1
+    while True:
+        params["page_no"] = page
+        try:
+            resp = dart_throttle.get(session, _LIST_URL, params=params, timeout=15)
+            resp.raise_for_status()
+            data = resp.json()
+        except (requests.RequestException, ValueError) as e:
+            logger.warning("dart periodic list failed %s: %s", corp_code, e)
+            return []
+        _raise_if_quota(data)
+        if data.get("status") != "000":
+            return []
+        reports.extend(
+            r
+            for r in data.get("list", [])
+            if any(
+                kw in (r.get("report_nm") or "")
+                for kw in ("사업보고서", "반기보고서", "분기보고서")
+            )
+        )
+        if page >= data.get("total_page", 1):
+            break
+        page += 1
+    # 접수일 최신순(정정 제출이 마지막 — 마이그레이션은 최신 원문을 우선 사용).
+    return sorted(reports, key=lambda r: r.get("rcept_no", ""), reverse=True)
+
+
 # 공시 본문 XML 의 태그를 제거해 순수 텍스트로. 표·서식은 버리고 판단에 쓸 서술만 남긴다.
 def _strip_document_xml(raw: bytes) -> str:
     text = raw.decode("utf-8", errors="ignore")

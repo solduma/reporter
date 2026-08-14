@@ -241,6 +241,226 @@ def _note_da_fallback(cells: list[tuple[int, bool, str]], xml: str, scope_start:
     return total or None
 
 
+# ---- SCE(자본변동표) 파싱 ---------------------------------------------------
+#
+# DART fnlttSinglAcntAll CFS SCE 는 (a) 013(연결 미공시) 로 반환하지 않거나
+# (b) 연결 BS/CIS 와 별도 SCE 를 같은 응답에 섞어 내는 등 신뢰할 수 없다(000890 실측).
+# 공시 원문의 자본변동표 본표를 파싱한다. 원문이 진실.
+#
+# 테이블 구조(실측): TH 헤더(다단, colspan) + 데이터 행(좌정렬=라벨, 우정렬=값).
+# 전기 블록 먼저, 각 블록 = 'YYYY.MM.DD (기초자본)' → 계정 행 → 'YYYY.MM.DD (기말자본)'.
+# 연간 _00761(연결)/_00760(별도), 분기 단일파일은 섹션 제목으로 구분.
+
+_SCE_TITLE_RE = re.compile(r"자\s*본\s*변\s*동\s*표")
+_SCE_KIND_RE = re.compile(r"(\d{4}\.\d{1,2}\.\d{1,2})\s*[\(（]\s*(기초자본|기말자본)\s*[\)）]")  # noqa: RUF001 (전각괄호 매칭 의도)
+_SCE_TH_RE = re.compile(r"<TH([^>]*)>(.*?)</TH>", re.DOTALL)
+_SCE_TR_RE = re.compile(r"<TR([^>]*)>(.*?)</TR>", re.DOTALL)
+
+# 합계 열 라벨 → '연결/별도재무제표 [member]' 로 정규화(UI _clean_leaf 가 자본총계로 매핑).
+_SCE_TOTAL_LEAVES = ("자본 합계", "자본합계", "합계")
+
+
+def _is_consolidated_title(xml: str, pos: int) -> bool:
+    """자본변동표 타이틀 직전(공백 제거)이 '연결'로 끝나면 연결 섹션."""
+    pre = re.sub(r"\s+", "", xml[max(0, pos - 10):pos])
+    return pre.endswith("연결")
+
+
+def _find_sce_table(xml: str, want_consolidated: bool) -> tuple[int, int] | None:
+    """연결/별도 자본변동표 본표 TABLE 의 (시작, 끝) 오프셋. 없으면 None.
+
+    섹션 제목('연결 자본변동표'/'자본변동표') 이후 첫 '기초자본'+'기말자본' 을 담은 TABLE.
+    목차 항목(.....) 은 제외. 분기 단일파일·연간 다중파일 모두 동작.
+    """
+    for m in _SCE_TITLE_RE.finditer(xml):
+        pre = xml[max(0, m.start() - 80):m.start()]
+        if "....." in pre:  # 목차 항목(점선 지시선) 제외
+            continue
+        if _is_consolidated_title(xml, m.start()) != want_consolidated:
+            continue
+        pos = m.end()
+        for _ in range(20):
+            ts = xml.find("<TABLE", pos)
+            if ts == -1:
+                break
+            te = xml.find("</TABLE>", ts)
+            if te == -1:
+                break
+            seg = xml[ts:te]
+            if "기초자본" in seg and "기말자본" in seg:
+                return ts, te
+            pos = te
+    return None
+
+
+def _sce_rows(xml: str, tstart: int, tend: int) -> list[tuple[str, list[str]]]:
+    """자본변동표 데이터 행 재구성 — 좌정렬=새 행 라벨, 우정렬=값(빈 셀 포함, 위치 보존)."""
+    rows: list[tuple[str, list[str]]] = []
+    for _pos, right, txt in _parse_cells(xml[tstart:tend]):
+        if not txt:
+            continue
+        if not right:
+            rows.append((txt, []))
+        elif rows:
+            rows[-1][1].append(txt)
+    return rows
+
+
+def _parse_sce_header(xml: str, tstart: int, tend: int, ncols: int) -> list[str]:
+    """헤더 TH 다단 병합 → 컬럼 leaf 목록(innermost-wins).
+
+    최하위(구체) TR 이 좌정렬로 열을 정의하고, 상위 그룹 TR 은 오른쪽부터 끝 열을 채운다
+    (연결 7열에서 비지배지분·자본합계가 최하위 TR 에 없고 그룹 행에만 있는 발행사 대응).
+    그룹 행은 COLSPAN 으로 여러 leaf 열을 묶고 '과목' 라벨 열을 왼쪽에 둔다(000890 실측:
+    헤더 폭 8 = 과목 1 + 데이터 7). 헤더 폭(H)이 데이터 값 수(ncols)보다 넓으면 왼쪽 초과
+    열은 라벨 열이라 버리고, 최하위 TR 은 라벨 열 다음(데이터 열 0)부터 정렬한다.
+    """
+    table = xml[tstart:tend]
+    rows: list[list[tuple[str, int]]] = []
+    for m in _SCE_TR_RE.finditer(table):
+        tr = m.group(2)
+        if "<TH" not in tr:
+            continue
+        row: list[tuple[str, int]] = []
+        for c in _SCE_TH_RE.finditer(tr):
+            col = re.search(r"COLSPAN\s*=\s*[\"']?(\d+)", c.group(1).upper())
+            span = int(col.group(1)) if col else 1
+            txt = re.sub(r"<[^>]+>", " ", c.group(2))
+            txt = re.sub(r"\s+", " ", txt).strip()
+            row.append((txt, span))
+        rows.append(row)
+    if not rows:
+        return []
+    header_width = max(sum(sp for _, sp in row) for row in rows)
+    start = max(0, header_width - ncols)  # 과목 등 라벨 열 폭
+    leaves = [""] * ncols
+    for ri, row in enumerate(rows):
+        if ri == len(rows) - 1:
+            idx = start
+            for txt, span in row:
+                for j in range(idx, min(idx + span, start + ncols)):
+                    leaves[j - start] = txt
+                idx += span
+        else:
+            idx = header_width
+            for txt, span in reversed(row):
+                for j in range(max(0, idx - span), idx):
+                    if start <= j < start + ncols and not leaves[j - start]:
+                        leaves[j - start] = txt
+                idx -= span
+    return leaves
+
+
+def _split_sce_blocks(
+    rows: list[tuple[str, list[str]]],
+) -> list[tuple[tuple[int, int, int], list[tuple[str, list[str]]]]]:
+    """데이터 행 → [(기말자본 날짜, 블록 행들)] 블록 목록.
+
+    'YYYY.MM.DD (기초자본)' 이 블록 시작, '기말자본' 행이 블록 종료. 기초/기말 행의 값도
+    데이터 행으로 남긴다(DART 형식은 기초/기말자본 아이템을 포함).
+    """
+    blocks: list[tuple[tuple[int, int, int], list[tuple[str, list[str]]]]] = []
+    cur: list[tuple[str, list[str]]] | None = None
+    for label, values in rows:
+        m = _SCE_KIND_RE.search(label)
+        if m:
+            kind = m.group(2)
+            if kind == "기초자본":
+                cur = [(kind, values)]
+            else:  # 기말자본
+                if cur is not None:
+                    cur.append((kind, values))
+                    d = tuple(int(x) for x in m.group(1).split("."))
+                    blocks.append((d, cur))
+                    cur = None
+            continue
+        if cur is not None:
+            cur.append((label, values))
+    return blocks
+
+
+def _to_dart_items(
+    block: list[tuple[str, list[str]]],
+    leaves: list[str],
+    table_type: str,
+    unit_mult: int,
+) -> list[dict]:
+    """블록 행×열 → DART SCE 아이템 {name, amount, detail, sj_div}.
+
+    합계 열 detail 은 '연결/별도재무제표 [member]' 로 정규화. 빈 셀('-') 생략(DART 와 동일).
+    상위 그룹 leaf 의 ' 합계' 접미사는 DART leaf 와 맞추기 위해 제거(지배기업지분 합계 등).
+    """
+    total_detail = (
+        "연결재무제표 [member]" if table_type == "consolidated" else "별도재무제표 [member]"
+    )
+    items: list[dict] = []
+    for label, values in block:
+        for i, v in enumerate(values):
+            if i >= len(leaves):
+                break
+            amount = _to_num(v)
+            if amount is None:
+                continue
+            leaf = leaves[i].strip()
+            if leaf in _SCE_TOTAL_LEAVES:
+                detail = total_detail
+            else:
+                leaf = re.sub(r"\s*합계$", "", leaf)
+                detail = f"{leaf} [member]"
+            items.append(
+                {"name": label, "amount": amount * unit_mult, "detail": detail, "sj_div": "SCE"}
+            )
+    return items
+
+
+def parse_sce_blocks(
+    xml: str, want_consolidated: bool
+) -> list[tuple[tuple[int, int, int], list[dict]]] | None:
+    """연결/별도 자본변동표의 (기말자본 날짜, 아이템 목록) 블록들. 테이블 없으면 None."""
+    span = _find_sce_table(xml, want_consolidated)
+    if not span:
+        return None
+    tstart, tend = span
+    rows = _sce_rows(xml, tstart, tend)
+    max_values = max((len(v) for _, v in rows), default=0)
+    leaves = _parse_sce_header(xml, tstart, tend, max_values)
+    if not leaves:
+        return None
+    unit_mult = _resolve_unit_mult(xml, tstart)
+    table_type = "consolidated" if want_consolidated else "separate"
+    out: list[tuple[tuple[int, int, int], list[dict]]] = []
+    for end_date, block in _split_sce_blocks(rows):
+        out.append((end_date, _to_dart_items(block, leaves, table_type, unit_mult)))
+    return out
+
+
+def parse_sce_tables_from_zip(
+    zip_bytes: bytes,
+) -> list[tuple[str, list[tuple[tuple[int, int, int], list[dict]]]]]:
+    """document.xml zip → [(연결|별도, [(기말자본 날짜, 아이템 목록)])] 목록.
+
+    연간: _00761(연결)/_00760(별도) 우선, 파싱 실패 시 본문 파일로 폴백. 분기 단일파일은
+    섹션 제목으로 연결/별도를 구분한다. 파싱 실패·테이블 없음 → 빈 리스트.
+    """
+    try:
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+            files = {n: _decode_xml(zf.read(n)) for n in zf.namelist() if n.endswith(".xml")}
+    except (zipfile.BadZipFile, KeyError):
+        return []
+    if not files:
+        return []
+    main = next((n for n in files if not re.search(r"_\d{5}\.xml$", n)), None)
+    out: list[tuple[str, list[tuple[tuple[int, int, int], list[dict]]]]] = []
+    for want_cons, suffix in ((True, "_00761.xml"), (False, "_00760.xml")):
+        fn = next((n for n in files if n.endswith(suffix)), None)
+        source = parse_sce_blocks(files[fn], want_cons) if fn else None
+        if source is None and main:
+            source = parse_sce_blocks(files[main], want_cons)
+        if source:
+            out.append(("consolidated" if want_cons else "separate", source))
+    return out
+
+
 def parse_cf_depreciation(zip_bytes: bytes) -> int | None:
     """document.xml zip → 현금흐름표 감가상각비+무형자산상각비 당기값(원). 신뢰불가 시 None.
 

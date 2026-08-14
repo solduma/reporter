@@ -39,10 +39,15 @@ from app.adapters.dart.client import (
     fetch_roe,
     fetch_segment_sales,
     fetch_stock_total,
+    find_all_periodic_reports,
     find_periodic_report,
     parse_full_statements,
 )
-from app.adapters.dart.report_parser import fetch_report_zip, parse_cf_depreciation
+from app.adapters.dart.report_parser import (
+    fetch_report_zip,
+    parse_cf_depreciation,
+    parse_sce_tables_from_zip,
+)
 
 __all__ = [
     "BwIssue",
@@ -79,9 +84,11 @@ __all__ = [
     "fetch_roe",
     "fetch_segment_sales",
     "fetch_stock_total",
+    "find_all_periodic_reports",
     "find_periodic_report",
     "parse_cf_depreciation",
     "parse_full_statements",
+    "parse_sce_tables_from_zip",
     "report_parser",
     "throttle",
 ]

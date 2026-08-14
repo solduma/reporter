@@ -14,7 +14,9 @@
 
 from __future__ import annotations
 
+import calendar
 import logging
+import re
 from datetime import UTC, date, datetime, timedelta
 
 import requests
@@ -24,6 +26,7 @@ from sqlalchemy.orm import Session
 
 from app.adapters import dart
 from app.adapters.dart import throttle as dart_throttle
+from app.adapters.dart.report_parser import fetch_report_zip, parse_sce_tables_from_zip
 from app.adapters.market import naver_quote as quote
 from app.config import Settings, get_settings
 from app.db.models import (
@@ -567,35 +570,160 @@ def _sce_pending_rows(db: Session) -> list[tuple[str, str]]:
     return list(rows)
 
 
+def _period_end_date(period: str) -> tuple[int, int, int]:
+    """'2024.03' → (2024, 3, 31). 기말자본 라벨 날짜는 항상 말일(실측)."""
+    year, month = (int(x) for x in period.split("."))
+    return year, month, calendar.monthrange(year, month)[1]
+
+
+# SCE leaf(발행사 XBRL 라벨)와 CFS BS name(DART 계정명)의 어휘 차이를 정규화:
+# '이익잉여금(결손금)'↔'이익잉여금', '지배기업의 소유주에게 귀속되는 지분'↔'...자본'.
+_SCE_COMPONENT_NORM = (
+    (re.compile(r"\(결손금\)"), ""),
+    (re.compile(r"\s+"), ""),
+    (re.compile(r"지분"), "자본"),
+)
+
+
+def _norm_comp(s: str) -> str:
+    for pat, rep in _SCE_COMPONENT_NORM:
+        s = pat.sub(rep, s)
+    return s
+
+
+def _bs_balance_map(bs_items: list[dict]) -> dict[str, float]:
+    """CFS BS 자본 구성요소 name → amount. 합계·총계 항목은 제외(구성요소만)."""
+    out: dict[str, float] = {}
+    for it in bs_items:
+        name = it.get("name") or ""
+        if not name or any(k in name for k in ("합계", "총계")):
+            continue
+        out[_norm_comp(name)] = float(it.get("amount") or 0)
+    return out
+
+
+def _sce_balance_map(sce_items: list[dict]) -> dict[str, float]:
+    """SCE 기말자본 행 → (구성요소 leaf → amount). 합계·연결/별도재무제표 열 제외."""
+    out: dict[str, float] = {}
+    for it in sce_items:
+        if (it.get("name") or "") != "기말자본":
+            continue
+        detail = it.get("detail") or ""
+        if detail in ("연결재무제표 [member]", "별도재무제표 [member]"):
+            continue
+        leaf = detail[: -len(" [member]")] if detail.endswith(" [member]") else detail
+        if not leaf or any(k in leaf for k in ("합계", "총계")):
+            continue
+        out[_norm_comp(leaf)] = float(it.get("amount") or 0)
+    return out
+
+
+def _match_sce_table(
+    candidates: list[tuple[str, list[tuple[tuple[int, int, int], list[dict]]]]],
+    bs_items: list[dict],
+) -> list[tuple[str, list[tuple[tuple[int, int, int], list[dict]]]]]:
+    """CFS BS 자본 구성요소와 값이 일치하는 SCE 테이블(연결/별도)만 남긴다.
+
+    CFS 행이 연결 데이터인지 별도인지는 회사·기간별로 달라(DART CFS SCE 013 때문), 기말자본
+    행의 구성요소 값이 CFS BS 와 정확히 일치하는 개수로 판별한다(포인트인타임 값 — 분기 포함
+    전 기간에서 정합). 1개 이상 일치 필수. 동점 시 CFS BS 에 비지배지분(연결 증거)이 있으면
+    연결 테이블을 우선한다.
+    """
+    if not candidates:
+        return candidates
+    bs = _bs_balance_map(bs_items)
+    has_nci = any(_norm_comp(it.get("name") or "") == "비지배자본" for it in bs_items)
+    scored: list[tuple[int, str, list[tuple[tuple[int, int, int], list[dict]]]]] = []
+    for table_type, blocks in candidates:
+        matches = 0
+        for _end_date, items in blocks:
+            matches = max(
+                matches,
+                sum(
+                    1
+                    for leaf, amt in _sce_balance_map(items).items()
+                    if leaf in bs and abs(bs[leaf] - amt) < 0.5
+                ),
+            )
+        if matches:
+            scored.append((matches, table_type, blocks))
+    if not scored:
+        return []
+    best_score = max(s[0] for s in scored)
+    best = [s for s in scored if s[0] == best_score]
+    if len(best) > 1 and has_nci:
+        cons = [s for s in best if s[1] == "consolidated"]
+        if cons:
+            best = cons
+    return [(table_type, blocks) for _m, table_type, blocks in best]
+
+
 def _run_sce_migration_for_code(
     db: Session, settings: Settings, code: str, periods: list[str], session: requests.Session
 ) -> int:
-    """한 종목의 지정된 기간들에 대해 SCE를 채우고 캐시를 날린다. 갱신된 기간 수 반환."""
+    """한 종목의 지정된 기간들에 SCE를 공시 원문 파싱으로 채운다. 갱신된 기간 수 반환.
+
+    DART fnlttSinglAcntAll 재조회(013·연결/별도 혼재로 신뢰 불가) 대신 document.xml 원문의
+    자본변동표 본표를 파싱한다. 종목당 list.json 1회 + 보고서별 zip 다운로드(rcept_no 캐시).
+    """
     corp_code = db.scalar(select(CorpCodeMap.corp_code).where(CorpCodeMap.stock_code == code))
     if not corp_code:
         return 0
 
+    bgn_de = f"{min(int(p.split('.')[0]) for p in periods)}0101"
+    reports = dart.find_all_periodic_reports(settings.dart_api_key, corp_code, bgn_de, session)
+    if not reports:
+        logger.warning("SCE migration %s: 보고서 목록 없음", code)
+        return 0
+
+    # rcept_no → zip 메모리 캐시(같은 종목 여러 기간이 같은 보고서를 공유).
+    zip_cache: dict[str, bytes | None] = {}
+    # (기말날짜, 연결구분) → SCE 아이템. 최신 접수(정정)가 앞서므로 첫 등장만 취한다.
+    by_end: dict[tuple[tuple[int, int, int], str], list[dict]] = {}
+    for r in reports:
+        rcept_no = r.get("rcept_no")
+        if not rcept_no:
+            continue
+        if rcept_no not in zip_cache:
+            zip_cache[rcept_no] = fetch_report_zip(
+                settings.dart_api_key, rcept_no, session
+            )
+        raw = zip_cache[rcept_no]
+        if not raw:
+            continue
+        for table_type, blocks in parse_sce_tables_from_zip(raw):
+            for end_date, items in blocks:
+                by_end.setdefault((end_date, table_type), items)
+
     updated = 0
     for period in periods:
-        year, month = period.split(".")
-        quarter = {"03": 1, "06": 2, "09": 3, "12": 4}[month]
-        full = dart.fetch_full_statements_by_div(
-            settings.dart_api_key, corp_code, int(year), quarter, "CFS", session
-        )
-        sce = full.get("SCE") if full else None
-        if not sce:
+        end_date = _period_end_date(period)
+        # 보고서 미제출 기간(예: 2025.12 사업보고서 미제출)은 다음 보고서 전기 블록이 커버.
+        candidates = [
+            (table_type, [(d, items)])
+            for (d, table_type), items in by_end.items()
+            if d == end_date
+        ]
+        if not candidates:
+            logger.info("SCE migration %s %s: 기말자본 %s 블록 없음 — skip", code, period, end_date)
             continue
-        # FinancialStatement upsert via SQL.
-        stmt = select(FinancialStatement).where(
-            FinancialStatement.stock_code == code,
-            FinancialStatement.period == period,
-            FinancialStatement.fs_div == "CFS",
-        )
-        row = db.scalars(stmt).first()
-        if row:
-            row.data = {**row.data, "SCE": sce}
-            updated += 1
-            logger.info("%s %s SCE 채움: %d rows", code, period, len(sce))
+        row = db.scalars(
+            select(FinancialStatement).where(
+                FinancialStatement.stock_code == code,
+                FinancialStatement.period == period,
+                FinancialStatement.fs_div == "CFS",
+            )
+        ).first()
+        if not row:
+            continue
+        matched = _match_sce_table(candidates, row.data.get("BS", []))
+        if not matched:
+            logger.info("SCE migration %s %s: BS 값 불일치(연결/별도 판별 불가) — skip", code, period)
+            continue
+        sce = matched[0][1][0][1]
+        row.data = {**row.data, "SCE": sce}
+        updated += 1
+        logger.info("%s %s SCE 채움(%s): %d rows", code, period, matched[0][0], len(sce))
 
     if updated:
         db.execute(
@@ -607,7 +735,7 @@ def _run_sce_migration_for_code(
     return updated
 
 
-def run_sce_migration(db: Session, settings: Settings | None = None, per_run: int = 200) -> dict:
+def run_sce_migration(db: Session, settings: Settings | None = None, per_run: int = 500) -> dict:
     """SCE 누락 기간을 점진 마이그레이션. per_run 은 처리할 기간(row) 수.
 
     종목별로 모아 한 세션으로 DART 를 호출해 효율을 높인다. DART 예산/한도 감시.
