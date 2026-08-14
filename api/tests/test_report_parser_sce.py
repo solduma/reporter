@@ -243,6 +243,16 @@ def test_parse_sce_blocks_quarterly_kind_label():
     assert blocks is not None and blocks[0][0] == (2025, 6, 30)
 
 
+def test_parse_sce_blocks_amount_kind_label():
+    """011170 등은 블록 종료 라벨이 '(분기말금액)' — '자본' 대신 '금액' 접미사."""
+    q = _SEP_XML.replace("2025.09.30 (기말자본)", "2025.09.30 (분기말금액)")
+    blocks = p.parse_sce_blocks(q, want_consolidated=False)
+    assert blocks is not None
+    assert blocks[0][0] == (2025, 9, 30)
+    items = blocks[0][1]
+    assert _item(items, "분기말금액", "별도재무제표 [member]")["amount"] == 88_762_871_568
+
+
 def test_parse_sce_blocks_bare_kind_label():
     """삼성전기 등은 '(기초)'·'(기말)' 라벨(자본 접미사 없음)을 쓴다."""
     b = _SEP_XML.replace("2025.01.01 (기초자본)", "2025.01.01 (기초)").replace(
