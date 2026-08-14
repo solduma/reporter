@@ -91,6 +91,21 @@ def test_match_sce_table_no_match_returns_empty():
     # BS 값이 어떤 테이블과도 일치하지 않으면 빈 리스트(판별 불가 — 저장 안 함).
     bs = [{"name": "자본금", "amount": 1}, {"name": "이익잉여금(결손금)", "amount": 2}]
     assert fb._match_sce_table(_sep_candidates(), bs) == []
+
+
+def test_match_sce_table_quarterly_kind_label():
+    # 대형사 분기 보고서는 '(분기말자본)' 라벨 — _sce_balance_map 이 접미사로 인식해
+    # BS 와 매칭해야 한다(삼성전자 2026.03 실측: 자본금·기타자본항목·비지배지분 일치).
+    q = _SEP_XML.replace("2025.09.30 (기말자본)", "2025.09.30 (분기말자본)")
+    blocks = rp.parse_sce_blocks(q, want_consolidated=False)
+    assert blocks is not None
+    items = blocks[0][1]
+    bal = fb._sce_balance_map(items)
+    assert bal["자본금"] == 69_572_819_500
+    assert bal["이익잉여금"] == 10_037_350_331
+    # BS 와 매칭되어 별도 SCE 가 선택된다.
+    matched = fb._match_sce_table([("separate", blocks)], _bs_000890_2025_09())
+    assert [t for t, _b in matched] == ["separate"]
     assert fb._match_sce_table([], _bs_000890_2025_09()) == []
 
 

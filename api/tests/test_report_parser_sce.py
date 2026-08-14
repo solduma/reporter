@@ -181,6 +181,35 @@ def test_parse_sce_tables_from_zip_single_file_both_sections():
     assert [t for t, _b in tables] == ["consolidated", "separate"]
 
 
+def test_parse_sce_tables_from_zip_preferred_file_empty_blocks_falls_back():
+    """_00761/_00760 는 감사보고서 요약 재무제표만 담고(테이블은 있어도 SCE 블록 없음)
+    SCE 본표는 본문에만 있는 발행사(SK이노 2025.12 실측) — 블록이 비면 본문으로 폴백."""
+    audit = """<DOCUMENT>
+<TITLE>연결 자본변동표</TITLE>
+<P>(단위 : 원)</P>
+<TABLE>
+<TR><TH>과목</TH><TH>기초자본 잔액</TH><TH>기말자본 잔액</TH></TR>
+<TR><TD>자본금</TD><TD ALIGN="RIGHT">60,000,000,000</TD><TD ALIGN="RIGHT">69,572,819,500</TD></TR>
+</TABLE>
+</DOCUMENT>
+"""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        # 본문(진짜 SCE): 연결 + 별도 섹션 모두.
+        zf.writestr("doc.xml", (_CONS_XML + _SEP_XML).encode("utf-8"))
+        zf.writestr("doc_00760.xml", audit.encode("utf-8"))  # 별도 파일은 요약만
+        zf.writestr("doc_00761.xml", audit.encode("utf-8"))  # 연결 파일도 요약만
+    tables = p.parse_sce_tables_from_zip(buf.getvalue())
+    kinds = [t for t, _b in tables]
+    assert kinds == ["consolidated", "separate"]
+    # 본문 폴백으로 연결 SCE 블록이 채워진다.
+    cons = dict(tables)["consolidated"]
+    assert cons[-1][0] == (2024, 12, 31)  # 당기 블록
+    assert _item(cons[-1][1], "기말자본", "연결재무제표 [member]")["amount"] == 87_043_381_312
+    sep = dict(tables)["separate"]
+    assert _item(sep[-1][1], "기말자본", "별도재무제표 [member]")["amount"] == 88_762_871_568
+
+
 def test_parse_sce_tables_from_zip_no_table_returns_empty():
     # SCE 테이블이 없는 문서(예: 정정공시 부속서류)는 빈 리스트 — 호출측 skip.
     assert p.parse_sce_tables_from_zip(_zip("<DOCUMENT><P>재무제표 본문 없음</P></DOCUMENT>")) == []
@@ -212,6 +241,48 @@ def test_parse_sce_blocks_quarterly_kind_label():
     h = _SEP_XML.replace("2025.09.30 (기말자본)", "2025.06.30 (반기말자본)")
     blocks = p.parse_sce_blocks(h, want_consolidated=False)
     assert blocks is not None and blocks[0][0] == (2025, 6, 30)
+
+
+def test_parse_sce_blocks_bare_kind_label():
+    """삼성전기 등은 '(기초)'·'(기말)' 라벨(자본 접미사 없음)을 쓴다."""
+    b = _SEP_XML.replace("2025.01.01 (기초자본)", "2025.01.01 (기초)").replace(
+        "2025.09.30 (기말자본)", "2025.09.30 (기말)"
+    )
+    blocks = p.parse_sce_blocks(b, want_consolidated=False)
+    assert blocks is not None
+    assert blocks[0][0] == (2025, 9, 30)
+    items = blocks[0][1]
+    assert _item(items, "기말", "별도재무제표 [member]")["amount"] == 88_762_871_568
+
+
+def test_parse_sce_header_nested_group_leaf_offset():
+    """SK이노 연결 SCE 4단 헤더(실측): leaf 행(기타불입자본 세분화)이 데이터 열 0 이 아니라
+    기타불입자본 그룹 아래(열 1)에서 시작한다. 자본금 876,105,940,000 이 주식발행초과금
+    라벨로 오정렬되던 회귀."""
+    xml = """<DOCUMENT>
+<TABLE>
+<TR><TH></TH><TH COLSPAN="10">자본</TH></TR>
+<TR><TH COLSPAN="8">지배기업의 소유주에게 귀속되는 지분</TH><TH>비지배지분</TH><TH>자본 합계</TH></TR>
+<TR><TH>자본금</TH><TH COLSPAN="4">기타불입자본</TH><TH>이익잉여금</TH><TH>기타자본구성요소</TH><TH>지배기업의 소유주에게 귀속되는 지분 합계</TH></TR>
+<TR><TH>주식발행초과금</TH><TH>자기주식</TH><TH>기타</TH><TH>기타불입자본 합계</TH></TR>
+</TABLE>
+</DOCUMENT>
+"""
+    tstart = xml.find("<TABLE")
+    tend = xml.find("</TABLE>") + len("</TABLE>")
+    leaves = p._parse_sce_header(xml, tstart, tend, 10)
+    assert leaves == [
+        "자본금",
+        "주식발행초과금",
+        "자기주식",
+        "기타",
+        "기타불입자본 합계",
+        "이익잉여금",
+        "기타자본구성요소",
+        "지배기업의 소유주에게 귀속되는 지분 합계",
+        "비지배지분",
+        "자본 합계",
+    ]
 
 
 def test_parse_sce_header_generic_top_span_innermost_wins():

@@ -603,10 +603,13 @@ def _bs_balance_map(bs_items: list[dict]) -> dict[str, float]:
 
 
 def _sce_balance_map(sce_items: list[dict]) -> dict[str, float]:
-    """SCE 기말자본 행 → (구성요소 leaf → amount). 합계·연결/별도재무제표 열 제외."""
+    """SCE 기말자본 행 → (구성요소 leaf → amount). 합계·연결/별도재무제표 열 제외.
+
+    행 라벨 변형: 기말자본·분기말자본·반기말자본(대형사)·기말(삼성전기) — 접미사 매칭.
+    """
     out: dict[str, float] = {}
     for it in sce_items:
-        if (it.get("name") or "") != "기말자본":
+        if not re.search(r"(?:분|반)?기말(?:자본)?$", it.get("name") or ""):
             continue
         detail = it.get("detail") or ""
         if detail in ("연결재무제표 [member]", "별도재무제표 [member]"):

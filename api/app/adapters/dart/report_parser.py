@@ -282,8 +282,9 @@ def _note_da_fallback(cells: list[tuple[int, bool, str]], xml: str, scope_start:
 
 _SCE_TITLE_RE = re.compile(r"자\s*본\s*변\s*동\s*표")
 # 구식 보고서(2016년경)는 기초/기말자본 라벨에 로마숫자 접두사를 단다 — 선택 허용(실측).
-# 대형사(삼성전자 등) 분기/반기 보고서는 '(분기말자본)'·'(반기말자본)' — '분'/'반' 접두 허용.
-_SCE_KIND_RE = re.compile(r"(\d{4}\.\d{1,2}\.\d{1,2})\s*[\(（]\s*(?:[Ⅰ-Ⅹ]+\.?)?\s*((?:분|반)?기초자본|(?:분|반)?기말자본)\s*[\)）]")  # noqa: RUF001 (로마숫자 접두사 매칭 의도)
+# 대형사(삼성전자 등) 분기/반기 보고서는 '(분기말자본)'·'(반기말자본)', 삼성전기는
+# '(기초)'·'(기말)' — '분'/'반' 접두와 '자본' 접미사 모두 선택 허용.
+_SCE_KIND_RE = re.compile(r"(\d{4}\.\d{1,2}\.\d{1,2})\s*[\(（]\s*(?:[Ⅰ-Ⅹ]+\.?)?\s*((?:분|반)?기초(?:자본)?|(?:분|반)?기말(?:자본)?)\s*[\)）]")  # noqa: RUF001 (로마숫자 접두사 매칭 의도)
 _SCE_TH_RE = re.compile(r"<TH([^>]*)>(.*?)</TH>", re.DOTALL)
 _SCE_TR_RE = re.compile(r"<TR([^>]*)>(.*?)</TR>", re.DOTALL)
 
@@ -318,7 +319,8 @@ def _find_sce_table(xml: str, want_consolidated: bool) -> tuple[int, int] | None
             if te == -1:
                 break
             seg = xml[ts:te]
-            if "기초자본" in seg and "기말자본" in seg:
+            # '기초'/'기말' — 삼성전기 등은 '(기초)'·'(기말)' 라벨(자본 접미사 없음).
+            if "기초" in seg and "기말" in seg:
                 return ts, te
             pos = te
     return None
@@ -340,16 +342,15 @@ def _sce_rows(xml: str, tstart: int, tend: int) -> list[tuple[str, list[str]]]:
 def _parse_sce_header(xml: str, tstart: int, tend: int, ncols: int) -> list[str]:
     """헤더 TH 다단 병합 → 컬럼 leaf 목록(innermost-wins).
 
-    최하위(구체) TR 이 좌정렬로 열을 정의하고, 상위 그룹 TR 은 오른쪽부터 끝 열을 채운다
-    (연결 7열에서 비지배지분·자본합계가 최하위 TR 에 없고 그룹 행에만 있는 발행사 대응).
-    그룹 행은 COLSPAN 으로 여러 leaf 열을 묶고 '과목' 라벨 열을 왼쪽에 둔다(000890 실측:
-    헤더 폭 8 = 과목 1 + 데이터 7). 헤더 폭(H)이 데이터 값 수(ncols)보다 넓으면 왼쪽 초과
-    열은 라벨 열이라 버리고, 최하위 TR 은 라벨 열 다음(데이터 열 0)부터 정렬한다.
+    헤더를 계층 파티션으로 배치한다: 첫 행은 [0, 헤더폭) 전체, 이후 각 행은 **직전 행에서
+    자신의 총 폭과 같은 span 의 셀**을 세분화한다(일치 셀 없으면 데이터 영역 전체 분할 —
+    삼성전자·000890 의 지배기업지분 행). leaf = 데이터 열을 덮는 **최하위**(가장 구체) 행의
+    라벨. 아래→위로 빈 셀만 채운다.
 
-    행은 **아래→위(innermost-wins)** 로 처리한다. 최상단 그룹 행이 전체를 아우르는 범용
-    라벨(삼성전자: '자본' COLSPAN=7)을 달면 top-down 은 그 값이 모든 열을 먼저 채워
-    비지배지분·자본합계 같은 구체 라벨을 가린다 — 아래쪽(구체)부터 채우고 위쪽은 빈 셀만
-    메운다.
+    중첩 그룹(실측): SK이노 연결 SCE 는 4단 — 자본금│기타불입자본[주식발행초과금·자기주식·
+    기타·기타불입자본합계]│이익잉여금│기타자본구성요소│지배기업지분합계│비지배지분│자본합계.
+    이때 leaf 행(기타불입자본 세분화)은 데이터 열 0 이 아니라 기타불입자본 그룹 아래에서
+    시작한다 — 고정 '데이터 열 0 시작' 가정은 깨진다.
     """
     table = xml[tstart:tend]
     rows: list[list[tuple[str, int]]] = []
@@ -369,21 +370,30 @@ def _parse_sce_header(xml: str, tstart: int, tend: int, ncols: int) -> list[str]
         return []
     header_width = max(sum(sp for _, sp in row) for row in rows)
     start = max(0, header_width - ncols)  # 과목 등 라벨 열 폭
+    # 각 행의 셀 위치 [시작, 시작+span) 계산.
+    placed: list[list[tuple[int, int, str]]] = []
+    prev: list[tuple[int, int, str]] | None = None
+    for ri, row in enumerate(rows):
+        total = sum(sp for _, sp in row)
+        if ri == 0:
+            rstart = 0  # 첫 행: 라벨 셀 포함 [0, 헤더폭)
+        else:
+            match = next(((s, sp) for s, sp, _t in prev or [] if sp == total), None)
+            rstart = match[0] if match else start  # 없으면 데이터 영역 전체 분할
+        cells: list[tuple[int, int, str]] = []
+        idx = rstart
+        for txt, span in row:
+            cells.append((idx, span, txt))
+            idx += span
+        placed.append(cells)
+        prev = cells
+    # 아래→위: 빈 셀만 채운다(innermost-wins).
     leaves = [""] * ncols
-    for ri, row in enumerate(reversed(rows)):
-        if ri == 0:  # 최하위 leaf 행: 라벨 열 다음(데이터 열 0)부터
-            idx = start
-            for txt, span in row:
-                for j in range(idx, min(idx + span, start + ncols)):
+    for cells in reversed(placed):
+        for cstart, span, txt in cells:
+            for j in range(cstart, cstart + span):
+                if start <= j < start + ncols and not leaves[j - start]:
                     leaves[j - start] = txt
-                idx += span
-        else:  # 그룹 행: 오른쪽부터, 빈 셀만 채운다(innermost-wins)
-            idx = header_width
-            for txt, span in reversed(row):
-                for j in range(max(0, idx - span), idx):
-                    if start <= j < start + ncols and not leaves[j - start]:
-                        leaves[j - start] = txt
-                idx -= span
     return leaves
 
 
@@ -401,9 +411,9 @@ def _split_sce_blocks(
         m = _SCE_KIND_RE.search(label)
         if m:
             kind = m.group(2)
-            if kind == "기초자본":
+            if kind.startswith("기초"):  # 기초자본·기초 — 블록 시작
                 cur = [(kind, values)]
-            else:  # 기말자본
+            else:  # 기말자본·분기말자본·반기말자본·기말 — 블록 종료
                 if cur is not None:
                     cur.append((kind, values))
                     d = tuple(int(x) for x in m.group(1).split("."))
@@ -490,7 +500,9 @@ def parse_sce_tables_from_zip(
     for want_cons, suffix in ((True, "_00761.xml"), (False, "_00760.xml")):
         fn = next((n for n in files if n.endswith(suffix)), None)
         source = parse_sce_blocks(files[fn], want_cons) if fn else None
-        if source is None and main:
+        # _00761/_00760 는 감사보고서 요약 재무제표만 담고 SCE 본표는 본문에만 있는 발행사
+        # (SK이노 2025.12 실측) — 테이블은 찾았어도 블록이 없으면 본문으로 폴백.
+        if not source and main:
             source = parse_sce_blocks(files[main], want_cons)
         if source:
             out.append(("consolidated" if want_cons else "separate", source))
