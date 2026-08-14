@@ -678,8 +678,10 @@ def _run_sce_migration_for_code(
 
     # rcept_no → zip 메모리 캐시(같은 종목 여러 기간이 같은 보고서를 공유).
     zip_cache: dict[str, bytes | None] = {}
-    # (기말날짜, 연결구분) → SCE 아이템. 최신 접수(정정)가 앞서므로 첫 등장만 취한다.
-    by_end: dict[tuple[tuple[int, int, int], str], list[dict]] = {}
+    # (기말날짜, 연결구분) → SCE 아이템 목록. 같은 날짜가 여러 보고서(본인 기말·후기 전기·정정)에
+    # 등장하므로 전부 후보로 남긴다 — _match_sce_table 이 CFS BS 와의 일치로 최선을 고른다.
+    # (최신 접수만 취하면 후기 보고서의 오파싱 전기 블록이 본인 보고서의 정상 기말 블록을 가린다.)
+    by_end: dict[tuple[tuple[int, int, int], str], list[list[dict]]] = {}
     for r in reports:
         rcept_no = r.get("rcept_no")
         if not rcept_no:
@@ -693,16 +695,18 @@ def _run_sce_migration_for_code(
             continue
         for table_type, blocks in parse_sce_tables_from_zip(raw):
             for end_date, items in blocks:
-                by_end.setdefault((end_date, table_type), items)
+                by_end.setdefault((end_date, table_type), []).append(items)
 
     updated = 0
     for period in periods:
         end_date = _period_end_date(period)
         # 보고서 미제출 기간(예: 2025.12 사업보고서 미제출)은 다음 보고서 전기 블록이 커버.
+        # 같은 (날짜, 연결구분)의 모든 블록을 후보로 — 매처가 BS 일치로 최선을 고른다.
         candidates = [
             (table_type, [(d, items)])
-            for (d, table_type), items in by_end.items()
+            for (d, table_type), items_list in by_end.items()
             if d == end_date
+            for items in items_list
         ]
         if not candidates:
             logger.info("SCE migration %s %s: 기말자본 %s 블록 없음 — skip", code, period, end_date)

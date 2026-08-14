@@ -281,7 +281,8 @@ def _note_da_fallback(cells: list[tuple[int, bool, str]], xml: str, scope_start:
 # 연간 _00761(연결)/_00760(별도), 분기 단일파일은 섹션 제목으로 구분.
 
 _SCE_TITLE_RE = re.compile(r"자\s*본\s*변\s*동\s*표")
-_SCE_KIND_RE = re.compile(r"(\d{4}\.\d{1,2}\.\d{1,2})\s*[\(（]\s*(기초자본|기말자본)\s*[\)）]")  # noqa: RUF001 (전각괄호 매칭 의도)
+# 구식 보고서(2016년경)는 기초/기말자본 라벨에 로마숫자 접두사를 단다 — 선택 허용(실측).
+_SCE_KIND_RE = re.compile(r"(\d{4}\.\d{1,2}\.\d{1,2})\s*[\(（]\s*(?:[Ⅰ-Ⅹ]+\.?)?\s*(기초자본|기말자본)\s*[\)）]")  # noqa: RUF001 (로마숫자 접두사 매칭 의도)
 _SCE_TH_RE = re.compile(r"<TH([^>]*)>(.*?)</TH>", re.DOTALL)
 _SCE_TR_RE = re.compile(r"<TR([^>]*)>(.*?)</TR>", re.DOTALL)
 
