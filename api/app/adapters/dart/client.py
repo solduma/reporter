@@ -18,6 +18,7 @@ from xml.etree import ElementTree
 import requests
 
 from app.adapters.dart import throttle as dart_throttle
+from app.adapters.dart.report_parser import fetch_report_zip
 from app.adapters.financial_ontology import get_ontology_port
 from app.domain.disclosure import Disclosure, OwnershipChange  # 하위호환 재노출(정의는 domain)
 
@@ -45,7 +46,6 @@ def configure_from_settings(settings) -> None:
 _CORPCODE_URL = "https://opendart.fss.or.kr/api/corpCode.xml"
 _LIST_URL = "https://opendart.fss.or.kr/api/list.json"
 _FNLTT_URL = "https://opendart.fss.or.kr/api/fnlttSinglAcntAll.json"
-_DOCUMENT_URL = "https://opendart.fss.or.kr/api/document.xml"
 _ELESTOCK_URL = "https://opendart.fss.or.kr/api/elestock.json"
 _STOCK_TOTQY_URL = "https://opendart.fss.or.kr/api/stockTotqySttus.json"  # DS002 주식총수현황
 _ALOTMATTER_URL = "https://opendart.fss.or.kr/api/alotMatter.json"  # DS002 배당에관한사항
@@ -1209,18 +1209,14 @@ def fetch_document_text(
 ) -> str:
     """공시 원문(document.xml, zip 내 XML)을 받아 태그를 벗겨 앞 max_chars 만 반환한다.
 
+    fetch_report_zip 경유(MinIO 캐시-aside)라 동일 원문은 재다운로드하지 않는다.
     첨부가 여러 XML 이면 이어붙인다. 실패·빈 응답이면 빈 문자열(호출측은 제목-only 로 폴백).
     """
-    try:
-        resp = dart_throttle.get(
-            session, _DOCUMENT_URL, params={"crtfc_key": api_key, "rcept_no": rcept_no}, timeout=30
-        )
-        resp.raise_for_status()
-    except requests.RequestException as e:
-        logger.warning("dart document fetch failed %s: %s", rcept_no, e)
+    raw = fetch_report_zip(api_key, rcept_no, session)
+    if not raw:
         return ""
     try:
-        with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
+        with zipfile.ZipFile(io.BytesIO(raw)) as zf:
             parts = [_strip_document_xml(zf.read(n)) for n in zf.namelist()]
     except (zipfile.BadZipFile, KeyError) as e:
         logger.warning("dart document parse failed %s: %s", rcept_no, e)
