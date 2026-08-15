@@ -244,6 +244,29 @@ def test_eps_continuing_ops():
     assert fin.eps == 1_250
 
 
+def test_eps_sonik_variants():
+    """'기본주당순손익'·'계속영업주당손익'·'기본주당손익' 등 '손익' 표기(이익/손실 아님)."""
+    fin = parse_income_equity_from_fs(_fs(is_=[
+        _item("기본주당순손익", 2_223, "IS"),
+    ]))
+    assert fin.eps == 2_223
+
+
+def test_eps_continuing_sonik():
+    fin = parse_income_equity_from_fs(_fs(is_=[
+        _item("계속영업주당손익", 624, "IS"),
+    ]))
+    assert fin.eps == 624
+
+
+def test_eps_diluted_sonik_fallback():
+    """기본 없이 '희석주당손익'만 있으면 희석으로 폴백."""
+    fin = parse_income_equity_from_fs(_fs(is_=[
+        _item("희석주당손익", 358, "IS"),
+    ]))
+    assert fin.eps == 358
+
+
 # ── revenue: 영업수익(매출액)·섹션 접두사 ──
 
 def test_revenue_parenthesized():
@@ -260,3 +283,11 @@ def test_revenue_section_prefix():
         _item("Ⅰ. 영업수익", 300_000_000_000, "IS"),  # noqa: RUF001
     ]))
     assert fin.revenue == 300_000_000_000
+
+
+def test_revenue_sooik_parenthesized():
+    """'수익(매출액)' 표기 — '영업수익(매출액)'의 영업 접두사 없는 변형."""
+    fin = parse_income_equity_from_fs(_fs(is_=[
+        _item("수익(매출액)", 5_006_000_000, "IS"),
+    ]))
+    assert fin.revenue == 5_006_000_000
