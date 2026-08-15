@@ -116,6 +116,30 @@ def test_match_sce_table_bs_in_millions_sce_in_won():
     assert [t for t, _b in matched] == ["consolidated"]
 
 
+def test_match_sce_table_rejects_napib_capital_mislabel():
+    """납입자본(자본금+주식발행초과금)을 자본금으로 오표기한 보고서(129260 실측): SCE 자본금
+    112,452,521,630 == BS 납입자본이지만 BS 자본금 14,873,937,000 과는 불일치 → 자본금 일치
+    요구로 거부해야 한다. 나머지 구성요소(이익잉여금·비지배지분 등)는 전부 일치해도 거부."""
+    bs = [
+        {"name": "자본금", "amount": 14_873_937_000},
+        {"name": "주식발행초과금", "amount": 97_578_584_630},
+        {"name": "이익잉여금(결손금)", "amount": 78_683_742_956},
+        {"name": "기타포괄손익누계액", "amount": 5_551_727_044},
+        {"name": "기타자본구성요소", "amount": 469_939_001},
+        {"name": "비지배지분", "amount": 23_689_668_990},
+    ]
+    sce_items = [
+        {"name": "기말자본", "amount": 112_452_521_630, "detail": "자본금 [member]", "sj_div": "SCE"},
+        {"name": "기말자본", "amount": 78_683_742_956, "detail": "이익잉여금 [member]", "sj_div": "SCE"},
+        {"name": "기말자본", "amount": 5_551_727_044, "detail": "기타포괄손익누계액 [member]", "sj_div": "SCE"},
+        {"name": "기말자본", "amount": 469_939_001, "detail": "기타자본구성요소 [member]", "sj_div": "SCE"},
+        {"name": "기말자본", "amount": 23_689_668_990, "detail": "비지배지분 [member]", "sj_div": "SCE"},
+        {"name": "기말자본", "amount": 220_847_599_621, "detail": "연결재무제표 [member]", "sj_div": "SCE"},
+    ]
+    candidates = [("consolidated", [((2016, 12, 31), sce_items)])]
+    assert fb._match_sce_table(candidates, bs) == []
+
+
 def test_match_sce_table_quarterly_kind_label():
     # 대형사 분기 보고서는 '(분기말자본)' 라벨 — _sce_balance_map 이 접미사로 인식해
     # BS 와 매칭해야 한다(삼성전자 2026.03 실측: 자본금·기타자본항목·비지배지분 일치).

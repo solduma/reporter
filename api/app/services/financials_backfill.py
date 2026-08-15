@@ -584,6 +584,22 @@ _SCE_COMPONENT_NORM = (
     (re.compile(r"지분"), "자본"),
 )
 
+# BS 는 DART 응답 단위(원·천원·백만원) 그대로 저장되고 SCE 파싱은 항상 원으로 정규화한다
+# (008700 실측: BS 자본금 34,501,614백만 vs SCE 34,501,614,000,000원). 단위가 어긋나면
+# 값 비교가 전부 실패하므로 공통 스케일을 시도한다.
+_SCE_MATCH_SCALES = (1.0, 1e3, 1e6, 1e-3, 1e-6)
+
+
+def _cap_matches(sce: dict[str, float], bs: dict[str, float]) -> bool:
+    """SCE 기말자본 자본금이 CFS BS 자본금과 (단위 스케일 내에서) 일치하는지.
+
+    자본금이 어긋나면 연결/별도 판별이 무의미하다 — 납입자본(자본금+주식발행초과금)을 자본금
+    으로 오표기한 보고서(129260 실측: SCE 자본금 112,452,521,630 == BS 납입자본)를 걸러낸다.
+    """
+    if "자본금" not in sce or "자본금" not in bs:
+        return False
+    return any(abs(bs["자본금"] * scale - sce["자본금"]) < 0.5 for scale in _SCE_MATCH_SCALES)
+
 
 def _norm_comp(s: str) -> str:
     for pat, rep in _SCE_COMPONENT_NORM:
@@ -630,23 +646,21 @@ def _match_sce_table(
 
     CFS 행이 연결 데이터인지 별도인지는 회사·기간별로 달라(DART CFS SCE 013 때문), 기말자본
     행의 구성요소 값이 CFS BS 와 정확히 일치하는 개수로 판별한다(포인트인타임 값 — 분기 포함
-    전 기간에서 정합). 1개 이상 일치 필수. 동점 시 CFS BS 에 비지배지분(연결 증거)이 있으면
-    연결 테이블을 우선한다.
-
-    BS 는 DART 응답 단위(원·천원·백만원) 그대로 저장되고 SCE 파싱은 항상 원으로 정규화한다
-    (008700 실측: BS 자본금 34,501,614백만 vs SCE 34,501,614,000,000원). 단위가 어긋나면
-    값 비교가 전부 실패하므로 공통 스케일을 시도한다.
+    전 기간에서 정합). **자본금 일치 필수**(납입자본 오표기 보고서 차단) + 1개 이상 일치.
+    동점 시 CFS BS 에 비지배지분(연결 증거)이 있으면 연결 테이블을 우선한다.
     """
     if not candidates:
         return candidates
     bs = _bs_balance_map(bs_items)
     has_nci = any(_norm_comp(it.get("name") or "") == "비지배자본" for it in bs_items)
-    _SCALES = (1.0, 1e3, 1e6, 1e-3, 1e-6)
     scored: list[tuple[int, str, list[tuple[tuple[int, int, int], list[dict]]]]] = []
     for table_type, blocks in candidates:
         matches = 0
+        cap_ok = False
         for _end_date, items in blocks:
             sce = _sce_balance_map(items)
+            if _cap_matches(sce, bs):
+                cap_ok = True
             matches = max(
                 matches,
                 max(
@@ -655,10 +669,10 @@ def _match_sce_table(
                         for leaf, amt in sce.items()
                         if leaf in bs and abs(bs[leaf] * scale - amt) < 0.5
                     )
-                    for scale in _SCALES
+                    for scale in _SCE_MATCH_SCALES
                 ),
             )
-        if matches:
+        if matches and cap_ok:
             scored.append((matches, table_type, blocks))
     if not scored:
         return []
