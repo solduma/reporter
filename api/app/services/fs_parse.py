@@ -124,12 +124,16 @@ def _name_fallback(fin: IncomeEquity, fs_data: dict) -> None:
 
     # capex: CF 투자활동 유형/무형자산 취득(abs 합). 처분·자기주식·사업결합 제외.
     # '유형자산 취득'(의 없음) 표기 회사(011930 실측)도 커버 — 의 있음/없음 둘 다 매칭.
+    # 총계('유형자산의취득'/'무형자산의취득')가 있으면 단독 사용(구성요소 이중계상 방지),
+    # 없으면 항목별 취득(건물·토지·기계장치·비품·소프트웨어 등) 합산 — 030960 실측.
     if fin.capex is None:
+        # 총계 우선: 정확히 '유형자산(의)취득'/'무형자산(의)취득' 행만. '기타유형자산의취득'
+        # 같은 구성요소는 총계가 아니므로 항목별 합산으로 보낸다.
         total = 0.0
         got = False
         for item in items_by_div.get("CF", []) or []:
             nm = (item.get("name") or "").replace(" ", "")
-            if not (("유형자산" in nm or "무형자산" in nm) and "취득" in nm):
+            if nm not in ("유형자산의취득", "유형자산취득", "무형자산의취득", "무형자산취득"):
                 continue
             if any(x in nm for x in ("처분", "자기주식", "사업결합", "처분등")):
                 continue
@@ -139,6 +143,28 @@ def _name_fallback(fin: IncomeEquity, fs_data: dict) -> None:
                 got = True
         if got:
             fin.capex = total
+        else:
+            # 항목별 취득 합산: 유형자산(건물·토지·기계장치 등)·무형자산(소프트웨어 등)
+            # 구성요소. 금융자산·투자자산·자기주식·투자부동산·사용권자산은 화이트리스트에
+            # 없어 자연 제외(단기금융상품·종속기업투자 등).
+            _PPE_ACQ = ("건물", "토지", "구축물", "기계장치", "차량운반구", "비품", "사무용비품",
+                        "공구와기구", "시설장치", "건설중인자산", "집기", "기타유형자산")
+            _INT_ACQ = ("소프트웨어", "컴퓨터소프트웨어", "산업재산권", "회원권", "저작권",
+                        "기타무형자산", "영업권이외의무형자산")
+            total = 0.0
+            got = False
+            for item in items_by_div.get("CF", []) or []:
+                nm = (item.get("name") or "").replace(" ", "")
+                if not any(nm.startswith(c + "의취득") for c in _PPE_ACQ + _INT_ACQ):
+                    continue
+                if any(x in nm for x in ("처분", "자기주식", "사업결합", "처분등")):
+                    continue
+                a = _amount_of(item)
+                if a is not None:
+                    total += abs(a)
+                    got = True
+            if got:
+                fin.capex = total
 
     # revenue: 손익 '매출'/'영업수익' 정확히(매출원가·매출총이익·매출채권 제외).
     # '영업수익(매출액)'/'Ⅰ.영업수익' 류 변형·섹션 접두사 커버.  # noqa: RUF003

@@ -130,6 +130,51 @@ def test_capex_with_eui_still_matches():
     assert fin.capex == 1_000_000_000
 
 
+def test_capex_itemized_sum():
+    """총계 없이 항목별 취득만 있는 보고서(030960 실측) — 유형/무형 구성요소 합산."""
+    fin = parse_income_equity_from_fs(_fs(cf=[
+        _item("건물의 취득", 6_480_000_000, "CF"),
+        _item("기계장치의 취득", 11_037_000_000, "CF"),
+        _item("차량운반구의 취득", 9_404_000_000, "CF"),
+        _item("비품의 취득", 4_708_000_000, "CF"),
+        _item("건설중인자산의 취득", 11_250_000_000, "CF"),
+        _item("소프트웨어의 취득", 2_832_000_000, "CF"),
+    ]))
+    assert fin.capex == 45_711_000_000
+
+
+def test_capex_itemized_excludes_financial():
+    """금융자산·투자자산·자기주식 취득은 capex 아님 — 화이트리스트 자연 제외."""
+    fin = parse_income_equity_from_fs(_fs(cf=[
+        _item("단기금융상품의 취득", 46_055_000_000, "CF"),
+        _item("종속기업에 대한 투자자산의 취득", 11_419_000_000, "CF"),
+        _item("자기주식의 취득", 29_717_000_000, "CF"),
+        _item("투자부동산의 취득", 15_432_000_000, "CF"),
+        _item("사용권자산의 취득", 2_201_000_000, "CF"),
+    ]))
+    assert fin.capex is None  # 유형/무형자산 취득이 전혀 없으면 None 유지
+
+
+def test_capex_total_preferred_over_itemized():
+    """총계+구성요소 동시 제출 보고서는 총계만 사용(이중계상 방지)."""
+    fin = parse_income_equity_from_fs(_fs(cf=[
+        _item("유형자산의 취득", 100_000_000_000, "CF"),
+        _item("기계장치의 취득", 30_000_000_000, "CF"),
+        _item("건물의 취득", 20_000_000_000, "CF"),
+    ]))
+    assert fin.capex == 100_000_000_000  # 150B 가 아니라 100B
+
+
+def test_capex_other_ppae_component():
+    """'기타유형자산의 취득'·'사무용비품의 취득' 등 변형도 구성요소로 합산."""
+    fin = parse_income_equity_from_fs(_fs(cf=[
+        _item("기타유형자산의 취득", 4_716_000_000, "CF"),
+        _item("사무용비품의 취득", 3_095_000_000, "CF"),
+        _item("산업재산권의 취득", 2_113_000_000, "CF"),
+    ]))
+    assert fin.capex == 9_924_000_000
+
+
 # ── net_income: 분기/반기순이익 ──
 
 def test_net_income_quarterly():
