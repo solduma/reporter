@@ -49,6 +49,42 @@ def test_borrowings_components_sum_when_no_total():
     assert fin.borrowings == 87_203_999_532
 
 
+def test_borrowings_section_prefix_total():
+    """'III.차입부채' 섹션 접두사 제거 후 총계 단독 사용(001270 실측)."""
+    fin = parse_income_equity_from_fs(_fs(bs=[
+        _item("III.차입부채", 50_000_000_000, "BS"),
+    ]))
+    assert fin.borrowings == 50_000_000_000
+
+
+def test_borrowings_parenthesized_components():
+    """'차입부채(유동)'+'차입부채(비유동)' 구성요소 합산(323350 실측)."""
+    fin = parse_income_equity_from_fs(_fs(bs=[
+        _item("차입부채(유동)", 30_000_000_000, "BS"),
+        _item("차입부채(비유동)", 70_000_000_000, "BS"),
+    ]))
+    assert fin.borrowings == 100_000_000_000
+
+
+def test_borrowings_short_forms():
+    """'단기차입'+'장기차입' 접미사 없는 표기 합산(036670 실측)."""
+    fin = parse_income_equity_from_fs(_fs(bs=[
+        _item("단기차입", 20_000_000_000, "BS"),
+        _item("장기차입", 40_000_000_000, "BS"),
+    ]))
+    assert fin.borrowings == 60_000_000_000
+
+
+def test_borrowings_other_variants():
+    """'유동차입부채'·'유동성차입부채'·'기타차입부채' 변형 합산(361570·214610·060240 실측)."""
+    fin = parse_income_equity_from_fs(_fs(bs=[
+        _item("유동차입부채", 10_000_000_000, "BS"),
+        _item("유동성차입부채", 5_000_000_000, "BS"),
+        _item("기타차입부채", 3_000_000_000, "BS"),
+    ]))
+    assert fin.borrowings == 18_000_000_000
+
+
 # ── cash: '현금및예치금'·섹션 접두사 ──
 
 def test_cash_deposits_bank():
