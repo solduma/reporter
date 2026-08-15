@@ -173,7 +173,7 @@ def _name_fallback(fin: IncomeEquity, fs_data: dict) -> None:
             if not _is_income(item):
                 continue
             nm = _strip_section_prefix((item.get("name") or "").replace(" ", ""))
-            if nm in ("매출", "영업수익", "매출액", "수익", "영업수익(매출액)", "영업수익(매출)"):
+            if nm in ("매출", "영업수익", "매출액", "수익", "영업수익(매출액)", "영업수익(매출)", "수익(매출액)"):
                 a = _amount_of(item)
                 if a is not None:
                     fin.revenue = a
@@ -237,8 +237,9 @@ def _name_fallback(fin: IncomeEquity, fs_data: dict) -> None:
             aid = item.get("account_id") or ""
             nm = (item.get("name") or "").replace(" ", "")
             is_basic_aid = ("EarningsPerShare" in aid or "EarningsLossPerShare" in aid) and "Diluted" not in aid
-            # '주당이익'/'계속사업주당순이익'/'주당 이익' 류 — 주당+이익/손실 조합이면 EPS(032640 실측).
-            is_basic_nm = ("주당" in nm and ("이익" in nm or "손실" in nm) and "희석" not in nm) or nm in ("주당순이익", "주당순손실")
+            # '주당이익'/'계속사업주당순이익'/'주당 이익' 류 — 주당+이익/손실/손익 조합이면 EPS(032640 실측).
+            # '기본주당순손익'/'계속영업주당손익'/'기본주당손익' 등 '손익' 표기도 커버(손익=이익+손실).
+            is_basic_nm = ("주당" in nm and ("이익" in nm or "손실" in nm or "손익" in nm) and "희석" not in nm) or nm in ("주당순이익", "주당순손실")
             if is_basic_aid or is_basic_nm:
                 a = _amount_of(item)
                 if a is not None:
@@ -250,7 +251,9 @@ def _name_fallback(fin: IncomeEquity, fs_data: dict) -> None:
                     continue
                 aid = item.get("account_id") or ""
                 nm = (item.get("name") or "").replace(" ", "")
-                if "DilutedEarnings" in aid or ("기본" in nm and "희석" in nm and "주당" in nm):
+                if "DilutedEarnings" in aid or ("기본" in nm and "희석" in nm and "주당" in nm) or (
+                    "희석" in nm and "주당" in nm and ("이익" in nm or "손실" in nm or "손익" in nm)
+                ):
                     a = _amount_of(item)
                     if a is not None:
                         fin.eps = a
