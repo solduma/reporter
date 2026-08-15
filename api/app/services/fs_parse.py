@@ -96,6 +96,16 @@ def parse_income_equity_from_fs(fs_data: dict) -> IncomeEquity | None:
 # ── 한글 계정명 폴백(account_id 미매칭 필드 보완) ───────────────────────────
 # sj_div 제약으로 오탐 방지(매출↔매출원가, 취득↔자기주식취득 등). 온톨로지 매핑이
 # '-표준계정코드 미사용-' 행을 못 잡는 회사를 커버. 갭 기반 분석으로 도출한 규칙.
+# DART 원문 표 섹션 번호 접두사(로마숫자 전각 Ⅰ-Ⅹ·아스키 IV/V·아라비아 숫자). 공백은  # noqa: RUF003
+# 호출측에서 이미 제거된 상태라 여기선 접두사 문자만 스트립한다.
+_SECTION_PREFIX = "ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩIVV.0123456789 "  # noqa: RUF001
+
+
+def _strip_section_prefix(nm: str) -> str:
+    """'Ⅲ.영업이익'/'1.현금및현금성자산' 류 보고서 섹션 번호 접두사 제거."""
+    return nm.lstrip(_SECTION_PREFIX)
+
+
 def _name_fallback(fin: IncomeEquity, fs_data: dict) -> None:
     items_by_div = fs_data  # {BS:[], IS:[], CIS:[], CF:[], SCE:[]}
 
@@ -113,12 +123,13 @@ def _name_fallback(fin: IncomeEquity, fs_data: dict) -> None:
         return item.get("sj_div") in ("IS", "CIS")
 
     # capex: CF 투자활동 유형/무형자산 취득(abs 합). 처분·자기주식·사업결합 제외.
+    # '유형자산 취득'(의 없음) 표기 회사(011930 실측)도 커버 — 의 있음/없음 둘 다 매칭.
     if fin.capex is None:
         total = 0.0
         got = False
         for item in items_by_div.get("CF", []) or []:
             nm = (item.get("name") or "").replace(" ", "")
-            if not ("유형자산의취득" in nm or "무형자산의취득" in nm):
+            if not (("유형자산" in nm or "무형자산" in nm) and "취득" in nm):
                 continue
             if any(x in nm for x in ("처분", "자기주식", "사업결합", "처분등")):
                 continue
@@ -130,24 +141,25 @@ def _name_fallback(fin: IncomeEquity, fs_data: dict) -> None:
             fin.capex = total
 
     # revenue: 손익 '매출'/'영업수익' 정확히(매출원가·매출총이익·매출채권 제외).
+    # '영업수익(매출액)'/'Ⅰ.영업수익' 류 변형·섹션 접두사 커버.  # noqa: RUF003
     if fin.revenue is None:
         for item in (items_by_div.get("IS", []) or []) + (items_by_div.get("CIS", []) or []):
             if not _is_income(item):
                 continue
-            nm = (item.get("name") or "").replace(" ", "")
-            if nm in ("매출", "영업수익", "매출액", "수익"):
+            nm = _strip_section_prefix((item.get("name") or "").replace(" ", ""))
+            if nm in ("매출", "영업수익", "매출액", "수익", "영업수익(매출액)", "영업수익(매출)"):
                 a = _amount_of(item)
                 if a is not None:
                     fin.revenue = a
                     break
 
-    # operating_income: 손익 '영업이익' 정확히.
+    # operating_income: 손익 '영업이익' 정확히. 'Ⅲ.영업이익' 접두사·'영업손실' 변형 커버.
     if fin.operating_income is None:
         for item in (items_by_div.get("IS", []) or []) + (items_by_div.get("CIS", []) or []):
             if not _is_income(item):
                 continue
-            nm = (item.get("name") or "").replace(" ", "")
-            if nm in ("영업이익", "영업이익(손실)"):
+            nm = _strip_section_prefix((item.get("name") or "").replace(" ", ""))
+            if nm in ("영업이익", "영업이익(손실)", "영업손실", "영업이익(영업손실)"):
                 a = _amount_of(item)
                 if a is not None:
                     fin.operating_income = a
@@ -162,7 +174,8 @@ def _name_fallback(fin: IncomeEquity, fs_data: dict) -> None:
                 return False
             return any(k in nm for k in ("지배", "연결당기", "당기순", "순이익", "순손실"))
 
-        for pref in ("지배", "연결당기", "당기순"):
+        # 분기/반기 보고서는 '분기순이익'/'연결분기순이익' 표기(051910 실측) — 당기/연결당기와 동급.
+        for pref in ("지배", "연결당기", "당기순", "분기", "반기"):
             for item in (items_by_div.get("IS", []) or []) + (items_by_div.get("CIS", []) or []):
                 if not _is_income(item):
                     continue
@@ -180,7 +193,9 @@ def _name_fallback(fin: IncomeEquity, fs_data: dict) -> None:
                     continue
                 nm = (item.get("name") or "").replace(" ", "")
                 if _ni_match(nm) and nm in ("당기순이익", "당기순이익(손실)", "연결당기순이익",
-                                            "연결당기순이익(손실)", "순이익", "당기순손실"):
+                                            "연결당기순이익(손실)", "순이익", "당기순손실",
+                                            "분기순이익", "분기순이익(손실)", "반기순이익",
+                                            "반기순이익(손실)", "연결분기순이익", "연결반기순이익"):
                     a = _amount_of(item)
                     if a is not None:
                         fin.net_income = a
@@ -196,7 +211,8 @@ def _name_fallback(fin: IncomeEquity, fs_data: dict) -> None:
             aid = item.get("account_id") or ""
             nm = (item.get("name") or "").replace(" ", "")
             is_basic_aid = ("EarningsPerShare" in aid or "EarningsLossPerShare" in aid) and "Diluted" not in aid
-            is_basic_nm = ("기본" in nm and "주당" in nm and "희석" not in nm) or nm in ("주당순이익", "주당순손실")
+            # '주당이익'/'계속사업주당순이익'/'주당 이익' 류 — 주당+이익/손실 조합이면 EPS(032640 실측).
+            is_basic_nm = ("주당" in nm and ("이익" in nm or "손실" in nm) and "희석" not in nm) or nm in ("주당순이익", "주당순손실")
             if is_basic_aid or is_basic_nm:
                 a = _amount_of(item)
                 if a is not None:
@@ -266,13 +282,14 @@ def _name_fallback(fin: IncomeEquity, fs_data: dict) -> None:
                 fin.income_tax = abs(a)
                 break
 
-    # pretax_income: 손익 '법인세차감전/공제전 순이익'(포함 매칭, 변형 대응).
+    # pretax_income: 손익 '법인세차감전/공제전' + 이익/손실/손익(순이익만이 아니라
+    # '차감전이익'/'차감전순손실'/'차감전손익' 변형도 커버 — 082210 실측).
     if fin.pretax_income is None:
         for item in (items_by_div.get("IS", []) or []) + (items_by_div.get("CIS", []) or []):
             if not _is_income(item):
                 continue
             nm = (item.get("name") or "").replace(" ", "")
-            if ("차감전" in nm or "공제전" in nm) and "순이익" in nm:
+            if ("차감전" in nm or "공제전" in nm) and ("이익" in nm or "손실" in nm or "손익" in nm):
                 a = _amount_of(item)
                 if a is not None:
                     fin.pretax_income = a
@@ -301,32 +318,49 @@ def _name_fallback(fin: IncomeEquity, fs_data: dict) -> None:
                         fin.interest_expense = abs(a)
                         break
 
-    # borrowings: BS 차입금 계정(증가/상환/감소 CF 제외).
+    # borrowings: BS 차입금 계정(증가/상환/감소 CF 제외). '차입부채'(부채) 표기 회사
+    # (032830 실측) 커버 — K-IFRS 는 차입금/차입부채 둘 다 쓴다.
     if fin.borrowings is None:
-        total = 0.0
-        got = False
+        # 총계 우선: '차입부채'/'차입금' 총계 행이 있으면 단독 사용(구성요소 이중계상 방지 —
+        # 일부 보고서는 총계와 단기/장기 구성요소를 함께 제출).
         for item in items_by_div.get("BS", []) or []:
             if not _is_bs(item):
                 continue
             nm = (item.get("name") or "").replace(" ", "")
-            if not any(k in nm for k in ("단기차입금", "장기차입금", "사채", "유동성장기부채", "차입금")):
-                continue
-            if any(x in nm for x in ("증가", "상환", "감소", "유입")):
-                continue
-            a = _amount_of(item)
-            if a is not None:
-                total += abs(a)
-                got = True
-        if got:
-            fin.borrowings = total
+            if nm in ("차입부채", "차입금"):
+                a = _amount_of(item)
+                if a is not None:
+                    fin.borrowings = abs(a)
+                    break
+        if fin.borrowings is None:
+            total = 0.0
+            got = False
+            for item in items_by_div.get("BS", []) or []:
+                if not _is_bs(item):
+                    continue
+                nm = (item.get("name") or "").replace(" ", "")
+                if not any(k in nm for k in ("단기차입금", "장기차입금", "사채", "유동성장기부채", "차입금",
+                                              "단기차입부채", "장기차입부채", "유동성장기차입부채", "비유동차입부채")):
+                    continue
+                if any(x in nm for x in ("증가", "상환", "감소", "유입")):
+                    continue
+                a = _amount_of(item)
+                if a is not None:
+                    total += abs(a)
+                    got = True
+            if got:
+                fin.borrowings = total
 
-    # cash: BS '현금및현금성자산' 정확히(이름 유사 변형 포함).
+    # cash: BS '현금및현금성자산' 정확히(이름 유사 변형 포함). 은행은 '현금및예치금',
+    # 섹션 번호 접두사('1.현금및현금성자산') 붙은 보고서도 커버(105560 실측).
     if fin.cash is None:
         for item in items_by_div.get("BS", []) or []:
             if not _is_bs(item):
                 continue
-            nm = (item.get("name") or "").replace(" ", "")
-            if nm in ("현금및현금성자산", "현금및현금성자산등", "현금및예금"):
+            nm = _strip_section_prefix((item.get("name") or "").replace(" ", ""))
+            if nm in ("현금및현금성자산", "현금및현금성자산등", "현금및예금",
+                      "현금및예치금", "현금및예치금등", "현금및상각후원가측정예치금",
+                      "현금성자산"):
                 a = _amount_of(item)
                 if a is not None:
                     fin.cash = a
