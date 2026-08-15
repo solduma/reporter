@@ -322,11 +322,12 @@ def _name_fallback(fin: IncomeEquity, fs_data: dict) -> None:
     # (032830 실측) 커버 — K-IFRS 는 차입금/차입부채 둘 다 쓴다.
     if fin.borrowings is None:
         # 총계 우선: '차입부채'/'차입금' 총계 행이 있으면 단독 사용(구성요소 이중계상 방지 —
-        # 일부 보고서는 총계와 단기/장기 구성요소를 함께 제출).
+        # 일부 보고서는 총계와 단기/장기 구성요소를 함께 제출). 섹션 접두사('III.차입부채')
+        # 붙은 보고서도 커버(001270 실측).
         for item in items_by_div.get("BS", []) or []:
             if not _is_bs(item):
                 continue
-            nm = (item.get("name") or "").replace(" ", "")
+            nm = _strip_section_prefix((item.get("name") or "").replace(" ", ""))
             if nm in ("차입부채", "차입금"):
                 a = _amount_of(item)
                 if a is not None:
@@ -339,8 +340,10 @@ def _name_fallback(fin: IncomeEquity, fs_data: dict) -> None:
                 if not _is_bs(item):
                     continue
                 nm = (item.get("name") or "").replace(" ", "")
+                # '차입부채' 키가 유동/비유동/기타/괄호 변형('차입부채(유동)')을, '장기차입'/
+                # '단기차입' 이 접미사 없는 표기를 커버(361570·036670 실측).
                 if not any(k in nm for k in ("단기차입금", "장기차입금", "사채", "유동성장기부채", "차입금",
-                                              "단기차입부채", "장기차입부채", "유동성장기차입부채", "비유동차입부채")):
+                                              "차입부채", "장기차입", "단기차입")):
                     continue
                 if any(x in nm for x in ("증가", "상환", "감소", "유입")):
                     continue
