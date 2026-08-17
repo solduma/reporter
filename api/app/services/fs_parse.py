@@ -12,6 +12,7 @@ EPS·지분·capex·법인세·세전이익·이자·차입금·현금을 파싱
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import fields as dc_fields
 
 from sqlalchemy.dialects.postgresql import insert
@@ -96,13 +97,18 @@ def parse_income_equity_from_fs(fs_data: dict) -> IncomeEquity | None:
 # ── 한글 계정명 폴백(account_id 미매칭 필드 보완) ───────────────────────────
 # sj_div 제약으로 오탐 방지(매출↔매출원가, 취득↔자기주식취득 등). 온톨로지 매핑이
 # '-표준계정코드 미사용-' 행을 못 잡는 회사를 커버. 갭 기반 분석으로 도출한 규칙.
-# DART 원문 표 섹션 번호 접두사(로마숫자 전각 Ⅰ-Ⅹ·아스키 IV/V·아라비아 숫자). 공백은  # noqa: RUF003
-# 호출측에서 이미 제거된 상태라 여기선 접두사 문자만 스트립한다.
+# DART 원문 표 섹션 번호 접두사(로마숫자 전각 Ⅰ-Ⅹ·아스키 IV/V·아라비아 숫자·괄호 숫자).  # noqa: RUF003
+# 공백은 호출측에서 이미 제거된 상태라 여기선 접두사 문자만 스트립한다. 괄호 숫자
+# ('(1)현금및현금성자산')와 꼬리 주석 참조('(주석3.12)')는 정규식으로 제거 — 실측.
 _SECTION_PREFIX = "ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩIVV.0123456789 "  # noqa: RUF001
+_PAREN_NUM_PREFIX = re.compile(r"^\(\d+\)")
+_NOTE_SUFFIX = re.compile(r"\(주석[^)]*\)$")
 
 
 def _strip_section_prefix(nm: str) -> str:
-    """'Ⅲ.영업이익'/'1.현금및현금성자산' 류 보고서 섹션 번호 접두사 제거."""
+    """'Ⅲ.영업이익'/'1.현금및현금성자산'/' (1)현금및현금성자산' 류 접두사·주석 제거."""
+    nm = _PAREN_NUM_PREFIX.sub("", nm)
+    nm = _NOTE_SUFFIX.sub("", nm)
     return nm.lstrip(_SECTION_PREFIX)
 
 
@@ -226,6 +232,21 @@ def _name_fallback(fin: IncomeEquity, fs_data: dict) -> None:
                     if a is not None:
                         fin.net_income = a
                         break
+        if fin.net_income is None:
+            # CF 행 폴백: IS/CIS 에 순이익이 없으면 CF 의 당기순이익(손실) 행 사용
+            # (현금흐름 조정용 순이익 — 14건 실측). '당(분)기순이익' 등 괄호 변형도 커버.
+            for item in items_by_div.get("CF", []) or []:
+                if not _is_cf(item):
+                    continue
+                nm = (item.get("name") or "").replace(" ", "")
+                if "순이익" not in nm and "순손실" not in nm:
+                    continue
+                if any(x in nm for x in ("차감전", "주당", "조정", "처분", "증가", "감소", "유입", "유출")):
+                    continue
+                a = _amount_of(item)
+                if a is not None:
+                    fin.net_income = a
+                    break
 
     # eps: account_id EarningsPerShare/EarningsLossPerShare(기본 우선), 희석 폴백.
     # DART는 BasicEarningsLossPerShare(ContinuingOperations) 처럼 'EarningsPerShare' 가 아닌
