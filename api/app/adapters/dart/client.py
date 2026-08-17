@@ -722,7 +722,10 @@ def _parse_income_equity(rows: list[dict]) -> IncomeEquity:
             interest_cf = abs(amt)  # CF 이자지급(폴백 후보)
             continue
         # 지배주주 항목을 우선하되(덮어쓰기), 없으면 전체 항목으로 채운다(setdefault 성격).
-        if aid in _AID_REVENUE and fin.revenue is None:
+        # CF 행은 revenue 후보에서 제외 — ifrs-full_RevenueFromInterest(이자수익)가
+        # CF(이자 수취)에도 나타나 손익의 매출액을 가로채는 사고(001550: CIS 매출액 252억
+        # vs CF 이자수익 -0.21억)를 막는다. revenue 는 손익(IS/CIS)에서만 뽑는다.
+        if sj != "CF" and aid in _AID_REVENUE and fin.revenue is None:
             if is_cis and aid in _CIS_REVENUE_EXCLUDE:
                 # CIS(금융업): ifrs-full_Revenue(영업수익 합계)는 구성요소와 이중계상 →
                 # 합산에서 제외하고 폴백 후보로만 보관한다.
@@ -730,7 +733,7 @@ def _parse_income_equity(rows: list[dict]) -> IncomeEquity:
                     cis_rev_fallback = amt
             else:
                 fin.revenue = amt
-        elif aid in _AID_REVENUE and is_cis:
+        elif sj != "CF" and aid in _AID_REVENUE and is_cis:
             if aid in _CIS_REVENUE_EXCLUDE:
                 continue  # 영업수익 합계 행 — 구성요소와 이중계상이라 제외.
             # 증권·금융업(CIS 기반)은 단일 매출액 항목이 없어 구성요소(수수료·이자·
