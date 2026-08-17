@@ -171,6 +171,19 @@ def test_cis_revenue_falls_back_to_aggregate_when_no_components():
     assert fin.revenue == 3392e8
 
 
+def test_general_company_cis_single_revenue_line():
+    # 회귀: 일반 기업이 CIS 형식으로 보고해도(023440 삼성엔지니어링) ifrs-full_Revenue
+    # (수익(매출액))가 단일 매출 — 이자수익 등 영업외 항목을 revenue 에 섞지 않는다.
+    # 실측: 수익(매출액) 70.55억 vs 금융이익-유효이자율법 이자수익 -0.03억.
+    rows = [
+        {"account_id": "ifrs-full_Revenue", "account_nm": "수익(매출액)", "sj_div": "CIS", "thstrm_amount": "7055258448"},
+        {"account_id": "ifrs-full_RevenueFromInterest", "account_nm": "금융이익-유효이자율법에 따른 이자수익", "sj_div": "CIS", "thstrm_amount": "-3012077"},
+        {"account_id": "ifrs-full_FinanceIncome", "account_nm": "금융수익", "sj_div": "CIS", "thstrm_amount": "8895400221"},
+    ]
+    fin = _parse_income_equity(rows)
+    assert fin.revenue == 7055258448
+
+
 def test_backfill_stock_handles_existing_fs_rows(monkeypatch):
     """회귀: existing_fs 로딩이 Row 가 아닌 엔티티를 다뤄야 한다.
 
