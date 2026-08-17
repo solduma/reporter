@@ -110,6 +110,22 @@ def test_cash_amortized_cost_deposits():
     assert fin.cash == 5_000_000_000
 
 
+def test_cash_parenthesized_prefix():
+    """'(1)현금및현금성자산' 괄호 숫자 접두사 제거."""
+    fin = parse_income_equity_from_fs(_fs(bs=[
+        _item("(1)현금및현금성자산", 12_345_678_000, "BS"),
+    ]))
+    assert fin.cash == 12_345_678_000
+
+
+def test_cash_parenthesized_with_note():
+    """'(1)현금및현금성자산(주석3.12)' 괄호 접두사+주석 참조 제거."""
+    fin = parse_income_equity_from_fs(_fs(bs=[
+        _item("(1)현금및현금성자산(주석3.12)", 9_876_543_000, "BS"),
+    ]))
+    assert fin.cash == 9_876_543_000
+
+
 # ── capex: '유형자산 취득'(의 없음) ──
 
 def test_capex_no_eui():
@@ -188,6 +204,22 @@ def test_net_income_quarterly():
 def test_net_income_consolidated_quarterly():
     fin = parse_income_equity_from_fs(_fs(is_=[
         _item("연결분기순이익", 345_031_540, "IS"),
+    ]))
+    assert fin.net_income == 345_031_540
+
+
+def test_net_income_cf_row():
+    """IS/CIS 에 없고 CF 의 '당기순이익(손실)' 행만 있는 보고서."""
+    fin = parse_income_equity_from_fs(_fs(cf=[
+        _item("당기순이익(손실)", 585_044_000_000, "CF"),
+    ]))
+    assert fin.net_income == 585_044_000_000
+
+
+def test_net_income_cf_consolidated_parenthesized():
+    """CF '연결당(분)기순이익(손실)' 괄호 변형."""
+    fin = parse_income_equity_from_fs(_fs(cf=[
+        _item("연결당(분)기순이익(손실)", 345_031_540, "CF"),
     ]))
     assert fin.net_income == 345_031_540
 
