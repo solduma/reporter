@@ -619,6 +619,15 @@ _AID_REVENUE = _dart_account_ids("IS_REV_TOTAL")
 # 이자·기타영업수익 구성요소의 합계라 함께 합산하면 이중계상된다(현대차증권 Q1 4,254억).
 # 구성요소가 없는 CIS 문장(CIS-only 1,976종목)은 _parse_income_equity 후반부에서 폴백으로 사용.
 _CIS_REVENUE_EXCLUDE = {"ifrs-full_Revenue", "ifrs_Revenue"}
+# CIS 구성요소 합산 게이트: 금융업 전용 계정(수수료·보험수익)이 있어야 합산 대상.
+# dart_OtherOperatingIncome(기타영업수익)은 증권사에선 revenue 구성요소지만 일반 기업
+# CIS 에선 기타영업외수익(영업외)일 수 있어(319400) 게이트에서 제외한다. 게이트가 닫히면
+# ifrs-full_Revenue(수익(매출액))가 단일 매출 — 이자수익 등 영업외 항목을 revenue 에
+# 섞지 않는다(023440 삼성엔지니어링).
+_CIS_REVENUE_COMPONENTS = {
+    "ifrs-full_FeeAndCommissionIncome",
+    "ifrs-full_InsuranceRevenue",
+}
 _AID_OP = _dart_account_ids("IS_OP_INCOME")
 _AID_NI_OWNERS = _dart_account_ids("IS_NI_PARENT")
 _AID_NI = _dart_account_ids("IS_NI_TOTAL")  # 지배주주 항목 없을 때 폴백
@@ -692,6 +701,11 @@ def _parse_income_equity(rows: list[dict]) -> IncomeEquity:
     """손익·자본은 account_id(안정), 차입금·현금은 계정명(표준태그 불안정)으로 함께 뽑는다."""
     fin = IncomeEquity()
     is_cis = _is_cis_statement(rows)  # 금융업(CIS 기반) 여부 — revenue 합산 스코프.
+    # 구성요소 합산은 운영 수익 구성요소(수수료·기타영업수익·보험수익)가 있을 때만.
+    # 일반 기업이 CIS 형식으로 보고하면(023440) ifrs-full_Revenue(수익(매출액)) 단일 매출.
+    cis_sum = is_cis and any(
+        (r.get("account_id") or "") in _CIS_REVENUE_COMPONENTS for r in rows
+    )
     cis_rev_fallback = None  # CIS에 구성요소가 없을 때 쓸 ifrs-full_Revenue(영업수익) 후보.
     borrowings = 0.0
     got_borrowing = False
@@ -726,14 +740,19 @@ def _parse_income_equity(rows: list[dict]) -> IncomeEquity:
         # CF(이자 수취)에도 나타나 손익의 매출액을 가로채는 사고(001550: CIS 매출액 252억
         # vs CF 이자수익 -0.21억)를 막는다. revenue 는 손익(IS/CIS)에서만 뽑는다.
         if sj != "CF" and aid in _AID_REVENUE and fin.revenue is None:
-            if is_cis and aid in _CIS_REVENUE_EXCLUDE:
-                # CIS(금융업): ifrs-full_Revenue(영업수익 합계)는 구성요소와 이중계상 →
-                # 합산에서 제외하고 폴백 후보로만 보관한다.
-                if cis_rev_fallback is None:
-                    cis_rev_fallback = amt
-            else:
-                fin.revenue = amt
-        elif sj != "CF" and aid in _AID_REVENUE and is_cis:
+            if aid in _CIS_REVENUE_EXCLUDE:
+                if cis_sum:
+                    # 금융업: ifrs-full_Revenue(영업수익 합계)는 구성요소와 이중계상 →
+                    # 합산에서 제외하고 폴백 후보로만 보관한다.
+                    if cis_rev_fallback is None:
+                        cis_rev_fallback = amt
+                else:
+                    # 일반 기업 CIS: ifrs-full_Revenue(수익(매출액))가 단일 매출.
+                    fin.revenue = amt
+            elif cis_sum:
+                fin.revenue = amt  # 금융업: 첫 구성요소(수수료·이자·기타영업수익)
+            # else: 일반 기업 CIS 의 이자수익 등 영업외 항목 — revenue 아님, skip.
+        elif sj != "CF" and aid in _AID_REVENUE and cis_sum:
             if aid in _CIS_REVENUE_EXCLUDE:
                 continue  # 영업수익 합계 행 — 구성요소와 이중계상이라 제외.
             # 증권·금융업(CIS 기반)은 단일 매출액 항목이 없어 구성요소(수수료·이자·
