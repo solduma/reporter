@@ -137,6 +137,30 @@ def test_cis_revenue_excludes_aggregate_revenue_line():
     assert fin.revenue == 1644e8
 
 
+def test_cf_interest_income_not_revenue():
+    # 회귀: CF(현금흐름)의 이자수익(ifrs-full_RevenueFromInterest)이 손익 매출액을
+    # 가로채면 안 된다. 001550 2025.03 실측: CIS 매출액 252.64억 vs CF 이자수익 -0.21억
+    # (CF 행이 먼저 오면 revenue 가 -0.21억으로 오염 → 백필이 음수로 폐기해 정상 매출 누락).
+    rows = [
+        {"account_id": "ifrs-full_RevenueFromInterest", "account_nm": "이자수익(매출액)", "sj_div": "CF", "thstrm_amount": "-21049144"},
+        {"account_id": "ifrs-full_Revenue", "account_nm": "매출액", "sj_div": "CIS", "thstrm_amount": "25264253769"},
+    ]
+    fin = _parse_income_equity(rows)
+    assert fin.revenue == 25264253769
+
+
+def test_cf_interest_income_excluded_from_cis_sum():
+    # 회귀: CIS 구성요소 합산에도 CF 이자수익이 섞이면 안 된다(금융사 이자수익 이중계상).
+    rows = [
+        {"account_id": "ifrs-full_FeeAndCommissionIncome", "account_nm": "수수료수익", "sj_div": "CIS", "thstrm_amount": "70800000000"},
+        {"account_id": "ifrs-full_RevenueFromInterest", "account_nm": "이자수익", "sj_div": "CF", "thstrm_amount": "-21049144"},
+        {"account_id": "ifrs-full_RevenueFromInterest", "account_nm": "이자수익", "sj_div": "CIS", "thstrm_amount": "42900000000"},
+        {"account_id": "dart_OtherOperatingIncome", "account_nm": "기타영업수익", "sj_div": "CIS", "thstrm_amount": "21500000000"},
+    ]
+    fin = _parse_income_equity(rows)
+    assert fin.revenue == 1352e8
+
+
 def test_cis_revenue_falls_back_to_aggregate_when_no_components():
     # 회귀: CIS-only 문장(CIS 있고 IS 없음)에 구성요소가 없으면 영업수익 합계로 폴백.
     # 경농(002100) 스타일 — 합계 행을 제외해 버리면 매출이 None 이 되는 회귀 방지.
