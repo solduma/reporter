@@ -132,7 +132,7 @@ def backfill_stock(db: Session, settings: Settings, code: str) -> bool:
         if r.period and "." in r.period
     }
 
-    def _collect_fin(fin, target: dict, fs_div: str, year: int, q: int, full: dict) -> None:
+    def _collect_fin(fin, target: dict, fs_div: str, year: int, q: int, full: dict, record: bool = True) -> None:
         if fin is None:
             return
         yq = (year, q)
@@ -152,7 +152,9 @@ def backfill_stock(db: Session, settings: Settings, code: str) -> bool:
         if fin.equity is not None:
             target_eq[yq] = fin.equity
         # 파싱 실패 필드 기록(온톨로지 매핑 보완용). 여기선 FS 가 원천이라 폴백=skip.
-        record_gaps(db, code, _period_str(year, q), fs_div, fin, full, fallback="skip")
+        # 단일 재무제표 폴백(record=False)은 EPS·차입 등 미제공 필드가 갭으로 오인되지 않게 생략.
+        if record:
+            record_gaps(db, code, _period_str(year, q), fs_div, fin, full, fallback="skip")
 
     with requests.Session() as session:
         for year, q in yqs:
@@ -173,6 +175,17 @@ def backfill_stock(db: Session, settings: Settings, code: str) -> bool:
                     settings.dart_api_key, corp_code, year, q, fs_div, session
                 )
                 if not full:
+                    # 2b) fnlttSinglAcntAll 이 013(데이터없음)인 CFS 기간은 단일 재무제표
+                    # (fnlttSinglAcnt) 요약으로 폴백 — 매출·영업이익·순이익·자본만(eps 없음).
+                    # 단일 API 는 fs_div 를 무시하고 CFS 를 먼저 반환해 OFS 구분이 불가하므로
+                    # CFS 만 폴백한다. FS 원문이 없어 FinancialStatement 저장은 생략.
+                    if fs_div == "CFS":
+                        fin = dart.fetch_income_summary(
+                            settings.dart_api_key, corp_code, year, q, fs_div, session
+                        )
+                        if fin is not None:
+                            any_data = True
+                            _collect_fin(fin, None, fs_div, year, q, {}, record=False)
                     continue
                 any_data = True
                 stmt_data[(year, q, fs_div)] = full
@@ -193,6 +206,8 @@ def backfill_stock(db: Session, settings: Settings, code: str) -> bool:
         ni_q = {yq: financials.discrete_quarter(ni_raw, yq) for yq in ni_raw}
         eps_q = {yq: financials.discrete_quarter(eps_raw, yq) for yq in eps_raw}
         # 매출 개별값이 음수면 1~3Q 가 누적 보고였다는 신호 → 그 분기 매출·TTM 을 신뢰 불가로 폐기.
+        # 음수 확정 분기는 NULL 로 명시 덮어써 기존 stale 값(과거 파서 오염분)을 제거한다.
+        neg_rev_yqs = {yq for yq, v in rev_q.items() if v is not None and v < 0}
         rev_q = {yq: (v if (v is None or v >= 0) else None) for yq, v in rev_q.items()}
 
         updated = 0
@@ -224,6 +239,7 @@ def backfill_stock(db: Session, settings: Settings, code: str) -> bool:
                 code,
                 _period_str(year, q),
                 fs_div=fs_div,
+                null_fields=("revenue",) if yq in neg_rev_yqs else (),
                 revenue=(rev_q_val / 1e8) if rev_q_val is not None else None,
                 operating_income=(op_q_val / 1e8) if op_q_val is not None else None,
                 net_income=(ni_q_val / 1e8) if ni_q_val is not None else None,
@@ -267,22 +283,28 @@ def backfill_stock(db: Session, settings: Settings, code: str) -> bool:
     return True
 
 
-def _upsert_financial(db: Session, code: str, period: str, fs_div: str = "CFS", **vals) -> None:
+def _upsert_financial(
+    db: Session, code: str, period: str, fs_div: str = "CFS", null_fields: tuple[str, ...] = (), **vals
+) -> None:
     """Financial 행 upsert(백필 소유 필드만 갱신: 재무·PER/PBR/PSR). 추정치 아님.
 
     None 값은 갱신에서 제외한다 — 주식수 조회 실패(밸류 None) 등으로 기존 유효값(예: 네이버
     per/pbr, 이전 백필분)을 NULL 로 덮어쓰지 않기 위함.
+    null_fields: 명시적으로 NULL 로 덮어쓸 필드 — 음수 매출(누적 보고 오인)처럼 이번 백필이
+    "값 없음"을 확정한 경우 기존 stale 값(과거 파서 오염분)을 제거한다.
     fs_div: 'CFS'(연결) | 'OFS'(별도) — CFS/OFS 각각 저장.
     """
     present = {k: v for k, v in vals.items() if v is not None}
-    if not present:
+    if not present and not null_fields:
         return
     stmt = insert(Financial).values(
         stock_code=code, period=period, fs_div=fs_div, is_estimate=False, **present
     )
+    set_ = {k: getattr(stmt.excluded, k) for k in present}
+    set_.update(dict.fromkeys(null_fields, None))
     stmt = stmt.on_conflict_do_update(
         constraint="uq_financial",
-        set_={k: getattr(stmt.excluded, k) for k in present},
+        set_=set_,
     )
     db.execute(stmt)
 
