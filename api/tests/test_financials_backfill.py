@@ -218,6 +218,7 @@ def test_backfill_stock_handles_existing_fs_rows(monkeypatch):
 
     # DART·주식수 호출은 모킹 — FS 원문 우선 경로(existing_fs)만 검증.
     monkeypatch.setattr(fb.dart, "fetch_full_statements_by_div", lambda *a, **k: None)
+    monkeypatch.setattr(fb.dart, "fetch_income_summary", lambda *a, **k: None)
     monkeypatch.setattr(fb.quote, "fetch_shares_outstanding", lambda *a, **k: None)
     try:
         assert fb.backfill_stock(db, MagicMock(), "000001") is True
@@ -279,6 +280,7 @@ def test_q3_cache_hits_september_not_march(monkeypatch):
     db.commit()
 
     monkeypatch.setattr(fb.dart, "fetch_full_statements_by_div", lambda *a, **k: None)
+    monkeypatch.setattr(fb.dart, "fetch_income_summary", lambda *a, **k: None)
     monkeypatch.setattr(fb.quote, "fetch_shares_outstanding", lambda *a, **k: None)
     try:
         assert fb.backfill_stock(db, MagicMock(), "000001") is True
@@ -292,3 +294,73 @@ def test_q3_cache_hits_september_not_march(monkeypatch):
         assert q3.revenue == 200.0  # 200억 — March(100억) 캐시 오염이면 100.0 이 나온다
     finally:
         db.close()
+
+
+def test_cfs_fallback_to_single_statement(monkeypatch):
+    """회귀: fnlttSinglAcntAll 이 013(데이터없음)인 CFS 기간은 fnlttSinglAcnt 요약으로 폴백.
+
+    OFS 는 폴백하지 않는다(단일 API 가 CFS 를 먼저 반환해 구분 불가). 폴백 결과는
+    매출·영업이익·순이익·자본만 저장되고(eps 없음) 갭 기록은 생략된다.
+    """
+    from unittest.mock import MagicMock
+
+    from app.adapters.dart.client import IncomeEquity
+
+    captured = []
+    monkeypatch.setattr(fb, "_upsert_financial", lambda db, code, period, **v: captured.append((period, v)))
+    monkeypatch.setattr(fb, "_quarter_end_close", lambda *a, **k: None)
+    monkeypatch.setattr(fb.quote, "fetch_shares_outstanding", lambda *a, **k: 1_000_000)
+    monkeypatch.setattr(fb, "record_gaps", lambda *a, **k: captured.append(("gap", a[2])))
+    # fnlttSinglAcntAll 은 항상 013 → 폴백 경로만.
+    monkeypatch.setattr(fb.dart, "fetch_full_statements_by_div", lambda *a, **k: None)
+    # fnlttSinglAcnt 는 2024.03 CFS 만 반환.
+    def _fake_summary(api_key, corp_code, year, q, fs_div, session):
+        if (year, q, fs_div) == (2024, 1, "CFS"):
+            return IncomeEquity(revenue=100e8, operating_income=10e8, net_income=8e8, eps=None, equity=500e8)
+        return None
+
+    monkeypatch.setattr(fb.dart, "fetch_income_summary", _fake_summary)
+    db = MagicMock()
+    db.scalar.return_value = "00000000"
+    fb.backfill_stock(db, MagicMock(), "093320")
+
+    # 2024.03 CFS 에 폴백 매출이 저장됐고(억원 단위), OFS 는 폴백하지 않았다.
+    cfs = [v for p, v in captured if p == "2024.03" and v.get("fs_div") == "CFS"]
+    assert cfs and cfs[0]["revenue"] == 100.0
+    ofs = [v for p, v in captured if p == "2024.03" and v.get("fs_div") == "OFS"]
+    assert not ofs
+    # 갭 기록은 생략(record=False) — eps 등 미제공 필드가 갭으로 오인되지 않아야 한다.
+    assert not any(k == "gap" for k, _ in captured)
+
+
+def test_negative_revenue_writes_null(monkeypatch):
+    """회귀: 분기 개별 매출이 음수(누적 보고 오인)면 revenue 를 명시 NULL 로 덮어쓴다.
+
+    기존엔 None 이 갱신에서 제외돼 과거 파서 오염분(stale 값)이 남았다. null_fields 로
+    명시 NULL 을 보내 기존 값을 제거한다.
+    """
+    from unittest.mock import MagicMock
+
+    from app.adapters.dart.client import IncomeEquity
+
+    captured = []
+    monkeypatch.setattr(fb, "_upsert_financial", lambda db, code, period, **v: captured.append((period, v)))
+    monkeypatch.setattr(fb, "_quarter_end_close", lambda *a, **k: None)
+    monkeypatch.setattr(fb.quote, "fetch_shares_outstanding", lambda *a, **k: 1_000_000)
+    monkeypatch.setattr(fb.dart, "fetch_full_statements_by_div", lambda *a, **k: None)
+    # 2024.03 CFS 매출이 음수인 폴백.
+    def _fake_summary(api_key, corp_code, year, q, fs_div, session):
+        if (year, q, fs_div) == (2024, 1, "CFS"):
+            return IncomeEquity(revenue=-100e8, operating_income=10e8, net_income=8e8, eps=None, equity=500e8)
+        return None
+
+    monkeypatch.setattr(fb.dart, "fetch_income_summary", _fake_summary)
+    db = MagicMock()
+    db.scalar.return_value = "00000000"
+    fb.backfill_stock(db, MagicMock(), "093320")
+
+    cfs = [v for p, v in captured if p == "2024.03" and v.get("fs_div") == "CFS"]
+    assert cfs
+    # revenue 는 None(폐기) + null_fields 로 명시 NULL → stale 값 제거.
+    assert cfs[0]["revenue"] is None
+    assert cfs[0]["null_fields"] == ("revenue",)

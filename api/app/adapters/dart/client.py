@@ -46,6 +46,9 @@ def configure_from_settings(settings) -> None:
 _CORPCODE_URL = "https://opendart.fss.or.kr/api/corpCode.xml"
 _LIST_URL = "https://opendart.fss.or.kr/api/list.json"
 _FNLTT_URL = "https://opendart.fss.or.kr/api/fnlttSinglAcntAll.json"
+# 단일 재무제표(fnlttSinglAcnt) — fnlttSinglAcntAll 이 013(데이터없음)인 CFS 기간의 요약 폴백.
+# 응답에 CFS(첫 번째)·OFS(두 번째) 재무제표가 모두 포함되고 fs_div 파라미터는 무시된다.
+_FNLTT_SINGL_URL = "https://opendart.fss.or.kr/api/fnlttSinglAcnt.json"
 _ELESTOCK_URL = "https://opendart.fss.or.kr/api/elestock.json"
 _STOCK_TOTQY_URL = "https://opendart.fss.or.kr/api/stockTotqySttus.json"  # DS002 주식총수현황
 _ALOTMATTER_URL = "https://opendart.fss.or.kr/api/alotMatter.json"  # DS002 배당에관한사항
@@ -940,6 +943,66 @@ def fetch_full_statements_by_div(
 ) -> dict[str, list[dict]] | None:
     """특정 fs_div(CFS/OFS)의 전체재무제표를 조회."""
     return _fetch_full_statements_for_fs_div(api_key, corp_code, year, quarter, fs_div, session)
+
+
+def fetch_income_summary(
+    api_key: str, corp_code: str, year: int, quarter: int, fs_div: str, session: requests.Session
+) -> IncomeEquity | None:
+    """fnlttSinglAcnt(단일 재무제표) 폴백 — fnlttSinglAcntAll 이 013(데이터없음)인 CFS 기간용.
+
+    응답에 CFS(첫 번째)·OFS(두 번째) 재무제표가 모두 포함되고 fs_div 는 무시되므로,
+    두 번째 자본총계(별도 시작) 앞의 CFS 문장만 파싱한다. EPS 는 단일 API 가 제공하지
+    않는다(eps=None). 계정명 매칭: 매출액/영업수익·영업이익(손실)·당기순이익(손실)·자본총계.
+    """
+    reprt_code = DART_REPORT_CODES.get(quarter)
+    if not reprt_code:
+        return None
+    params = {
+        "crtfc_key": api_key,
+        "corp_code": corp_code,
+        "bsns_year": str(year),
+        "reprt_code": reprt_code,
+        "fs_div": fs_div,
+    }
+    try:
+        resp = dart_throttle.get(session, _FNLTT_SINGL_URL, params=params, timeout=20)
+        resp.raise_for_status()
+        data = resp.json()
+    except (requests.RequestException, ValueError):
+        return None
+    _raise_if_quota(data)
+    if data.get("status") != "000":
+        return None
+    items = data.get("list") or []
+    # 두 번째 자본총계(별도 재무제표 시작) 앞까지만 CFS 로 취급.
+    seen_equity = 0
+    cfs_items: list[dict] = []
+    for item in items:
+        if item.get("account_nm") == "자본총계":
+            seen_equity += 1
+            if seen_equity == 2:
+                break
+        cfs_items.append(item)
+    revenue = operating_income = net_income = equity = None
+    for item in cfs_items:
+        nm = item.get("account_nm")
+        amt = _amount(item)
+        if amt is None:
+            continue
+        if nm in ("매출액", "영업수익") and revenue is None:
+            revenue = amt
+        elif nm.startswith("영업이익") and operating_income is None:
+            operating_income = amt
+        elif nm.startswith("당기순이익") and net_income is None:
+            net_income = amt
+        elif nm == "자본총계" and equity is None:
+            equity = amt
+    if revenue is None and operating_income is None and net_income is None and equity is None:
+        return None
+    return IncomeEquity(
+        revenue=revenue, operating_income=operating_income, net_income=net_income,
+        eps=None, equity=equity,
+    )
 
 
 @dataclass
