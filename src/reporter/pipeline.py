@@ -296,6 +296,10 @@ def run_market_news(config: Config) -> int:
     import requests
 
     session = requests.Session()
+    # 휴장일(공휴일)에는 장중 뉴스를 발송하지 않는다 — localTradedAt 날짜로 판정.
+    if not us_market.is_kr_trading_day(session):
+        logger.info("휴장일 — 장중 시장 뉴스 발송 생략")
+        return 0
     items = _collect_market_news(_MARKET_NEWS_KEYWORDS, limit=8, session=session)
     if not items:
         logger.info("no market news")

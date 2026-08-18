@@ -5,7 +5,7 @@ from typing import ClassVar
 import pytest
 
 import reporter.pipeline as pipeline
-from reporter import news
+from reporter import news, us_market
 from reporter.config import Config
 from reporter.models import Briefing, DigestResult, Report
 
@@ -468,6 +468,20 @@ def test_per_entity_falls_back_to_plain_on_topic_error(stub_entity, monkeypatch,
     count = pipeline.run_per_entity_briefing(config, ["company"])
     assert count == 1
     assert len(sent) == 1  # 포럼 실패 → plain 발송 폴백
+
+
+def test_market_news_skips_on_non_trading_day(monkeypatch, tmp_path):
+    # 휴장일: 뉴스 수집·발송을 아예 하지 않는다(0 반환).
+    monkeypatch.setattr(us_market, "is_kr_trading_day", lambda *a, **k: False)
+    collected = []
+    monkeypatch.setattr(pipeline, "_collect_market_news", lambda kw, limit, session: collected.append(1) or [])
+    sent = []
+    monkeypatch.setattr(pipeline, "TelegramSender", lambda t, c: _RecordingSender(sent))
+
+    config = _topics_config(tmp_path)
+    assert pipeline.run_market_news(config) == 0
+    assert collected == []  # 뉴스 수집 미호출
+    assert sent == []  # 발송 없음
 
 
 def test_market_news_routes_to_topic(monkeypatch, tmp_path):
