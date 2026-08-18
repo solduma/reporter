@@ -1,5 +1,6 @@
 """미국 지수 fetch 단위 테스트 — 네이버 응답 목킹."""
 
+from datetime import datetime, timedelta
 from unittest.mock import MagicMock
 
 import pytest
@@ -89,6 +90,31 @@ def test_parses_kr_indices():
     kospi, kosdaq = quotes
     assert kospi.close == "7,291.91" and kospi.rising is True
     assert kosdaq.rising is False
+
+
+def test_is_kr_trading_day_true_when_traded_today():
+    today = datetime.now().strftime("%Y-%m-%dT10:00:00+09:00")
+    payloads = {"KOSPI": {"closePrice": "7,291.91", "compareToPreviousPrice": {"code": "2"},
+                          "localTradedAt": today}}
+    assert us_market.is_kr_trading_day(_session(payloads)) is True
+
+
+def test_is_kr_trading_day_false_when_traded_previous_day():
+    yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%dT10:00:00+09:00")
+    payloads = {"KOSPI": {"closePrice": "7,291.91", "compareToPreviousPrice": {"code": "2"},
+                          "localTradedAt": yesterday}}
+    assert us_market.is_kr_trading_day(_session(payloads)) is False
+
+
+def test_is_kr_trading_day_fallback_true_on_fetch_failure():
+    # 조회 실패(빈 응답) → 판정 불가 → True 폴백(기존 동작 유지).
+    assert us_market.is_kr_trading_day(_session({})) is True
+
+
+def test_is_kr_trading_day_fallback_true_without_traded_at():
+    # localTradedAt 이 없는 응답 → 판정 불가 → True 폴백.
+    payloads = {"KOSPI": {"closePrice": "7,291.91", "compareToPreviousPrice": {"code": "2"}}}
+    assert us_market.is_kr_trading_day(_session(payloads)) is True
 
 
 def test_kr_and_us_caches_are_independent():

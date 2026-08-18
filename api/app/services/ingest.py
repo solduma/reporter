@@ -282,6 +282,10 @@ def _build_intraday(
     prev_summary(직전 시황)를 주면 '장 초엔 이랬으나 지금은' 식 대조를 하게 한다.
     (요약 텍스트, source_count) 또는 근거를 전혀 못 구하면 None.
     """
+    # 휴장일(공휴일)에는 장중 시황을 만들지 않는다 — localTradedAt 날짜로 판정.
+    if not us_market.is_kr_trading_day(session):
+        logger.info("휴장일 — 장중 시황 생략")
+        return None
     quotes = [
         *us_market.fetch_kr_indices(session),
         *us_market.fetch_exchange_rates(session),

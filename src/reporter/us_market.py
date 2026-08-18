@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 
 import requests
 
@@ -55,6 +56,7 @@ class IndexQuote:
     change: str  # 전일 대비 (예 '-130.76')
     change_ratio: str  # 등락률 % (예 '-0.25')
     rising: bool | None  # 상승 True / 하락 False / 판단불가 None
+    traded_at: str | None = None  # localTradedAt (예 '2026-08-18T10:33:00+09:00') — 휴장일 판정용
 
 
 def _parse_quote(name: str, data: dict) -> IndexQuote | None:
@@ -71,6 +73,7 @@ def _parse_quote(name: str, data: dict) -> IndexQuote | None:
         change=str(data.get("compareToPreviousClosePrice", "")),
         change_ratio=str(data.get("fluctuationsRatio", "")),
         rising=rising,
+        traded_at=data.get("localTradedAt"),
     )
 
 
@@ -115,6 +118,35 @@ def fetch_kr_indices(session: requests.Session | None = None) -> list[IndexQuote
     if quotes:
         _kr_cache = (time.monotonic(), quotes)
     return quotes
+
+
+_KST = timezone(timedelta(hours=9))
+
+
+def is_kr_trading_day(session: requests.Session | None = None, today: datetime | None = None) -> bool:
+    """오늘이 국내 거래일인지 판정한다. Naver 지수 응답의 localTradedAt 날짜로 확인.
+
+    공휴일 DB 유지보수 없이 데이터 기반으로 판정한다. 조회 실패(빈 리스트)나
+    traded_at 이 하나도 없는 응답(판정 불가)은 True 로 폴백해 기존 동작을 유지한다.
+    localTradedAt 은 +09:00 이라 호스트 타임존과 무관하게 KST 날짜로 비교한다.
+    """
+    quotes = fetch_kr_indices(session)
+    if not quotes:
+        return True
+    today = today or datetime.now(_KST)
+    if today.tzinfo is None:
+        today = today.replace(tzinfo=_KST)
+    seen = False
+    for q in quotes:
+        if not q.traded_at:
+            continue
+        seen = True
+        try:
+            if datetime.fromisoformat(q.traded_at).date() == today.date():
+                return True
+        except ValueError:
+            continue
+    return not seen
 
 
 def _parse_fx(name: str, data: dict) -> IndexQuote | None:

@@ -172,6 +172,38 @@ def test_intraday_uses_live_quotes_and_news_not_research(_stub, monkeypatch):
     assert db.added[0].phase == "intraday"
 
 
+def test_intraday_skips_on_non_trading_day(_stub, monkeypatch):
+    # 휴장일(공휴일): localTradedAt 이 오늘이 아니면 장중 시황을 만들지 않는다(DB 미기록).
+    from datetime import timedelta
+
+    yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%dT10:00:00+09:00")
+    monkeypatch.setattr(
+        ingest.us_market, "fetch_kr_indices",
+        lambda s: [_Quote("코스피", "2,650", "0.45", traded_at=yesterday)],
+    )
+    db = _FakeSession()
+    assert ingest.build_market_brief(db, _settings(), phase="intraday") is None
+    assert db.added == []
+
+
+def test_intraday_runs_on_trading_day(_stub, monkeypatch):
+    # 거래일: localTradedAt 이 오늘이면 정상 생성.
+    today = datetime.now().strftime("%Y-%m-%dT10:00:00+09:00")
+    monkeypatch.setattr(
+        ingest.us_market, "fetch_kr_indices",
+        lambda s: [_Quote("코스피", "2,650", "0.45", traded_at=today)],
+    )
+    monkeypatch.setattr(ingest.us_market, "fetch_exchange_rates", lambda s: [])
+    monkeypatch.setattr(ingest.us_market, "fetch_us_indices", lambda s: [])
+    monkeypatch.setattr(
+        ingest.news, "collect", lambda kw, limit, session=None, max_age_hours=None: []
+    )
+    monkeypatch.setattr(ingest.analyzer, "synthesize_intraday", lambda *a, **k: _Briefing())
+    db = _FakeSession()
+    assert ingest.build_market_brief(db, _settings(), phase="intraday") == "종합"
+    assert len(db.added) == 1
+
+
 def test_intraday_returns_none_when_no_live_data(_stub, monkeypatch):
     monkeypatch.setattr(ingest.us_market, "fetch_kr_indices", lambda s: [])
     monkeypatch.setattr(ingest.us_market, "fetch_exchange_rates", lambda s: [])
@@ -239,8 +271,9 @@ def test_returns_none_when_no_reports(_stub):
 
 
 class _Quote:
-    def __init__(self, name, close, ratio):
+    def __init__(self, name, close, ratio, traded_at=None):
         self.name, self.close, self.change_ratio = name, close, ratio
+        self.traded_at = traded_at
 
 
 class _NewsItem:
