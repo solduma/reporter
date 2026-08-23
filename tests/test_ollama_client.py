@@ -246,6 +246,53 @@ def test_chat_tools_allows_empty_content():
     )
     msg = client.chat_tools("glm-5.2:cloud", [{"role": "user", "content": "x"}], [])
     assert msg["content"] == ""
+    # 내부 진단 키는 transcript 재주입용 raw_message 에 남으면 안 된다.
+    assert "_finish" not in msg and "_reasoning" not in msg
+
+
+def test_chat_length_finish_gives_specific_error():
+    # reasoning 소진으로 잘린 응답 — 원인 구분 가능한 메시지.
+    client = _client_with_stream(
+        _sse_bytes(
+            [
+                {
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"reasoning_content": "생각..."},
+                            "finish_reason": None,
+                        }
+                    ]
+                },
+                {"choices": [{"index": 0, "delta": {}, "finish_reason": "length"}]},
+                "[DONE]",
+            ]
+        )
+    )
+    with pytest.raises(OllamaError, match="토큰 한도"):
+        client.chat("x-preview-f-free", "sys", "user")
+
+
+def test_chat_reasoning_only_hint_in_error():
+    client = _client_with_stream(
+        _sse_bytes(
+            [
+                {
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"reasoning_content": "생각만 하고 끝"},
+                            "finish_reason": None,
+                        }
+                    ]
+                },
+                {"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]},
+                "[DONE]",
+            ]
+        )
+    )
+    with pytest.raises(OllamaError, match="reasoning 만 존재"):
+        client.chat("x-preview-f-free", "sys", "user")
 
 
 def test_chat_total_deadline_truncates_trickle(monkeypatch):
