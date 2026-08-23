@@ -6,15 +6,18 @@
 
 흐름:
 1. extract_sections — 정기보고서 document.xml 에서 조악한 섹션 본문 추출 → BusinessReportRaw.
-2. assemble_overview — annual 베이스 + half/quarter 오버레이 → LLM 정리 → BusinessOverviewCache.
+2. assemble_overview — map(청크 사실추출) → reduce(주제별 카탈로그) → 섹션별 생성 → 절차 리뷰
+   (gap 시 해당 섹션만 재생성) → BusinessOverviewCache. 원문 절단 없이 전체를 소형 호출로 처리.
 3. backfill_progressive — 유니버스 점진 백필(SyncState 마커·DART quota/budget 가드·재개 가능).
 4. refresh_if_new_report — 캐시 source_reports 대비 새 rcept 감지 시 재조립(배치 갱신).
 """
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import io
+import json
 import logging
 import re
 import zipfile
@@ -254,33 +257,75 @@ def _gather_for_assembly(
     return [(base_rcept, bo.ANNUAL, base_year), *later]
 
 
-# ── 조립(LLM 정리정돈) ───────────────────────────────────────────────────
-_ASSEMBLE_SYSTEM = (
-    "너는 한국 상장사 사업보고서를 투자자 관점으로 정리하는 애널리스트다. 주어진 정기보고서 원문을 "
-    "원문 그대로 옮기지 말고, 투자자가 회사 사업을 빠르게 파악할 수 있도록 정리정돈한다. "
-    "**테이블을 적극 활용**한다. 서술은 핵심만 간결한 마크다운. "
-    "원문에 없는 내용은 추측하지 말고 '정보 없음'으로 둔다. 출처 원문에 근거한다.\n\n"
-    "**핵심 원칙: 모든 산업에 공통 적용** — 제조업이 아닌 기업(IT/금융/서비스/바이오 등)에서는 "
-    "원재료·생산 같은 제조업 전용 섹션 대신 해당 산업에 해당하는 실질 정보를 그 자리에 채워라. "
-    "예: 금융은 '원재료' 대신 '주요 상품별 수신/여신 비율', IT는 '생산' 대신 '플랫폼 규모/R&D 투자', "
-    "바이오는 '원재료' 대신 '파이프라인 단계'.\n\n"
-    "출력은 반드시 아래 JSON 스키마만(다른 텍스트 금지):\n"
-    '{"sections": [{"id": "<아래 섹션 ID 중 하나>", "title": "섹션 제목", '
-    '"narrative": "마크다운 서술(핵심만)", "tables": [{"title": "표 제목", "headers": ["..."], '
-    '"rows": [["...", ...]]}], "updated_by_kind": "annual|half|quarter|null"}]}\n\n'
-    "반드시 포함할 섹션 8개:\n"
-    "1. company_profile — 회사 개요: 법적지위/설립일/상장일/본점/결산월/주요 사업부문/신용등급/ESG 주요 자격\n"
-    "2. revenue_model — 수익 모델: 매출 구성(제품/서비스/상품별), 전년 대비 성장률, 수익 메커니즘(구독/일회성/수수료 등)\n"
-    "3. market_position — 시장 포지션: 시장 규모/점유율/경쟁사 비교/주요 고객사 및 집중도/시장 트렌드\n"
-    "4. value_chain — 밸류체인·파트너십: 핵심 공급자/원재료/기술 파트너, 주요 판매·유통·고객 채널, 계열사·JV·파트너십\n"
-    "5. operating_drivers — 핵심 운영 드라이버: 산업별 2~4개 핵심 KPI. 제조업=생산능력/가동률/설비투자, "
-    "IT/플랫폼=MAU/ARPU/R&D, 금융=AUM/대출잔액/NPL/스프레드, 바이오=파이프라인/ 임상단계, "
-    "물류=차량/물류센터/운송량. 매출총이익률·판관비율 등 재무 대체 지표도 OK\n"
-    "6. financial_highlights — 재무 하이라이트: 최근 3~5개년 매출액/영업이익/당기순이익/영업이익률/ROE/부채비율 추이\n"
-    "7. ownership_governance — 지배구조·주주: 최대주주 및 특수관계인 지분율/주주5대/배당·배당성향/종속회사/이사회 구성\n"
-    "8. catalysts_and_risks — 향후 촉매·리스크: 최근 경영사항 및 공시/예정된 사업 이벤트/산업별 핵심 리스크(원자재·기술·규제·금리 등)와 대응책\n\n"
-    "데이터가 없는 섹션도 빈 narrative/tables 로 포함(누락 금지). updated_by_kind 는 해당 섹션이 "
-    "어떤 종류 보고서에서 왔는지(annual 베이스면 'annual', 반기·분기 갱신이면 그 kind)."
+# ── 조립(Map-Reduce — 소형 다중 호출) ─────────────────────────────────────
+# 단일 거대 프롬프트(원문 24K자 주입 → 8섹션 동시 출력)는 무료 reasoning 모델에서 첫바이트
+# 장기 침묵→엣지 끊김(RemoteDisconnected)·빈 응답·8섹션 중 일부만 출력이 잦았고, 애초에
+# 원문을 16K/8K로 절단해 정보 손실도 컸다. 원문 전체를 청크 사실추출(map) → 주제별 카탈로그
+# 통합(reduce) → 섹션별 개별 생성(synthesize)으로 쪼개 각 호출을 작게 유지한다.
+_CHUNK_CHARS = 6000  # 청크 크기(문자) — 문단 경계 분할(~3K 토큰 수준 입력)
+_FACTS_CAP = 40  # 청크당 사실 추출 상한
+_CATALOG_CHAR_CAP = 14000  # reduce 1회 입력 상한 — 초과 시 그룹 병합으로 단계적 reduce
+
+_MAP_SYSTEM = (
+    "너는 한국 상장사 정기보고서 발췌문에서 투자자 관점의 '사실'만 뽑아내는 애널리스트다.\n"
+    "규칙:\n"
+    "1) 서술·해석·평가 금지 — 원문에 근거한 사실만 한 줄씩. 수치·비율·고유명사·날짜를 정확히 보존.\n"
+    "2) 대상: 제품·서비스, 매출구성, 고객·경쟁·시장위치, 설비·운영 KPI, 재무수치, 주주·지배구조, "
+    "리스크·촉매, 공급망·파트너십, R&D — 무엇이든 사실이면 추출한다.\n"
+    "3) 중복은 하나로 합친다. 최대 40개. 근거 없는 추측 금지.\n"
+    "출력은 반드시 아래 JSON만:\n"
+    '{"facts": ["...", "..."]}'
+)
+
+_REDUCE_TOPICS = (
+    "company",
+    "revenue",
+    "market",
+    "value_chain",
+    "drivers",
+    "financial",
+    "ownership",
+    "catalyst_risk",
+)
+
+_REDUCE_SYSTEM = (
+    "너는 추출된 사실 목록을 주제별 카탈로그로 통합한다.\n"
+    "규칙:\n"
+    "1) 중복·유사 항목은 병합하고, 모순 시 최신 보고서 우선(항목 접두 표기 [quarter]>[half]>[annual]).\n"
+    "2) 사실 문자열은 가능한 그대로 보존하고 주제 8개에 분류한다. 어느 주제에도 안 맞으면 company 에.\n"
+    "3) 접두 [annual]/[half]/[quarter] 출처 표기는 문자열에 그대로 유지한다.\n"
+    "출력은 반드시 아래 JSON만(8키 전부 포함):\n"
+    '{"company": ["..."], "revenue": ["..."], "market": ["..."], "value_chain": ["..."], '
+    '"drivers": ["..."], "financial": ["..."], "ownership": ["..."], "catalyst_risk": ["..."]}'
+)
+
+# 섹션별 생성 지시(기존 단일 프롬프트의 8개 섹션 정의를 그대로 승계).
+_SECTION_BRIEFS = {
+    "company_profile": "회사 개요: 법적지위/설립일/상장일/본점/결산월/주요 사업부문/신용등급/ESG 주요 자격",
+    "revenue_model": "수익 모델: 매출 구성(제품/서비스/상품별), 전년 대비 성장률, 수익 메커니즘(구독/일회성/수수료 등)",
+    "market_position": "시장 포지션: 시장 규모/점유율/경쟁사 비교/주요 고객사 및 집중도/시장 트렌드",
+    "value_chain": "밸류체인·파트너십: 핵심 공급자/원재료/기술 파트너, 주요 판매·유통·고객 채널, 계열사·JV·파트너십",
+    "operating_drivers": (
+        "핵심 운영 드라이버: 산업별 2~4개 핵심 KPI. 제조업=생산능력/가동률/설비투자, "
+        "IT/플랫폼=MAU/ARPU/R&D, 금융=AUM/대출잔액/NPL/스프레드, 바이오=파이프라인/임상단계, "
+        "물류=차량/물류센터/운송량. 매출총이익률·판관비율 등 재무 대체 지표도 OK"
+    ),
+    "financial_highlights": "재무 하이라이트: 최근 3~5개년 매출액/영업이익/당기순이익/영업이익률/ROE/부채비율 추이",
+    "ownership_governance": "지배구조·주주: 최대주주 및 특수관계인 지분율/주주5대/배당·배당성향/종속회사/이사회 구성",
+    "catalysts_and_risks": (
+        "향후 촉매·리스크: 최근 경영사항 및 공시/예정된 사업 이벤트/"
+        "산업별 핵심 리스크(원자재·기술·규제·금리 등)와 대응책"
+    ),
+}
+
+# 섹션 작성 공통 원칙(테이블 우선·추측 금지·산업별 치환) — 기존 단일 프롬프트 원칙 승계.
+_SECTION_PRINCIPLES = (
+    "너는 한국 상장사 사업보고서를 투자자 관점으로 정리하는 애널리스트다. 원문을 그대로 옮기지 말고 "
+    "정리정돈하며 **테이블을 적극 활용**한다. 서술은 핵심만 간결한 마크다운. "
+    "카탈로그에 근거가 없는 내용은 추측하지 말고 narrative='정보 없음', tables=[] 로 명시한다.\n\n"
+    "**산업 치환 원칙** — 제조업이 아닌 기업(IT/금융/서비스/바이오 등)은 제조업 전용 항목 대신 "
+    "해당 산업의 실질 정보를 채운다(금융은 '원재료' 대신 주요 상품별 수신/여신 비율, IT는 '생산' "
+    "대신 플랫폼 규모/R&D 투자, 바이오는 '원재료' 대신 파이프라인 단계).\n\n"
 )
 
 _ASSEMBLE_REVIEW = (
@@ -296,59 +341,174 @@ _ASSEMBLE_REVIEW = (
 )
 
 
-def _build_context(db: Session, code: str, reports: list[tuple[str, str, int]]) -> dict:
-    """조립 컨텍스트: annual 베이스 원문 + half/quarter 갱신 원문 목록. 원문은 DB 에서."""
-    base_rcept, base_kind, base_year = reports[0]
-    base_text = _load_raw(db, code, base_rcept).get(bo.SECTION_BUSINESS_CONTENT, "")
-    updates = []
-    for rcept, kind, year in reports[1:]:
-        text = _load_raw(db, code, rcept).get(bo.SECTION_COMPANY_OVERVIEW, "")
-        if text:
-            updates.append(
-                {
-                    "rcept_no": rcept,
-                    "kind": kind,
-                    "period": _period_str(year, kind),
-                    "text": text[:8000],
-                }
-            )
-    name = (
-        company_service.report_stock_name(db, code)
-        or company_service.resolve_stock_name(db, code)
-        or ""
-    )
+class AssemblyError(RuntimeError):
+    """사업 개요 조립 실패(LLM 미완·섹션 과반 미달 등). 호출측(job/배치)이 로깅·실패 처리."""
+
+
+def _chunk_text(text: str, size: int = _CHUNK_CHARS) -> list[str]:
+    """문단(\n) 경계로 size 문자 이하 청크 분할. 단일 문단 초과 시 강제 분할.
+
+    기존 16K 절단과 달리 전체 원문을 다루므로 정보 손실이 없다.
+    """
+    chunks: list[str] = []
+    buf: list[str] = []
+    total = 0
+    for para in text.split("\n"):
+        p = para.strip()
+        if not p:
+            continue
+        while len(p) > size:  # 경계 없는 초장 문단 강제 분할
+            chunks.append(p[:size])
+            p = p[size:]
+        if total + len(p) > size and buf:
+            chunks.append("\n".join(buf))
+            buf, total = [], 0
+        buf.append(p)
+        total += len(p)
+    if buf:
+        chunks.append("\n".join(buf))
+    return chunks
+
+
+def _map_facts(llm: LLMPort, model: str, kind: str, chunk: str) -> list[str]:
+    """청크 1개 → 사실 목록. 출처 보고서 kind 를 프로그램적으로 접두(모델 의존 제거)."""
+    user = f"[출처 보고서] {kind}\n\n[발췌문]\n{chunk}"
+    raw = llm.chat(model, _MAP_SYSTEM, user, temperature=0.1)
+    data = _extract_json(raw)
+    if not isinstance(data, dict):
+        raise LLMError("map 비정형 응답")
+    facts = [str(f).strip() for f in (data.get("facts") or []) if str(f).strip()]
+    if not facts:
+        raise LLMError("map 빈 응답")
+    return [f"[{kind}] {f}" for f in facts[:_FACTS_CAP]]
+
+
+def _merge_catalog(llm: LLMPort, model: str, fact_group: list[str]) -> dict:
+    """사실 문자열 그룹 1개 → 주제별 카탈로그 1세트."""
+    user = "[사실 목록]\n" + "\n".join(fact_group)
+    raw = llm.chat(model, _REDUCE_SYSTEM, user, temperature=0.1)
+    data = _extract_json(raw)
+    if not isinstance(data, dict):
+        raise LLMError("reduce 비정형 응답")
     return {
-        "stock_code": code,
-        "stock_name": name,
-        "base": {
-            "rcept_no": base_rcept,
-            "kind": base_kind,
-            "period": _period_str(base_year, base_kind),
-            "text": base_text[:16000],
-        },
-        "updates": updates,
+        t: [str(x).strip() for x in (data.get(t) or []) if str(x).strip()] for t in _REDUCE_TOPICS
     }
 
 
-def _produce(llm: LLMPort, model: str, ctx: dict, feedback: str | None) -> dict:
-    """producer(feedback) → LLM synthesize. review_loop 가 feedback(절차 지적)을 주입해 재작업."""
-    user = (
-        f"[종목] {ctx['stock_code']} {ctx['stock_name']}\n\n"
-        f"[베이스 사업보고서 원문 — 사업의 내용]\n{ctx['base']['text']}\n\n"
-        f"[반기·분기 갱신 원문 — 회사의 개황]\n"
-        + "\n---\n".join(f"({u['kind']} {u['period']})\n{u['text']}" for u in ctx["updates"])
+def _flatten_catalog(catalog: dict) -> list[str]:
+    flat: list[str] = []
+    for t in _REDUCE_TOPICS:
+        flat.extend(f"[{t}] {x}" for x in catalog.get(t, []))
+    return flat
+
+
+def _reduce_catalog(llm: LLMPort, model: str, facts: list[str]) -> dict:
+    """사실 목록 → 주제별 카탈로그. 입력이 크면 문자 상한 그룹으로 나눠 단계적 병합.
+
+    그룹 수가 2 이상이면 카탈로그끼리 평탄화해 재병합한다(반복 수렴 — 각 병합 입력은
+    항상 상한 이하로 잘라 무한 증가를 막는다).
+    """
+
+    def _group_by_chars(items: list[str], cap: int) -> list[list[str]]:
+        groups: list[list[str]] = []
+        cur: list[str] = []
+        cur_len = 0
+        for item in items:
+            if cur and cur_len + len(item) > cap:
+                groups.append(cur)
+                cur, cur_len = [], 0
+            cur.append(item)
+            cur_len += len(item)
+        if cur:
+            groups.append(cur)
+        return groups
+
+    catalogs = [_merge_catalog(llm, model, g) for g in _group_by_chars(facts, _CATALOG_CHAR_CAP)]
+    for _round in range(6):  # 병합 수렴 안전 상한 — 실제 2~15 그룹 수준에서 1~2회면 끝난다
+        if len(catalogs) <= 1:
+            break
+        nxt: list[dict] = []
+        for i in range(0, len(catalogs), 2):
+            pair = catalogs[i : i + 2]
+            if len(pair) == 1:
+                nxt.append(pair[0])
+                continue
+            flat = _flatten_catalog(pair[0]) + _flatten_catalog(pair[1])
+            nxt.extend(
+                _merge_catalog(llm, model, g) for g in _group_by_chars(flat, _CATALOG_CHAR_CAP)
+            )
+        catalogs = nxt
+    return catalogs[0]
+
+
+def _synthesize_section(
+    llm: LLMPort, model: str, sid: str, stock_name: str, catalog: dict, feedback: str | None
+) -> dict:
+    """카탈로그 → 섹션 1개 생성. 작은 입출력으로 엣지 끊김·누락 폭발반경을 섹션 1개로 제한."""
+    system = (
+        f"{_SECTION_PRINCIPLES}"
+        f"지금은 **단 하나의 섹션만** 작성한다.\n"
+        f"- id: {sid}\n- 지시: {_SECTION_BRIEFS[sid]}\n\n"
+        "updated_by_kind: 섹션 내용의 출처가 최신 half/quarter 보고서뿐이면 그 kind, "
+        "annual 사업보고서 근거가 조금이라도 있으면 'annual'.\n"
+        "출력은 반드시 아래 JSON만:\n"
+        '{"id": "' + sid + '", "title": "섹션 제목", "narrative": "마크다운 서술(핵심만)", '
+        '"tables": [{"title": "표 제목", "headers": ["..."], "rows": [["...", ...]]}], '
+        '"updated_by_kind": "annual|half|quarter|null"}'
     )
+    user = f"[종목] {stock_name}\n\n[사실 카탈로그]\n{json.dumps(catalog, ensure_ascii=False)}"
     if feedback:
-        user += f"\n\n**[이전 검토 절차 지적 — 보완하라]**\n{feedback}"
-    try:
-        raw = llm.chat(model, _ASSEMBLE_SYSTEM, user, temperature=0.3)
-    except LLMError as e:
-        logger.warning("business assemble LLM failed %s: %s", ctx["stock_code"], e)
-        return {"_error": f"LLM 실패: {e}", "_partial": True}
+        user += f"\n\n**[이전 검토 절차 지적 — 이 섹션만 보완하라]**\n{feedback}"
+    raw = llm.chat(model, system, user, temperature=0.3)
     data = _extract_json(raw)
-    if not data:
-        return {"_note": "비정형 응답", "_text": raw[:2000]}
+    if not isinstance(data, dict) or ("narrative" not in data and not data.get("tables")):
+        raise LLMError(f"{sid} 비정형 응답")
+    data["id"] = sid  # 모델이 어긋나도 표준 id 강제
     return data
+
+
+def _sections_from_gaps(gaps: list) -> list[str]:
+    """reviewer gaps 텍스트에서 언급된 섹션 id 추출. 못 찾으면 [](호출측이 전체 재생성)."""
+    found: list[str] = []
+    for g in gaps:
+        blob = json.dumps(g, ensure_ascii=False) if isinstance(g, dict) else str(g)
+        for sid in bo.INVESTOR_SECTIONS:
+            if sid in blob and sid not in found:
+                found.append(sid)
+    return found
+
+
+def _review_and_fix_sections(
+    llm: LLMPort,
+    model: str,
+    sections: dict[str, dict],
+    catalog: dict,
+    stock_name: str,
+    *,
+    max_rounds: int = 2,
+) -> tuple[dict[str, dict], bool]:
+    """조립 결과에 절차 리뷰를 돌리고, gap 지적 섹션만 재생성한다(전체 재생성 아님).
+
+    반환: (섹션 dict, procedure_sound). reviewer 자체 실패는 sound 처리(기존 룰 계승).
+    """
+    payload = {"sections": [sections[sid] for sid in bo.INVESTOR_SECTIONS]}
+    for _round in range(max_rounds):
+        review = review_loop.review_result(llm, model, _ASSEMBLE_REVIEW, payload)
+        if review.get("procedure_sound"):
+            return sections, True
+        gaps = review.get("gaps") or []
+        feedback = review_loop.gaps_to_feedback(gaps)
+        if not feedback:
+            break
+        targets = _sections_from_gaps(gaps) or list(bo.INVESTOR_SECTIONS)
+        logger.info("business assemble: review round 지적 %s → 해당 섹션만 재생성", targets)
+        for sid in targets:
+            try:
+                sections[sid] = _synthesize_section(llm, model, sid, stock_name, catalog, feedback)
+            except LLMError as e:
+                logger.warning("section redo failed %s: %s", sid, e)
+        payload = {"sections": [sections[sid] for sid in bo.INVESTOR_SECTIONS]}
+    return sections, False
 
 
 def _map_sections(result: dict, reports: list[tuple[str, str, int]]) -> list[dict]:
@@ -810,15 +970,17 @@ def promote_research_to_ontology(
     return bo_svc.company_graph(db, code)
 
 
-def assemble_overview(db: Session, settings: Settings, code: str) -> dict | None:
-    """종목 사업 개요 조립 → BusinessOverviewCache 저장 + 페이로드 반환. 사업보고서 없으면 None.
+def assemble_overview(db: Session, settings: Settings, code: str, *, progress=None) -> dict | None:
+    """종목 사업 개요 조립(map-reduce) → BusinessOverviewCache 저장 + 페이로드 반환.
+
+    사업보고서 없으면 None. LLM 미완·섹션 과반 미달은 AssemblyError.
+    progress: 선택 콜백(0~100) — assembly job 이 진행률 표기에 사용.
 
     트랜잭션 분리 설계:
-    - Phase 1 (短暂, 즉시 COMMIT): DART 원문 추출·적재. DB 잠금 최소화.
-    - Phase 2 (LLM 2분, 트랜잭션 없음): LLM 호출. DB 잠금 없음.
-    - Phase 3 (短, 즉시 COMMIT): payload + 온톨로지 캐시 저장.
-
-    이렇게 분리하면 LLM 대기 중에도 API 읽기 요청이 차단되지 않는다.
+    - Phase 1 (짧음, 즉시 COMMIT): DART 원문 추출·적재. DB 잠금 최소화.
+    - Phase 2 (LLM 다수 소형 호출, 트랜잭션 없음): map → reduce → 섹션별 생성 → 절차 리뷰.
+      각 호출이 작아 엣지 끊김·빈 응답 폭발반경이 호출 1개로 제한되고, 원문 절단 없이 전체를 커버.
+    - Phase 3 (짧음, 즉시 COMMIT): payload + 온톨로지 캐시 저장.
     """
     corp_row = db.execute(
         select(CorpCodeMap.corp_code, CorpCodeMap.induty_code).where(CorpCodeMap.stock_code == code)
@@ -866,31 +1028,98 @@ def assemble_overview(db: Session, settings: Settings, code: str) -> dict | None
     if llm is None:
         return None  # 원문만 적재, 조립은 LLM 필요
 
-    # ── Phase 2: LLM 정리 (트랜잭션 없음 — 2분간 DB 잠금 없음) ──────────
-    ctx = _build_context(db, code, reports)
-    if not ctx["base"]["text"]:
-        logger.info("business assemble %s: 베이스 원문 없음 — 조립 생략", code)
-        return None
+    def _tick(pct: int) -> None:
+        if progress is not None:
+            with contextlib.suppress(Exception):  # 진행률 보고 실패가 조립을 깨지 않게
+                progress(pct)
 
     model = settings.insight_model
-    result = review_loop.run_with_review(
-        llm,
-        model,
-        lambda fb: _produce(llm, model, ctx, fb),
-        _ASSEMBLE_REVIEW,
-        label=f"business:{code}",
-    )
-    if review_loop.result_is_error(result):
-        logger.warning("business assemble %s: LLM 미완 — 캐시 생략", code)
-        return None
 
+    # ── Phase 2a: map — 전체 원문을 청크 사실추출 (절단 없음) ────────────
     base_rcept, _base_kind, _base_year = reports[0]
-    name = ctx["stock_name"]
+    name = (
+        company_service.report_stock_name(db, code)
+        or company_service.resolve_stock_name(db, code)
+        or ""
+    )
+    sources: list[tuple[str, str]] = []
+    base_text = _load_raw(db, code, base_rcept).get(bo.SECTION_BUSINESS_CONTENT, "")
+    if not base_text:
+        logger.info("business assemble %s: 베이스 원문 없음 — 조립 생략", code)
+        return None
+    sources.append((bo.ANNUAL, base_text))
+    for rcept, kind, _year in reports[1:]:
+        text = _load_raw(db, code, rcept).get(bo.SECTION_COMPANY_OVERVIEW, "")
+        if text:
+            sources.append((kind, text))
+
+    chunks = [(kind, c) for kind, text in sources for c in _chunk_text(text)]
+    facts: list[str] = []
+    failed_chunks = 0
+    for i, (kind, chunk) in enumerate(chunks):
+        try:
+            facts.extend(_map_facts(llm, model, kind, chunk))
+        except LLMError as e:
+            failed_chunks += 1
+            logger.warning(
+                "business map %s chunk %d/%d 실패(스킵): %s", code, i + 1, len(chunks), e
+            )
+        _tick(5 + int(30 * (i + 1) / max(len(chunks), 1)))
+    if not facts:
+        raise AssemblyError(f"map 실패 — 사실 추출 0건({failed_chunks}/{len(chunks)} 청크 실패)")
+    logger.info(
+        "business map %s: %d/%d 청크 성공, 사실 %d건",
+        code,
+        len(chunks) - failed_chunks,
+        len(chunks),
+        len(facts),
+    )
+
+    # ── Phase 2b: reduce — 주제별 카탈로그 통합 ──────────────────────────
+    catalog = _reduce_catalog(llm, model, facts)
+    _tick(50)
+
+    # ── Phase 2c: synthesize — 섹션별 개별 생성 ──────────────────────────
+    sections: dict[str, dict] = {}
+    section_errors: dict[str, str] = {}
+    for idx, sid in enumerate(bo.INVESTOR_SECTIONS):
+        try:
+            sections[sid] = _synthesize_section(llm, model, sid, name, catalog, feedback=None)
+        except LLMError as e:
+            section_errors[sid] = str(e)
+            logger.warning("business section %s/%s 실패: %s", code, sid, e)
+        _tick(55 + int(30 * (idx + 1) / len(bo.INVESTOR_SECTIONS)))
+
+    ok_count = len(sections)
+    if ok_count <= len(bo.INVESTOR_SECTIONS) // 2:
+        raise AssemblyError(
+            f"섹션 생성 과반 미달 {ok_count}/{len(bo.INVESTOR_SECTIONS)}"
+            f" — errors={list(section_errors)[:3]}"
+        )
+    for sid in bo.INVESTOR_SECTIONS:  # 실패 섹션은 빈 스텁(누락 대신 정직한 공백)
+        sections.setdefault(
+            sid, {"id": sid, "title": "", "narrative": "", "tables": [], "updated_by_kind": None}
+        )
+
+    # ── Phase 2d: review — gap 지적 섹션만 재생성(전체 재생성 아님) ───────
+    sections, sound = _review_and_fix_sections(llm, model, sections, catalog, name)
+    _tick(90)
+    result = {"sections": [sections[sid] for sid in bo.INVESTOR_SECTIONS]}
+    if not sound:
+        result["_procedure_incomplete"] = True
+    result["_section_errors"] = section_errors  # 빈 dict면 직렬화 노이즈 없음
 
     # ── Phase 3: 캐시 저장 (짧은 트랜잭션, 즉시 COMMIT) ──────────────────
     ontology_snapshot: dict[str, object] = {"nodes": [], "edges": []}
     try:
-        mentions = extract_ontology_entities(llm, model, ctx)
+        # 온톨로지 NER 도 카탈로그(작은 입력)로 — 원문 24K 재주입 회피.
+        onto_ctx = {
+            "stock_code": code,
+            "stock_name": name,
+            "base": {"text": json.dumps(catalog, ensure_ascii=False)},
+            "updates": [],
+        }
+        mentions = extract_ontology_entities(llm, model, onto_ctx)
         if mentions:
             ontology_snapshot = persist_ontology(
                 db, code, mentions, base_rcept, name, induty_code=induty_code
@@ -915,11 +1144,12 @@ def assemble_overview(db: Session, settings: Settings, code: str) -> dict | None
     )
     db.commit()  # ← Phase 3 완료
     logger.info(
-        "business assemble %s: %d 섹션, base=%s, %d updates",
+        "business assemble %s: %d 섹션, base=%s, %d updates, sound=%s",
         code,
         len(payload["sections"]),
         base_rcept,
         len(reports) - 1,
+        sound,
     )
     return payload
 

@@ -123,9 +123,9 @@ def test_map_sections_fills_missing_investor_sections():
     result = {
         "sections": [
             {
-                "id": "business_summary",
-                "title": "사업 개요",
-                "narrative": "요약",
+                "id": "company_profile",
+                "title": "회사 개요",
+                "narrative": "반도체 제조",
                 "tables": [],
                 "updated_by_kind": "annual",
             },
@@ -135,11 +135,11 @@ def test_map_sections_fills_missing_investor_sections():
     sections = bi._map_sections(result, reports)
     ids = [s["id"] for s in sections]
     assert ids == list(bo.INVESTOR_SECTIONS)
-    summary = next(s for s in sections if s["id"] == "business_summary")
-    assert summary["narrative"] == "요약"
-    assert summary["updated_by_rcept"] == "R1"  # kind→rcept 매핑
+    profile = next(s for s in sections if s["id"] == "company_profile")
+    assert profile["narrative"] == "반도체 제조"
+    assert profile["updated_by_rcept"] == "R1"  # kind→rcept 매핑
     # 누락 섹션은 빈 값
-    empty = next(s for s in sections if s["id"] == "market_risk")
+    empty = next(s for s in sections if s["id"] == "market_position")
     assert empty["narrative"] == "" and empty["tables"] == []
 
 
@@ -222,8 +222,39 @@ def _seed_corp(db, code="005930"):
     db.commit()
 
 
+def _fake_llm_chat(model, system, user, temperature=0.3, **kw):
+    """map-reduce 파이프라인의 프롬프트 종류별로 응답을 dispatch 하는 fake LLM.chat."""
+    import re as _re
+
+    if "발췌문에서 투자자 관점의" in system:  # map — 청크 사실 추출
+        return '{"facts": ["회사는 반도체 제조", "주력 제품 메모리"]}'
+    if "주제별 카탈로그로 통합" in system:  # reduce — 카탈로그
+        import json as _json
+
+        return _json.dumps({t: [f"{t} 사실"] for t in bi._REDUCE_TOPICS}, ensure_ascii=False)
+    if "단 하나의 섹션만" in system:  # 섹션별 생성
+        sid = _re.search(r"- id: (\w+)", system).group(1)
+        import json as _json
+
+        return _json.dumps(
+            {
+                "id": sid,
+                "title": sid,
+                "narrative": f"{sid} 서술",
+                "tables": [],
+                "updated_by_kind": "annual",
+            },
+            ensure_ascii=False,
+        )
+    if "절차 감사자다" in system:  # review — 통과 판정
+        return '{"procedure_sound": true, "gaps": []}'
+    if "온톨로지 엔티티를 추출" in system:  # ontology NER
+        return '{"mentions": []}'
+    raise AssertionError(f"unexpected prompt: {system[:60]}")
+
+
 def test_assemble_overview_persists_cache(db):
-    """원문 추출·적재 → LLM 정리 → 캐시 저장 흐름(모킹)."""
+    """원문 추출·적재 → map/reduce → 섹션별 생성 → 리뷰 → 캐시 저장 흐름(모킹)."""
     _seed_corp(db)
     reports_map = {
         (2024, "annual"): "R2025",
@@ -239,31 +270,63 @@ def test_assemble_overview_persists_cache(db):
         return fake_xml
 
     llm = MagicMock()
-    llm.chat.return_value = '{"sections": [{"id": "business_summary", "title": "사업 개요", "narrative": "반도체 제조", "tables": [], "updated_by_kind": "annual"}]}'
+    llm.chat.side_effect = _fake_llm_chat
+    progresses: list[int] = []
 
     with (
         patch.object(bi.dart, "find_periodic_report", side_effect=fake_find),
         patch.object(bi.dart_report_parser, "fetch_report_zip", side_effect=fake_fetch_zip),
         patch.object(bi, "get_llm", return_value=llm),
-        patch.object(
-            bi.review_loop,
-            "run_with_review",
-            side_effect=lambda llm_, m, prod, rev, **kw: prod(None),
-        ),
         patch.object(bi.company_service, "report_stock_name", return_value="삼성전자"),
         patch.object(bi.company_service, "resolve_stock_name", return_value="삼성전자"),
     ):
-        payload = bi.assemble_overview(db, _settings(), "005930")
+        payload = bi.assemble_overview(
+            db, _settings(), "005930", progress=lambda p: progresses.append(p)
+        )
 
     assert payload is not None
     assert payload["as_of_annual_rcept"] == "R2025"
     ids = [s["id"] for s in payload["sections"]]
     assert ids == list(bo.INVESTOR_SECTIONS)  # 매핑이 빈 섹션까지 채움
+    by_id = {s["id"]: s for s in payload["sections"]}
+    assert by_id["company_profile"]["narrative"] == "company_profile 서술"
+    assert progresses[0] >= 5 and progresses[-1] == 90  # 진행률 콜백 동작
     # 원문 적재 확인
     raw = db.query(BusinessReportRaw).filter_by(stock_code="005930").all()
     assert any(r.rcept_no == "R2025" and r.section_id == bo.SECTION_BUSINESS_CONTENT for r in raw)
     # 캐시 적재 확인
     assert bi.get_cached_overview(db, "005930") is not None
+
+
+def test_assemble_overview_majority_section_failure_raises(db):
+    """섹션 생성 과반 실패 시 AssemblyError(캐시 저장 안 함)."""
+    _seed_corp(db)
+
+    def fake_find(api_key, corp_code, year, kind, session):
+        return "R2025" if (year, kind) == (2024, "annual") else None
+
+    def broken_chat(model, system, user, temperature=0.3, **kw):
+        if "단 하나의 섹션만" in system:
+            raise bi.LLMError("섹션 생성 실패")
+        return _fake_llm_chat(model, system, user, temperature, **kw)
+
+    llm = MagicMock()
+    llm.chat.side_effect = broken_chat
+
+    with (
+        patch.object(bi.dart, "find_periodic_report", side_effect=fake_find),
+        patch.object(
+            bi.dart_report_parser,
+            "fetch_report_zip",
+            return_value=_zip_bytes("II. 사업의 내용\n본문. III. 임원 등에 관한 사항\n"),
+        ),
+        patch.object(bi, "get_llm", return_value=llm),
+        patch.object(bi.company_service, "report_stock_name", return_value="삼성전자"),
+        patch.object(bi.company_service, "resolve_stock_name", return_value="삼성전자"),
+        pytest.raises(bi.AssemblyError),
+    ):
+        bi.assemble_overview(db, _settings(), "005930")
+    assert bi.get_cached_overview(db, "005930") is None
 
 
 def test_assemble_overview_no_corp_code_returns_none(db):
@@ -290,6 +353,100 @@ def test_assemble_overview_llm_unset_returns_none_but_stores_raw(db):
     assert payload is None
     assert db.query(BusinessReportRaw).filter_by(stock_code="005930").count() >= 1  # 원문은 적재
     assert bi.get_cached_overview(db, "005930") is None  # 캐시 미생성
+
+
+# ── map-reduce 단위 ───────────────────────────────────────────────────────
+def test_chunk_text_respects_size_and_paragraph_boundaries():
+    paras = [f"문단{i} " + "가" * 40 for i in range(50)]
+    text = "\n".join(paras)
+    chunks = bi._chunk_text(text, size=300)
+    assert all(len(c) <= 300 for c in chunks)
+    assert chunks[0].startswith("문단0")
+    assert "문단49" in chunks[-1]
+    # 재조립 시 모든 문단 보존 — 정보 손실 없음(기존 16K 절단과의 차이).
+    joined = "\n".join(chunks)
+    for i in range(50):
+        assert f"문단{i}" in joined
+
+
+def test_chunk_text_hard_splits_oversized_paragraph():
+    chunks = bi._chunk_text("나" * 1500, size=600)
+    assert len(chunks) == 3
+    assert all(len(c) <= 600 for c in chunks)
+
+
+def test_map_facts_prefixes_kind_and_drops_empty():
+    llm = MagicMock()
+    llm.chat.return_value = '{"facts": ["A", " ", "", "B"]}'
+    assert bi._map_facts(llm, "m", "half", "본문") == ["[half] A", "[half] B"]
+
+
+def test_review_fix_regenerates_only_gap_sections():
+    """gap 이 지적한 섹션만 재생성하고 나머지는 건드리지 않는다(전체 재생성 아님)."""
+    sections = {
+        sid: {
+            "id": sid,
+            "title": sid,
+            "narrative": f"{sid} 서술",
+            "tables": [],
+            "updated_by_kind": "annual",
+        }
+        for sid in bo.INVESTOR_SECTIONS
+    }
+    catalog = {t: [] for t in bi._REDUCE_TOPICS}
+    llm = MagicMock()
+    calls = {"review": 0, "synth": []}
+
+    def fake_chat(model, system, user, temperature=0.3, **kw):
+        import json as _json
+        import re as _re
+
+        if "절차 감사자다" in system:
+            calls["review"] += 1
+            if calls["review"] == 1:
+                return (
+                    '{"procedure_sound": false, "gaps": [{"target": "revenue_model", '
+                    '"missing_step": "매출 구성 근거 부족", '
+                    '"fix_instruction": "카탈로그의 매출 사실로 표를 만들어라"}]}'
+                )
+            return '{"procedure_sound": true, "gaps": []}'
+        if "단 하나의 섹션만" in system:
+            sid = _re.search(r"- id: (\w+)", system).group(1)
+            calls["synth"].append(sid)
+            return _json.dumps(
+                {
+                    "id": sid,
+                    "title": sid,
+                    "narrative": "보완됨",
+                    "tables": [],
+                    "updated_by_kind": "annual",
+                },
+                ensure_ascii=False,
+            )
+        raise AssertionError(f"unexpected prompt: {system[:60]}")
+
+    llm.chat.side_effect = fake_chat
+    fixed, sound = bi._review_and_fix_sections(llm, "m", sections, catalog, "삼성전자")
+    assert sound is True
+    assert calls["synth"] == ["revenue_model"]  # gap 대상 1개만
+    assert fixed["revenue_model"]["narrative"] == "보완됨"
+    assert fixed["company_profile"]["narrative"] == "company_profile 서술"  # 타 섹션 무변경
+
+
+def test_reduce_catalog_converges_on_large_input():
+    """cap 초과 입력은 그룹 분할·단계적 병합으로 수렴한다(8키 카탈로그 반환)."""
+    facts = [f"[annual] 사실{i} " + "다" * 100 for i in range(200)]  # ~22K chars > cap
+    llm = MagicMock()
+
+    def fake_chat(model, system, user, temperature=0.1, **kw):
+        import json as _json
+
+        n = sum(1 for line in user.split("\n") if line.startswith("["))
+        return _json.dumps({t: ([f"{t}:{n}"] if t == "company" else []) for t in bi._REDUCE_TOPICS})
+
+    llm.chat.side_effect = fake_chat
+    catalog = bi._reduce_catalog(llm, "m", facts)
+    assert set(catalog.keys()) == set(bi._REDUCE_TOPICS)
 
 
 # ── 백필 ─────────────────────────────────────────────────────────────────
@@ -319,8 +476,10 @@ def test_backfill_progressive_marks_done_and_resumes(db):
         return True
 
     # _universe_codes 의 postgres ~ 정규 연산자는 sqlite 미지원 — 코드 리스트를 직접 반환.
+    # backfill_budget_exhausted 는 실제 DART 키 환경에 결합 — 테스트에선 항상 여유로 고정.
     with (
         patch.object(bi, "_universe_codes", return_value=["005930", "000660"]),
+        patch.object(bi.dart_throttle, "backfill_budget_exhausted", return_value=False),
         patch.object(bi, "backfill_stock", side_effect=fake_backfill_stock),
     ):
         result = bi.run_backfill_progressive(db, _settings(), per_run=1)
@@ -329,6 +488,7 @@ def test_backfill_progressive_marks_done_and_resumes(db):
     # 두 번째 실행은 첫 종목이 완료 마커라 남은 한 건 처리.
     with (
         patch.object(bi, "_universe_codes", return_value=["005930", "000660"]),
+        patch.object(bi.dart_throttle, "backfill_budget_exhausted", return_value=False),
         patch.object(bi, "backfill_stock", side_effect=fake_backfill_stock),
     ):
         result2 = bi.run_backfill_progressive(db, _settings(), per_run=1)

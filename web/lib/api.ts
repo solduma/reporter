@@ -1,4 +1,5 @@
 import type {
+  AssemblyStatus,
   BroadcastDetail,
   BroadcastKind,
   BroadcastRef,
@@ -392,23 +393,30 @@ export function fetchFinancials(code: string): Promise<FinancialPeriod[]> {
   return getJson<FinancialPeriod[]>(`/api/companies/${encodeURIComponent(code)}/financials`);
 }
 
-// 사업 개요 — cache-aside(GET). miss 시 백엔드가 동기 조립(12h 캐시). null = 미조립.
+// 사업 개요 — cache-aside(GET). miss 시 백엔드가 조립 job 을 큐잉하고 즉시 null 반환.
 export function fetchBusinessOverview(code: string): Promise<BusinessOverview | null> {
   return getJson<BusinessOverview | null>(
     `/api/companies/${encodeURIComponent(code)}/business`,
   );
 }
 
-// 단건 재조립(원문 재추출 + LLM 정리 + 캐시 갱신). 수동 갱신 진입점.
-export async function refreshBusinessOverview(code: string): Promise<BusinessOverview | null> {
+// 단건 재조립(비동기) — 캐시 무효화 + job 큐잉. 완료는 fetchBusinessAssemblyStatus 로 폴링.
+export async function refreshBusinessOverview(code: string): Promise<null> {
   const res = await fetch(apiUrl(`/api/companies/${encodeURIComponent(code)}/business/refresh`), {
     method: "POST",
     cache: "no-store",
   });
   if (!res.ok) {
-    throw new Error(`사업 개요 갱신 실패 (${res.status})`);
+    throw new Error(`사업 개요 갱신 요청 실패 (${res.status})`);
   }
-  return (await res.json()) as BusinessOverview | null;
+  return null;
+}
+
+// 사업 개요 조립 job 상태 — null 수신 시 생성 진행 여부 확인용.
+export function fetchBusinessAssemblyStatus(code: string): Promise<AssemblyStatus> {
+  return getJson<AssemblyStatus>(
+    `/api/companies/${encodeURIComponent(code)}/business/assembly/status`,
+  );
 }
 
 // 사업 리서치(Research+) — 비동기 큐 + 상태 폴링.

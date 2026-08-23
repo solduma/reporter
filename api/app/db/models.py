@@ -1258,3 +1258,29 @@ class BusinessResearchJob(Base):
         # 인덱스는 상태폴링 효율성.
         Index("ix_business_research_stock_status", "stock_code", "status"),
     )
+
+
+class BusinessAssemblyJob(Base):
+    """사업 개요 조립 비동기 큐(Job).
+
+    GET /business 캐시 미스·수동 갱신이 조립을 즉시 요청만 하고(worker 폴링 실행) 응답이
+    블로킹되지 않게 한다. 결과는 BusinessOverviewCache 에 저장 — 이 행은 lifecycle 만 관리
+    (BusinessResearchJob 패턴 재사용).
+    """
+
+    __tablename__ = "business_assembly_job"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    stock_code: Mapped[str] = mapped_column(String(6), index=True)
+    # 상태: pending(큐 대기), running(실행 중), done(성공, 캐시 저장됨), failed(실패)
+    status: Mapped[str] = mapped_column(String(12), default="pending", index=True)
+    progress: Mapped[int] = mapped_column(default=0)
+    model: Mapped[str] = mapped_column(String(120), default="")
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    requested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (Index("ix_business_assembly_stock_status", "stock_code", "status"),)
