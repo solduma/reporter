@@ -75,7 +75,9 @@ class OllamaLLMAdapter:
                 last = e
                 if attempt < max_attempts:
                     wait = _BACKOFF_BASE_S * (2 ** (attempt - 1))
-                    logger.warning("Ollama %s 실패(시도 %d/%d): %s — %.0fs 후 재시도",
+                    # 로그 라벨은 provider 중립 — 이 어댑터는 OpenAI 호환 엔드포인트
+                    # (Ollama Cloud 프록시·OpenCode Zen 등)를 두루 가리킨다.
+                    logger.warning("LLM %s 실패(시도 %d/%d): %s — %.0fs 후 재시도",
                                    what, attempt, max_attempts, e, wait)
                     time.sleep(wait)
         raise LLMError(str(last)) from last

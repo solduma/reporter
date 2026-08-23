@@ -73,6 +73,16 @@ def _gaps_to_feedback(gaps: list) -> str:
     return "\n".join(lines)
 
 
+# 공개 별칭 — 루프 밖에서도 동일 리뷰 패스(체크리스트 감사·피드백 변환)를 재사용하게.
+# 사업 개요 섹션별 조립처럼 producer 를 통째로 다시 돌리지 않고 gap 대상만 재생성하는 호출층용.
+gaps_to_feedback = _gaps_to_feedback
+
+
+def review_result(llm: LLMPort, model: str, reviewer_system: str, result: dict) -> dict:
+    """산출물 1건에 대한 process-reviewer 패스(루프 없이 1회). 판정은 _review 와 동일 규칙."""
+    return _review(llm, model, reviewer_system, result)
+
+
 def run_with_review(
     llm: LLMPort,
     model: str,
@@ -99,7 +109,9 @@ def run_with_review(
         result = producer(feedback)
         if result_is_error(result):  # LLM/파싱/상한 실패 마커 — feedback 없이 재시도(일시장애 극복)
             error_retries += 1
-            logger.info("review %s: producer error marker, 재시도 %d/%d", label, error_retries, max_rounds)
+            logger.info(
+                "review %s: producer error marker, 재시도 %d/%d", label, error_retries, max_rounds
+            )
             if error_retries >= max_rounds:
                 return result  # 재시도 소진 — 마커 반환(호출측이 실패처리)
             continue
