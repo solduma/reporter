@@ -144,3 +144,17 @@ def test_run_job_assembly_error_records_message(db):
         ba.run_job(db, job, _settings())
     assert job.status == "failed"
     assert "섹션 생성 과반 미달" in (job.error or "")
+
+
+def test_run_job_rate_limit_requeues_as_pending(db):
+    """429 rate limit 은 failed 가 아니라 pending 재큐잉 — 한도 리셋 후 자동 배수."""
+    job = ba.enqueue(db, "005930")
+    err = ba.business_ingest.LLMError(
+        "LLM map 요청 실패: 429 Client Error — FreeUsageLimitError: Rate limit exceeded"
+    )
+    with patch.object(ba.business_ingest, "assemble_overview", side_effect=err):
+        ba.run_job(db, job, _settings())
+    db.refresh(job)
+    assert job.status == "pending"  # 실패 아님 — 자가 치유
+    assert "rate limit" in (job.error or "")
+    assert job.started_at is None  # 재클레임 대기
