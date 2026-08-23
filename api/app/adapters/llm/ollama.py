@@ -22,6 +22,15 @@ logger = logging.getLogger(__name__)
 # 부하로 간헐 타임아웃 나던 것을 흡수한다(영구 오류는 재시도해도 같으므로 소수 회로 제한).
 _MAX_ATTEMPTS = 3
 _BACKOFF_BASE_S = 2.0  # 2s, 4s 대기(지수)
+# 무료 tier rate limit(429)은 짧은 백오프로 못 버틴다 — 분 단위 대기가 필요.
+_RATE_LIMIT_BACKOFF_S = 45.0  # 45s, 90s 대기
+
+
+def _is_rate_limit(e: OllamaError) -> bool:
+    """429 계열 오류 판정. 클라이언트가 HTTP 상태·응답 본문을 메시지에 포함하므로 문자열 매칭으로 충분."""
+    msg = str(e)
+    return "429" in msg or "Too Many Requests" in msg or "Rate limit" in msg or "RateLimit" in msg
+
 
 # 임베딩 입력 청크 크기 / per-청크 timeout. 한 번에 수백 건을 보내면 로컬 Ollama 가 worker 등 다른
 # 부하와 경합 시 180s read timeout 을 넘겨 ReadTimeout(→500) 한다. 청크로 쪼개 각 호출을 가볍게.
@@ -40,8 +49,13 @@ def _parse_tool_calls(message: dict) -> list[ToolCall]:
                 args = json.loads(args)
             except (json.JSONDecodeError, ValueError):
                 args = {}
-        out.append(ToolCall(id=str(tc.get("id") or f"call_{i}"), name=str(fn.get("name") or ""),
-                            arguments=args if isinstance(args, dict) else {}))
+        out.append(
+            ToolCall(
+                id=str(tc.get("id") or f"call_{i}"),
+                name=str(fn.get("name") or ""),
+                arguments=args if isinstance(args, dict) else {},
+            )
+        )
     return out
 
 
@@ -66,7 +80,11 @@ class OllamaLLMAdapter:
         self._embed_session = requests.Session() if self._embed_host else None
 
     def _with_retry(self, what: str, fn, *, max_attempts: int = _MAX_ATTEMPTS):
-        """fn 을 최대 max_attempts 회 시도. OllamaError 만 재시도하고, 마지막 실패는 LLMError 로 승격."""
+        """fn 을 최대 max_attempts 회 시도. OllamaError 만 재시도하고, 마지막 실패는 LLMError 로 승격.
+
+        rate limit(429)은 일시 오류 중 특수 — 짧은 지수 백오프로는 못 버티므로 분 단위 대기로
+        교체한다(무료 tier 리셋 주기가 수십 초~수 분).
+        """
         last: OllamaError | None = None
         for attempt in range(1, max_attempts + 1):
             try:
@@ -75,10 +93,18 @@ class OllamaLLMAdapter:
                 last = e
                 if attempt < max_attempts:
                     wait = _BACKOFF_BASE_S * (2 ** (attempt - 1))
+                    if _is_rate_limit(e):
+                        wait = max(wait, _RATE_LIMIT_BACKOFF_S * attempt)
                     # 로그 라벨은 provider 중립 — 이 어댑터는 OpenAI 호환 엔드포인트
                     # (Ollama Cloud 프록시·OpenCode Zen 등)를 두루 가리킨다.
-                    logger.warning("LLM %s 실패(시도 %d/%d): %s — %.0fs 후 재시도",
-                                   what, attempt, max_attempts, e, wait)
+                    logger.warning(
+                        "LLM %s 실패(시도 %d/%d): %s — %.0fs 후 재시도",
+                        what,
+                        attempt,
+                        max_attempts,
+                        e,
+                        wait,
+                    )
                     time.sleep(wait)
         raise LLMError(str(last)) from last
 
