@@ -32,6 +32,12 @@ def _fail(db: Session, job: BusinessAssemblyJob, msg: str) -> None:
     db.commit()
 
 
+def _is_rate_limit(e: LLMError) -> bool:
+    """429 계열(rate limit) 판정 — 어댑터가 상태·본문을 메시지에 포함하므로 문자열 매칭으로 충분."""
+    msg = str(e)
+    return "429" in msg or "Too Many Requests" in msg or "Rate limit" in msg
+
+
 def enqueue(db: Session, code: str) -> BusinessAssemblyJob:
     """조립 job 큐잉. 진행 중(pending|running) job 이 있으면 그것을 반환(dedup)."""
     existing = db.scalar(
@@ -135,6 +141,15 @@ def run_job(db: Session, job: BusinessAssemblyJob, settings: Settings | None = N
         _fail(db, job, "DART 일일 조회한도 초과로 중단")
     except LLMError as e:
         db.rollback()
+        if _is_rate_limit(e):
+            # 무료 tier rate limit — failed 로 남기면 수동 복구가 필요하다. pending 으로
+            # 재큐잉해 한도 리셋 후 스스로 배수되게 한다(사이클당 백오프 대기가 자연 스로틀).
+            job.status = "pending"
+            job.started_at = None
+            job.error = f"rate limit 재큐잉: {str(e)[:120]}"
+            db.commit()
+            logger.warning("business assembly %s rate limit — pending 재큐잉", code)
+            return
         _fail(db, job, f"LLM 오류: {e}")
     except business_ingest.AssemblyError as e:
         db.rollback()
