@@ -18,7 +18,7 @@ class _ScriptedLLM:
         self._responses = list(responses)
         self.calls = 0
 
-    def chat(self, model, system, user, temperature=0.3):
+    def chat(self, model, system, user, temperature=0.3, **kwargs):
         self.calls += 1
         return self._responses.pop(0) if self._responses else "{}"
 

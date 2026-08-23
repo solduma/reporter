@@ -44,7 +44,9 @@ def result_is_error(result) -> bool:
     return isinstance(result, dict) and any(k in result for k in ("_error", "_note", "_partial"))
 
 
-def _review(llm: LLMPort, model: str, reviewer_system: str, result: dict) -> dict:
+def _review(
+    llm: LLMPort, model: str, reviewer_system: str, result: dict, *, timeout: int | None = None
+) -> dict:
     """Process-Reviewer 패스: tool 없이 절차만 평가. 파싱 실패 시 sound 로 간주(루프 종료, 무한루프 방지)."""
     system = reviewer_system + _REVIEW_OUTPUT_RULE
     user = (
@@ -52,7 +54,7 @@ def _review(llm: LLMPort, model: str, reviewer_system: str, result: dict) -> dic
         + json.dumps(result, ensure_ascii=False)[:6000]
     )
     try:
-        raw = llm.chat(model, system, user, temperature=0.1)
+        raw = llm.chat(model, system, user, temperature=0.1, timeout=timeout)
     except LLMError as e:
         logger.warning("review LLM failed: %s — 절차 통과로 간주", e)
         return {"procedure_sound": True, "gaps": []}
@@ -78,9 +80,11 @@ def _gaps_to_feedback(gaps: list) -> str:
 gaps_to_feedback = _gaps_to_feedback
 
 
-def review_result(llm: LLMPort, model: str, reviewer_system: str, result: dict) -> dict:
+def review_result(
+    llm: LLMPort, model: str, reviewer_system: str, result: dict, *, timeout: int | None = None
+) -> dict:
     """산출물 1건에 대한 process-reviewer 패스(루프 없이 1회). 판정은 _review 와 동일 규칙."""
-    return _review(llm, model, reviewer_system, result)
+    return _review(llm, model, reviewer_system, result, timeout=timeout)
 
 
 def run_with_review(

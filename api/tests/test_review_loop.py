@@ -14,7 +14,7 @@ class _ScriptedLLM:
         self._responses = responses
         self.calls = 0
 
-    def chat(self, model, system, user, temperature=0.3) -> str:
+    def chat(self, model, system, user, temperature=0.3, **kwargs) -> str:
         r = self._responses[self.calls]
         self.calls += 1
         return r

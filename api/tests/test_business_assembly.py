@@ -48,6 +48,51 @@ def test_claim_next_fifo(db):
     ba.enqueue(db, "B")
     claimed = ba.claim_next(db)
     assert claimed.stock_code == "A"  # id 오름차순
+    # 클레임 시 즉시 running 전이 — 이후 폴링이 같은 행을 재선택하지 않는다(이중 실행 차단).
+    assert claimed.status == "running"
+    assert claimed.started_at is not None
+    again = ba.claim_next(db)
+    assert again.stock_code == "B"
+
+
+def test_claim_next_empty_returns_none(db):
+    assert ba.claim_next(db) is None
+
+
+def test_run_job_skips_already_done_job(db):
+    """클레임-실행 사이 이미 완료된 중복 제출은 실행하지 않는다."""
+
+    job = ba.enqueue(db, "005930")
+    job.status = "done"
+    db.commit()
+    calls = {"n": 0}
+
+    def fake_assemble(*a, **k):
+        calls["n"] += 1
+        return {"ok": True}
+
+    with patch.object(ba.business_ingest, "assemble_overview", side_effect=fake_assemble):
+        ba.run_job(db, job, _settings())
+    assert calls["n"] == 0
+    assert job.status == "done"
+
+
+def test_progress_refreshes_started_at_heartbeat(db):
+    """진행률 콜백이 started_at 을 갱신한다 — 장시간 정상 실행이 stale 회수되지 않게."""
+    job = ba.enqueue(db, "005930")
+
+    seen: dict[str, object] = {}
+
+    def fake_assemble(dbs, settings, code, progress=None):
+        assert progress is not None
+        progress(40)
+        seen["status_during"] = job.status
+        return {"ok": True}
+
+    with patch.object(ba.business_ingest, "assemble_overview", side_effect=fake_assemble):
+        ba.run_job(db, job, _settings())
+    assert seen["status_during"] == "running"
+    assert job.progress == 100
 
 
 def test_claim_skips_fresh_running(db):
@@ -65,7 +110,9 @@ def test_claim_reclaims_stale_running(db):
     db.commit()
     reclaimed = ba.claim_next(db)
     assert reclaimed is not None and reclaimed.stock_code == "A"
-    assert reclaimed.status == "pending"
+    # 회수 후 즉시 재클레임되어 running 전이(원자적 클레임).
+    assert reclaimed.status == "running"
+    assert reclaimed.started_at is not None
 
 
 def test_run_job_success_marks_done_with_progress(db):
