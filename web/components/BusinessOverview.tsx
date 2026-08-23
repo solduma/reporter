@@ -8,8 +8,15 @@ import {
   refreshBusinessOverview,
   requestBusinessResearch,
   fetchBusinessResearchStatus,
+  fetchBusinessAssemblyStatus,
 } from "@/lib/api";
-import type { BusinessOverview as BusinessOverviewType, BusinessTable, ResearchStatus, ResearchSummary } from "@/lib/types";
+import type {
+  BusinessOverview as BusinessOverviewType,
+  BusinessTable,
+  ResearchStatus,
+  ResearchSummary,
+  AssemblyStatus,
+} from "@/lib/types";
 
 import styles from "./BusinessOverview.module.css";
 
@@ -76,6 +83,10 @@ export default function BusinessOverview({ code }: { code: string }) {
   >({ status: "loading", data: null });
   const [refreshing, setRefreshing] = useState(false);
 
+  // 조립 job 상태 — GET null(미조립) 시 백그라운드 생성 진행을 폴링해 표시한다.
+  const [assembly, setAssembly] = useState<AssemblyStatus | null>(null);
+  const assemblyPollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Research+ 상태
   const [researchStatus, setResearchStatus] = useState<ResearchStatus | null>(null);
   const [guidelineInput, setGuidelineInput] = useState(
@@ -88,6 +99,17 @@ export default function BusinessOverview({ code }: { code: string }) {
     setState({ status: "loading", data: null });
     try {
       const res = await fetchBusinessOverview(code);
+      if (res === null) {
+        // 미조립 — 백그라운드 조립 잡이 돌고 있는지 확인(있으면 폴링 effect 가 이어받는다).
+        try {
+          setAssembly(await fetchBusinessAssemblyStatus(code));
+        } catch {
+          setAssembly(null);
+        }
+        setState({ status: "ready", data: null });
+        return;
+      }
+      setAssembly(null);
       setState({ status: "ready", data: res });
     } catch (e) {
       setState({
@@ -100,18 +122,49 @@ export default function BusinessOverview({ code }: { code: string }) {
 
   useEffect(() => {
     void load();
+    return () => {
+      if (assemblyPollRef.current) {
+        clearTimeout(assemblyPollRef.current);
+        assemblyPollRef.current = null;
+      }
+    };
   }, [load]);
+
+  // 조립 상태 폴링 — pending|running 동안 3초 간격, done 이면 개요 재로드.
+  const pollAssembly = useCallback(async () => {
+    try {
+      const st = await fetchBusinessAssemblyStatus(code);
+      setAssembly(st);
+      if (st.status === "done") {
+        await load();
+      }
+    } catch (e) {
+      console.error("Assembly status poll failed:", e);
+    }
+  }, [code, load]);
+
+  useEffect(() => {
+    if (assembly?.status === "pending" || assembly?.status === "running") {
+      assemblyPollRef.current = setTimeout(pollAssembly, POLL_MS);
+    }
+    return () => {
+      if (assemblyPollRef.current) {
+        clearTimeout(assemblyPollRef.current);
+        assemblyPollRef.current = null;
+      }
+    };
+  }, [assembly?.status, pollAssembly]);
 
   const onRefresh = async () => {
     setRefreshing(true);
     try {
-      const res = await refreshBusinessOverview(code);
-      setState({ status: "ready", data: res });
+      await refreshBusinessOverview(code); // 비동기 큐잉 — 완료는 폴링으로 반영
+      setAssembly(await fetchBusinessAssemblyStatus(code));
     } catch (e) {
       setState({
         status: "error",
         data: state.data,
-        message: e instanceof Error ? e.message : "사업 개요 갱신 실패",
+        message: e instanceof Error ? e.message : "사업 개요 갱신 요청 실패",
       });
     } finally {
       setRefreshing(false);
@@ -184,15 +237,32 @@ export default function BusinessOverview({ code }: { code: string }) {
 
   const ov = state.data;
   if (!ov || ov.sections.length === 0) {
-    // 미조립(사업보고서 없음·LLM 미설정). 수동 갱신으로 재시도 유도.
+    const generating = assembly?.status === "pending" || assembly?.status === "running";
+    if (generating) {
+      // 백그라운드 조립 진행 중 — 완료 시 폴링이 자동으로 개요를 다시 불러온다.
+      return (
+        <div className={styles.empty}>
+          <p className={styles.emptyText}>
+            사업 개요 생성 중… ({assembly?.progress ?? 0}%)
+          </p>
+          <p className={styles.emptyText}>
+            사업보고서 원문을 청크로 읽고 섹션별로 정리하는 데 수 분이 걸릴 수 있습니다.
+          </p>
+        </div>
+      );
+    }
+    // 미조립(사업보고서 없음·조립 실패). 수동 갱신으로 재시도 유도.
     return (
       <div className={styles.empty}>
         <p className={styles.emptyText}>
           사업 개요가 아직 없습니다. 사업보고서 기반으로 정리하려면 갱신을 누르세요.
         </p>
         <button type="button" className={styles.refreshBtn} onClick={onRefresh} disabled={refreshing}>
-          {refreshing ? "정리 중…" : "사업 개요 생성"}
+          {refreshing ? "요청 중…" : "사업 개요 생성"}
         </button>
+        {assembly?.status === "failed" ? (
+          <p className={styles.error}>생성 실패: {assembly.error ?? "원인 불명"}</p>
+        ) : null}
         {state.message ? <p className={styles.error}>{state.message}</p> : null}
       </div>
     );

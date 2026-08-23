@@ -1079,6 +1079,14 @@ export interface ResearchStatus {
   has_summary: boolean;
 }
 
+// 사업 개요 조립 job 상태 — GET /business 가 null 을 줄 때 생성 진행 여부 확인용.
+export interface AssemblyStatus {
+  stock_code: string;
+  status: "none" | "pending" | "running" | "done" | "failed";
+  progress: number;
+  error: string | null;
+}
+
 export interface BusinessOverview {
   stock_code: string;
   stock_name: string;
