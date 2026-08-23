@@ -933,10 +933,13 @@ def run_valuation(llm: LLMPort, model: str, ctx: ToolContext, prior: dict, serie
                     final_meta["conclusion"] = turn.content
                 break
             messages.append(turn.raw_message or {"role": "assistant", "content": turn.content,
-                                                 "tool_calls": [{"function": {"name": tc.name, "arguments": tc.arguments}} for tc in turn.tool_calls]})
+                                                 "tool_calls": [{"id": tc.id, "type": "function",
+                                                                 "function": {"name": tc.name, "arguments": tc.arguments}}
+                                                                for tc in turn.tool_calls]})
             for tc in turn.tool_calls:
                 out = _run_tool(tc.name, tc.arguments or {})
-                messages.append({"role": "tool", "tool_name": tc.name,
+                # tool_call_id 는 OpenAI 호환 규격 — zen 등 엄격한 provider 의 필수값.
+                messages.append({"role": "tool", "tool_call_id": tc.id,
                                  "content": json.dumps(out, ensure_ascii=False)[:2000]})
             if final_meta.get("done"):
                 break

@@ -1,12 +1,15 @@
-"""Ollama Cloud 클라이언트 — 네이티브 /api/chat 엔드포인트.
+"""OpenAI 호환 /v1/chat/completions 클라이언트 — Ollama Cloud 프록시·OpenCode Zen 공용.
 
-인증: Authorization: Bearer <OLLAMA_API_KEY> (https://ollama.com/settings/keys 에서 발급)
-모델: glm-5.2:cloud 처럼 :cloud 접미사가 붙은 클라우드 태그.
+과거엔 Ollama 네이티브 /api/chat(NDJSON)을 썼지만, scripts/switch_model.sh 로 엔드포인트를
+자유롭게 전환하기 위해 OpenAI 호환 와이어 포맷으로 통일했다(SSE 스트림). host 는 베이스 URL
+(예: http://127.0.0.1:43187, https://opencode.ai/zen)를 받고 실제 호출은
+{host}/v1/chat/completions 이다. 인증은 Authorization: Bearer <OLLAMA_API_KEY>.
 
-스트리밍 수신(stream=True): 긴 생성이 read timeout 에 걸리지 않도록 NDJSON 청크를 누적한다.
+스트리밍 수신(stream=True): 긴 생성이 read timeout 에 걸리지 않도록 SSE 청크를 누적한다.
 timeout 은 '전체 응답 시간'이 아니라 '청크 사이 간격'에만 적용되므로(토큰이 흐르는 한 리셋),
-딥다이브의 긴 tool-loop 생성도 안 끊긴다. 청크마다 message.content 를 이어붙이고 tool_calls·
-최종 필드는 마지막(done) 메시지에서 조립한다.
+딥다이브의 긴 tool-loop 생성도 안 끊긴다. delta.content 를 이어붙이고 tool_calls 조각(index 단위
+프래그먼트)을 최종 메시지로 조립한다. 응답 message 는 OpenAI 형식(id/type/function)이라 다음 턴
+transcript 에 그대로 재주입 가능하다.
 """
 
 from __future__ import annotations
@@ -24,21 +27,28 @@ class OllamaError(RuntimeError):
     pass
 
 
+def _error_text(err) -> str:
+    """provider 오류 필드(dict|str)를 사람이 읽는 문자열로."""
+    if isinstance(err, dict):
+        return str(err.get("message") or err)
+    return str(err)
+
+
 class OllamaClient:
     def __init__(self, host: str, api_key: str, timeout: int = 180):
         if not api_key:
             raise OllamaError("OLLAMA_API_KEY 가 설정되지 않았습니다.")
-        self._url = f"{host.rstrip('/')}/api/chat"
+        self._url = f"{host.rstrip('/')}/v1/chat/completions"
         self._session = requests.Session()
         self._session.headers.update({"Authorization": f"Bearer {api_key}"})
         self._timeout = timeout
 
     def _stream_message(self, payload: dict, what: str, *, timeout: int | None = None) -> dict:
-        """stream=True 로 POST 하고 NDJSON 청크를 누적해 최종 message(dict)를 조립한다.
+        """stream=True 로 POST 하고 SSE 청크를 누적해 최종 assistant message(dict)를 조립한다.
 
-        각 줄은 {"message": {"content": "...", "tool_calls": [...]}, "done": false} 형태이고
-        마지막 줄이 done=true. content 는 이어붙이고, tool_calls 는 등장한 청크의 것을 취한다
-        (Ollama 는 tool_calls 를 쪼개지 않고 한 청크에 완결해 준다).
+        각 이벤트는 `data: {json}` 한 줄이고 종료 센티널은 `data: [DONE]`. content 는
+        delta.content 를 이어붙이고, tool_calls 는 index 별 프래그먼트(id·name 은 첫 등장,
+        arguments 는 문자열 누적)를 완결한다.
 
         timeout 은 per-call **전체 deadline**(초). stream=True 이면 requests 의 read timeout 은
         '청크 사이 간격'에만 적용되어 토큰이 느리게 흐르는(trickle) hang 은 잡지 못한다 — 따라서
@@ -48,8 +58,9 @@ class OllamaClient:
         """
         payload = {**payload, "stream": True}
         content_parts: list[str] = []
-        tool_calls: list = []
-        role = "assistant"
+        # index → {"id","name","args"} 프래그먼트 조립 버킷
+        tc_frags: dict[int, dict] = {}
+        tc_order: list[int] = []
         read_gap = 30 if timeout is not None else self._timeout
         deadline = time.monotonic() + timeout if timeout is not None else None
         try:
@@ -59,56 +70,92 @@ class OllamaClient:
             # '완결 줄' 단위가 아닌 'byte 수신' 단위로 한다. 한 줄이 \n 없이 천천히 trickle 되는 hang 은
             # iter_lines 가 줄을 내놓지 않아 deadline 체크가 안 돌아 bypass 되는 병리를 막는다.
             buf = b""
-            done = False
             for chunk in resp.iter_content(chunk_size=None):
                 if deadline is not None and time.monotonic() > deadline:
-                    raise OllamaError(f"Ollama {what} 전체 deadline {timeout}s 초과(trickle hang 절단)")
+                    raise OllamaError(
+                        f"LLM {what} 전체 deadline {timeout}s 초과(trickle hang 절단)"
+                    )
                 if not chunk:
                     continue
                 buf += chunk
                 while b"\n" in buf:
                     line, buf = buf.split(b"\n", 1)
                     line_s = line.decode("utf-8", "replace").strip()
-                    if not line_s:
-                        continue
-                    try:
-                        obj = json.loads(line_s)
-                    except (json.JSONDecodeError, ValueError):
-                        continue  # 비정형 줄은 건너뛴다(keep-alive 등)
-                    if obj.get("error"):
-                        raise OllamaError(f"Ollama 스트림 오류: {obj['error']}")
-                    msg = obj.get("message") or {}
-                    if msg.get("role"):
-                        role = msg["role"]
-                    if msg.get("content"):
-                        content_parts.append(msg["content"])
-                    if msg.get("tool_calls"):
-                        tool_calls = msg["tool_calls"]  # 완결 tool_calls 청크
-                    if obj.get("done"):
-                        done = True
+                    if not line_s.startswith("data:"):
+                        continue  # 빈 줄, keep-alive 주석 등
+                    data = line_s[len("data:") :].strip()
+                    if data == "[DONE]":
                         break
-                if done:
-                    break
+                    try:
+                        obj = json.loads(data)
+                    except (json.JSONDecodeError, ValueError):
+                        continue  # 비정형 줄은 건너뛴다
+                    if obj.get("error"):
+                        raise OllamaError(f"LLM 스트림 오류: {_error_text(obj['error'])}")
+                    choices = obj.get("choices") or []
+                    if not choices:
+                        continue
+                    delta = choices[0].get("delta") or {}
+                    if delta.get("content"):
+                        content_parts.append(delta["content"])
+                    for frag in delta.get("tool_calls") or []:
+                        raw_idx = frag.get("index")
+                        idx = int(raw_idx) if raw_idx is not None else len(tc_order)
+                        slot = tc_frags.get(idx)
+                        if slot is None:
+                            slot = tc_frags[idx] = {"id": "", "name": "", "args": ""}
+                            tc_order.append(idx)
+                        fn = frag.get("function") or {}
+                        if frag.get("id"):
+                            slot["id"] = frag["id"]
+                        if fn.get("name"):
+                            slot["name"] = fn["name"]
+                        if fn.get("arguments"):
+                            slot["args"] += fn["arguments"]
+                else:
+                    continue
+                break  # [DONE] 을 만나 내부 while 을 빠져나온 경우 외부 루프도 종료
         except requests.RequestException as e:
-            raise OllamaError(f"Ollama {what} 요청 실패: {e}") from e
-        message: dict = {"role": role, "content": "".join(content_parts)}
-        if tool_calls:
-            message["tool_calls"] = tool_calls
+            detail = ""
+            r = getattr(e, "response", None)
+            if r is not None:
+                detail = (getattr(r, "text", "") or "")[:200]
+            raise OllamaError(
+                f"LLM {what} 요청 실패: {e}" + (f" — {detail}" if detail else "")
+            ) from e
+        message: dict = {"role": "assistant", "content": "".join(content_parts)}
+        if tc_order:
+            message["tool_calls"] = [
+                {
+                    "id": tc_frags[i]["id"],
+                    "type": "function",
+                    "function": {"name": tc_frags[i]["name"], "arguments": tc_frags[i]["args"]},
+                }
+                for i in sorted(tc_order)
+            ]
         return message
 
-    def chat(self, model: str, system: str, user: str, temperature: float = 0.3, *, timeout: int | None = None) -> str:
+    def chat(
+        self,
+        model: str,
+        system: str,
+        user: str,
+        temperature: float = 0.3,
+        *,
+        timeout: int | None = None,
+    ) -> str:
         payload = {
             "model": model,
             "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-            "options": {"temperature": temperature},
+            "temperature": temperature,
         }
         message = self._stream_message(payload, "요청", timeout=timeout)
         content = (message.get("content") or "").strip()
         if not content:  # 공백만 있는 응답도 빈 응답으로 간주
-            raise OllamaError("Ollama 응답에 content 가 없습니다.")
+            raise OllamaError("LLM 응답에 content 가 없습니다.")
         return content
 
     def chat_tools(
@@ -122,6 +169,6 @@ class OllamaClient:
             "model": model,
             "messages": messages,
             "tools": tools,
-            "options": {"temperature": temperature},
+            "temperature": temperature,
         }
         return self._stream_message(payload, "tools")
