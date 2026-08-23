@@ -494,3 +494,20 @@ def test_backfill_progressive_marks_done_and_resumes(db):
         result2 = bi.run_backfill_progressive(db, _settings(), per_run=1)
     assert result2["done"] == 1
     assert bi._done_codes(db) == {"005930", "000660"}
+
+
+# ── _chat_json 파싱 재시도 ────────────────────────────────────────────────
+def test_chat_json_retries_on_unparseable_then_succeeds():
+    """첫 응답이 JSON이 아니면 재요청한다(어댑터 재시도는 전송 오류만 커버)."""
+    llm = MagicMock()
+    llm.chat.side_effect = ["not json at all", '{"facts": ["ok"]}']
+    data = bi._chat_json(llm, "m", "sys", "user", temperature=0.1)
+    assert data == {"facts": ["ok"]}
+    assert llm.chat.call_count == 2
+
+
+def test_chat_json_raises_after_two_failures():
+    llm = MagicMock()
+    llm.chat.return_value = "still not json"
+    with pytest.raises(bi.LLMError, match="2회 시도"):
+        bi._chat_json(llm, "m", "sys", "user", temperature=0.1)

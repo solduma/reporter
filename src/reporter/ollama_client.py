@@ -61,6 +61,9 @@ class OllamaClient:
         # index → {"id","name","args"} 프래그먼트 조립 버킷
         tc_frags: dict[int, dict] = {}
         tc_order: list[int] = []
+        # 진단 정보 — 반환 message 에 잠시 붙였다가 chat/chat_tools 가 떼낸다(transcript 오염 방지).
+        finish_reason: str | None = None
+        saw_reasoning = False
         read_gap = 30 if timeout is not None else self._timeout
         deadline = time.monotonic() + timeout if timeout is not None else None
         try:
@@ -98,6 +101,10 @@ class OllamaClient:
                     delta = choices[0].get("delta") or {}
                     if delta.get("content"):
                         content_parts.append(delta["content"])
+                    if delta.get("reasoning_content"):
+                        saw_reasoning = True
+                    if choices[0].get("finish_reason"):
+                        finish_reason = choices[0]["finish_reason"]
                     for frag in delta.get("tool_calls") or []:
                         raw_idx = frag.get("index")
                         idx = int(raw_idx) if raw_idx is not None else len(tc_order)
@@ -133,6 +140,8 @@ class OllamaClient:
                 }
                 for i in sorted(tc_order)
             ]
+        message["_finish"] = finish_reason
+        message["_reasoning"] = saw_reasoning
         return message
 
     def chat(
@@ -153,9 +162,17 @@ class OllamaClient:
             "temperature": temperature,
         }
         message = self._stream_message(payload, "요청", timeout=timeout)
+        finish = message.pop("_finish", None)
+        saw_reasoning = message.pop("_reasoning", False)
         content = (message.get("content") or "").strip()
         if not content:  # 공백만 있는 응답도 빈 응답으로 간주
-            raise OllamaError("LLM 응답에 content 가 없습니다.")
+            # reasoning 모델 진단 — 잘림과 reasoning-only 를 구분해 원인 파악 가능하게.
+            if finish == "length":
+                raise OllamaError(
+                    "응답이 출력 토큰 한도로 잘렸습니다(reasoning 소진 추정) — 재시도 필요"
+                )
+            hint = ", reasoning 만 존재" if saw_reasoning else ""
+            raise OllamaError(f"응답에 content 가 없습니다[finish={finish}{hint}]")
         return content
 
     def chat_tools(
@@ -171,4 +188,8 @@ class OllamaClient:
             "tools": tools,
             "temperature": temperature,
         }
-        return self._stream_message(payload, "tools")
+        message = self._stream_message(payload, "tools")
+        # 진단 키 제거 — raw_message 는 다음 턴 transcript 에 그대로 재주입되므로 오염 금지.
+        message.pop("_finish", None)
+        message.pop("_reasoning", False)
+        return message

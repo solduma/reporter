@@ -345,6 +345,21 @@ class AssemblyError(RuntimeError):
     """사업 개요 조립 실패(LLM 미완·섹션 과반 미달 등). 호출측(job/배치)이 로깅·실패 처리."""
 
 
+def _chat_json(llm: LLMPort, model: str, system: str, user: str, temperature: float) -> dict:
+    """LLM 호출 + JSON 파싱(2회 시도). 파싱 실패는 provider 의 일시적 이상일 수 있어 재요청한다.
+
+    어댑터의 재시도는 전송·빈응답 오류만 커버 — '성공했지만 JSON이 아닌 응답'은 여기서 걷어낸다.
+    """
+    last_raw = ""
+    for _attempt in range(2):
+        raw = llm.chat(model, system, user, temperature=temperature)
+        data = _extract_json(raw)
+        if isinstance(data, dict):
+            return data
+        last_raw = raw
+    raise LLMError(f"비정형 응답(2회 시도): {last_raw[:120]}")
+
+
 def _chunk_text(text: str, size: int = _CHUNK_CHARS) -> list[str]:
     """문단(\n) 경계로 size 문자 이하 청크 분할. 단일 문단 초과 시 강제 분할.
 
@@ -373,10 +388,7 @@ def _chunk_text(text: str, size: int = _CHUNK_CHARS) -> list[str]:
 def _map_facts(llm: LLMPort, model: str, kind: str, chunk: str) -> list[str]:
     """청크 1개 → 사실 목록. 출처 보고서 kind 를 프로그램적으로 접두(모델 의존 제거)."""
     user = f"[출처 보고서] {kind}\n\n[발췌문]\n{chunk}"
-    raw = llm.chat(model, _MAP_SYSTEM, user, temperature=0.1)
-    data = _extract_json(raw)
-    if not isinstance(data, dict):
-        raise LLMError("map 비정형 응답")
+    data = _chat_json(llm, model, _MAP_SYSTEM, user, temperature=0.1)
     facts = [str(f).strip() for f in (data.get("facts") or []) if str(f).strip()]
     if not facts:
         raise LLMError("map 빈 응답")
@@ -386,10 +398,7 @@ def _map_facts(llm: LLMPort, model: str, kind: str, chunk: str) -> list[str]:
 def _merge_catalog(llm: LLMPort, model: str, fact_group: list[str]) -> dict:
     """사실 문자열 그룹 1개 → 주제별 카탈로그 1세트."""
     user = "[사실 목록]\n" + "\n".join(fact_group)
-    raw = llm.chat(model, _REDUCE_SYSTEM, user, temperature=0.1)
-    data = _extract_json(raw)
-    if not isinstance(data, dict):
-        raise LLMError("reduce 비정형 응답")
+    data = _chat_json(llm, model, _REDUCE_SYSTEM, user, temperature=0.1)
     return {
         t: [str(x).strip() for x in (data.get(t) or []) if str(x).strip()] for t in _REDUCE_TOPICS
     }
@@ -459,9 +468,8 @@ def _synthesize_section(
     user = f"[종목] {stock_name}\n\n[사실 카탈로그]\n{json.dumps(catalog, ensure_ascii=False)}"
     if feedback:
         user += f"\n\n**[이전 검토 절차 지적 — 이 섹션만 보완하라]**\n{feedback}"
-    raw = llm.chat(model, system, user, temperature=0.3)
-    data = _extract_json(raw)
-    if not isinstance(data, dict) or ("narrative" not in data and not data.get("tables")):
+    data = _chat_json(llm, model, system, user, temperature=0.3)
+    if "narrative" not in data and not data.get("tables"):
         raise LLMError(f"{sid} 비정형 응답")
     data["id"] = sid  # 모델이 어긋나도 표준 id 강제
     return data
