@@ -439,12 +439,14 @@ def _run_business_research_in_thread(
 
 
 _business_assembly_executor: concurrent.futures.ThreadPoolExecutor | None = None
+_business_assembly_inflight = 0
 
 
 def _run_business_assembly_in_thread(
     session_factory, job_id: int, code: str, settings: Settings
 ) -> None:
     """백그라운드 스레드에서 사업 개요 조립 실행(map-reduce — 수 분 소요)."""
+    global _business_assembly_inflight
     session = session_factory()
     try:
         from app.db.models import BusinessAssemblyJob
@@ -458,6 +460,7 @@ def _run_business_assembly_in_thread(
     except Exception:
         logger.exception("business assembly background job failed %s", code)
     finally:
+        _business_assembly_inflight = max(0, _business_assembly_inflight - 1)
         session.close()
 
 
@@ -465,9 +468,14 @@ def run_business_assembly_queue(settings: Settings | None = None) -> dict:
     """사업 개요 조립 DB 폴링 큐 — pending job 1건을 잡아 백그라운드 스레드 실행.
 
     리서치 큐와 독립된 전용 executor. 짧은 interval 폴링, max_instances=1 로 겹침 방지.
+    inflight 게이트: 실행기(max_workers=1)가 밀려 있으면 클레임하지 않는다 — 클레임이
+    실행을 앞서면 DB 상태(running)와 실제 진행이 어긋나고 stale 회수가 오발동한다.
     """
-    global _business_assembly_executor
+    global _business_assembly_executor, _business_assembly_inflight
     from app.services import business_assembly
+
+    if _business_assembly_inflight >= 1:
+        return {"claimed": 0, "inflight": _business_assembly_inflight}
 
     settings = settings or get_settings()
     session = SessionLocal()
@@ -479,6 +487,7 @@ def run_business_assembly_queue(settings: Settings | None = None) -> dict:
             _business_assembly_executor = concurrent.futures.ThreadPoolExecutor(
                 max_workers=1, thread_name_prefix="bassembly-"
             )
+        _business_assembly_inflight += 1
         _business_assembly_executor.submit(
             _run_business_assembly_in_thread, SessionLocal, job.id, job.stock_code, settings
         )
