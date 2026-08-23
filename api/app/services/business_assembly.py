@@ -52,32 +52,41 @@ def enqueue(db: Session, code: str) -> BusinessAssemblyJob:
 
 
 def claim_next(db: Session) -> BusinessAssemblyJob | None:
-    """처리할 job 1건 반환(worker 폴링). pending 없으면 stale running 회수."""
+    """처리할 job 1건을 클레임(running 전이까지 커밋)해 반환.
+
+    - stale 회수는 pending 존재와 무관하게 먼저 본다 — 재배포 등으로 고아된 running 이
+      pending 이 남아 있는 동안 영구 방치되는 사례(060230)를 막는다. heartbeat(_progress 가
+      started_at 을 갱신)로 장시간 정상 실행과 진짜 고아를 구분한다.
+    - 클레임 시 즉시 running 으로 커밋한다 — 이후 폴링 틱이 같은 pending 행을 재선택해
+      실행기 대기열에 중복 제출되는 이중 실행(005930 3회 실행 사례)을 원천 차단.
+    """
+    cutoff = datetime.now(UTC) - timedelta(minutes=_STALE_RUNNING_MINUTES)
+    stale = db.scalars(
+        select(BusinessAssemblyJob).where(
+            BusinessAssemblyJob.status == "running",
+            BusinessAssemblyJob.started_at.is_not(None),
+            BusinessAssemblyJob.started_at < cutoff,
+        )
+    ).all()
+    if stale:
+        for job in stale:
+            logger.warning("reclaiming stale running assembly job %d (%s)", job.id, job.stock_code)
+            job.status = "pending"
+            job.started_at = None
+        db.commit()
+
     job = db.scalar(
         select(BusinessAssemblyJob)
         .where(BusinessAssemblyJob.status == "pending")
         .order_by(BusinessAssemblyJob.id)
         .limit(1)
     )
-    if job is not None:
-        return job
-    cutoff = datetime.now(UTC) - timedelta(minutes=_STALE_RUNNING_MINUTES)
-    stale = db.scalar(
-        select(BusinessAssemblyJob)
-        .where(
-            BusinessAssemblyJob.status == "running",
-            BusinessAssemblyJob.started_at.is_not(None),
-            BusinessAssemblyJob.started_at < cutoff,
-        )
-        .order_by(BusinessAssemblyJob.id)
-        .limit(1)
-    )
-    if stale is not None:
-        logger.warning("reclaiming stale running assembly job %d (%s)", stale.id, stale.stock_code)
-        stale.status = "pending"
-        stale.started_at = None
-        db.commit()
-    return stale
+    if job is None:
+        return None
+    job.status = "running"
+    job.started_at = datetime.now(UTC)
+    db.commit()
+    return job
 
 
 def latest_job(db: Session, code: str) -> BusinessAssemblyJob | None:
@@ -92,6 +101,10 @@ def latest_job(db: Session, code: str) -> BusinessAssemblyJob | None:
 
 def run_job(db: Session, job: BusinessAssemblyJob, settings: Settings | None = None) -> None:
     """한 조립 job 실행(business_ingest.assemble_overview map-reduce)."""
+    if job.status in ("done", "failed"):
+        # 클레임-실행 사이 이미 처리 완료된 중복 제출 방어(실행기 큐 지연 시 발생).
+        logger.info("skip assembly job %d (%s=%s)", job.id, job.stock_code, job.status)
+        return
     settings = settings or get_settings()
     code = job.stock_code
 
@@ -102,6 +115,7 @@ def run_job(db: Session, job: BusinessAssemblyJob, settings: Settings | None = N
 
     def _progress(pct: int) -> None:
         job.progress = max(job.progress, pct)
+        job.started_at = datetime.now(UTC)  # heartbeat — 장시간 정상 실행의 stale 회수 방지
         db.commit()
 
     try:

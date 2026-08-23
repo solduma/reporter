@@ -345,14 +345,27 @@ class AssemblyError(RuntimeError):
     """사업 개요 조립 실패(LLM 미완·섹션 과반 미달 등). 호출측(job/배치)이 로깅·실패 처리."""
 
 
-def _chat_json(llm: LLMPort, model: str, system: str, user: str, temperature: float) -> dict:
+# 조립 파이프라인 개별 LLM 호출의 전체 deadline(초). muse 지연 스파이크 시 어댑터 재시도 3회
+# × read-timeout 300s 가 한 호출 최악 15분까지 증폭되는 것을 호출 단위로 절단한다.
+_LLM_CALL_DEADLINE_S = 240
+
+
+def _chat_json(
+    llm: LLMPort,
+    model: str,
+    system: str,
+    user: str,
+    temperature: float,
+    *,
+    timeout: int | None = _LLM_CALL_DEADLINE_S,
+) -> dict:
     """LLM 호출 + JSON 파싱(2회 시도). 파싱 실패는 provider 의 일시적 이상일 수 있어 재요청한다.
 
     어댑터의 재시도는 전송·빈응답 오류만 커버 — '성공했지만 JSON이 아닌 응답'은 여기서 걷어낸다.
     """
     last_raw = ""
     for _attempt in range(2):
-        raw = llm.chat(model, system, user, temperature=temperature)
+        raw = llm.chat(model, system, user, temperature=temperature, timeout=timeout)
         data = _extract_json(raw)
         if isinstance(data, dict):
             return data
@@ -501,7 +514,9 @@ def _review_and_fix_sections(
     """
     payload = {"sections": [sections[sid] for sid in bo.INVESTOR_SECTIONS]}
     for _round in range(max_rounds):
-        review = review_loop.review_result(llm, model, _ASSEMBLE_REVIEW, payload)
+        review = review_loop.review_result(
+            llm, model, _ASSEMBLE_REVIEW, payload, timeout=_LLM_CALL_DEADLINE_S
+        )
         if review.get("procedure_sound"):
             return sections, True
         gaps = review.get("gaps") or []
@@ -659,7 +674,9 @@ def extract_ontology_entities(llm: LLMPort, model: str, ctx: dict) -> list[Ontol
         f"[반기·분기 갱신 원문 — 회사의 개황]\n" + "\n---\n".join(u["text"] for u in ctx["updates"])
     )
     try:
-        raw = llm.chat(model, _ONTOLOGY_EXTRACT_SYSTEM, user, temperature=0.2)
+        raw = llm.chat(
+            model, _ONTOLOGY_EXTRACT_SYSTEM, user, temperature=0.2, timeout=_LLM_CALL_DEADLINE_S
+        )
     except LLMError as e:
         logger.warning("ontology extract LLM failed %s: %s", ctx["stock_code"], e)
         return []
