@@ -1195,6 +1195,16 @@ class ResearchStatus(BaseModel):
     has_summary: bool = False  # BusinessOverviewCache.payload["research_summary"] 존재 여부
 
 
+class AssemblyStatus(BaseModel):
+    """사업 개요 조립 job 상태(폴링용) — GET /business 가 null 을 줄 때 웹이 이걸로 대기한다."""
+
+    stock_code: str
+    # none(해당 없음) | pending(큐) | running(실행 중) | done(성공, 캐시 저장됨) | failed
+    status: str = "none"
+    progress: int = 0  # 0-100
+    error: str | None = None
+
+
 class ResearchGuidelineInput(BaseModel):
     """리서치 요청 바디."""
 

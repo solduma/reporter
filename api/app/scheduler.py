@@ -438,6 +438,55 @@ def _run_business_research_in_thread(
         session.close()
 
 
+_business_assembly_executor: concurrent.futures.ThreadPoolExecutor | None = None
+
+
+def _run_business_assembly_in_thread(
+    session_factory, job_id: int, code: str, settings: Settings
+) -> None:
+    """백그라운드 스레드에서 사업 개요 조립 실행(map-reduce — 수 분 소요)."""
+    session = session_factory()
+    try:
+        from app.db.models import BusinessAssemblyJob
+        from app.services import business_assembly
+
+        job = session.get(BusinessAssemblyJob, job_id)
+        if job is None:
+            logger.warning("business assembly job %d not found in background thread", job_id)
+            return
+        business_assembly.run_job(session, job, settings)
+    except Exception:
+        logger.exception("business assembly background job failed %s", code)
+    finally:
+        session.close()
+
+
+def run_business_assembly_queue(settings: Settings | None = None) -> dict:
+    """사업 개요 조립 DB 폴링 큐 — pending job 1건을 잡아 백그라운드 스레드 실행.
+
+    리서치 큐와 독립된 전용 executor. 짧은 interval 폴링, max_instances=1 로 겹침 방지.
+    """
+    global _business_assembly_executor
+    from app.services import business_assembly
+
+    settings = settings or get_settings()
+    session = SessionLocal()
+    try:
+        job = business_assembly.claim_next(session)
+        if job is None:
+            return {"claimed": 0}
+        if _business_assembly_executor is None:
+            _business_assembly_executor = concurrent.futures.ThreadPoolExecutor(
+                max_workers=1, thread_name_prefix="bassembly-"
+            )
+        _business_assembly_executor.submit(
+            _run_business_assembly_in_thread, SessionLocal, job.id, job.stock_code, settings
+        )
+        return {"claimed": 1, "job_id": job.id, "code": job.stock_code, "status": "running"}
+    finally:
+        session.close()
+
+
 def run_business_research_queue(settings: Settings | None = None) -> dict:
     """사업 리서치 DB 폴링 큐 — pending job 1건을 잡아 백그라운드 스레드 실행.
 
@@ -572,11 +621,13 @@ MANUAL_BATCHES: list[tuple[str, str, object]] = [
     ("sce_migrate", "SCE 마이그레이션", run_sce_migration_batch),
     ("business_overview_refresh", "사업개요 갱신(새보고서)", run_business_overview_refresh),
     ("business_research_queue", "사업 리서치 큐", run_business_research_queue),
+    ("business_assembly_queue", "사업개요 조립 큐", run_business_assembly_queue),
 ]
 
 
 # release_deploy 는 서버 제어 영역이라 별도 등록.
 BATCH_META["release_deploy"] = {"label": "release 배포", "heartbeat_timeout_seconds": 1800}
+
 
 def _release_deploy_fn(settings: Settings | None = None) -> dict:
     """release 브랜치 push 로 CD 를 트리거한다 — TUI batch_runner 에서 실행."""
@@ -809,6 +860,15 @@ def build_scheduler(settings: Settings | None = None) -> BlockingScheduler:
         _logged("business_research_queue", run_business_research_queue),
         trigger=IntervalTrigger(seconds=15, timezone=_TZ),
         id="business_research_queue",
+        max_instances=1,
+        coalesce=True,
+        replace_existing=True,
+    )
+    # 사업 개요 조립 큐 — GET 캐시 미스가 enqueue 하는 map-reduce 잡(전용 executor).
+    scheduler.add_job(
+        _logged("business_assembly_queue", run_business_assembly_queue),
+        trigger=IntervalTrigger(seconds=15, timezone=_TZ),
+        id="business_assembly_queue",
         max_instances=1,
         coalesce=True,
         replace_existing=True,
