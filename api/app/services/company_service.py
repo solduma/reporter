@@ -15,6 +15,7 @@ from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, attributes
 
+from app.adapters.external import _http
 from app.adapters.market import naver_quote as quote
 from app.config import get_settings
 from app.db.models import (
@@ -224,8 +225,6 @@ def fetch_and_store_financial_statements(
     """DART 에서 재무제표를 조회해 FinancialStatement 테이블에 저장한다."""
     from datetime import date
 
-    import requests
-
     from app.adapters import dart as dart_adapter
     from app.config import get_settings
     from app.db.models import CorpCodeMap
@@ -240,7 +239,7 @@ def fetch_and_store_financial_statements(
 
     today = date.today()
     yqs = _target_year_quarters(today)
-    with requests.Session() as session:
+    with _http.resilient_session() as session:
         for year, q in yqs:
             full = dart_adapter.fetch_full_statements(
                 settings.dart_api_key, corp_code, year, q, session
@@ -364,9 +363,8 @@ def sync_financials(db: Session, code: str) -> None:
     per/pbr/psr(밸류)은 financials_backfill 이 전 분기를 일관되게 소유하므로 여기서 덮어쓰지
     않는다. 네이버는 operating_income/roe/추정치(E) 등 백필이 못 만드는 필드를 채운다.
     """
-    import requests
 
-    session = requests.Session()
+    session = _http.resilient_session()
     fetched = quote.fetch_financials(code, session)
     for f in fetched:
         stmt = insert(Financial).values(
@@ -481,9 +479,8 @@ def peer_valuations(db: Session, codes: list[str]) -> dict[str, tuple[str | None
 
 def sync_peers(db: Session, code: str) -> None:
     """네이버 동일업종 스크랩 → peers upsert + sync_state 마킹."""
-    import requests
 
-    session = requests.Session()
+    session = _http.resilient_session()
     fetched = quote.fetch_peers(code, session)
     for p in fetched:
         vals = {field: p.values.get(label) for field, label in _PEER_FIELDS.items()}

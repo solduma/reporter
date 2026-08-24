@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.adapters.external import _http
 from app.db.models import (
     BusinessOntologyEdge,
     BusinessOntologyNode,
@@ -281,6 +282,7 @@ def industry_companies(db: Session, gics_code: str) -> list[dict[str, object]]:
 
 # ── 비즈니스 인사이트(딥다이브 ③ 사업모델 보강용) ─────────────────────────────────
 
+
 def industry_company_ratios(db: Session, gics_code: str) -> dict[str, float | None]:
     """GICS 산업 평균 PER·PBR·ROE — operates_in 하는 company 노드의 재무 데이터 기반.
 
@@ -343,7 +345,11 @@ def company_segments_hhi(db: Session, code: str) -> dict[str, float | None]:
 
     # 최신 year의 ratio_pct 사용
     latest_year = rows[0].bsns_year
-    segments = [(r.segment_name, r.ratio_pct) for r in rows if r.bsns_year == latest_year and r.ratio_pct is not None]
+    segments = [
+        (r.segment_name, r.ratio_pct)
+        for r in rows
+        if r.bsns_year == latest_year and r.ratio_pct is not None
+    ]
     if not segments:
         return {"hhi": None, "level": None, "count": 0}
 
@@ -382,7 +388,9 @@ def company_material_prices(
         # commodity_type 추출 시도
         node_id = m.get("node_id", "")
         static = _port().node(node_id) if node_id.startswith("MAT_") else None
-        commodity_type = static.commodity_type if static and static.node_type == "raw_material" else None
+        commodity_type = (
+            static.commodity_type if static and static.node_type == "raw_material" else None
+        )
         if not commodity_type:
             out.append(item)
             continue
@@ -400,6 +408,7 @@ def _fetch_commodity_price(commodity_type: str, settings: Settings | None) -> fl
     # 한국거래소 API 또는 웹 검색 폴백
     try:
         from app.adapters.external import commodity_price
+
         p = commodity_price.get_price(commodity_type)
         if p:
             return p
@@ -414,17 +423,16 @@ def _fetch_commodity_price(commodity_type: str, settings: Settings | None) -> fl
 def _search_commodity_price(commodity_type: str, settings: Settings) -> float | None:
     """웹 검색으로 원재료 현물 가격 시도. 성공 시 float, 실패 시 None."""
     try:
-        import requests as _requests
-
         from app.adapters.external import naver_search
 
-        session = _requests.Session()
+        session = _http.resilient_session()
         query = f"{commodity_type} 현물 가격 원/kg"
         result = naver_search.search(query, session, sort="date", crawl_bodies=2)
         for hit in (result.get("bodies") or [])[:2]:
             text = hit.get("body", "")
             # "14,200원/kg" 같은 패턴 추출
             import re as _re
+
             m = _re.search(r"[\d,]+(?:\.\d+)?\s*원\s*/\s*kg", text)
             if m:
                 num = float(m.group().replace(",", "").split("원")[0])
@@ -504,14 +512,16 @@ def product_peer_companies(db: Session, code: str) -> list[dict[str, object]]:
         if sc in out:
             continue
         fin = latest.get(sc)
-        out.append({
-            "stock_code": sc,
-            "stock_name": peer_names.get(sc, ""),
-            "per": fin.per if fin else None,
-            "pbr": fin.pbr if fin else None,
-            "market_cap": fin.market_cap if fin else None,
-            "share": e.share,
-        })
+        out.append(
+            {
+                "stock_code": sc,
+                "stock_name": peer_names.get(sc, ""),
+                "per": fin.per if fin else None,
+                "pbr": fin.pbr if fin else None,
+                "market_cap": fin.market_cap if fin else None,
+                "share": e.share,
+            }
+        )
     return out
 
 
@@ -688,9 +698,16 @@ def explore_node(db: Session, node_id: str) -> dict[str, object] | None:
                     continue
                 neighbors.append(_neighbor_dict(nbr, e, "out", e.edge_type))
                 edges_out.append(
-                    {"src": node_id, "dst": nbr.canonical_id or f"{nbr.node_type}:{nbr.korean_name}", "edge_type": e.edge_type,
-                     "share": e.share, "period": e.period or None, "source_quote": e.source_quote,
-                     "chain_stage": e.chain_stage, "confidence": e.confidence}
+                    {
+                        "src": node_id,
+                        "dst": nbr.canonical_id or f"{nbr.node_type}:{nbr.korean_name}",
+                        "edge_type": e.edge_type,
+                        "share": e.share,
+                        "period": e.period or None,
+                        "source_quote": e.source_quote,
+                        "chain_stage": e.chain_stage,
+                        "confidence": e.confidence,
+                    }
                 )
             elif e.dst_node_id in pks and e.src_node_id not in pks:
                 nbr = nbr_nodes.get(e.src_node_id)
@@ -698,9 +715,16 @@ def explore_node(db: Session, node_id: str) -> dict[str, object] | None:
                     continue
                 neighbors.append(_neighbor_dict(nbr, e, "in", e.edge_type))
                 edges_out.append(
-                    {"src": nbr.canonical_id or f"{nbr.node_type}:{nbr.korean_name}", "dst": node_id, "edge_type": e.edge_type,
-                     "share": e.share, "period": e.period or None, "source_quote": e.source_quote,
-                     "chain_stage": e.chain_stage, "confidence": e.confidence}
+                    {
+                        "src": nbr.canonical_id or f"{nbr.node_type}:{nbr.korean_name}",
+                        "dst": node_id,
+                        "edge_type": e.edge_type,
+                        "share": e.share,
+                        "period": e.period or None,
+                        "source_quote": e.source_quote,
+                        "chain_stage": e.chain_stage,
+                        "confidence": e.confidence,
+                    }
                 )
 
     # 산업 focal — GICS 형제 sub-industry 합성 이웃(같은 6자리 industry).
@@ -713,17 +737,36 @@ def explore_node(db: Session, node_id: str) -> dict[str, object] | None:
             nbr_id = ind.id
             neighbors.append(
                 {
-                    "id": nbr_id, "node_type": "industry", "korean_name": ind.korean_name,
-                    "english_name": ind.english_name, "aliases": list(ind.aliases),
-                    "status": "canonical", "confidence": None, "commodity_type": None,
-                    "is_also_material_id": None, "gics_code": ind.gics_code, "stock_code": None,
-                    "edge_type": "sibling_industry", "direction": "out",
-                    "share": None, "period": None, "source_quote": None, "chain_stage": None,
+                    "id": nbr_id,
+                    "node_type": "industry",
+                    "korean_name": ind.korean_name,
+                    "english_name": ind.english_name,
+                    "aliases": list(ind.aliases),
+                    "status": "canonical",
+                    "confidence": None,
+                    "commodity_type": None,
+                    "is_also_material_id": None,
+                    "gics_code": ind.gics_code,
+                    "stock_code": None,
+                    "edge_type": "sibling_industry",
+                    "direction": "out",
+                    "share": None,
+                    "period": None,
+                    "source_quote": None,
+                    "chain_stage": None,
                 }
             )
             edges_out.append(
-                {"src": node_id, "dst": nbr_id, "edge_type": "sibling_industry",
-                 "share": None, "period": None, "source_quote": None, "chain_stage": None, "confidence": None}
+                {
+                    "src": node_id,
+                    "dst": nbr_id,
+                    "edge_type": "sibling_industry",
+                    "share": None,
+                    "period": None,
+                    "source_quote": None,
+                    "chain_stage": None,
+                    "confidence": None,
+                }
             )
 
     # 제품/원재료 focal — is_also_material_id 교차링크 합성 이웃.
@@ -733,18 +776,36 @@ def explore_node(db: Session, node_id: str) -> dict[str, object] | None:
         if cross_static is not None:
             neighbors.append(
                 {
-                    "id": cross_static.id, "node_type": cross_static.node_type,
-                    "korean_name": cross_static.korean_name, "english_name": cross_static.english_name,
-                    "aliases": list(cross_static.aliases), "status": "canonical", "confidence": None,
-                    "commodity_type": cross_static.commodity_type, "is_also_material_id": None,
-                    "gics_code": None, "stock_code": None,
-                    "edge_type": "is_also_material", "direction": "out",
-                    "share": None, "period": None, "source_quote": None, "chain_stage": None,
+                    "id": cross_static.id,
+                    "node_type": cross_static.node_type,
+                    "korean_name": cross_static.korean_name,
+                    "english_name": cross_static.english_name,
+                    "aliases": list(cross_static.aliases),
+                    "status": "canonical",
+                    "confidence": None,
+                    "commodity_type": cross_static.commodity_type,
+                    "is_also_material_id": None,
+                    "gics_code": None,
+                    "stock_code": None,
+                    "edge_type": "is_also_material",
+                    "direction": "out",
+                    "share": None,
+                    "period": None,
+                    "source_quote": None,
+                    "chain_stage": None,
                 }
             )
             edges_out.append(
-                {"src": node_id, "dst": cross_static.id, "edge_type": "is_also_material",
-                 "share": None, "period": None, "source_quote": None, "chain_stage": None, "confidence": None}
+                {
+                    "src": node_id,
+                    "dst": cross_static.id,
+                    "edge_type": "is_also_material",
+                    "share": None,
+                    "period": None,
+                    "source_quote": None,
+                    "chain_stage": None,
+                    "confidence": None,
+                }
             )
 
     return {"focal": focal, "neighbors": neighbors, "edges": edges_out}
@@ -768,7 +829,9 @@ def _similarity(a: str, b: str) -> float:
     return SequenceMatcher(None, a, b).ratio()
 
 
-def _candidates_for(db: Session, node: BusinessOntologyNode, limit: int = 5) -> list[dict[str, object]]:
+def _candidates_for(
+    db: Session, node: BusinessOntologyNode, limit: int = 5
+) -> list[dict[str, object]]:
     """pending 노드에 대한 승격 후보 — 동일 type 기존 canonical 노드 + (회사면) CorpCodeMap fuzzy.
 
     merge 용 후보만 제공. 새 canonical 발급은 리뷰어가 직접 ID 를 입력.
@@ -926,7 +989,13 @@ def reject_pending(db: Session, node_id: int) -> dict[str, object] | None:
     n.status = "rejected"
     db.commit()
     db.refresh(n)
-    return {"id": n.id, "node_type": n.node_type, "korean_name": n.korean_name, "status": n.status, "stock_code": n.stock_code}
+    return {
+        "id": n.id,
+        "node_type": n.node_type,
+        "korean_name": n.korean_name,
+        "status": n.status,
+        "stock_code": n.stock_code,
+    }
 
 
 # ── industry 자유표현 자동 매핑(임베딩 top-k + LLM 판정 폴백) ─────────────────
@@ -1062,8 +1131,12 @@ _BATCH_LINE_RE = re.compile(r"^\s*(\d+)\s*[:.、]\s*([0-9A-Za-z]+)")
 
 def _pending_industry(raw: str) -> BusinessNormalizeResult:
     return BusinessNormalizeResult(
-        term=raw, node_type="industry", canonical_id=None,
-        matched_via="", status="pending_review", confidence=0.0,
+        term=raw,
+        node_type="industry",
+        canonical_id=None,
+        matched_via="",
+        status="pending_review",
+        confidence=0.0,
     )
 
 
@@ -1099,12 +1172,15 @@ def _classify_industry_batch(
     cand_ids_per: list[list[str]] = []
     cand_text_per: list[str] = []
     for (_nid, raw), qvec in zip(items, qvecs, strict=False):
-        scored = sorted(zip(ids, vecs, strict=False), key=lambda iv: _cosine(qvec, iv[1]), reverse=True)
+        scored = sorted(
+            zip(ids, vecs, strict=False), key=lambda iv: _cosine(qvec, iv[1]), reverse=True
+        )
         cids = [gid for gid, _ in scored[:5] if gid in inds]
         cand_ids_per.append(cids)
         if cids:
             cands = "\n".join(
-                f"{i}:{inds[gid].korean_name}({inds[gid].english_name})" for i, gid in enumerate(cids, 1)
+                f"{i}:{inds[gid].korean_name}({inds[gid].english_name})"
+                for i, gid in enumerate(cids, 1)
             )
         else:
             cands = "(후보 없음)"
@@ -1138,8 +1214,7 @@ def _classify_industry_chunk(
     user = (
         "아래 각 자유표현 산업명에 대해, 제시된 후보 중 가장 잘 어울리는 하나의 후보 번호를 고르거나, "
         "어느 것도 아니면 NONE 이라 답해라. 회사명·고객군·지역·공공 등 산업 분류가 아닌 표현은 NONE. "
-        "출력: 각 표현마다 한 줄, '<표현번호>: <후보번호|NONE>' 만 출력.\n\n"
-        + "\n\n".join(blocks)
+        "출력: 각 표현마다 한 줄, '<표현번호>: <후보번호|NONE>' 만 출력.\n\n" + "\n\n".join(blocks)
     )
     try:
         out = llm.chat(
@@ -1290,7 +1365,9 @@ def start_reprocess_background(
 
             db = SessionLocal()
             try:
-                _REPROCESS_STATE["last"] = reprocess_pending(db, node_type=node_type, settings=settings)
+                _REPROCESS_STATE["last"] = reprocess_pending(
+                    db, node_type=node_type, settings=settings
+                )
             finally:
                 db.close()
         except Exception:  # 백그라운드 예외는 스레드 죽음 방지용으로 흡수, 상태에 기록

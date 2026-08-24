@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-import requests
-
+from app.adapters.external import _http
 from app.adapters.market import naver as chart
 from app.config import get_settings
 
@@ -16,8 +15,8 @@ class KrMarketDataAdapter:
     def fetch_periodic(
         self, code: str, timeframe: str, start: datetime, end: datetime
     ) -> list[chart.Candle]:
-        session = requests.Session()
+        session = _http.resilient_session()
         return chart.fetch_periodic_with_fallback(get_settings(), code, timeframe, start, end, session)
 
     def fetch_intraday_30min(self, code: str) -> list[chart.Candle]:
-        return chart.fetch_intraday_30min(code, requests.Session())
+        return chart.fetch_intraday_30min(code, _http.resilient_session())

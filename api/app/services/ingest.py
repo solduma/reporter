@@ -14,6 +14,7 @@ import requests
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.adapters.external import _http
 from app.adapters.llm import get_llm
 from app.adapters.storage import minio_store
 from app.config import Settings
@@ -152,7 +153,7 @@ def ingest_reports(db: Session, settings: Settings, target_date: str | None = No
     if client is None:
         logger.warning("no LLM (OLLAMA_API_KEY); skip report ingest")
         return 0
-    session = requests.Session()
+    session = _http.resilient_session()
     saved = 0
     for cr in crawled:
         try:
@@ -388,7 +389,7 @@ def build_market_brief(
     market_date = _to_date(target_date) if target_date else datetime.now().date()
     existing = db.scalar(select(DailyMarketInfo).where(DailyMarketInfo.market_date == market_date))
 
-    session = requests.Session()
+    session = _http.resilient_session()
     if phase == "intraday":
         # 직전 시황(당일 기존 브리핑)을 넘겨 '장 초→현재' 대조를 유도. 첫 장중 갱신이면 None.
         prev = existing.summary if existing else None

@@ -9,11 +9,11 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 
-import requests
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.adapters.dart import DartQuotaExceeded
+from app.adapters.external import _http
 from app.adapters.llm.factory import get_llm
 from app.config import Settings, get_settings
 from app.db.models import BusinessResearchJob
@@ -168,7 +168,7 @@ def run_job(db: Session, job: BusinessResearchJob, settings: Settings | None = N
 
     model = settings.insight_model
     code = job.stock_code
-    session = requests.Session()
+    session = _http.resilient_session()
     corp_code = tools.resolve_corp_code(db, code)
     ctx = tools.ToolContext(db=db, settings=settings, session=session, code=code, corp_code=corp_code)
 

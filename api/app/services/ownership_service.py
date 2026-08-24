@@ -10,11 +10,11 @@ from __future__ import annotations
 import logging
 from datetime import UTC, date, datetime, timedelta
 
-import requests
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.adapters import dart
+from app.adapters.external import _http
 from app.config import Settings
 from app.db.models import (
     CorpCodeMap,
@@ -111,7 +111,7 @@ def _get_changes(
         )
 
     try:
-        with requests.Session() as session:
+        with _http.resilient_session() as session:
             raw = dart.fetch_ownership_changes(settings.dart_api_key, corp_code, session)
     except dart.DartQuotaExceeded:
         logger.info("ownership changes: DART quota exceeded %s", code)
@@ -216,7 +216,7 @@ def _get_major_holders(
         return [MajorHolderOut(**p) for p in (cached.payload if cached else [])]
 
     try:
-        with requests.Session() as session:
+        with _http.resilient_session() as session:
             raw = dart.fetch_major_shareholders(settings.dart_api_key, corp_code, session)
     except dart.DartQuotaExceeded:
         logger.info("major holders: DART quota exceeded %s", code)
@@ -267,7 +267,7 @@ def _get_dilution(
     bgn_de = (today.replace(year=today.year - 3)).strftime("%Y%m%d")
     end_de = today.strftime("%Y%m%d")
     try:
-        with requests.Session() as session:
+        with _http.resilient_session() as session:
             cb_raw = dart.fetch_cb_issuance(settings.dart_api_key, corp_code, bgn_de, end_de, session)
             bw_raw = dart.fetch_bw_issuance(settings.dart_api_key, corp_code, bgn_de, end_de, session)
     except dart.DartQuotaExceeded:

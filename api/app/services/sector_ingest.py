@@ -9,11 +9,11 @@ from __future__ import annotations
 import logging
 import time
 
-import requests
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from app.adapters.external import _http
 from app.db.models import SectorTheme, SectorThemeStock
 from reporter import judal, sector_etf
 
@@ -59,7 +59,7 @@ def refresh_sectors(db: Session, max_themes: int | None = None) -> int:
 
     max_themes 로 갱신 개수를 제한할 수 있다(부분 갱신·테스트용).
     """
-    session = requests.Session()
+    session = _http.resilient_session()
     themes = judal.fetch_themes(session)
     if not themes:
         logger.warning("judal returned no themes; skip sector refresh")

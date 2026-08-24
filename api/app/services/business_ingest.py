@@ -32,6 +32,7 @@ from sqlalchemy.orm import Session
 from app.adapters import dart
 from app.adapters.dart import report_parser as dart_report_parser
 from app.adapters.dart import throttle as dart_throttle
+from app.adapters.external import _http
 from app.adapters.llm.factory import get_llm
 from app.config import Settings, get_settings
 from app.db.models import (
@@ -1044,14 +1045,14 @@ def assemble_overview(db: Session, settings: Settings, code: str, *, progress=No
     if llm is None:
         logger.info("business assemble %s: LLM 미설정 — 원문만 적재 가능", code)
 
-    with requests.Session() as session:
+    with _http.resilient_session() as session:
         reports = _gather_for_assembly(settings, corp_code, session)
     if not reports:
         return None
 
     # ── Phase 1: DART 추출 (짧은 트랜잭션, 즉시 COMMIT) ──────────────────
     try:
-        with requests.Session() as session:
+        with _http.resilient_session() as session:
             for rcept, kind, _year in reports:
                 if _load_raw(db, code, rcept):
                     continue
@@ -1447,7 +1448,7 @@ def refresh_if_new_report(db: Session, settings: Settings, code: str) -> bool:
     corp_code = db.scalar(select(CorpCodeMap.corp_code).where(CorpCodeMap.stock_code == code))
     if not corp_code or not settings.dart_api_key:
         return False
-    with requests.Session() as session:
+    with _http.resilient_session() as session:
         reports = _gather_for_assembly(settings, corp_code, session)
     if not reports:
         return False

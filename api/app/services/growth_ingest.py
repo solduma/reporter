@@ -15,6 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from app.adapters.external import _http
 from app.adapters.market import naver as chart
 from app.adapters.market import naver_quote as quote
 from app.db.models import Financial as GrowthFinancial
@@ -70,7 +71,7 @@ def run_growth_batch(db: Session, limit: int | None = None) -> dict:
         stmt = stmt.limit(limit)
     codes = list(db.scalars(stmt).all())
 
-    session = requests.Session()
+    session = _http.resilient_session()
     fin_count = 0
     for code in codes:
         try:

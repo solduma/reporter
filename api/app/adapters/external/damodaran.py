@@ -13,6 +13,8 @@ from dataclasses import dataclass
 
 import requests
 
+from app.adapters.external import _http
+
 logger = logging.getLogger(__name__)
 
 _URL = "https://pages.stern.nyu.edu/~adamodar/pc/datasets/ctryprem.xlsx"
@@ -30,7 +32,7 @@ class CountryErp:
 def fetch_country_erp(country: str = "Korea") -> CountryErp | None:
     """Damodaran xlsx 에서 지정 국가 Total ERP. 네트워크·파싱 실패 시 None."""
     try:
-        resp = requests.get(_URL, headers={"User-Agent": "Mozilla/5.0"}, timeout=30)
+        resp = _http.resilient_get(_URL, headers={"User-Agent": "Mozilla/5.0"}, timeout=30)
         resp.raise_for_status()
         import openpyxl  # 지연 import(무거운 의존성, 이 경로에서만 필요)
 

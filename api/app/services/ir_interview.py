@@ -13,11 +13,11 @@ from __future__ import annotations
 import logging
 from concurrent.futures import ThreadPoolExecutor
 
-import requests
 from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from app.adapters.external import _http
 from app.adapters.llm.factory import get_llm
 from app.config import Settings, get_settings
 from app.db.models import DeepDiveReport, IrInterviewJob, IrInterviewReport
@@ -170,7 +170,7 @@ def generate(db: Session, code: str, settings: Settings | None = None) -> dict:
         raise RuntimeError("딥다이브 밸류에이션 결과가 없습니다(먼저 딥다이브 실행 필요)")
 
     model = settings.insight_model
-    session = requests.Session()
+    session = _http.resilient_session()
     corp_code = tools.resolve_corp_code(db, code)
     ctx = tools.ToolContext(db=db, settings=settings, session=session, code=code, corp_code=corp_code)
 

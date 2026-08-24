@@ -13,6 +13,7 @@ from datetime import datetime
 
 import requests
 
+from app.adapters.external import _http
 from app.config import Settings
 from app.domain.candle import Candle, resample_candles_30min
 
@@ -205,7 +206,7 @@ def fetch_intraday_30min(
 
     거래일마다 1분봉을 페이징 수집 후 30분으로 리샘플해 이어붙인다. 실패 시 빈 리스트.
     """
-    session = session or requests.Session()
+    session = session or _http.resilient_session()
     token = _access_token(settings, session)
     if not token:
         return []

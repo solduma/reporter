@@ -10,13 +10,13 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 
-import requests
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.adapters import dart
 from app.adapters.dart import throttle as dart_throttle
+from app.adapters.external import _http
 from app.config import Settings, get_settings
 from app.db.models import (
     CorpCodeMap,
@@ -67,7 +67,7 @@ def backfill_stock(db: Session, settings: Settings, code: str, corp_map: dict[st
     related: list[dart.RelatedParty] = []
     hyslr_rows: list[dart.HyslrRow] | None = None
     base_year: int | None = None
-    with requests.Session() as session:
+    with _http.resilient_session() as session:
         # 최신 확정 사업연도부터 역순 — 사업보고서는 다음 해 제출이라 직전 연도부터 시도.
         for year in range(today.year - 1, today.year - 1 - _YEARS_BACK, -1):
             hyslr_rows = dart.fetch_hyslr_rows(settings.dart_api_key, corp_code, year, 4, session)
@@ -151,7 +151,7 @@ def _upsert_ownership_summary(
     floating_shares: int | None = None
     floating_ratio: float | None = None
     try:
-        with requests.Session() as session:
+        with _http.resilient_session() as session:
             st = dart.fetch_stock_total(settings.dart_api_key, corp_code, year, 4, session)
         if st and st.issued and st.issued > 0:
             outstanding = st.outstanding or (st.issued - (st.treasury or 0))
