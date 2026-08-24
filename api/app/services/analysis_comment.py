@@ -28,7 +28,11 @@ _inflight: set[str] = set()
 _inflight_lock = threading.Lock()
 
 
-def inputs_hash(axes: list[dict], context: analysis.CommentContext | None = None) -> str:
+def inputs_hash(
+    axes: list[dict],
+    context: analysis.CommentContext | None = None,
+    deepdive_note: str | None = None,
+) -> str:
     """코멘트 입력을 결정적으로 직렬화해 해시한다. 입력이 바뀌면 캐시가 무효화된다.
 
     **축 점수(key→score) + coarse 맥락만** 해시한다. metrics 값·시황 요약 원문에는 장중 초 단위로
@@ -48,7 +52,12 @@ def inputs_hash(axes: list[dict], context: analysis.CommentContext | None = None
         else None
     )
     payload = json.dumps(
-        {"scores": scores, "ctx": coarse_ctx, "sys": analysis._COMMENT_SYSTEM},
+        {
+            "scores": scores,
+            "ctx": coarse_ctx,
+            "sys": analysis._COMMENT_SYSTEM,
+            "dd": deepdive_note or "",
+        },
         ensure_ascii=False,
         sort_keys=True,
     )
@@ -77,8 +86,20 @@ def generate_and_store(
         _inflight.add(key)
     try:
         settings = get_settings()
+        from app.services import insight_feedback
+
+        fdb = SessionLocal()
+        try:
+            note = insight_feedback.get_summary(fdb, code)
+        finally:
+            fdb.close()
         comment = analysis.llm_comment(
-            get_llm(settings), settings.insight_model, name, axes, context
+            get_llm(settings),
+            settings.insight_model,
+            name,
+            axes,
+            context,
+            deepdive_note=note,
         )
         if not comment:
             return  # 키 없음·실패 → 캐시하지 않음(다음 조회에서 재시도)

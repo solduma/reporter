@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from unittest.mock import MagicMock
 
 import requests
@@ -18,9 +19,32 @@ def test_get_llm_none_without_key():
 
 
 def test_get_llm_returns_adapter_with_key():
-    s = Settings(ollama_api_key="k", ollama_host="https://ollama.test")
+    s = Settings(
+        ollama_api_key="k",
+        ollama_host="https://ollama.test",
+        fallback_ollama_host="",   # .env 의 폴백 구성 무시 — 단일 프로바이더 케이스 검증
+        fallback_ollama_api_key="",
+    )
     llm = get_llm(s)
     assert isinstance(llm, OllamaLLMAdapter)
+
+
+def test_get_llm_wraps_resilient_when_fallback_configured():
+    s = Settings(
+        ollama_api_key="k",
+        ollama_host="https://primary.test",
+        fallback_ollama_host="https://fallback.test",
+        fallback_ollama_api_key="fk",
+        fallback_insight_model="fb-model",
+    )
+    from app.adapters.llm.resilient import ResilientLLMAdapter
+
+    llm = get_llm(s)
+    assert isinstance(llm, ResilientLLMAdapter)
+    # 주 구간: 모델명 통과 / 쿨다운(폴백 활성) 구간: 매핑된 폴백 모델명
+    assert llm._map_model(s.insight_model) == s.insight_model
+    llm._fallback_until = time.monotonic() + 60
+    assert llm._map_model(s.insight_model) == "fb-model"
 
 
 def test_adapter_normalizes_ollama_error(monkeypatch):

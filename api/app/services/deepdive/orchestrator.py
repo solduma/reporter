@@ -51,8 +51,13 @@ def _is_stage_error(result) -> bool:
 
 
 def _handle_hitl(
-    db: Session, job: DeepDiveJob, rep: DeepDiveReport, llm: LLMPort, model: str,
-    ctx: tools.ToolContext, prior: dict,
+    db: Session,
+    job: DeepDiveJob,
+    rep: DeepDiveReport,
+    llm: LLMPort,
+    model: str,
+    ctx: tools.ToolContext,
+    prior: dict,
 ) -> bool:
     """밸류에이션 직전 HITL 처리. 진행 가능하면 True, 사용자 인풋 대기로 일시정지하면 False.
 
@@ -119,7 +124,9 @@ def run_job(db: Session, job: DeepDiveJob, settings: Settings | None = None) -> 
     code = job.stock_code
     session = _http.resilient_session()
     corp_code = tools.resolve_corp_code(db, code)
-    ctx = tools.ToolContext(db=db, settings=settings, session=session, code=code, corp_code=corp_code)
+    ctx = tools.ToolContext(
+        db=db, settings=settings, session=session, code=code, corp_code=corp_code
+    )
 
     job.status = "running"
     job.started_at = datetime.now(UTC)
@@ -133,8 +140,11 @@ def run_job(db: Session, job: DeepDiveJob, settings: Settings | None = None) -> 
     fin_fp = freshness.financials_fingerprint(db, code)
 
     json_cols = {
-        "overview": "overview_json", "redflags": "redflags_json", "business": "business_json",
-        "thesis": "thesis_json", "valuation": "valuation_json",
+        "overview": "overview_json",
+        "redflags": "redflags_json",
+        "business": "business_json",
+        "thesis": "thesis_json",
+        "valuation": "valuation_json",
     }
     # 재개(좀비 회수): current_stage>0 이면 그 단계까지 완료된 것. 완료 단계 결과를 보존·재사용한다.
     resume_from = job.current_stage if job.current_stage else 0
@@ -166,6 +176,13 @@ def run_job(db: Session, job: DeepDiveJob, settings: Settings | None = None) -> 
             db.commit()
         # 통합 서술 본문 + verdict/upside.
         _finalize(llm, model, code, prior, rep, fin_fp)
+        try:
+            # 인사이트 소비처(comment 등)가 참조할 요약 저장 — 실패해도 본 처리 무관.
+            from app.services import insight_feedback
+
+            insight_feedback.upsert_from_deepdive(db, code, rep)
+        except Exception:
+            logger.exception("insight feedback upsert failed %s", code)
         job.progress = 100
         job.current_stage = total
         job.status = "done"
@@ -176,7 +193,11 @@ def run_job(db: Session, job: DeepDiveJob, settings: Settings | None = None) -> 
         # DART 한도초과: 불완전 데이터로 강행하지 않고 즉시 중단(재시도 매달림 방지). 자정 리셋 후 재실행.
         db.rollback()
         logger.warning("deepdive aborted (DART quota) %s", code)
-        _fail(db, job, "DART 일일 조회한도 초과로 중단(자정 리셋 후 재실행). 부분 데이터로 강행 안 함.")
+        _fail(
+            db,
+            job,
+            "DART 일일 조회한도 초과로 중단(자정 리셋 후 재실행). 부분 데이터로 강행 안 함.",
+        )
     except LLMError as e:
         db.rollback()
         _fail(db, job, f"LLM 오류: {e}")
@@ -294,7 +315,9 @@ def enqueue(db: Session, code: str) -> DeepDiveJob:
     """
     existing = db.scalar(
         select(DeepDiveJob)
-        .where(DeepDiveJob.stock_code == code, DeepDiveJob.status.in_(("pending", "running", "paused")))
+        .where(
+            DeepDiveJob.stock_code == code, DeepDiveJob.status.in_(("pending", "running", "paused"))
+        )
         .order_by(DeepDiveJob.id.desc())
     )
     if existing:
@@ -330,7 +353,10 @@ def submit_hitl(db: Session, code: str, user_input: str) -> DeepDiveJob | None:
 def latest_job(db: Session, code: str) -> DeepDiveJob | None:
     """종목의 최신 job(진행·완료 무관). 프론트 상태폴링용."""
     return db.scalar(
-        select(DeepDiveJob).where(DeepDiveJob.stock_code == code).order_by(DeepDiveJob.id.desc()).limit(1)
+        select(DeepDiveJob)
+        .where(DeepDiveJob.stock_code == code)
+        .order_by(DeepDiveJob.id.desc())
+        .limit(1)
     )
 
 
@@ -367,8 +393,12 @@ def claim_next(db: Session) -> DeepDiveJob | None:
         .limit(1)
     )
     if stale is not None:
-        logger.warning("reclaiming stale running deepdive job %d (%s) — resume from stage %d",
-                       stale.id, stale.stock_code, stale.current_stage)
+        logger.warning(
+            "reclaiming stale running deepdive job %d (%s) — resume from stage %d",
+            stale.id,
+            stale.stock_code,
+            stale.current_stage,
+        )
         # current_stage 는 보존(완료 단계 이후부터 재개). status 만 pending 으로 되돌린다.
         stale.status = "pending"
         stale.started_at = None

@@ -191,13 +191,18 @@ def company_analysis(
 
     # 가치 축 — 온톨로지 비율값 기준(C1). company_ratios() 가 CFS→OFS 폴백.
     ratio_map = {
-        r.ratio_id: r.value
-        for r in ontology_service.company_ratios(db, code, fs_div="CFS")
+        r.ratio_id: r.value for r in ontology_service.company_ratios(db, code, fs_div="CFS")
     }
     vi = analysis_scoring.ValueInputs.from_ratio_map(ratio_map, g)
     value_sc, (per_r, pbr_r, ev_r, peg_r) = analysis_scoring.value_score_abs(
-        vi.per, vi.pbr, vi.ev_ebitda, vi.roe, vi.div_yield,
-        vi.eps_yoy, vi.net_status, vi.net_margin_delta,
+        vi.per,
+        vi.pbr,
+        vi.ev_ebitda,
+        vi.roe,
+        vi.div_yield,
+        vi.eps_yoy,
+        vi.net_status,
+        vi.net_margin_delta,
     )
     peg_val = analysis_scoring.peg(vi.per, vi.eps_yoy)
     peg_display = (
@@ -368,12 +373,22 @@ def company_analysis(
     comment = None
     comment_pending = False
     if settings.ollama_api_key:
+        from app.services import insight_feedback
+
         ctx = _comment_context(db, code)
-        h = analysis_comment.inputs_hash(axes_dump, ctx)
+        dd_note = insight_feedback.get_summary(db, code)  # 딥다이브 갱신 시 코멘트 재생성 트리거
+        h = analysis_comment.inputs_hash(axes_dump, ctx, deepdive_note=dd_note)
         comment = analysis_comment.get_cached(db, code, h)
         if comment is None:
             comment_pending = True
-            bg.add_task(analysis_comment.generate_and_store, code, name or code, axes_dump, h, ctx)
+            bg.add_task(
+                analysis_comment.generate_and_store,
+                code,
+                name or code,
+                axes_dump,
+                h,
+                ctx,
+            )
 
     return CompanyAnalysis(
         stock_code=code,
@@ -705,6 +720,7 @@ def company_financial_statements(
         "dart_CashAndCashEquivalentsAtBeginningOfPeriodCf",
         "dart_CashAndCashEquivalentsAtEndOfPeriodCf",
     )
+
     def _is_level0(name: str, account_id: str = "") -> bool:
         # CF 대분류는 DART 계정명에 공백·"분기말" 등 변형이 있어 account_id 우선 판정.
         if account_id and any(account_id.startswith(p) for p in _CF_LEVEL0_ACCOUNT_PREFIXES):
@@ -725,7 +741,9 @@ def company_financial_statements(
                 result = ontology_service.normalize([i["name"]])[0]
                 i["ontology_id"] = result.id
                 if i["ontology_id"] is None and i.get("account_id"):
-                    i["ontology_id"] = ontology_service.normalize([i["account_id"]], standard="dart")[0].id
+                    i["ontology_id"] = ontology_service.normalize(
+                        [i["account_id"]], standard="dart"
+                    )[0].id
         return [
             FinancialStatementItem(
                 account_id=i.get("account_id", ""),
@@ -849,9 +867,7 @@ def company_financial_statements(
         for item in items:
             if item.children:
                 item.children = _sort_items(item.children, order)
-        return sorted(
-            items, key=lambda i: (_sort_key(i.name, i.account_id, order), i.name)
-        )
+        return sorted(items, key=lambda i: (_sort_key(i.name, i.account_id, order), i.name))
 
     def _group_is_items(items: list[FinancialStatementItem]) -> list[FinancialStatementItem]:
         """account_id 기반으로 IS/CIS 항목을 표준 그룹에 재분류.
@@ -1115,9 +1131,7 @@ def company_financial_statements(
 
 
 @router.get("/{code}/ownership", response_model=OwnershipOut)
-def company_ownership(
-    code: str, db: Session = Depends(get_session)
-) -> OwnershipOut:
+def company_ownership(code: str, db: Session = Depends(get_session)) -> OwnershipOut:
     """종목 지분구조 — 좌측 주주 명부 + 우측 자회사·출자사 + 하단 최근 지분변동.
 
     주주·자회사는 DB 영속분(야간 related_company_ingest). 최근 변동은 elestock live + 12h 캐시
