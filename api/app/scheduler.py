@@ -96,7 +96,7 @@ _REPORT_BACKFILL_CRON = CronTrigger(hour=5, minute=0, timezone=_TZ)
 # 야간 batch가 같은 DART 키 1을 소진하므로 11시면 새벽 budget으로 완전히 회복된 상태.
 # RegularReports document.xml 도 같이 수신. LLM 정리 무거워 per_run=50.
 # 2개 DART 키 budget(각 18,000콜) 90% 활용 목표 — 야간 consumption 분석 결과 반영.
-_BUSINESS_OVERVIEW_BACKFILL_CRON = CronTrigger(hour=11, minute=0, timezone=_TZ)
+_BUSINESS_OVERVIEW_BACKFILL_CRON = CronTrigger(hour=3, minute=0, timezone=_TZ)
 # 리포트 원문(full_text) 소급 적재: 매일 05:30. 컬럼 추가 이전 리포트를 MinIO PDF 에서 회당 60건씩
 # 채운다(재개 가능). 리포트 파싱 백필(05:00) 직후, 뉴스(07:00) 이전.
 _REPORT_FULLTEXT_CRON = CronTrigger(hour=5, minute=30, timezone=_TZ)
@@ -124,7 +124,7 @@ _CALENDAR_CRON = CronTrigger(hour=6, minute=50, timezone=_TZ)
 _RISK_FREE_CRON = CronTrigger(hour=6, minute=45, timezone=_TZ)  # 무위험금리(ECOS 국고채) 매일 1회
 _MARKET_PREMIUM_CRON = CronTrigger(day=1, hour=6, minute=55, timezone=_TZ)  # ERP(Damodaran) 월 1회
 # CAPEX 경량 백필(FCFF용): 매일 04:00. 재무 백필(03:30) 직후, 관계사(04:30) 앞.
-_CAPEX_BACKFILL_CRON = CronTrigger(hour=4, minute=0, timezone=_TZ)
+_CAPEX_BACKFILL_CRON = CronTrigger(hour=4, minute=20, timezone=_TZ)
 # SCE 마이그레이션: 매일 05:45. 리포트 원문 백필(05:00)·사업개요(05:15) 뒤.
 _SCE_MIGRATION_CRON = CronTrigger(hour=5, minute=45, timezone=_TZ)
 
