@@ -149,30 +149,68 @@ def test_inputs_hash_stable_and_distinct():
     assert h1 != bi._inputs_hash([("R1", bo.ANNUAL, 2024)])
 
 
-# ── 정기보고서 발견(베이스 + 이후 오버레이) ───────────────────────────────
-def test_gather_for_assembly_base_annual_plus_later_half_quarter():
-    """베이스 = 최신 annual. 그 이후(동일 rcept 이후) half/quarter 만 오버레이."""
+# ── 소스 수집(최근 1년 전체 + IPO 폴백) ──────────────────────────────────
+def _list_rows(*pairs):
+    """[(rcept_no, report_nm)] → list.json 행 형태."""
+    return [{"rcept_no": r, "report_nm": nm} for r, nm in pairs]
 
-    # annual R2025(2024연도분), half R2026, quarter R2027, 과거 quarter R2024는 제외.
-    def fake_find(api_key, corp_code, year, kind, session):
-        return {
-            (2024, "annual"): "R2025",
-            (2025, "half"): "R2026",
-            (2025, "quarter"): "R2027",
-            (2024, "quarter"): "R2024",  # 베이스 이전 — 제외
-        }.get((year, kind))
 
-    with patch.object(bi.dart, "find_periodic_report", side_effect=fake_find):
+def test_gather_collects_all_periodic_in_window_with_amendment_dedupe():
+    """최근 1년치 사업·반기·분기를 모두 수집하고, 동일 종류·기간의 정정본은 최신만 남긴다."""
+    rows = _list_rows(
+        ("R2029", "[기재정정]분기보고서 (2026.09)"),  # 정정 — 채택
+        ("R2028", "분기보고서 (2026.09)"),  # 원본 — 폐기
+        ("R2027", "반기보고서 (2026.06)"),
+        ("R2025", "사업보고서 (2025.12)"),
+        ("R2020", "사업보고서요약"),  # 대상기간 태그 없음 — 제외
+    )
+    with patch.object(bi.dart, "find_all_periodic_reports", return_value=rows):
         reports = bi._gather_for_assembly(_settings(), "corp", MagicMock())
-    assert reports[0] == ("R2025", bo.ANNUAL, 2024)  # 베이스
-    rcepts = [r for r, _k, _y in reports]
-    assert "R2024" not in rcepts  # 베이스 이전 제외
-    assert "R2026" in rcepts and "R2027" in rcepts
+
+    assert reports == [
+        ("R2025", bo.ANNUAL, 2025),
+        ("R2027", bo.HALF, 2026),
+        ("R2029", bo.QUARTER, 2026),
+    ]
 
 
-def test_gather_for_assembly_no_annual_returns_empty():
-    with patch.object(bi.dart, "find_periodic_report", return_value=None):
+def test_gather_falls_back_to_ipo_docs_without_annual():
+    """사업보고서 부재(신규 상장) → 증권신고서·투자설명서를 소스로 사용."""
+    rows = _list_rows(
+        ("R2027", "반기보고서 (2026.06)"),  # 반기만 있어도 annual 없으면 IPO 경로
+        ("R2026", "[발행조건확정]증권신고서(지분증권)"),
+        ("R2026b", "투자설명서"),
+    )
+    with (
+        patch.object(bi.dart, "find_all_periodic_reports", return_value=rows[:1]),
+        patch.object(
+            bi.dart,
+            "find_ipo_reports",
+            return_value={
+                "security": "20260626000241",
+                "invest": "20260626000243",
+            },
+        ),
+    ):
+        reports = bi._gather_for_assembly(_settings(), "corp", MagicMock())
+    # 증권신고서 → 투자설명서 순(접수 오름차순), 연도=접수연도
+    assert reports == [
+        ("20260626000241", bo.SECURITY, 2026),
+        ("20260626000243", bo.INVEST, 2026),
+    ]
+
+
+def test_gather_no_sources_at_all_returns_empty():
+    with (
+        patch.object(bi.dart, "find_all_periodic_reports", return_value=[]),
+        patch.object(bi.dart, "find_ipo_reports", return_value={"security": None, "invest": None}),
+    ):
         assert bi._gather_for_assembly(_settings(), "corp", MagicMock()) == []
+
+
+def test_section_id_for_kind_covers_ipo_kinds():
+    assert bo.section_id_for_kind(bo.SECURITY) == bo.SECTION_BUSINESS_CONTENT
+    assert bo.section_id_for_kind(bo.INVEST) == bo.SECTION_BUSINESS_CONTENT
 
 
 # ── 캐시 왕복 ─────────────────────────────────────────────────────────────
@@ -256,13 +294,12 @@ def _fake_llm_chat(model, system, user, temperature=0.3, **kw):
 def test_assemble_overview_persists_cache(db):
     """원문 추출·적재 → map/reduce → 섹션별 생성 → 리뷰 → 캐시 저장 흐름(모킹)."""
     _seed_corp(db)
-    reports_map = {
-        (2024, "annual"): "R2025",
-        (2025, "quarter"): "R2027",
-    }
 
-    def fake_find(api_key, corp_code, year, kind, session):
-        return reports_map.get((year, kind))
+    def fake_all(api_key, corp_code, bgn_de, session):
+        return _list_rows(
+            ("R2027", "분기보고서 (2026.03)"),
+            ("R2025", "사업보고서 (2025.12)"),
+        )
 
     fake_xml = _zip_bytes("II. 사업의 내용\n회사는 반도체 제조. III. 임원 등에 관한 사항\n")
 
@@ -274,7 +311,7 @@ def test_assemble_overview_persists_cache(db):
     progresses: list[int] = []
 
     with (
-        patch.object(bi.dart, "find_periodic_report", side_effect=fake_find),
+        patch.object(bi.dart, "find_all_periodic_reports", side_effect=fake_all),
         patch.object(bi.dart_report_parser, "fetch_report_zip", side_effect=fake_fetch_zip),
         patch.object(bi, "get_llm", return_value=llm),
         patch.object(bi.company_service, "report_stock_name", return_value="삼성전자"),
@@ -285,7 +322,7 @@ def test_assemble_overview_persists_cache(db):
         )
 
     assert payload is not None
-    assert payload["as_of_annual_rcept"] == "R2025"
+    assert payload["as_of_annual_rcept"] == "R2027"  # 기준 = 최신 접수본
     ids = [s["id"] for s in payload["sections"]]
     assert ids == list(bo.INVESTOR_SECTIONS)  # 매핑이 빈 섹션까지 채움
     by_id = {s["id"]: s for s in payload["sections"]}
@@ -302,8 +339,8 @@ def test_assemble_overview_majority_section_failure_raises(db):
     """섹션 생성 과반 실패 시 AssemblyError(캐시 저장 안 함)."""
     _seed_corp(db)
 
-    def fake_find(api_key, corp_code, year, kind, session):
-        return "R2025" if (year, kind) == (2024, "annual") else None
+    def fake_all(api_key, corp_code, bgn_de, session):
+        return _list_rows(("R2025", "사업보고서 (2025.12)"))
 
     def broken_chat(model, system, user, temperature=0.3, **kw):
         if "단 하나의 섹션만" in system:
@@ -314,7 +351,7 @@ def test_assemble_overview_majority_section_failure_raises(db):
     llm.chat.side_effect = broken_chat
 
     with (
-        patch.object(bi.dart, "find_periodic_report", side_effect=fake_find),
+        patch.object(bi.dart, "find_all_periodic_reports", side_effect=fake_all),
         patch.object(
             bi.dart_report_parser,
             "fetch_report_zip",
@@ -337,11 +374,11 @@ def test_assemble_overview_llm_unset_returns_none_but_stores_raw(db):
     """LLM 미설정 시 원문만 적재하고 조립은 None(캐시 미생성)."""
     _seed_corp(db)
 
-    def fake_find(api_key, corp_code, year, kind, session):
-        return "R2025" if (year, kind) == (2024, "annual") else None
+    def fake_all(api_key, corp_code, bgn_de, session):
+        return _list_rows(("R2025", "사업보고서 (2025.12)"))
 
     with (
-        patch.object(bi.dart, "find_periodic_report", side_effect=fake_find),
+        patch.object(bi.dart, "find_all_periodic_reports", side_effect=fake_all),
         patch.object(
             bi.dart_report_parser,
             "fetch_report_zip",

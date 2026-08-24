@@ -706,9 +706,7 @@ def _parse_income_equity(rows: list[dict]) -> IncomeEquity:
     is_cis = _is_cis_statement(rows)  # 금융업(CIS 기반) 여부 — revenue 합산 스코프.
     # 구성요소 합산은 운영 수익 구성요소(수수료·기타영업수익·보험수익)가 있을 때만.
     # 일반 기업이 CIS 형식으로 보고하면(023440) ifrs-full_Revenue(수익(매출액)) 단일 매출.
-    cis_sum = is_cis and any(
-        (r.get("account_id") or "") in _CIS_REVENUE_COMPONENTS for r in rows
-    )
+    cis_sum = is_cis and any((r.get("account_id") or "") in _CIS_REVENUE_COMPONENTS for r in rows)
     cis_rev_fallback = None  # CIS에 구성요소가 없을 때 쓸 ifrs-full_Revenue(영업수익) 후보.
     borrowings = 0.0
     got_borrowing = False
@@ -1000,8 +998,11 @@ def fetch_income_summary(
     if revenue is None and operating_income is None and net_income is None and equity is None:
         return None
     return IncomeEquity(
-        revenue=revenue, operating_income=operating_income, net_income=net_income,
-        eps=None, equity=equity,
+        revenue=revenue,
+        operating_income=operating_income,
+        net_income=net_income,
+        eps=None,
+        equity=equity,
     )
 
 
@@ -1279,6 +1280,42 @@ def find_all_periodic_reports(
         page += 1
     # 접수일 최신순(정정 제출이 마지막 — 마이그레이션은 최신 원문을 우선 사용).
     return sorted(reports, key=lambda r: r.get("rcept_no", ""), reverse=True)
+
+
+def find_ipo_reports(
+    api_key: str, corp_code: str, bgn_de: str, session: requests.Session
+) -> dict[str, str | None]:
+    """발행공시(pblntf_ty=C)에서 최신 증권신고서·투자설명서 접수번호.
+
+    신규 상장 종목처럼 사업보고서가 아직 없는 회사의 조립 소스 확보용. 각 키워드별
+    가장 늦은 접수([기재정정] 포함)를 택한다. 조회 실패·없음은 값 None.
+    """
+    params = {
+        "crtfc_key": api_key,
+        "corp_code": corp_code,
+        "bgn_de": bgn_de,
+        "end_de": date.today().strftime("%Y%m%d"),
+        "pblntf_ty": "C",  # 발행공시
+        "page_count": 100,
+    }
+    try:
+        resp = dart_throttle.get(session, _LIST_URL, params=params, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+    except (requests.RequestException, ValueError) as e:
+        logger.warning("dart ipo list failed %s: %s", corp_code, e)
+        return {"security": None, "invest": None}
+    _raise_if_quota(data)
+    if data.get("status") != "000":
+        return {"security": None, "invest": None}
+
+    out: dict[str, str | None] = {"security": None, "invest": None}
+    for r in data.get("list", []):
+        nm = r.get("report_nm") or ""
+        for key, kw in (("security", "증권신고서"), ("invest", "투자설명서")):
+            if kw in nm and (r.get("rcept_no") or "") > (out[key] or ""):
+                out[key] = r["rcept_no"]
+    return out
 
 
 # 공시 본문 XML 의 태그를 제거해 순수 텍스트로. 표·서식은 버리고 판단에 쓸 서술만 남긴다.

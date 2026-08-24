@@ -38,6 +38,8 @@ const KIND_LABEL: Record<string, string> = {
   annual: "사업",
   half: "반기",
   quarter: "분기",
+  security: "증권신고서",
+  invest: "투자설명서",
 };
 
 function sectionTitle(id: string, title: string): string {

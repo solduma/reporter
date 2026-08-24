@@ -18,6 +18,9 @@ ANNUAL = "annual"
 HALF = "half"
 QUARTER = "quarter"
 PERIODIC_KINDS = (ANNUAL, HALF, QUARTER)
+# 사업보고서가 없는 신규 상장사 폴백 소스(발행공시).
+SECURITY = "security"  # 증권신고서
+INVEST = "invest"  # 투자설명서
 
 # 정기보고서 원문에서 추출하는 조악한 섹션 ID.
 # - annual: 'II. 사업의 내용' 전체 블록(사업 개요·제품·시장위험·원재료·생산·판매·주주구성 포함).
@@ -86,7 +89,10 @@ class BusinessOverview:
 
 
 def section_id_for_kind(kind: str) -> str:
-    """정기보고서 종류 → 추출할 조악 섹션 ID. annual 은 사업의 내용, half/quarter 는 회사 개황."""
+    """보고서 종류 → 추출할 조악 섹션 ID. annual·security·invest 는 사업 본문 계열,
+    half/quarter 는 회사 개황."""
     if kind == ANNUAL:
+        return SECTION_BUSINESS_CONTENT
+    if kind in (SECURITY, INVEST):
         return SECTION_BUSINESS_CONTENT
     return SECTION_COMPANY_OVERVIEW
