@@ -41,7 +41,6 @@ from app.db.models import (
     BusinessOverviewCache,
     BusinessReportRaw,
     CorpCodeMap,
-    SegmentSales,
     SyncState,
     UniverseSnapshot,
 )
@@ -590,63 +589,6 @@ def _inputs_hash(reports: list[tuple[str, str, int]]) -> str:
 
 
 # 사업보고서(annual) DART 보고서 코드 — iotHom3MdQe reprt_code 파라미터.
-_ANNUAL_REPORT_CODE = "11011"
-
-
-def fetch_segment_sales_for(
-    db: Session,
-    settings: Settings,
-    code: str,
-    corp_code: str,
-    base_year: int,
-    base_rcept: str,
-    session: requests.Session,
-) -> int:
-    """iotHom3MdQe(부문별 매출) 조회 → segment_sales 테이블 영속. 저장 행 수 반환.
-
-    사업보고서(11011) 연간 기준. 별도 DART 호출(연간 +1) — 종목당 할당량 소비 감수(사용자 결정).
-    실패·데이터없음·한도초과 시 0(조립 중단 아님 — 부문 매출은 보강 정보). 이미 저장된 연도는 스킵.
-    """
-    if not settings.dart_api_key:
-        return 0
-    # 같은 (stock_code, bsns_year, report_code) 이미 있으면 재조회 스킵(연간 1회).
-    exists = db.scalar(
-        select(func.count())
-        .select_from(SegmentSales)
-        .where(
-            SegmentSales.stock_code == code,
-            SegmentSales.bsns_year == str(base_year),
-            (SegmentSales.report_code == base_rcept) if base_rcept else True,
-        )
-    )
-    if exists:
-        return 0
-    rows = dart.fetch_segment_sales(
-        settings.dart_api_key, corp_code, base_year, _ANNUAL_REPORT_CODE, session
-    )
-    if not rows:
-        return 0
-    for r in rows:
-        stmt = insert(SegmentSales).values(
-            stock_code=code,
-            bsns_year=r.bsns_year,
-            report_code=r.report_code,
-            segment_type=r.segment_type,
-            segment_name=r.segment_name,
-            revenue=r.revenue,
-            ratio_pct=r.ratio_pct,
-        )
-        stmt = stmt.on_conflict_do_update(
-            constraint="uq_segment_sales",
-            set_={
-                "revenue": stmt.excluded.revenue,
-                "ratio_pct": stmt.excluded.ratio_pct,
-            },
-        )
-        db.execute(stmt)
-    db.commit()
-    logger.info("segment_sales %s %s: %d rows", code, base_year, len(rows))
-    return len(rows)
 
 
 # ── 비즈니스 온톨로지 추출(LLM NER + 결정론적 정규화) ──────────────────────
@@ -1059,17 +1001,6 @@ def assemble_overview(db: Session, settings: Settings, code: str, *, progress=No
                 sections = extract_sections(settings, corp_code, rcept, kind, session)
                 if sections:
                     _store_raw(db, code, rcept, kind, _rcept_period(rcept), sections)
-
-            # 부문별 매출 — 구조화 데이터라 LLM과 무관하게 영속. annual(대상기간 연도) 필요.
-            base_annual = next(((r, y) for r, k, y in reports if k == bo.ANNUAL), None)
-            if base_annual:
-                base_rcept_pre, base_year_pre = base_annual
-                try:
-                    fetch_segment_sales_for(
-                        db, settings, code, corp_code, base_year_pre, base_rcept_pre, session
-                    )
-                except Exception as e:
-                    logger.warning("segment_sales %s skipped: %s", code, e)
 
         db.commit()  # ← Phase 1 완료: DART 추출만 커밋, LLM은 트랜잭션 밖
     except dart.DartQuotaExceeded:
