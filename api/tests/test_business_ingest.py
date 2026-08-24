@@ -174,30 +174,32 @@ def test_gather_collects_all_periodic_in_window_with_amendment_dedupe():
     ]
 
 
-def test_gather_falls_back_to_ipo_docs_without_annual():
-    """사업보고서 부재(신규 상장) → 증권신고서·투자설명서를 소스로 사용."""
+def test_gather_merges_ipo_docs_with_available_periodic():
+    """annual 부재 시에도 가용 정기보고서를 버리지 않는다 — IPO 문서와 합쳐 공시일 순."""
     rows = _list_rows(
-        ("R2027", "반기보고서 (2026.06)"),  # 반기만 있어도 annual 없으면 IPO 경로
-        ("R2026", "[발행조건확정]증권신고서(지분증권)"),
-        ("R2026b", "투자설명서"),
+        ("20260814000947", "반기보고서 (2026.06)"),
+        ("R2027", "분기보고서 (2026.09)"),  # 비숫자 가짜 id — 정렬 마지막으로 밀린다
     )
     with (
-        patch.object(bi.dart, "find_all_periodic_reports", return_value=rows[:1]),
+        patch.object(bi.dart, "find_all_periodic_reports", return_value=rows),
         patch.object(
             bi.dart,
             "find_ipo_reports",
-            return_value={
-                "security": "20260626000241",
-                "invest": "20260626000243",
-            },
+            return_value={"security": "20260626000241", "invest": "20260626000243"},
         ),
     ):
         reports = bi._gather_for_assembly(_settings(), "corp", MagicMock())
-    # 증권신고서 → 투자설명서 순(접수 오름차순), 연도=접수연도
-    assert reports == [
-        ("20260626000241", bo.SECURITY, 2026),
-        ("20260626000243", bo.INVEST, 2026),
+
+    # 공시일(접수) 오름차순: 증권신고서 → 투자설명서 → 반기 → 분기
+    assert [r for r, _k, _y in reports] == [
+        "20260626000241",
+        "20260626000243",
+        "20260814000947",
+        "R2027",
     ]
+    kinds = {r: k for r, k, _y in reports}
+    assert kinds["20260626000241"] == bo.SECURITY
+    assert kinds["20260814000947"] == bo.HALF
 
 
 def test_gather_no_sources_at_all_returns_empty():
