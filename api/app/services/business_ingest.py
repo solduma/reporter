@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import contextlib
 import hashlib
 import io
@@ -366,6 +367,9 @@ class AssemblyError(RuntimeError):
 # qwen3.5:cloud 는 reasoning 으로 240s 를 넘기는 호출이 있어 480s 로 상향 —
 # 여전히 무한대기 대비 호출 단위 절단선 역할은 유지.
 _LLM_CALL_DEADLINE_S = 480
+# 파이프라인 내 독립 호출(map 청크·섹션 생성)의 동시 실행 수. 직렬 실행은 잡당 25~35회
+# 호출이 수십 분 걸리는 병목 — 4레인으로 벽시계 시간을 3~5배 단축한다.
+_LLM_CONCURRENCY = 4
 
 
 def _chat_json(
@@ -1106,15 +1110,18 @@ def assemble_overview(db: Session, settings: Settings, code: str, *, progress=No
     chunks = [(kind, c) for kind, text in sources for c in _chunk_text(text)]
     facts: list[str] = []
     failed_chunks = 0
-    for i, (kind, chunk) in enumerate(chunks):
-        try:
-            facts.extend(_map_facts(llm, model, kind, chunk))
-        except LLMError as e:
-            failed_chunks += 1
-            logger.warning(
-                "business map %s chunk %d/%d 실패(스킵): %s", code, i + 1, len(chunks), e
-            )
-        _tick(5 + int(30 * (i + 1) / max(len(chunks), 1)))
+    done_count = 0
+    # 청크는 서로 독립 — 동시 호출로 map 벽시계 시간을 레인 수만큼 단축.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=_LLM_CONCURRENCY) as pool:
+        futs = {pool.submit(_map_facts, llm, model, prov, chunk): prov for prov, chunk in chunks}
+        for fut in concurrent.futures.as_completed(futs):
+            try:
+                facts.extend(fut.result())
+            except LLMError as e:
+                failed_chunks += 1
+                logger.warning("business map %s chunk 실패(스킵): %s", code, e)
+            done_count += 1
+            _tick(5 + int(30 * done_count / max(len(chunks), 1)))
     if not facts:
         raise AssemblyError(f"map 실패 — 사실 추출 0건({failed_chunks}/{len(chunks)} 청크 실패)")
     logger.info(
@@ -1132,13 +1139,23 @@ def assemble_overview(db: Session, settings: Settings, code: str, *, progress=No
     # ── Phase 2c: synthesize — 섹션별 개별 생성 ──────────────────────────
     sections: dict[str, dict] = {}
     section_errors: dict[str, str] = {}
-    for idx, sid in enumerate(bo.INVESTOR_SECTIONS):
-        try:
-            sections[sid] = _synthesize_section(llm, model, sid, name, catalog, feedback=None)
-        except LLMError as e:
-            section_errors[sid] = str(e)
-            logger.warning("business section %s/%s 실패: %s", code, sid, e)
-        _tick(55 + int(30 * (idx + 1) / len(bo.INVESTOR_SECTIONS)))
+    done_count = 0
+    # 섹션도 서로 독립 — 8회 직렬 호출이 최대 병목이므로 동시 생성.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=_LLM_CONCURRENCY) as pool:
+        futs = {
+            sid: pool.submit(_synthesize_section, llm, model, sid, name, catalog, None)
+            for sid in bo.INVESTOR_SECTIONS
+        }
+        rev = {fut: sid for sid, fut in futs.items()}
+        for fut in concurrent.futures.as_completed(rev):
+            sid = rev[fut]
+            try:
+                sections[sid] = fut.result()
+            except LLMError as e:
+                section_errors[sid] = str(e)
+                logger.warning("business section %s/%s 실패: %s", code, sid, e)
+            done_count += 1
+            _tick(55 + int(30 * done_count / len(bo.INVESTOR_SECTIONS)))
 
     ok_count = len(sections)
     if ok_count <= len(bo.INVESTOR_SECTIONS) // 2:
