@@ -77,6 +77,13 @@ apply_mode() {
     log "[$label] 전환 중… (model=$model)"
     backup_env "$ENV_ROOT"; backup_env "$ENV_API"; backup_env "$ENV_INFRA"
 
+    # 폴백 프로바이더(api 서버 전용) — 주 모델 rate limit 시 ResilientLLMAdapter 가 자동 전환.
+    if [ "$MODE" = "ollama" ]; then
+        FB_HOST="$ZEN_HOST"; FB_KEY="$(zen_key || true)"; FB_MODEL="muse-spark-1.2-contributor-free"
+    else
+        FB_HOST="$OLLAMA_HOST_LOCAL"; FB_KEY="dummy"; FB_MODEL="qwen3.5:cloud"
+    fi
+
     update_env "$ENV_ROOT"  "OLLAMA_HOST"           "$host_api"
     update_env "$ENV_ROOT"  "OLLAMA_API_KEY"        "$key"
     update_env "$ENV_ROOT"  "OLLAMA_SUMMARY_MODEL"  "$model"
@@ -91,6 +98,15 @@ apply_mode() {
     update_env "$ENV_INFRA" "OLLAMA_API_KEY"        "$key"
     update_env "$ENV_INFRA" "SUMMARY_MODEL"         "$model"
     update_env "$ENV_INFRA" "INSIGHT_MODEL"         "$model"
+
+    # 폴백(api/.env 만 — API 서버가 읽는다. worker·CLI는 미적용)
+    if [ -n "$FB_HOST" ] && [ -n "$FB_KEY" ]; then
+        update_env "$ENV_API" "FALLBACK_OLLAMA_HOST"      "$FB_HOST"
+        update_env "$ENV_API" "FALLBACK_OLLAMA_API_KEY"   "$FB_KEY"
+        update_env "$ENV_API" "FALLBACK_SUMMARY_MODEL"    "$FB_MODEL"
+        update_env "$ENV_API" "FALLBACK_INSIGHT_MODEL"    "$FB_MODEL"
+        log "폴백 프로바이더 기록: $FB_HOST ($FB_MODEL)"
+    fi
 
     log ".env 3곳 갱신 완료 (루트·api·infra)"
 }

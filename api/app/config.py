@@ -31,6 +31,12 @@ class Settings(BaseSettings):
     ollama_api_key: str = ""
     summary_model: str = "glm-5.2:cloud"
     insight_model: str = "glm-5.2:cloud"
+    # 폴백 프로바이더(선택) — 주 모델이 rate limit 등으로 막히면 자동 전환.
+    # 예: 주=muse(zen)일 때 fallback=ollama 프록시+qwen3.5. 미설정 시 단일 프로바이더.
+    fallback_ollama_host: str = ""
+    fallback_ollama_api_key: str = ""
+    fallback_summary_model: str = ""
+    fallback_insight_model: str = ""
     # 임베딩은 cloud 가 /api/embeddings 미지원 → 로컬 Ollama 사용(온톨로지 자유표현→GICS 의미 검색).
     # API 서버(호스트 launchd)가 도달하는 로컬 인스턴스. worker(docker)는 이 폴백 미사용.
     ollama_local_host: str = "http://127.0.0.1:11434"

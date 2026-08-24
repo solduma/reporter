@@ -10,12 +10,28 @@ from app.ports.llm import LLMPort
 def get_llm(settings: Settings) -> LLMPort | None:
     """LLM 어댑터. OLLAMA_API_KEY 없으면 None(호출측이 LLM 기능만 비활성).
 
-    chat/chat_tools 는 cloud Ollama, embed 는 로컬 Ollama(별도 host)로 구성.
+    FALLBACK_* 설정이 있으면 ResilientLLMAdapter 로 감싸 rate limit 시 자동 전환.
     """
     if not settings.ollama_api_key:
         return None
-    return OllamaLLMAdapter(
+    primary = OllamaLLMAdapter(
         settings.ollama_host,
         settings.ollama_api_key,
         embed_host=settings.ollama_local_host,
     )
+    if not (settings.fallback_ollama_host and settings.fallback_ollama_api_key):
+        return primary
+
+    from app.adapters.llm.resilient import ResilientLLMAdapter
+
+    fallback = OllamaLLMAdapter(
+        settings.fallback_ollama_host,
+        settings.fallback_ollama_api_key,
+        embed_host=settings.ollama_local_host,
+    )
+    model_map = {}
+    if settings.fallback_summary_model:
+        model_map[settings.summary_model] = settings.fallback_summary_model
+    if settings.fallback_insight_model:
+        model_map[settings.insight_model] = settings.fallback_insight_model
+    return ResilientLLMAdapter(primary, fallback, model_map=model_map)
