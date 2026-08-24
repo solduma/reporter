@@ -20,9 +20,7 @@ def prev_yq(yq: YearQuarter) -> YearQuarter:
     return (year - 1, 4) if q == 1 else (year, q - 1)
 
 
-def ttm_from_discrete(
-    discrete: dict[YearQuarter, float | None], yq: YearQuarter
-) -> float | None:
+def ttm_from_discrete(discrete: dict[YearQuarter, float | None], yq: YearQuarter) -> float | None:
     """이미 분기 개별 환산된 dict 에서 yq 포함 연속 4개 분기 합(TTM). 결측·불연속이면 None.
 
     환산(1~3Q 그대로·Q4=연간-누적)은 discrete_quarter 로 끝난 뒤의 discrete dict 를 받는다.

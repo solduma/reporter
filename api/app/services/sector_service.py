@@ -54,9 +54,7 @@ def trade_spark(db: Session, limit: int = 5) -> list[dict]:
     out: list[dict] = []
     for hs, period in rows[:limit]:
         latest = db.scalar(
-            select(TradeStat.export_usd).where(
-                TradeStat.hs_code == hs, TradeStat.period == period
-            )
+            select(TradeStat.export_usd).where(TradeStat.hs_code == hs, TradeStat.period == period)
         )
         out.append({"hs": hs, "period": period, "export_usd": latest})
     return out

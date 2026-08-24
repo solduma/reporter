@@ -54,8 +54,16 @@ def _norm_date(raw: str) -> str:
         return ""
 
 
-def _search(url: str, source: str, client_id: str, client_secret: str, query: str,
-            display: int, sort: str, session: requests.Session) -> list[SearchHit]:
+def _search(
+    url: str,
+    source: str,
+    client_id: str,
+    client_secret: str,
+    query: str,
+    display: int,
+    sort: str,
+    session: requests.Session,
+) -> list[SearchHit]:
     if not client_id or not client_secret:
         return []
     try:
@@ -72,24 +80,38 @@ def _search(url: str, source: str, client_id: str, client_secret: str, query: st
         return []
     hits: list[SearchHit] = []
     for it in items:
-        hits.append(SearchHit(
-            title=_strip(it.get("title", "")),
-            link=(it.get("link") or "").strip(),
-            description=_strip(it.get("description", "")),
-            source=source,
-            post_date=_norm_date(it.get("postdate") or it.get("pubDate") or ""),
-            blogger=_strip(it.get("bloggername", "")),
-        ))
+        hits.append(
+            SearchHit(
+                title=_strip(it.get("title", "")),
+                link=(it.get("link") or "").strip(),
+                description=_strip(it.get("description", "")),
+                source=source,
+                post_date=_norm_date(it.get("postdate") or it.get("pubDate") or ""),
+                blogger=_strip(it.get("bloggername", "")),
+            )
+        )
     return hits
 
 
-def search_blog(client_id: str, client_secret: str, query: str, session: requests.Session,
-                display: int = 20, sort: str = "sim") -> list[SearchHit]:
+def search_blog(
+    client_id: str,
+    client_secret: str,
+    query: str,
+    session: requests.Session,
+    display: int = 20,
+    sort: str = "sim",
+) -> list[SearchHit]:
     """블로그 검색. sort=sim(정확도)|date(최신). query 는 requests 가 UTF-8 인코딩."""
     return _search(_BLOG_URL, "blog", client_id, client_secret, query, display, sort, session)
 
 
-def search_news(client_id: str, client_secret: str, query: str, session: requests.Session,
-                display: int = 10, sort: str = "sim") -> list[SearchHit]:
+def search_news(
+    client_id: str,
+    client_secret: str,
+    query: str,
+    session: requests.Session,
+    display: int = 10,
+    sort: str = "sim",
+) -> list[SearchHit]:
     """뉴스 검색(보강용)."""
     return _search(_NEWS_URL, "news", client_id, client_secret, query, display, sort, session)

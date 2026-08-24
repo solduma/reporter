@@ -127,13 +127,13 @@ def backfill_stock(db: Session, settings: Settings, code: str) -> bool:
     # r.period 같은 컬럼 접근이 AttributeError 난다(08-12 백필 97.5% 정지 원인).
     existing_fs: dict[tuple[int, int, str], dict] = {
         (int(r.period.split(".")[0]), int(r.period.split(".")[1]), r.fs_div): r.data
-        for r in db.scalars(
-            select(FinancialStatement).where(FinancialStatement.stock_code == code)
-        )
+        for r in db.scalars(select(FinancialStatement).where(FinancialStatement.stock_code == code))
         if r.period and "." in r.period
     }
 
-    def _collect_fin(fin, target: dict, fs_div: str, year: int, q: int, full: dict, record: bool = True) -> None:
+    def _collect_fin(
+        fin, target: dict, fs_div: str, year: int, q: int, full: dict, record: bool = True
+    ) -> None:
         if fin is None:
             return
         yq = (year, q)
@@ -285,7 +285,12 @@ def backfill_stock(db: Session, settings: Settings, code: str) -> bool:
 
 
 def _upsert_financial(
-    db: Session, code: str, period: str, fs_div: str = "CFS", null_fields: tuple[str, ...] = (), **vals
+    db: Session,
+    code: str,
+    period: str,
+    fs_div: str = "CFS",
+    null_fields: tuple[str, ...] = (),
+    **vals,
 ) -> None:
     """Financial 행 upsert(백필 소유 필드만 갱신: 재무·PER/PBR/PSR). 추정치 아님.
 
@@ -329,7 +334,9 @@ def _universe_codes(db: Session) -> list[str]:
                 UniverseSnapshot.stock_type == "stock",
                 ~UniverseSnapshot.stock_name.op("~")(r"우[A-C]?$"),
             )
-            .order_by(latest_disc.c.latest_disc.desc().nullslast(), UniverseSnapshot.market_cap.desc())
+            .order_by(
+                latest_disc.c.latest_disc.desc().nullslast(), UniverseSnapshot.market_cap.desc()
+            )
         ).all()
     )
 
@@ -356,14 +363,15 @@ def _done_codes(db: Session) -> set[str]:
             .distinct()
         ).all()
     )
-    marked_count = db.scalar(
-        select(func.count()).select_from(SyncState).where(SyncState.domain == _BACKFILL_DOMAIN)
-    ) or 0
+    marked_count = (
+        db.scalar(
+            select(func.count()).select_from(SyncState).where(SyncState.domain == _BACKFILL_DOMAIN)
+        )
+        or 0
+    )
     stale = marked_count - len(has_recent)
     if stale > 0:
-        logger.info(
-            "financials 10y: %d종목 sync_state 있으나 최근 재무 결측 → 재처리 대상", stale
-        )
+        logger.info("financials 10y: %d종목 sync_state 있으나 최근 재무 결측 → 재처리 대상", stale)
     return has_recent
 
 
@@ -737,9 +745,7 @@ def _run_sce_migration_for_code(
         if not rcept_no:
             continue
         if rcept_no not in zip_cache:
-            zip_cache[rcept_no] = fetch_report_zip(
-                settings.dart_api_key, rcept_no, session
-            )
+            zip_cache[rcept_no] = fetch_report_zip(settings.dart_api_key, rcept_no, session)
         raw = zip_cache[rcept_no]
         if not raw:
             continue
@@ -772,7 +778,9 @@ def _run_sce_migration_for_code(
             continue
         matched = _match_sce_table(candidates, row.data.get("BS", []))
         if not matched:
-            logger.info("SCE migration %s %s: BS 값 불일치(연결/별도 판별 불가) — skip", code, period)
+            logger.info(
+                "SCE migration %s %s: BS 값 불일치(연결/별도 판별 불가) — skip", code, period
+            )
             continue
         sce = matched[0][1][0][1]
         row.data = {**row.data, "SCE": sce}

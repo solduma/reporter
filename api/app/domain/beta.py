@@ -33,7 +33,9 @@ def competitive_advantage_period(
     base = MOAT_CAP_YEARS.get(moat or "", MOAT_CAP_YEARS["중"])
     if roe is None or discount is None or discount <= 0:
         cap = min(MAX_CAP_YEARS, base * 0.5)
-        return round(cap, 1), [f"CAP {cap:.1f}년(ROE·할인율 미상 → 해자'{moat or '중'}' 기준 {base:g}년의 0.5배)"]
+        return round(cap, 1), [
+            f"CAP {cap:.1f}년(ROE·할인율 미상 → 해자'{moat or '중'}' 기준 {base:g}년의 0.5배)"
+        ]
     roe_frac = roe / 100 if abs(roe) > 1 else roe
     spread = max(0.0, roe_frac - discount)
     persistence = spread / (spread + discount)  # [0,1)
@@ -64,7 +66,9 @@ def wacc(
         return cost_of_equity, [f"자기자본비용 {cost_of_equity:.1%} (자본구조 미반영)"]
     if d > 0 and (tax_rate is None or cost_of_debt is None):
         # 부채가 있는데 실측 세율·부채비용 결측 → 상수로 메우지 않고 Re(무부채 근사) 반환.
-        return cost_of_equity, [f"자기자본비용 {cost_of_equity:.1%} (부채비용·세율 실측 결측 → 자본구조 미반영)"]
+        return cost_of_equity, [
+            f"자기자본비용 {cost_of_equity:.1%} (부채비용·세율 실측 결측 → 자본구조 미반영)"
+        ]
     v = e + d
     t = tax_rate or 0.0
     rd = cost_of_debt or 0.0

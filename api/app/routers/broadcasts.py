@@ -32,8 +32,14 @@ def list_broadcasts(
 ) -> list[BroadcastRef]:
     try:
         rows = broadcast_ingest.list_broadcasts(
-            db, industry=industry, stock=stock, kind=kind,
-            from_=from_, to=to, limit=limit, offset=offset,
+            db,
+            industry=industry,
+            stock=stock,
+            kind=kind,
+            from_=from_,
+            to=to,
+            limit=limit,
+            offset=offset,
         )
     except broadcast_ingest.UnknownBroadcastKind:
         raise HTTPException(status_code=400, detail=f"알 수 없는 kind: {kind}") from None

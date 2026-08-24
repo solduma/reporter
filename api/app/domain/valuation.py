@@ -79,17 +79,25 @@ def _band_warning(target: float, band: dict | None, unit: str) -> str:
         return ""
     yrs = f"{band['n']}개 분기"
     if target > p75:
-        return (f"목표 {unit} {target:g}배는 과거 밴드(중앙값 {med:g}, {p25:g}~{p75:g}배, {yrs}) 상회 "
-                f"— forward 성장 가속에 따른 리레이팅")
+        return (
+            f"목표 {unit} {target:g}배는 과거 밴드(중앙값 {med:g}, {p25:g}~{p75:g}배, {yrs}) 상회 "
+            f"— forward 성장 가속에 따른 리레이팅"
+        )
     if target < p25:
-        return (f"목표 {unit} {target:g}배는 과거 밴드(중앙값 {med:g}, {p25:g}~{p75:g}배, {yrs}) 하회 "
-                f"— forward 성장 둔화에 따른 디레이팅")
+        return (
+            f"목표 {unit} {target:g}배는 과거 밴드(중앙값 {med:g}, {p25:g}~{p75:g}배, {yrs}) 하회 "
+            f"— forward 성장 둔화에 따른 디레이팅"
+        )
     return ""
 
 
 def per_valuation(
-    *, forward_eps: float | None, target_per: float | None, current_price: float | None,
-    per_band: dict | None = None, per_source: str = "",
+    *,
+    forward_eps: float | None,
+    target_per: float | None,
+    current_price: float | None,
+    per_band: dict | None = None,
+    per_source: str = "",
 ) -> ValuationResult:
     """목표가 = 예상 EPS × 목표 PER. 성장주·이익 창출 기업의 기본.
 
@@ -120,8 +128,12 @@ def per_valuation(
 
 
 def pbr_valuation(
-    *, bps: float | None, target_pbr: float | None, current_price: float | None,
-    pbr_band: dict | None = None, pbr_source: str = "",
+    *,
+    bps: float | None,
+    target_pbr: float | None,
+    current_price: float | None,
+    pbr_band: dict | None = None,
+    pbr_source: str = "",
 ) -> ValuationResult:
     """목표가 = 주당순자산(BPS) × 목표 PBR. 자산주·금융주·역발상에 유효.
 
@@ -157,7 +169,8 @@ def ev_ebitda_valuation(
     net_debt: float | None,  # 억원 (양수=순차입, 음수=순현금)
     shares: float | None,  # 주식수
     current_price: float | None,
-    ev_band: dict | None = None, ev_source: str = "",
+    ev_band: dict | None = None,
+    ev_source: str = "",
 ) -> ValuationResult:
     """EV = EBITDA × 목표배수 → 시총 = EV − 순차입 → 목표가 = 시총/주식수. 자본구조 중립 비교.
 
@@ -182,8 +195,10 @@ def ev_ebitda_valuation(
     r.target_price = target
     r.upside_pct = _upside(target, current_price)
     r.assumptions = {
-        "forward_ebitda_eok": forward_ebitda, "target_ev_ebitda": target_ev_ebitda,
-        "net_debt_eok": nd, "shares": shares,
+        "forward_ebitda_eok": forward_ebitda,
+        "target_ev_ebitda": target_ev_ebitda,
+        "net_debt_eok": nd,
+        "shares": shares,
     }
     src = f" ({ev_source})" if ev_source else ""
     r.process = [
@@ -224,7 +239,9 @@ def dcf_valuation(
 
     r = ValuationResult("dcf", METHOD_LABELS["dcf"], applicable=False)
     if fcf_base is None:
-        r.note = "FCFF(NOPAT+D&A−CAPEX) 결측 — D&A·CAPEX 미백필 시 DCF 부적합(순이익 근사 폴백 안 함)"
+        r.note = (
+            "FCFF(NOPAT+D&A−CAPEX) 결측 — D&A·CAPEX 미백필 시 DCF 부적합(순이익 근사 폴백 안 함)"
+        )
         return r
     if None in (growth_rate, terminal_growth, discount_rate, shares) or shares <= 0:
         r.note = "성장률·영구성장률·할인율·주식수 중 결측"
@@ -282,13 +299,23 @@ def dcf_valuation(
     r.upside_pct = _upside(target, current_price)
     r.confidence = "하"  # 가정 민감도가 커 기본 신뢰도 낮게(LLM 이 상향 가능)
     r.assumptions = {
-        "fcf_base_eok": fcf_base, "growth_high": round(g_s, 4), "growth_long": round(g_l, 4),
-        "stages": 3 if three_stage else 2, "plateau_years": plateau, "fade_years": fade_n,
-        "discount_rate": round(r_disc, 4), "net_debt_eok": nd, "shares": shares,
-        "terminal_value_frac": round(pv_terminal / enterprise_value, 3) if enterprise_value else None,
+        "fcf_base_eok": fcf_base,
+        "growth_high": round(g_s, 4),
+        "growth_long": round(g_l, 4),
+        "stages": 3 if three_stage else 2,
+        "plateau_years": plateau,
+        "fade_years": fade_n,
+        "discount_rate": round(r_disc, 4),
+        "net_debt_eok": nd,
+        "shares": shares,
+        "terminal_value_frac": round(pv_terminal / enterprise_value, 3)
+        if enterprise_value
+        else None,
     }
     # 최소 스프레드 가드로 할인율이 상향됐으면(저베타) 서술에 명시.
-    disc_txt = f"{r_disc:.1%}" + (f"(저베타 최소스프레드 유계, 원 WACC {discount_rate:.1%})" if r_disc > discount_rate else "")
+    disc_txt = f"{r_disc:.1%}" + (
+        f"(저베타 최소스프레드 유계, 원 WACC {discount_rate:.1%})" if r_disc > discount_rate else ""
+    )
     if three_stage:
         r.process = [
             f"기준 FCF {_fmt(fcf_base)}억원. 3단계: 고성장 {g_s:.1%} {plateau}년 유지 → "
@@ -331,7 +358,11 @@ def ddm_valuation(
     r.applicable = True
     r.target_price = target
     r.upside_pct = _upside(target, current_price)
-    r.assumptions = {"dps": dps, "dividend_growth": dividend_growth, "cost_of_equity": cost_of_equity}
+    r.assumptions = {
+        "dps": dps,
+        "dividend_growth": dividend_growth,
+        "cost_of_equity": cost_of_equity,
+    }
     r.process = [
         f"주당배당금(DPS) {_fmt(dps)}원, 배당성장률 {dividend_growth:.1%}",
         f"차기 배당 D1 = {_fmt(dps)} × (1+{dividend_growth:.1%}) = {_fmt(d1)}원",
@@ -377,8 +408,11 @@ def ggm_dcf_valuation(
     r.upside_pct = _upside(target, current_price)
     r.confidence = "하"  # 단일 스테이지 — 가정 민감도 높아 고정 하
     r.assumptions = {
-        "fcf_base_eok": fcf_base, "growth_rate": round(growth_rate, 4),
-        "wacc": round(wacc, 4), "net_debt_eok": nd, "shares": shares,
+        "fcf_base_eok": fcf_base,
+        "growth_rate": round(growth_rate, 4),
+        "wacc": round(wacc, 4),
+        "net_debt_eok": nd,
+        "shares": shares,
     }
     r.process = [
         f"基准 FCF {_fmt(fcf_base)}억원, 성장률 {growth_rate:.1%}",

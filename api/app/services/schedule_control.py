@@ -99,7 +99,10 @@ class ScheduleControl:
     def _is_loaded(self, label: str) -> bool:
         result = subprocess.run(
             ["launchctl", "print", f"{_domain()}/{label}"],
-            capture_output=True, text=True, timeout=10, check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
         )
         return result.returncode == 0
 
@@ -148,13 +151,19 @@ class ScheduleControl:
     def _bootout(self, label: str) -> None:
         subprocess.run(
             ["launchctl", "bootout", f"{_domain()}/{label}"],
-            capture_output=True, text=True, timeout=15, check=False,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
         )
 
     def _bootstrap(self, path: Path) -> subprocess.CompletedProcess:
         return subprocess.run(
             ["launchctl", "bootstrap", _domain(), str(path)],
-            capture_output=True, text=True, timeout=15, check=False,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
         )
 
     def set_time(self, suffix: str, hour: int, minute: int) -> str:

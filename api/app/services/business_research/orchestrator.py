@@ -49,12 +49,21 @@ def _to_research_summary(result: dict, guideline: str, model: str) -> dict:
 
     def _to_entity(raw: dict) -> dict:
         if isinstance(raw, dict):
-            return {"name": raw.get("name", ""), "role": raw.get("role", ""), "note": raw.get("note", "")}
+            return {
+                "name": raw.get("name", ""),
+                "role": raw.get("role", ""),
+                "note": raw.get("note", ""),
+            }
         return {"name": "", "role": "", "note": ""}
 
     def _to_link(raw: dict) -> dict:
         if isinstance(raw, dict):
-            return {"stage": raw.get("stage", ""), "direction": raw.get("direction", ""), "entity": raw.get("entity", ""), "note": raw.get("note", "")}
+            return {
+                "stage": raw.get("stage", ""),
+                "direction": raw.get("direction", ""),
+                "entity": raw.get("entity", ""),
+                "note": raw.get("note", ""),
+            }
         return {"stage": "", "direction": "", "entity": "", "note": ""}
 
     return {
@@ -72,7 +81,7 @@ def _to_research_summary(result: dict, guideline: str, model: str) -> dict:
 def _goal(guideline: str, feedback: str | None) -> str:
     """스테이지 목표 — 가이드라인 + review 피드백."""
     base = f"""사업 리서치를 수행해 기업의 공급망(vendors)·고객(customers)·경쟁사(competitors)·밸류체인 위치(value_chain)를 정리하고,
-종합 서술(narrative_md)을 작성하라. 사용자 가이드라인: {guideline or '(없음)'}
+종합 서술(narrative_md)을 작성하라. 사용자 가이드라인: {guideline or "(없음)"}
 
 조사 대상 종목의 사업 개요(BusinessOverviewCache)는 'business_overview' 도구로 읽을 수 있다.
 필요시 web_search, fetch_web_page, disclosures, financials 등 다른 도구도 활용.
@@ -105,7 +114,10 @@ def enqueue(db: Session, code: str, guideline: str) -> BusinessResearchJob:
     """리서치 job을 큐에 넣는다. 진행 중(pending|running) job이 있으면 그걸 반환(dedup)."""
     existing = db.scalar(
         select(BusinessResearchJob)
-        .where(BusinessResearchJob.stock_code == code, BusinessResearchJob.status.in_(("pending", "running")))
+        .where(
+            BusinessResearchJob.stock_code == code,
+            BusinessResearchJob.status.in_(("pending", "running")),
+        )
         .order_by(BusinessResearchJob.id.desc())
     )
     if existing:
@@ -128,7 +140,7 @@ def claim_next(db: Session) -> BusinessResearchJob | None:
     if job is not None:
         return job
     # pending 없으면 오래된 running 회수.
-    cutoff = datetime.now(UTC) - __import__('datetime').timedelta(minutes=_STALE_RUNNING_MINUTES)
+    cutoff = datetime.now(UTC) - __import__("datetime").timedelta(minutes=_STALE_RUNNING_MINUTES)
     from sqlalchemy import or_
 
     stale = db.scalar(
@@ -170,7 +182,9 @@ def run_job(db: Session, job: BusinessResearchJob, settings: Settings | None = N
     code = job.stock_code
     session = _http.resilient_session()
     corp_code = tools.resolve_corp_code(db, code)
-    ctx = tools.ToolContext(db=db, settings=settings, session=session, code=code, corp_code=corp_code)
+    ctx = tools.ToolContext(
+        db=db, settings=settings, session=session, code=code, corp_code=corp_code
+    )
 
     job.status = "running"
     job.started_at = datetime.now(UTC)
@@ -188,7 +202,11 @@ def run_job(db: Session, job: BusinessResearchJob, settings: Settings | None = N
                 ctx,
                 stage_goal=_goal(job.guideline, fb),
                 result_schema=_RESEARCH_SCHEMA,
-                context_data={"guideline": job.guideline, "stock_code": code, "stock_name": business_ingest.company_service.report_stock_name(db, code) or ""},
+                context_data={
+                    "guideline": job.guideline,
+                    "stock_code": code,
+                    "stock_name": business_ingest.company_service.report_stock_name(db, code) or "",
+                },
                 max_tool_calls=6,  # business_overview + web_search + disclosures 등 여러 도구 사용 가능.
                 temperature=0.3,
             ),
@@ -197,7 +215,11 @@ def run_job(db: Session, job: BusinessResearchJob, settings: Settings | None = N
         )
         # LLM 실패 마커(_error/_note/_partial)면 job.failed
         if review_loop.result_is_error(result):
-            _fail(db, job, f"LLM 산출 실패: {result.get('_error') or result.get('_note') or '비정형 응답'}")
+            _fail(
+                db,
+                job,
+                f"LLM 산출 실패: {result.get('_error') or result.get('_note') or '비정형 응답'}",
+            )
             return
 
         # research_summary dict로 정규화 후 캐시 병합.

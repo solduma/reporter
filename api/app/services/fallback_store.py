@@ -27,9 +27,7 @@ def db_sink(key: str, reason: str, detail: str | None, context: dict) -> None:
     """
     db = SessionLocal()
     try:
-        db.add(
-            FallbackEvent(key=key, reason=reason, detail=detail or "", context=context or {})
-        )
+        db.add(FallbackEvent(key=key, reason=reason, detail=detail or "", context=context or {}))
         db.commit()
     except Exception:
         db.rollback()
@@ -54,9 +52,7 @@ class FallbackCount:
 
 def recent_fallbacks(db: Session, limit: int = 50) -> list[FallbackRow]:
     """최근 폴백 이벤트를 최신순으로 반환한다."""
-    rows = db.scalars(
-        select(FallbackEvent).order_by(FallbackEvent.ts.desc()).limit(limit)
-    ).all()
+    rows = db.scalars(select(FallbackEvent).order_by(FallbackEvent.ts.desc()).limit(limit)).all()
     return [FallbackRow(ts=r.ts, key=r.key, reason=r.reason, detail=r.detail) for r in rows]
 
 

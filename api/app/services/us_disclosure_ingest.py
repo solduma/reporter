@@ -36,7 +36,9 @@ def _universe_tickers(db: Session) -> list[str]:
     as_of = us_universe_ingest.latest_snapshot_date(db)
     if not as_of:
         return []
-    return list(db.scalars(select(UsUniverse.ticker).where(UsUniverse.snapshot_date == as_of)).all())
+    return list(
+        db.scalars(select(UsUniverse.ticker).where(UsUniverse.snapshot_date == as_of)).all()
+    )
 
 
 def sync_8k(db: Session, ticker: str, settings: Settings, session: requests.Session) -> int:

@@ -169,17 +169,13 @@ def available_fs_divs(db: Session, code: str) -> list[str]:
     요청당 쿼리가 3회로 늘어난다. distinct fs_div 한 번으로 1회로 줄인다.
     """
     rows = db.execute(
-        select(FinancialStatement.fs_div)
-        .where(FinancialStatement.stock_code == code)
-        .distinct()
+        select(FinancialStatement.fs_div).where(FinancialStatement.stock_code == code).distinct()
     ).all()
     present = {r[0] for r in rows}
     return [d for d in ("CFS", "OFS") if d in present]
 
 
-def get_financial_statements_cache(
-    db: Session, code: str, fs_div: str
-) -> dict | None:
+def get_financial_statements_cache(db: Session, code: str, fs_div: str) -> dict | None:
     """FinancialStatementCache 에서 (code, fs_div) 조회. TTL 만료 또는 없으면 None."""
     row = db.scalar(
         select(FinancialStatementCache).where(
@@ -194,13 +190,9 @@ def get_financial_statements_cache(
     return row.payload
 
 
-def store_financial_statements_cache(
-    db: Session, code: str, fs_div: str, payload: dict
-) -> None:
+def store_financial_statements_cache(db: Session, code: str, fs_div: str, payload: dict) -> None:
     """FinancialStatementCache upsert. on_conflict_do_update 로 (code, fs_div) 당 1행 유지."""
-    stmt = insert(FinancialStatementCache).values(
-        stock_code=code, fs_div=fs_div, payload=payload
-    )
+    stmt = insert(FinancialStatementCache).values(stock_code=code, fs_div=fs_div, payload=payload)
     stmt = stmt.on_conflict_do_update(
         constraint="uq_fs_cache_code_div",
         set_={"payload": payload, "cached_at": func.now()},
@@ -212,16 +204,12 @@ def store_financial_statements_cache(
 def invalidate_financial_statements_cache(db: Session, code: str) -> None:
     """백필 후 캐시 무효화 — code 의 모든 fs_div 행을 지운다(available_fs_divs 도 바뀔 수 있으므로 전체)."""
     db.execute(
-        FinancialStatementCache.__table__.delete().where(
-            FinancialStatementCache.stock_code == code
-        )
+        FinancialStatementCache.__table__.delete().where(FinancialStatementCache.stock_code == code)
     )
     db.commit()
 
 
-def fetch_and_store_financial_statements(
-    db: Session, code: str, fs_div: str = "CFS"
-) -> None:
+def fetch_and_store_financial_statements(db: Session, code: str, fs_div: str = "CFS") -> None:
     """DART 에서 재무제표를 조회해 FinancialStatement 테이블에 저장한다."""
     from datetime import date
 
@@ -249,7 +237,10 @@ def fetch_and_store_financial_statements(
             ontology_service.enrich_with_ontology_id(full)
             period = _period_str(year, q)
             stmt = insert(FinancialStatement).values(
-                stock_code=code, period=period, fs_div=fs_div, data=full,
+                stock_code=code,
+                period=period,
+                fs_div=fs_div,
+                data=full,
             )
             stmt = stmt.on_conflict_do_update(
                 constraint="uq_financial_statement",
@@ -291,9 +282,13 @@ def backfill_financial_statement_ontology_id(
     updated = 0
     for row in rows:
         data = row.data or {}
-        before = sum(1 for items in data.values() for item in items if item.get("ontology_id") is not None)
+        before = sum(
+            1 for items in data.values() for item in items if item.get("ontology_id") is not None
+        )
         ontology_service.enrich_with_ontology_id(data)
-        after = sum(1 for items in data.values() for item in items if item.get("ontology_id") is not None)
+        after = sum(
+            1 for items in data.values() for item in items if item.get("ontology_id") is not None
+        )
         if after != before:
             attributes.flag_modified(row, "data")
             updated += 1
@@ -308,7 +303,9 @@ def latest_valuation(db: Session, code: str, fs_div: str | None = None) -> Finan
     q = select(Financial).where(Financial.stock_code == code, Financial.is_estimate.is_(False))
     if fs_div:
         q = q.where(Financial.fs_div == fs_div)
-    fin = db.execute(q.order_by(has_value.asc(), Financial.period.desc()).limit(1)).scalar_one_or_none()
+    fin = db.execute(
+        q.order_by(has_value.asc(), Financial.period.desc()).limit(1)
+    ).scalar_one_or_none()
     if fin is None:
         return None
     # 배당·EV/EBITDA 는 연간(.12)에만 있어(분기 최신 행엔 결측), 최신 연간값을 끌어와 보정한다.
@@ -559,8 +556,18 @@ def timeline_disclosures(db: Session, code: str, begin: date, end: date) -> list
 # event_keywords 의 _COMMON_DISCLOSURE 와 동일 세트 — 도메인 공통 정의를 여기서 재선언하지
 # 않고 import 하면 순환 참조(도메인→서비스)가 생기므로, 서비스에서 직접 쓴다.
 _MAJOR_DISCLOSURE_KW: tuple[str, ...] = (
-    "공급계약", "단일판매", "타법인주식", "유상증자", "전환사채", "소송", "영업정지",
-    "감자", "자기주식", "합병", "분할", "수주",
+    "공급계약",
+    "단일판매",
+    "타법인주식",
+    "유상증자",
+    "전환사채",
+    "소송",
+    "영업정지",
+    "감자",
+    "자기주식",
+    "합병",
+    "분할",
+    "수주",
 )
 
 

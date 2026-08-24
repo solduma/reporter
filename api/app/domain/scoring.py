@@ -77,8 +77,15 @@ def growth_score(
     coverage_factor = 1.0 if coverage_count else 0.0
     score = (
         0.20 * rev
-        + 0.11 * op_s + 0.09 * op_m + 0.08 * net_s + 0.07 * net_m + 0.06 * eb_s + 0.05 * eb_m
-        + 0.13 * mom + 0.12 * sentiment_factor + 0.08 * coverage_factor
+        + 0.11 * op_s
+        + 0.09 * op_m
+        + 0.08 * net_s
+        + 0.07 * net_m
+        + 0.06 * eb_s
+        + 0.05 * eb_m
+        + 0.13 * mom
+        + 0.12 * sentiment_factor
+        + 0.08 * coverage_factor
     )
     return round(min(score, 1.0) * 100, 1)
 

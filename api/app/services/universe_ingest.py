@@ -29,7 +29,9 @@ def latest_snapshot_date(db: Session) -> date | None:
     return _universe_repo(db).latest_snapshot_date()
 
 
-def snapshot_universe(db: Session, snapshot_date: date, markets: tuple[str, ...] = ("KOSDAQ", "KOSPI")) -> int:
+def snapshot_universe(
+    db: Session, snapshot_date: date, markets: tuple[str, ...] = ("KOSDAQ", "KOSPI")
+) -> int:
     """전 종목을 오늘 날짜 스냅샷으로 적재한다. 적재 행수를 반환한다(멱등 upsert)."""
     rows = universe.fetch_universe(markets)
     for r in rows:

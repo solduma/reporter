@@ -137,4 +137,5 @@ def recent_audits(limit: int = 50) -> list[dict]:
 
 def _utcnow():
     from datetime import datetime
+
     return datetime.now(UTC)

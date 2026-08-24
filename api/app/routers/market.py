@@ -135,9 +135,7 @@ def sector_chart_meta(industry: str) -> SectorChartMeta:
 
 
 @router.get("/market/overview", response_model=MarketOverview)
-def market_overview(
-    bg: BackgroundTasks, db: Session = Depends(get_session)
-) -> MarketOverview:
+def market_overview(bg: BackgroundTasks, db: Session = Depends(get_session)) -> MarketOverview:
     """시황 대시보드 통합 — 미국지수 + 국내시황 요약 + 핫섹터 + 무역 스파크.
 
     지수·환율은 DB 스냅샷(market_quote) 우선. 없으면 최초 1회 동기 스냅샷, 오래됐으면 백그라운드.

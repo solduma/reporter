@@ -25,9 +25,18 @@ _MAX_CHARS = 8000
 
 # 흔한 기사 본문 컨테이너(우선순위 순). 네이버 뉴스·주요 언론사·더벨 등.
 _ARTICLE_SELECTORS = (
-    "#dic_area", "#newsct_article", "#articeBody", "#article-view-content-div",
-    "#articleBody", "#news_body_area", ".article_body", ".article-body",
-    ".news_end", ".art_txt", "#CmAdContent", "article",
+    "#dic_area",
+    "#newsct_article",
+    "#articeBody",
+    "#article-view-content-div",
+    "#articleBody",
+    "#news_body_area",
+    ".article_body",
+    ".article-body",
+    ".news_end",
+    ".art_txt",
+    "#CmAdContent",
+    "article",
 )
 # 본문에서 제거할 잡음 태그.
 _NOISE = ("script", "style", "figure", "figcaption", "iframe", "aside", "nav", "footer")

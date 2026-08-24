@@ -16,7 +16,9 @@ class KrMarketDataAdapter:
         self, code: str, timeframe: str, start: datetime, end: datetime
     ) -> list[chart.Candle]:
         session = _http.resilient_session()
-        return chart.fetch_periodic_with_fallback(get_settings(), code, timeframe, start, end, session)
+        return chart.fetch_periodic_with_fallback(
+            get_settings(), code, timeframe, start, end, session
+        )
 
     def fetch_intraday_30min(self, code: str) -> list[chart.Candle]:
         return chart.fetch_intraday_30min(code, _http.resilient_session())

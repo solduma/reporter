@@ -43,7 +43,9 @@ def compute_factor_betas(ctx: ToolContext, anchors: dict, market: str | None) ->
     # 무위험수익률·ERP 모두 실측(배치 적재)만 사용 — 상수 폴백 없음. 결측이면 None →
     # 그 값을 쓰는 방식(CAPM COE·DCF WACC 등)이 자연히 결측 처리(applicable=false). 상수 근절 원칙.
     rf = risk_free_ingest.latest_rate(ctx.db, "kr_treasury_3y")
-    rf_10y = risk_free_ingest.latest_rate(ctx.db, "kr_treasury_10y")  # DCF 영구성장률 근사(장기 명목)
+    rf_10y = risk_free_ingest.latest_rate(
+        ctx.db, "kr_treasury_10y"
+    )  # DCF 영구성장률 근사(장기 명목)
     return {
         "market_beta": market_beta,
         "risk_free": rf,
@@ -195,8 +197,11 @@ def _ttm_windows(rows: list[dict], field: str) -> list[float]:
 
 def _annual_series(rows: list[dict], field: str) -> list[float]:
     """연간(.12) 시점의 field 값 시계열(오래된→최신). EBITDA·ROE 등 연간만 저장되는 지표의 CAGR 용."""
-    return [_num(r.get(field)) for r in rows  # type: ignore[misc]
-            if str(r.get("period", "")).endswith(".12") and _num(r.get(field)) is not None]
+    return [
+        _num(r.get(field))
+        for r in rows  # type: ignore[misc]
+        if str(r.get("period", "")).endswith(".12") and _num(r.get(field)) is not None
+    ]
 
 
 def _forward_growth_drivers(rows: list[dict], eps_windows: list[float]) -> dict:
@@ -207,7 +212,9 @@ def _forward_growth_drivers(rows: list[dict], eps_windows: list[float]) -> dict:
     """
     eps_fwd, _ = fwd.sustainable_growth(eps_windows) if len(eps_windows) >= 5 else (None, None)
     ebitda_annual = _annual_series(rows, "ebitda")
-    ebitda_fwd, _ = fwd.sustainable_growth(ebitda_annual) if len(ebitda_annual) >= 5 else (None, None)
+    ebitda_fwd, _ = (
+        fwd.sustainable_growth(ebitda_annual) if len(ebitda_annual) >= 5 else (None, None)
+    )
     return {"eps_fwd_growth": eps_fwd, "ebitda_fwd_growth": ebitda_fwd}
 
 
@@ -234,8 +241,10 @@ def _normalized_eps(rows: list[dict], ttm_eps: float | None) -> tuple[float | No
         return None, None
     norm_eps = ttm_eps * (mid_margin / current_margin)
     meta = {
-        "normalized_eps": round(norm_eps, 1), "ttm_eps": round(ttm_eps, 1),
-        "mid_cycle_margin": round(mid_margin, 4), "current_margin": round(current_margin, 4),
+        "normalized_eps": round(norm_eps, 1),
+        "ttm_eps": round(ttm_eps, 1),
+        "mid_cycle_margin": round(mid_margin, 4),
+        "current_margin": round(current_margin, 4),
         "cycle_quarters": n,
     }
     return norm_eps, meta
@@ -282,8 +291,12 @@ def apply_forward_earnings(anchors: dict, series: list[dict]) -> dict:
     if consensus is not None and consensus > 0:
         adjusted["eps_ttm"] = round(consensus, 2)
         g = round(consensus / base_eps - 1.0, 4) if base_eps and base_eps > 0 else None
-        meta["eps"] = {"source": "consensus", "base_ttm": base_eps,
-                       "forward": round(consensus, 2), "growth_pct": g * 100 if g is not None else None}
+        meta["eps"] = {
+            "source": "consensus",
+            "base_ttm": base_eps,
+            "forward": round(consensus, 2),
+            "growth_pct": g * 100 if g is not None else None,
+        }
         # 컨센서스 EPS 성장률은 EBITDA에 별도 적용하지 않음 — 마진 구조가 다르므로.
         adjusted["forward_meta"] = meta
         return adjusted
@@ -293,25 +306,38 @@ def apply_forward_earnings(anchors: dict, series: list[dict]) -> dict:
     eps_growth, eps_gmeta = fwd.extrapolate_growth(_ttm_windows(rows, "eps"))
     if base_eps is not None and eps_growth is not None:
         adjusted["eps_ttm"] = round(base_eps * (1.0 + eps_growth), 2)
-        meta["eps"] = {"source": "extrapolation", "base_ttm": base_eps,
-                       "forward": round(base_eps * (1.0 + eps_growth), 2), **eps_gmeta}
+        meta["eps"] = {
+            "source": "extrapolation",
+            "base_ttm": base_eps,
+            "forward": round(base_eps * (1.0 + eps_growth), 2),
+            **eps_gmeta,
+        }
     ebitda_growth, ebitda_gmeta = fwd.extrapolate_growth(_ttm_windows(rows, "ebitda"))
     if ebitda_growth is not None:
-        _apply_ebitda_forward(adjusted, meta, ebitda_growth, source="extrapolation", gmeta=ebitda_gmeta)
+        _apply_ebitda_forward(
+            adjusted, meta, ebitda_growth, source="extrapolation", gmeta=ebitda_gmeta
+        )
     if meta:
         adjusted["forward_meta"] = meta
     return adjusted
 
 
-def _apply_ebitda_forward(anchors: dict, meta: dict, growth: float, *, source: str, gmeta: dict | None = None) -> None:
+def _apply_ebitda_forward(
+    anchors: dict, meta: dict, growth: float, *, source: str, gmeta: dict | None = None
+) -> None:
     """EBITDA 앵커를 성장률로 전방 투영. NI 성장률 프록시가 아닌 EBITDA 자체 TTM 시계열에서 독립 추정."""
     base = anchors.get("ebitda_eok_annual")
     if base is None:
         return
     fwd_val = round(base * (1.0 + growth), 2)
     anchors["ebitda_eok_annual"] = fwd_val
-    meta["ebitda"] = {"source": source, "base_annual": base, "forward": fwd_val,
-                      "growth_pct": round(growth * 100, 2), **(gmeta or {})}
+    meta["ebitda"] = {
+        "source": source,
+        "base_annual": base,
+        "forward": fwd_val,
+        "growth_pct": round(growth * 100, 2),
+        **(gmeta or {}),
+    }
 
 
 def collect_anchors(series: list[dict], price: dict) -> dict:
@@ -343,16 +369,27 @@ def collect_anchors(series: list[dict], price: dict) -> dict:
     g_short, _ = fwd.extrapolate_growth(eps_windows)
     fcf_base = _fcff_base(rows)  # 진짜 FCFF(억원) = NOPAT + D&A − CAPEX, 최신 연간. 결측 시 None.
     roe_avg = _avg_recent(rows, "roe", 8)  # 정규화 ROE(최근 8분기 평균) — forward 멀티플 자본수익률
-    fwd_growth = _forward_growth_drivers(rows, eps_windows)  # 성장반영 forward 멀티플용 — sustainable_growth 기반
+    fwd_growth = _forward_growth_drivers(
+        rows, eps_windows
+    )  # 성장반영 forward 멀티플용 — sustainable_growth 기반
     bps_windows = _ttm_windows(rows, "bps")
-    bps_cagr, _ = fwd.sustainable_growth(bps_windows) if bps_windows and len(bps_windows) >= 5 else (None, None)
+    bps_cagr, _ = (
+        fwd.sustainable_growth(bps_windows)
+        if bps_windows and len(bps_windows) >= 5
+        else (None, None)
+    )
 
     return {
         "current_price": current_price,
         "market_cap_eok": market_cap / 1e8 if market_cap else None,
-        "eps_ttm": eps_ttm, "bps": bps, "ebitda_eok_annual": ebitda, "dps_annual": dps,
+        "eps_ttm": eps_ttm,
+        "bps": bps,
+        "ebitda_eok_annual": ebitda,
+        "dps_annual": dps,
         "current_per": _latest_pointintime(rows, "per"),
-        "per_band": _multiple_band(rows, "per"),  # 과거 10년 PER 밴드 — 참고 표시(리레이팅 방향 안내)
+        "per_band": _multiple_band(
+            rows, "per"
+        ),  # 과거 10년 PER 밴드 — 참고 표시(리레이팅 방향 안내)
         "current_pbr": _latest_pointintime(rows, "pbr"),
         "pbr_band": _multiple_band(rows, "pbr"),  # 과거 10년 PBR 밴드 — 참고 표시
         "roe_avg_pct": roe_avg,  # 정규화 ROE(최근 8분기 평균) — forward 멀티플 자본수익률
@@ -363,7 +400,8 @@ def collect_anchors(series: list[dict], price: dict) -> dict:
         "ev_ebitda_band": _multiple_band(rows, "ev_ebitda"),  # 과거 10년 EV/EBITDA 밴드 — 참고 표시
         "div_yield_pct": _latest_pointintime(rows, "div_yield"),
         "roe_pct": _latest_pointintime(rows, "roe"),  # H-Model 감쇠기간 정량 기준선
-        "shares": shares, "net_debt_eok": net_debt,
+        "shares": shares,
+        "net_debt_eok": net_debt,
         "growth_lt": g_long,  # 장기 이익성장률(요인모형 earnings_growth·DDM 배당성장 결정론 소스)
         "growth_st": g_short,  # 단기 이익성장률(DCF 명시구간 성장 결정론 소스)
         "fcf_base_eok": fcf_base,  # 진짜 FCFF(NOPAT+D&A−CAPEX) 최신 연간 — DCF 기준현금흐름
@@ -400,7 +438,9 @@ def _hitl_revenue_growth(num: dict, base_revenue_eok: float | None) -> float | N
     return None
 
 
-def apply_hitl_to_anchors(anchors: dict, hitl: dict | None, series: list[dict] | None = None) -> dict:
+def apply_hitl_to_anchors(
+    anchors: dict, hitl: dict | None, series: list[dict] | None = None
+) -> dict:
     """HITL claim 의 이익 증분을 forward 이익 앵커(eps_ttm·ebitda)에 **결정론적으로** 반영.
 
     역할 분리: LLM 은 구성요소(value·unit·target_metric·scope·share·refuted)만 플래닝하고, 전사
@@ -419,7 +459,9 @@ def apply_hitl_to_anchors(anchors: dict, hitl: dict | None, series: list[dict] |
     base_ni = _ttm_windows(rows, "net_income")
     base_revenue_eok = base_rev[-1] if base_rev else None
     base_ni_eok = base_ni[-1] if base_ni else None
-    incr_margin, margin_meta = fwd.incremental_margin(base_rev, _ttm_windows(rows, "operating_income"))
+    incr_margin, margin_meta = fwd.incremental_margin(
+        base_rev, _ttm_windows(rows, "operating_income")
+    )
 
     total_uplift = 0.0
     applied: list[dict] = []
@@ -447,8 +489,14 @@ def apply_hitl_to_anchors(anchors: dict, hitl: dict | None, series: list[dict] |
         if profit_growth <= 0:
             continue
         total_uplift += profit_growth
-        applied.append({"claim": c.get("claim"), "contrib_pct": round(profit_growth * 100, 2),
-                        "metric": metric, "rev_growth_pct": round(rev_growth * 100, 2)})
+        applied.append(
+            {
+                "claim": c.get("claim"),
+                "contrib_pct": round(profit_growth * 100, 2),
+                "metric": metric,
+                "rev_growth_pct": round(rev_growth * 100, 2),
+            }
+        )
     if not applied:
         return anchors
     # 임의 상한 없음 — 각 claim 이 매출증분율×증분마진×확률(refuted=0)로 결정론 계산돼 자연 유계.
@@ -487,7 +535,9 @@ def _capm_coe(anc: dict) -> float | None:
     return coe if coe > 0 else None
 
 
-def _det_forward_multiple(anc: dict, fwd_growth: float | None, label: str) -> tuple[float | None, str]:
+def _det_forward_multiple(
+    anc: dict, fwd_growth: float | None, label: str
+) -> tuple[float | None, str]:
     """성장반영 3단계 forward 멀티플과 출처(결측 시 사유). 상대가치 3방식 공통. 폴백 없음.
 
     fwd_growth(지표별 forward 성장)·ROE(정규화)·COE(CAPM)·terminal(국고채10년)·CAP(해자·지속성)로 산출.
@@ -495,20 +545,30 @@ def _det_forward_multiple(anc: dict, fwd_growth: float | None, label: str) -> tu
     """
     roe = _num(anc.get("roe_avg_pct"))
     coe = _capm_coe(anc)
-    terminal = _num((anc.get("factor_betas") or {}).get("risk_free_10y"))  # 국고채10년 = 장기 명목성장 근사
+    terminal = _num(
+        (anc.get("factor_betas") or {}).get("risk_free_10y")
+    )  # 국고채10년 = 장기 명목성장 근사
     cap_years, _ = betamod.competitive_advantage_period(roe, coe, anc.get("moat"))
     mult, meta = fwd.growth_forward_multiple(
-        fwd_growth, roe / 100.0 if roe is not None else None, coe, terminal, cap_years,
+        fwd_growth,
+        roe / 100.0 if roe is not None else None,
+        coe,
+        terminal,
+        cap_years,
     )
     if mult is None:
         return None, f"결측 — {(meta or {}).get('reason', '산출 불가')}"
-    return mult, (f"3단계 forward({label}) — 성장 {meta['fwd_growth_pct']}% · ROE {meta['roe_pct']}% · "
-                  f"COE {meta['coe_pct']}% · 영구 {meta['terminal_growth_pct']}% · CAP {meta['cap_years']}년")
+    return mult, (
+        f"3단계 forward({label}) — 성장 {meta['fwd_growth_pct']}% · ROE {meta['roe_pct']}% · "
+        f"COE {meta['coe_pct']}% · 영구 {meta['terminal_growth_pct']}% · CAP {meta['cap_years']}년"
+    )
 
 
 def _det_target_per(anc: dict) -> tuple[float | None, str]:
     """목표 PER = 성장반영 3단계 forward 멀티플(EPS forward 성장 기준). 결측 시 (None, 사유)."""
-    return _det_forward_multiple(anc, _num((anc.get("fwd_growth") or {}).get("eps_fwd_growth")), "EPS")
+    return _det_forward_multiple(
+        anc, _num((anc.get("fwd_growth") or {}).get("eps_fwd_growth")), "EPS"
+    )
 
 
 def _t_per(a: dict, anc: dict) -> val.ValuationResult:
@@ -516,8 +576,10 @@ def _t_per(a: dict, anc: dict) -> val.ValuationResult:
     target_per, per_source = _det_target_per(anc)
     return val.per_valuation(
         forward_eps=anc.get("eps_ttm"),
-        target_per=target_per, current_price=anc.get("current_price"),
-        per_band=anc.get("per_band"), per_source=per_source,
+        target_per=target_per,
+        current_price=anc.get("current_price"),
+        per_band=anc.get("per_band"),
+        per_source=per_source,
     )
 
 
@@ -533,7 +595,7 @@ def _det_target_pbr(anc: dict) -> tuple[float | None, str]:
     if g_book is not None and coe is not None and roe is not None and roe > 0 and coe > g_book:
         target_pbr = (roe / 100.0 - g_book) / (coe - g_book)
         if target_pbr > 0:
-            src = f"GGM Book — ROE {roe:.1%}, g_book {g_book*100:.1%}, COE {coe:.1%}"
+            src = f"GGM Book — ROE {roe:.1%}, g_book {g_book * 100:.1%}, COE {coe:.1%}"
             return round(target_pbr, 2), src
     # 폴백: fair_PER × ROE
     per, src = _det_target_per(anc)
@@ -547,14 +609,18 @@ def _t_pbr(a: dict, anc: dict) -> val.ValuationResult:
     target_pbr, pbr_source = _det_target_pbr(anc)
     return val.pbr_valuation(
         bps=anc.get("bps"),
-        target_pbr=target_pbr, current_price=anc.get("current_price"),
-        pbr_band=anc.get("pbr_band"), pbr_source=pbr_source,
+        target_pbr=target_pbr,
+        current_price=anc.get("current_price"),
+        pbr_band=anc.get("pbr_band"),
+        pbr_source=pbr_source,
     )
 
 
 def _det_target_ev_ebitda(anc: dict) -> tuple[float | None, str]:
     """목표 EV/EBITDA = 성장반영 3단계 forward 멀티플(EBITDA forward 성장 기준). 결측 시 (None, 사유)."""
-    return _det_forward_multiple(anc, _num((anc.get("fwd_growth") or {}).get("ebitda_fwd_growth")), "EBITDA")
+    return _det_forward_multiple(
+        anc, _num((anc.get("fwd_growth") or {}).get("ebitda_fwd_growth")), "EBITDA"
+    )
 
 
 def _t_ev_ebitda(a: dict, anc: dict) -> val.ValuationResult:
@@ -564,8 +630,10 @@ def _t_ev_ebitda(a: dict, anc: dict) -> val.ValuationResult:
         forward_ebitda=anc.get("ebitda_eok_annual"),
         target_ev_ebitda=target,
         net_debt=anc.get("net_debt_eok"),
-        shares=anc.get("shares"), current_price=anc.get("current_price"),
-        ev_band=anc.get("ev_ebitda_band"), ev_source=ev_source,
+        shares=anc.get("shares"),
+        current_price=anc.get("current_price"),
+        ev_band=anc.get("ev_ebitda_band"),
+        ev_source=ev_source,
     )
 
 
@@ -585,8 +653,14 @@ def _det_dcf_inputs(anc: dict) -> dict:
     wacc = None
     if coe is not None and shares is not None:
         equity_eok = _num(anc.get("market_cap_eok"))
-        w, _ = betamod.wacc(coe, equity_eok or 0.0, anc.get("net_debt_eok"), _num(fb.get("risk_free")) or 0.0,
-                            tax_rate=_num(anc.get("effective_tax_rate")), cost_of_debt=_num(anc.get("cost_of_debt")))
+        w, _ = betamod.wacc(
+            coe,
+            equity_eok or 0.0,
+            anc.get("net_debt_eok"),
+            _num(fb.get("risk_free")) or 0.0,
+            tax_rate=_num(anc.get("effective_tax_rate")),
+            cost_of_debt=_num(anc.get("cost_of_debt")),
+        )
         wacc = w
     return {
         "fcf_base": fcf_base,
@@ -600,12 +674,16 @@ def _t_dcf(a: dict, anc: dict) -> val.ValuationResult:
     # 완전 결정론: FCF기준·성장률·영구성장률·WACC 모두 코드 확정(_det_dcf_inputs). roe·moat 로 2/3단계 자동.
     d = _det_dcf_inputs(anc)
     return val.dcf_valuation(
-        fcf_base=d["fcf_base"], growth_rate=d["growth_rate"],
-        years=5, terminal_growth=d["terminal_growth"],
+        fcf_base=d["fcf_base"],
+        growth_rate=d["growth_rate"],
+        years=5,
+        terminal_growth=d["terminal_growth"],
         discount_rate=d["discount_rate"],
         net_debt=anc.get("net_debt_eok"),
-        shares=anc.get("shares"), current_price=anc.get("current_price"),
-        roe=anc.get("roe_pct"), moat=anc.get("moat"),
+        shares=anc.get("shares"),
+        current_price=anc.get("current_price"),
+        roe=anc.get("roe_pct"),
+        moat=anc.get("moat"),
     )
 
 
@@ -627,7 +705,8 @@ def _t_ddm(a: dict, anc: dict) -> val.ValuationResult:
     # 완전 결정론: dps(앵커)·cost_of_equity(CAPM)·dividend_growth(min(장기이익성장, rf)) 코드 확정.
     return val.ddm_valuation(
         dps=anc.get("dps_annual"),
-        dividend_growth=_det_dividend_growth(anc), cost_of_equity=_capm_coe(anc),
+        dividend_growth=_det_dividend_growth(anc),
+        cost_of_equity=_capm_coe(anc),
         current_price=anc.get("current_price"),
     )
 
@@ -641,10 +720,14 @@ def _det_ggm_inputs(anc: dict) -> dict:
     wacc = None
     if coe is not None and shares is not None:
         equity_eok = _num(anc.get("market_cap_eok"))
-        w, _ = betamod.wacc(coe, equity_eok or 0.0, anc.get("net_debt_eok"),
-                             _num(fb.get("risk_free")) or 0.0,
-                             tax_rate=_num(anc.get("effective_tax_rate")),
-                             cost_of_debt=_num(anc.get("cost_of_debt")))
+        w, _ = betamod.wacc(
+            coe,
+            equity_eok or 0.0,
+            anc.get("net_debt_eok"),
+            _num(fb.get("risk_free")) or 0.0,
+            tax_rate=_num(anc.get("effective_tax_rate")),
+            cost_of_debt=_num(anc.get("cost_of_debt")),
+        )
         wacc = w
     return {"fcf_base": fcf_base, "wacc": wacc}
 
@@ -679,7 +762,18 @@ def _grade_moat(business: dict) -> str | None:
     text = str(business.get("moat") or "")
     if not text:
         return None
-    strong = ("네트워크", "독점", "규제", "특허", "전환비용", "진입장벽", "높은 점유", "과점", "브랜드", "락인")
+    strong = (
+        "네트워크",
+        "독점",
+        "규제",
+        "특허",
+        "전환비용",
+        "진입장벽",
+        "높은 점유",
+        "과점",
+        "브랜드",
+        "락인",
+    )
     weak = ("경쟁 심화", "범용", "낮은 진입", "치열", "제한적", "약한", "쉽게 모방")
     if any(k in text for k in weak):
         return "약"
@@ -690,7 +784,16 @@ def _grade_moat(business: dict) -> str | None:
 
 # 섹터명 → 방식 적합도용 유형. 금융(은행·보험)은 EV·DCF 제외, 시클리컬은 PER 저가중.
 _FINANCIAL_SECTORS = ("은행", "증권", "보험")
-_CYCLICAL_SECTORS = ("반도체", "반도체 소부장", "2차전지", "철강", "조선", "에너지화학", "자동차", "기계장비")
+_CYCLICAL_SECTORS = (
+    "반도체",
+    "반도체 소부장",
+    "2차전지",
+    "철강",
+    "조선",
+    "에너지화학",
+    "자동차",
+    "기계장비",
+)
 
 
 def _classify_for_fit(ctx: ToolContext, prior: dict, anchors: dict) -> dict:
@@ -720,7 +823,9 @@ def _classify_for_fit(ctx: ToolContext, prior: dict, anchors: dict) -> dict:
     eps = anchors.get("eps_ttm")
     is_loss = eps is not None and eps < 0
     return {
-        "stock_type": stock_type, "sector": sector, "thesis_type": thesis_type,
+        "stock_type": stock_type,
+        "sector": sector,
+        "thesis_type": thesis_type,
         "div_yield_pct": div_yield,
         "fit": val.method_fit(stock_type, div_yield_pct=div_yield, is_loss=is_loss),
     }
@@ -728,18 +833,37 @@ def _classify_for_fit(ctx: ToolContext, prior: dict, anchors: dict) -> dict:
 
 # 방식 도구 레지스트리: name → (계산 함수, 파라미터 JSON 스키마 properties).
 _METHOD_TOOLS = {
-    "compute_per": (_t_per, {"rationale": "string"}),  # 완전 결정론 — EPS·배수 코드 확정, LLM 은 해석만
-    "compute_pbr": (_t_pbr, {"rationale": "string"}),  # 완전 결정론 — BPS·배수 코드 확정, LLM 은 해석만
-    "compute_ev_ebitda": (_t_ev_ebitda, {"rationale": "string"}),  # 완전 결정론 — EBITDA·배수·순차입 코드 확정
-    "compute_dcf": (_t_dcf, {"rationale": "string"}),  # 완전 결정론 — FCF·성장·WACC·영구성장 코드 확정
-    "compute_ddm": (_t_ddm, {"rationale": "string"}),  # 완전 결정론 — DPS·자본비용·배당성장 코드 확정
+    "compute_per": (
+        _t_per,
+        {"rationale": "string"},
+    ),  # 완전 결정론 — EPS·배수 코드 확정, LLM 은 해석만
+    "compute_pbr": (
+        _t_pbr,
+        {"rationale": "string"},
+    ),  # 완전 결정론 — BPS·배수 코드 확정, LLM 은 해석만
+    "compute_ev_ebitda": (
+        _t_ev_ebitda,
+        {"rationale": "string"},
+    ),  # 완전 결정론 — EBITDA·배수·순차입 코드 확정
+    "compute_dcf": (
+        _t_dcf,
+        {"rationale": "string"},
+    ),  # 완전 결정론 — FCF·성장·WACC·영구성장 코드 확정
+    "compute_ddm": (
+        _t_ddm,
+        {"rationale": "string"},
+    ),  # 완전 결정론 — DPS·자본비용·배당성장 코드 확정
     "compute_ggm_dcf": (_t_ggm_dcf, {"rationale": "string"}),  # 완전 결정론 — GGM DCF, 코드 확정
 }
 
 # 도구명 → 방식 식별자(결과 dict 의 method 필드와 일치).
 _TOOL_METHOD = {
-    "compute_per": "per", "compute_pbr": "pbr", "compute_ev_ebitda": "ev_ebitda",
-    "compute_dcf": "dcf", "compute_ddm": "ddm", "compute_ggm_dcf": "ggm_dcf",
+    "compute_per": "per",
+    "compute_pbr": "pbr",
+    "compute_ev_ebitda": "ev_ebitda",
+    "compute_dcf": "dcf",
+    "compute_ddm": "ddm",
+    "compute_ggm_dcf": "ggm_dcf",
 }
 
 
@@ -751,42 +875,66 @@ def _tool_schema(name: str, desc: str, props: dict) -> dict:
             schema_props[k] = {"type": "array", "items": {"type": "object"}}
         else:
             schema_props[k] = {"type": t}
-    return {"type": "function", "function": {
-        "name": name, "description": desc, "parameters": {"type": "object", "properties": schema_props}}}
+    return {
+        "type": "function",
+        "function": {
+            "name": name,
+            "description": desc,
+            "parameters": {"type": "object", "properties": schema_props},
+        },
+    }
 
 
 _TOOL_DESCS = {
     "compute_per": "PER 목표가 = forward EPS(외삽·HITL, 코드 확정) × 목표PER(성장반영 3단계 forward 멀티플, "
-                   "코드 확정). 숫자는 모두 결정론적으로 계산되니 rationale(해석·평가)만 제시하라.",
+    "코드 확정). 숫자는 모두 결정론적으로 계산되니 rationale(해석·평가)만 제시하라.",
     "compute_pbr": "PBR 목표가 = BPS(앵커) × 목표PBR(정당 PER×ROE, 코드 확정). "
-                   "숫자는 결정론 계산되니 rationale(해석)만 제시하라. 자산주·금융주.",
+    "숫자는 결정론 계산되니 rationale(해석)만 제시하라. 자산주·금융주.",
     "compute_ev_ebitda": "EV/EBITDA 목표가 = forward EBITDA×목표배수(성장반영 3단계 forward 멀티플, 코드 확정) "
-                         "− 순차입 → 주식수. 숫자는 결정론 계산되니 rationale(해석)만 제시하라.",
+    "− 순차입 → 주식수. 숫자는 결정론 계산되니 rationale(해석)만 제시하라.",
     "compute_dcf": "DCF(2/3단계). FCF기준(forward순이익)·성장률(forward)·영구성장률(국고채10년)·WACC "
-                   "모두 코드 확정. 숫자는 결정론 계산되니 rationale(해석)만 제시하라.",
+    "모두 코드 확정. 숫자는 결정론 계산되니 rationale(해석)만 제시하라.",
     "compute_ddm": "고든 배당할인 = DPS(앵커)×(1+배당성장)÷(자본비용−배당성장). 자본비용=CAPM, "
-                   "배당성장=min(장기이익성장,rf) 코드 확정. rationale(해석)만. 무배당이면 부적합.",
+    "배당성장=min(장기이익성장,rf) 코드 확정. rationale(해석)만. 무배당이면 부적합.",
     "compute_ggm_dcf": "GGM DCF(고든성장) = FCF1÷(WACC−g). WACC·FCF는 기존 DCF와 동일, "
-                       "성장률은 sustainable_growth(순수 장기 CAGR). 숫자는 코드 확정 — rationale만.",
+    "성장률은 sustainable_growth(순수 장기 CAGR). 숫자는 코드 확정 — rationale만.",
 }
 
 
 def _build_tools() -> list[dict]:
     """6개 compute 도구 + get_anchors + blend + finalize 의 function 스키마."""
     tools = [_tool_schema(n, _TOOL_DESCS[n], props) for n, (_fn, props) in _METHOD_TOOLS.items()]
-    tools.append(_tool_schema("get_anchors", "현재 실데이터 앵커(EPS TTM·BPS·EBITDA·배당·주식수·순차입)를 조회.", {}))
-    tools.append(_tool_schema("blend", "지금까지 계산한 방식들의 신뢰도 가중 최종 목표가·스프레드를 확인.", {}))
-    tools.append(_tool_schema("finalize", "분석 종료. 최종 결론·진입성격 확정.",
-                              {"entry_case": "string", "conclusion": "string"}))
+    tools.append(
+        _tool_schema(
+            "get_anchors", "현재 실데이터 앵커(EPS TTM·BPS·EBITDA·배당·주식수·순차입)를 조회.", {}
+        )
+    )
+    tools.append(
+        _tool_schema(
+            "blend", "지금까지 계산한 방식들의 신뢰도 가중 최종 목표가·스프레드를 확인.", {}
+        )
+    )
+    tools.append(
+        _tool_schema(
+            "finalize",
+            "분석 종료. 최종 결론·진입성격 확정.",
+            {"entry_case": "string", "conclusion": "string"},
+        )
+    )
     return tools
 
 
 def _result_to_dict(r: val.ValuationResult) -> dict:
     return {
-        "method": r.method, "label": r.label, "applicable": r.applicable,
-        "target_price": r.target_price, "upside_pct": r.upside_pct,
-        "confidence": r.confidence, "assumptions": r.assumptions,
-        "process": r.process, "note": r.note,
+        "method": r.method,
+        "label": r.label,
+        "applicable": r.applicable,
+        "target_price": r.target_price,
+        "upside_pct": r.upside_pct,
+        "confidence": r.confidence,
+        "assumptions": r.assumptions,
+        "process": r.process,
+        "note": r.note,
     }
 
 
@@ -837,18 +985,24 @@ def _hitl_context(hitl: dict | None) -> str:
     ]
     for c in claims:
         status = "반박(미반영)" if c.get("refuted") else "반영"
-        base = (f"- [{status}] {c.get('claim')} "
-                f"→ 영향: {c.get('valuation_impact')} (근거: {str(c.get('evidence') or '')[:180]})")
+        base = (
+            f"- [{status}] {c.get('claim')} "
+            f"→ 영향: {c.get('valuation_impact')} (근거: {str(c.get('evidence') or '')[:180]})"
+        )
         num = c.get("numeric") if isinstance(c.get("numeric"), dict) else None
         if c.get("claim_type") == "numeric" and num and not c.get("refuted"):
-            base += (f"\n    [수치] {num.get('value')} {num.get('unit') or ''} · "
-                     f"{num.get('target_metric') or ''} · {num.get('scope') or ''}"
-                     f"(비중 {num.get('segment_revenue_share')}%)")
+            base += (
+                f"\n    [수치] {num.get('value')} {num.get('unit') or ''} · "
+                f"{num.get('target_metric') or ''} · {num.get('scope') or ''}"
+                f"(비중 {num.get('segment_revenue_share')}%)"
+            )
         lines.append(base)
     return "\n".join(lines)
 
 
-def run_valuation(llm: LLMPort, model: str, ctx: ToolContext, prior: dict, series: list[dict]) -> dict:
+def run_valuation(
+    llm: LLMPort, model: str, ctx: ToolContext, prior: dict, series: list[dict]
+) -> dict:
     """에이전틱 밸류에이션 루프. chat_tools 로 compute 도구를 반복 호출·검증 → 최종 목표가 dict.
 
     반환 dict 가 valuation_json 으로 저장된다(프론트 ValuationCard 가 methods 배열을 렌더).
@@ -891,13 +1045,18 @@ def run_valuation(llm: LLMPort, model: str, ctx: ToolContext, prior: dict, serie
             f"**중간사이클 정규화 EPS** 로 대체했다({json.dumps(anchors.get('eps_normalized'), ensure_ascii=False)}). "
             "현재가 사이클 고/저점이라 현재 이익을 기준연도로 쓰면 과대/과소평가된다. PER·EV/EBITDA 목표배수는 "
             "이 정규화 이익에 맞춰 정한다(peak 이익에 낮은 배수를 곱하는 오류 금지)."
-            if anchors.get("eps_normalized") else ""
+            if anchors.get("eps_normalized")
+            else ""
         )
         + _hitl_context(prior.get("hitl"))
     )
     messages: list[dict] = [
         {"role": "system", "content": _SYSTEM},
-        {"role": "user", "content": context + "\n\nget_anchors 로 시작해 5개 방식을 계산하고 finalize 로 마쳐라."},
+        {
+            "role": "user",
+            "content": context
+            + "\n\nget_anchors 로 시작해 5개 방식을 계산하고 finalize 로 마쳐라.",
+        },
     ]
 
     def _run_tool(name: str, args: dict) -> dict:
@@ -908,15 +1067,26 @@ def run_valuation(llm: LLMPort, model: str, ctx: ToolContext, prior: dict, serie
             if isinstance(args.get("rationale"), str) and args["rationale"]:
                 r.note = (str(args["rationale"]) + (" " + r.note if r.note else "")).strip()
             results[r.method] = r
-            return {"method": r.method, "applicable": r.applicable, "target_price": r.target_price,
-                    "upside_pct": r.upside_pct, "note": r.note, "process": r.process}
+            return {
+                "method": r.method,
+                "applicable": r.applicable,
+                "target_price": r.target_price,
+                "upside_pct": r.upside_pct,
+                "note": r.note,
+                "process": r.process,
+            }
         if name == "get_anchors":
             return anchors
         if name == "blend":
-            summary = val.blend(list(results.values()), anchors.get("current_price"), fit, is_growth=is_growth)
-            return {"final_target_price": summary.final_target, "final_upside_pct": summary.final_upside_pct,
-                    "method_count": summary.method_count,
-                    "targets": {m: r.target_price for m, r in results.items() if r.applicable}}
+            summary = val.blend(
+                list(results.values()), anchors.get("current_price"), fit, is_growth=is_growth
+            )
+            return {
+                "final_target_price": summary.final_target,
+                "final_upside_pct": summary.final_upside_pct,
+                "method_count": summary.method_count,
+                "targets": {m: r.target_price for m, r in results.items() if r.applicable},
+            }
         if name == "finalize":
             final_meta["entry_case"] = args.get("entry_case")
             final_meta["conclusion"] = args.get("conclusion")
@@ -932,25 +1102,47 @@ def run_valuation(llm: LLMPort, model: str, ctx: ToolContext, prior: dict, serie
                 if turn.content and not final_meta.get("conclusion"):
                     final_meta["conclusion"] = turn.content
                 break
-            messages.append(turn.raw_message or {"role": "assistant", "content": turn.content,
-                                                 "tool_calls": [{"id": tc.id, "type": "function",
-                                                                 "function": {"name": tc.name, "arguments": tc.arguments}}
-                                                                for tc in turn.tool_calls]})
+            messages.append(
+                turn.raw_message
+                or {
+                    "role": "assistant",
+                    "content": turn.content,
+                    "tool_calls": [
+                        {
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {"name": tc.name, "arguments": tc.arguments},
+                        }
+                        for tc in turn.tool_calls
+                    ],
+                }
+            )
             for tc in turn.tool_calls:
                 out = _run_tool(tc.name, tc.arguments or {})
                 # tool_call_id 는 OpenAI 호환 규격 — zen 등 엄격한 provider 의 필수값.
-                messages.append({"role": "tool", "tool_call_id": tc.id,
-                                 "content": json.dumps(out, ensure_ascii=False)[:2000]})
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": json.dumps(out, ensure_ascii=False)[:2000],
+                    }
+                )
             if final_meta.get("done"):
                 break
     except LLMError as e:
         logger.warning("valuation tool-loop failed %s: %s — 원샷 폴백", ctx.code, e)
-        return _oneshot_fallback(llm, model, ctx, prior, anchors, peers, series, is_growth=is_growth)
+        return _oneshot_fallback(
+            llm, model, ctx, prior, anchors, peers, series, is_growth=is_growth
+        )
 
     if not results:  # 도구를 한 번도 못 돌렸으면(모델이 곧장 서술) 원샷 폴백.
-        return _oneshot_fallback(llm, model, ctx, prior, anchors, peers, series, fit, is_growth=is_growth)
+        return _oneshot_fallback(
+            llm, model, ctx, prior, anchors, peers, series, fit, is_growth=is_growth
+        )
 
-    summary = val.blend(list(results.values()), anchors.get("current_price"), fit, is_growth=is_growth)
+    summary = val.blend(
+        list(results.values()), anchors.get("current_price"), fit, is_growth=is_growth
+    )
     ordered = [results[m] for _tool, m in _TOOL_METHOD.items() if m in results]
     return {
         "final_target_price": summary.final_target,
@@ -974,9 +1166,12 @@ _FALLBACK_SCHEMA = """{"per":{"rationale":""},"pbr":{"rationale":""},
 "forward_eps":수,"entry_case":"자산주/역발상|성장주","conclusion":""}"""
 
 
-def _oneshot_fallback(llm, model, ctx, prior, anchors, peers, series, fit=None, *, is_growth=False) -> dict:
+def _oneshot_fallback(
+    llm, model, ctx, prior, anchors, peers, series, fit=None, *, is_growth=False
+) -> dict:
     """구 방식(원샷 가정 blob) 폴백. tool-calling 이 안 되거나 루프가 결과를 못 낼 때 최소 결과 보장."""
     from app.services.sentiment import _extract_json
+
     user = (
         f"[종목] {ctx.code}\n[앵커]\n{json.dumps(anchors, ensure_ascii=False)}\n"
         f"[피어]\n{json.dumps(peers, ensure_ascii=False)[:1500]}"
@@ -984,7 +1179,12 @@ def _oneshot_fallback(llm, model, ctx, prior, anchors, peers, series, fit=None, 
         + f"\n5개 방식 가정 JSON 만 출력:\n{_FALLBACK_SCHEMA}"
     )
     try:
-        a = _extract_json(llm.chat(model, "밸류에이션 가정만 JSON 으로 출력.", user, temperature=0.2)) or {}
+        a = (
+            _extract_json(
+                llm.chat(model, "밸류에이션 가정만 JSON 으로 출력.", user, temperature=0.2)
+            )
+            or {}
+        )
     except LLMError:
         a = {}
     results = []
@@ -999,9 +1199,13 @@ def _oneshot_fallback(llm, model, ctx, prior, anchors, peers, series, fit=None, 
         results.append(r)
     summary = val.blend(results, anchors.get("current_price"), fit, is_growth=is_growth)
     return {
-        "final_target_price": summary.final_target, "final_upside_pct": summary.final_upside_pct,
-        "current_price": summary.current_price, "method_count": summary.method_count,
-        "method_fit": fit, "forward_meta": anchors.get("forward_meta"),
-        "entry_case": a.get("entry_case"), "conclusion": a.get("conclusion"),
+        "final_target_price": summary.final_target,
+        "final_upside_pct": summary.final_upside_pct,
+        "current_price": summary.current_price,
+        "method_count": summary.method_count,
+        "method_fit": fit,
+        "forward_meta": anchors.get("forward_meta"),
+        "entry_case": a.get("entry_case"),
+        "conclusion": a.get("conclusion"),
         "methods": [_result_to_dict(r) for r in results],
     }

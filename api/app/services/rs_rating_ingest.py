@@ -84,8 +84,11 @@ def _recent_bars(db: Session, code: str) -> list[_Bar]:
     """종목의 최근 일봉 OHLCV(오름차순). RS·추세 계산에 필요한 만큼만 읽는다."""
     rows = db.execute(
         select(
-            PriceCandle.close, PriceCandle.high, PriceCandle.low,
-            PriceCandle.volume, PriceCandle.bar_date,
+            PriceCandle.close,
+            PriceCandle.high,
+            PriceCandle.low,
+            PriceCandle.volume,
+            PriceCandle.bar_date,
         )
         .where(PriceCandle.stock_code == code, PriceCandle.timeframe == Timeframe.DAY)
         .order_by(PriceCandle.bar_date.desc())
@@ -153,6 +156,10 @@ def run_rs_rating_batch(db: Session, with_momentum: bool = False) -> dict:
     db.commit()
     logger.info(
         "rs+trend batch: %d/%d updated (rs=%d trend=%d) (%s)",
-        rated, len(codes), len(factors), len(trend_scores), snap_date,
+        rated,
+        len(codes),
+        len(factors),
+        len(trend_scores),
+        snap_date,
     )
     return {"rated": rated, "total": len(codes), "trend": len(trend_scores)}

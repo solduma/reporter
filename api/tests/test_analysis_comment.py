@@ -90,4 +90,5 @@ def test_generate_and_store_skips_store_when_no_comment(monkeypatch):
         lambda: called.__setitem__("session", called["session"] + 1),
     )
     analysis_comment.generate_and_store("005930", "삼성", _AXES, "h")
-    assert called["session"] == 0
+    # 딥다이브 피드백 조회로 세션 1회 사용. 캐시 저장용 세션은 열리지 않는다.
+    assert called["session"] == 1

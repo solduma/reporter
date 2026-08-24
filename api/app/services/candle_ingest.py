@@ -61,15 +61,26 @@ def _universe_codes(db: Session) -> list[str]:
 def _upsert(db: Session, code: str, tf: Timeframe, candles: list[chart.Candle]) -> None:
     for c in candles:
         stmt = insert(PriceCandle).values(
-            stock_code=code, timeframe=tf, bar_date=c.ts.date(),
-            open=c.open, high=c.high, low=c.low, close=c.close, volume=c.volume,
+            stock_code=code,
+            timeframe=tf,
+            bar_date=c.ts.date(),
+            open=c.open,
+            high=c.high,
+            low=c.low,
+            close=c.close,
+            volume=c.volume,
             foreign_ratio=c.foreign_ratio,
         )
         stmt = stmt.on_conflict_do_update(
             constraint="uq_candle",
-            set_={"open": stmt.excluded.open, "high": stmt.excluded.high,
-                  "low": stmt.excluded.low, "close": stmt.excluded.close,
-                  "volume": stmt.excluded.volume, "foreign_ratio": stmt.excluded.foreign_ratio},
+            set_={
+                "open": stmt.excluded.open,
+                "high": stmt.excluded.high,
+                "low": stmt.excluded.low,
+                "close": stmt.excluded.close,
+                "volume": stmt.excluded.volume,
+                "foreign_ratio": stmt.excluded.foreign_ratio,
+            },
         )
         db.execute(stmt)
 
@@ -122,12 +133,19 @@ def backfill_intraday(db: Session, settings: Settings | None = None) -> dict:
         if i % 100 == 0:
             logger.info(
                 "intraday backfill %d/%d (ok=%d fail=%d, skipped=%d)",
-                i, len(pending), done, failed, len(loaded),
+                i,
+                len(pending),
+                done,
+                failed,
+                len(loaded),
             )
 
     logger.info(
         "intraday backfill done: %d stocks, %d failed, %d skipped, %d days",
-        done, failed, len(loaded), len(days),
+        done,
+        failed,
+        len(loaded),
+        len(days),
     )
     return {"stocks": done, "failed": failed, "skipped": len(loaded), "days": len(days)}
 
@@ -179,7 +197,6 @@ def _fetch_periodic_range(
     end = datetime.now()
     start = end - timedelta(days=days)
     return chart.fetch_periodic_with_fallback(settings, code, tf.value, start, end, session)
-
 
 
 def _seed_or_incremental(
@@ -319,7 +336,9 @@ def refresh_today_day_candles(db: Session, settings: Settings | None = None) -> 
 
     def _fetch(code: str) -> tuple[str, list[chart.Candle]]:
         with _http.resilient_session() as session:  # 스레드 간 세션 공유 금지
-            return code, chart.fetch_periodic_with_fallback(settings, code, "day", start, end, session)
+            return code, chart.fetch_periodic_with_fallback(
+                settings, code, "day", start, end, session
+            )
 
     updated = failed = 0
     window = _INTRADAY_DAY_WORKERS * 4  # 결과 동시 상주 제한(10년 백필과 동일)
@@ -357,9 +376,7 @@ _BACKFILL_WORKERS = 6
 def _backfilled_codes(db: Session) -> set[str]:
     """이미 10년 백필 완료로 마킹된 종목코드 집합(재개 시 재처리 방지)."""
     return set(
-        db.scalars(
-            select(SyncState.stock_code).where(SyncState.domain == _BACKFILL_DOMAIN)
-        ).all()
+        db.scalars(select(SyncState.stock_code).where(SyncState.domain == _BACKFILL_DOMAIN)).all()
     )
 
 
@@ -391,7 +408,9 @@ def run_backfill_progressive(
     def _fetch(code: str) -> tuple[str, list[chart.Candle]]:
         # 조회마다 자체 requests.Session(스레드 간 공유 금지). with 로 커넥션 확실히 닫는다.
         with _http.resilient_session() as session:
-            return code, chart.fetch_periodic_with_fallback(settings, code, "day", start, end, session)
+            return code, chart.fetch_periodic_with_fallback(
+                settings, code, "day", start, end, session
+            )
 
     def _store(code: str, candles: list[chart.Candle]) -> None:
         # 봉당 execute(느림) 대신 단일 다중값 INSERT(candle_service)로 배치 upsert(~7배 빠름).

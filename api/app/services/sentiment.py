@@ -84,7 +84,9 @@ def classify_disclosure(
     sentiment = str(data.get("sentiment", "")).upper().strip()
     if sentiment not in _VALID:
         sentiment = "HOLD"
-    return SentimentResult(sentiment=sentiment, one_liner="", rationale=str(data.get("rationale", "")).strip())
+    return SentimentResult(
+        sentiment=sentiment, one_liner="", rationale=str(data.get("rationale", "")).strip()
+    )
 
 
 def classify(client: LLMPort, model: str, category: str, title: str, text: str) -> SentimentResult:

@@ -111,13 +111,17 @@ def research(
     # 블로그: 정확도(sim) + 최신(date) 하이브리드로 후보 풀 확대(정확도-recency 둘 다 포착).
     blog_hits: list[naver_search.SearchHit] = []
     if max_results > 0:
-        blog_hits = naver_search.search_blog(cid, secret, query, session, display=max_results, sort=sort)
+        blog_hits = naver_search.search_blog(
+            cid, secret, query, session, display=max_results, sort=sort
+        )
         if sort == "sim":  # 정확도 패스에 최신 패스를 더해 재랭킹이 recency 도 볼 수 있게
             blog_hits += naver_search.search_blog(
                 cid, secret, query, session, display=max_results, sort="date"
             )
     # 뉴스는 최신순(수주·계약은 시의성). display 를 늘려 이벤트 기사 포착률을 높인다.
-    news_hits = naver_search.search_news(cid, secret, query, session, display=news_display, sort="date")
+    news_hits = naver_search.search_news(
+        cid, secret, query, session, display=news_display, sort="date"
+    )
 
     # 관련성 필터 + 제목/URL dedup + 재랭킹(정확도 순위 + recency 결합). 블로그·뉴스 각각.
     blog_ranked = _rerank_dedup(blog_hits, aliases, seen, recency_weight)
@@ -145,8 +149,13 @@ def research(
     return {
         "query": query,
         "hits": [
-            {"title": h.title, "link": h.link, "description": h.description,
-             "source": h.source, "post_date": h.post_date}
+            {
+                "title": h.title,
+                "link": h.link,
+                "description": h.description,
+                "source": h.source,
+                "post_date": h.post_date,
+            }
             for h in hits
         ],
         "bodies": bodies,

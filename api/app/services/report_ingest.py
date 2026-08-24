@@ -46,6 +46,7 @@ logger = logging.getLogger(__name__)
 def _disclosures(settings: Settings) -> KrDisclosurePort:
     return DartDisclosureAdapter(settings.dart_api_key)
 
+
 _BACKFILL_DOMAIN = "report_10y"
 _YEARS = 10
 # 이 회계연도부터는 분기/반기/사업 전부, 이전은 사업보고서만(과거 상세는 비용 대비 실익 낮음).
@@ -119,7 +120,9 @@ def _upsert_dividend(
     if div is None or (div.dps is None and div.div_yield is None):
         return
     values = {k: v for k, v in (("dps", div.dps), ("div_yield", div.div_yield)) if v is not None}
-    stmt = insert(Financial).values(stock_code=code, period=period, fs_div="CFS", is_estimate=False, **values)
+    stmt = insert(Financial).values(
+        stock_code=code, period=period, fs_div="CFS", is_estimate=False, **values
+    )
     stmt = stmt.on_conflict_do_update(constraint="uq_financial", set_=values)
     db.execute(stmt)
 
@@ -148,7 +151,9 @@ def _upsert_roe(
     roe = dart.fetch_roe(settings.dart_api_key, corp_code, year, 4, session)
     if roe is None:
         return
-    stmt = insert(Financial).values(stock_code=code, period=period, fs_div="CFS", is_estimate=False, roe=roe)
+    stmt = insert(Financial).values(
+        stock_code=code, period=period, fs_div="CFS", is_estimate=False, roe=roe
+    )
     stmt = stmt.on_conflict_do_update(constraint="uq_financial", set_={"roe": roe})
     db.execute(stmt)
 
@@ -174,7 +179,9 @@ def _shares_from_snapshot(db: Session, code: str) -> int | None:
     return round(market_cap / close_price)
 
 
-def _upsert_report(db: Session, code: str, period: str, kind: str, rcept_no: str, fs_div: str, **vals) -> None:
+def _upsert_report(
+    db: Session, code: str, period: str, kind: str, rcept_no: str, fs_div: str, **vals
+) -> None:
     stmt = insert(ReportFinancial).values(
         stock_code=code, period=period, fs_div=fs_div, report_kind=kind, rcept_no=rcept_no, **vals
     )
@@ -185,9 +192,7 @@ def _upsert_report(db: Session, code: str, period: str, kind: str, rcept_no: str
     db.execute(stmt)
 
 
-def backfill_stock(
-    db: Session, settings: Settings, code: str, shares: int | None = None
-) -> bool:
+def backfill_stock(db: Session, settings: Settings, code: str, shares: int | None = None) -> bool:
     """한 종목의 보고서 재무를 원문 파싱해 report_financials 적재 + EV/EBITDA 재산출.
 
     shares(현재 상장주식수)를 주면 KRX 조회를 생략한다(배치가 시장맵을 1회 받아 넘김). 없으면
@@ -207,9 +212,7 @@ def backfill_stock(
     # fnlttSinglAcntAll 응답을 쓰므로 FS 에 있으면 DART 0건 파싱. 없는 분기만 폴백.
     fs_map: dict[tuple[str, str], dict] = {
         (r.period, r.fs_div): r.data
-        for r in db.scalars(
-            select(FinancialStatement).where(FinancialStatement.stock_code == code)
-        )
+        for r in db.scalars(select(FinancialStatement).where(FinancialStatement.stock_code == code))
     }
     with _http.resilient_session() as session:
         for year, kind in _target_reports(today):
@@ -249,7 +252,12 @@ def backfill_stock(
                     if f is None:
                         continue
                     _upsert_report(
-                        db, code, period, kind, rcept_no, div,
+                        db,
+                        code,
+                        period,
+                        kind,
+                        rcept_no,
+                        div,
                         revenue=f.revenue,
                         operating_income=f.operating_income,
                         net_income=f.net_income,
@@ -265,15 +273,22 @@ def backfill_stock(
                 # 연간 financials 반영값: 연결기준 EBITDA·순차입·D&A·CAPEX(FCFF) + 실효세율·부채비용(WACC).
                 if cfs is not None and cfs.operating_income is not None and dep is not None:
                     annual_ev[period] = {
-                        "ebitda": cfs.operating_income + dep, "net_debt": cfs.net_debt,
-                        "dep": dep, "capex": cfs.capex,
+                        "ebitda": cfs.operating_income + dep,
+                        "net_debt": cfs.net_debt,
+                        "dep": dep,
+                        "capex": cfs.capex,
                         "effective_tax_rate": _effective_tax_rate(cfs),
                         "cost_of_debt": _cost_of_debt(cfs),
                     }
             else:
                 # half/quarter: 연결(CFS)만 upsert. DART는 별도 재무 제공 안 함.
                 _upsert_report(
-                    db, code, period, kind, rcept_no, "CFS",
+                    db,
+                    code,
+                    period,
+                    kind,
+                    rcept_no,
+                    "CFS",
                     revenue=fin.revenue,
                     operating_income=fin.operating_income,
                     net_income=fin.net_income,
@@ -413,7 +428,9 @@ def _reconcile_markers(db: Session, codes: list[str], done: set[str]) -> int:
     if has_report:
         db.commit()
         done.update(has_report)
-        logger.info("report backfill: 마커 %d개 복원(report_financials 보유·마커 결손)", len(has_report))
+        logger.info(
+            "report backfill: 마커 %d개 복원(report_financials 보유·마커 결손)", len(has_report)
+        )
     return len(has_report)
 
 
@@ -468,11 +485,20 @@ def run_backfill_progressive(
     remaining = len(pending) - done
     logger.info(
         "report backfill: done=%d failed=%d reconciled=%d remaining=%d quota_hit=%s budget_hit=%s",
-        done, failed, reconciled, remaining, quota_hit, budget_hit,
+        done,
+        failed,
+        reconciled,
+        remaining,
+        quota_hit,
+        budget_hit,
     )
     return {
-        "done": done, "failed": failed, "reconciled": reconciled, "remaining": remaining,
-        "quota_hit": quota_hit, "budget_hit": budget_hit,
+        "done": done,
+        "failed": failed,
+        "reconciled": reconciled,
+        "remaining": remaining,
+        "quota_hit": quota_hit,
+        "budget_hit": budget_hit,
     }
 
 
@@ -516,7 +542,8 @@ def backfill_capex(
     ).all()
     # capex 가 이미 financials 에 채워진 (종목,기간)은 완료.
     done = {
-        (c, p) for c, p in db.execute(
+        (c, p)
+        for c, p in db.execute(
             select(Financial.stock_code, Financial.period).where(
                 Financial.capex.is_not(None),
             )
@@ -566,9 +593,12 @@ def backfill_capex(
         need_keys = [(c, p) for c, p, _ in fs_needed]
         fs_map: dict[tuple[str, str], tuple[str, dict]] = {}
         fs_rows = db.execute(
-            select(FinancialStatement.stock_code, FinancialStatement.period,
-                   FinancialStatement.fs_div, FinancialStatement.data)
-            .where(
+            select(
+                FinancialStatement.stock_code,
+                FinancialStatement.period,
+                FinancialStatement.fs_div,
+                FinancialStatement.data,
+            ).where(
                 tuple_(FinancialStatement.stock_code, FinancialStatement.period).in_(need_keys),
                 FinancialStatement.fs_div.in_(("CFS", "OFS")),
             )
@@ -604,13 +634,26 @@ def backfill_capex(
             # report_financials 에도 capex 원값을 남겨 다음 run 부턴 복사 단계가 즉시 처리.
             db.execute(
                 insert(ReportFinancial)
-                .values(stock_code=code, period=period, fs_div="OFS", report_kind="annual",
-                        rcept_no="", capex=fin.capex, income_tax=fin.income_tax,
-                        pretax_income=fin.pretax_income, interest_expense=fin.interest_expense)
-                .on_conflict_do_update(constraint="uq_report_financial", set_={
-                    "capex": fin.capex, "income_tax": fin.income_tax,
-                    "pretax_income": fin.pretax_income, "interest_expense": fin.interest_expense,
-                })
+                .values(
+                    stock_code=code,
+                    period=period,
+                    fs_div="OFS",
+                    report_kind="annual",
+                    rcept_no="",
+                    capex=fin.capex,
+                    income_tax=fin.income_tax,
+                    pretax_income=fin.pretax_income,
+                    interest_expense=fin.interest_expense,
+                )
+                .on_conflict_do_update(
+                    constraint="uq_report_financial",
+                    set_={
+                        "capex": fin.capex,
+                        "income_tax": fin.income_tax,
+                        "pretax_income": fin.pretax_income,
+                        "interest_expense": fin.interest_expense,
+                    },
+                )
             )
             db_parsed += 1
             db_codes.add(code)
@@ -624,8 +667,11 @@ def backfill_capex(
     dart_pending = [
         (c, p, dep)
         for c, p, dep, cap, tax, pre, intr in todo
-        if cap is None and (c, p) not in filled_pairs
-        and tax is None and pre is None and intr is None
+        if cap is None
+        and (c, p) not in filled_pairs
+        and tax is None
+        and pre is None
+        and intr is None
     ][:limit]
     filled = copied + db_parsed
     quota_hit = False
@@ -635,26 +681,42 @@ def backfill_capex(
             by_code.setdefault(code, []).append((period, dep))
         with _http.resilient_session() as session:
             for code, items in by_code.items():
-                corp_code = db.scalar(select(CorpCodeMap.corp_code).where(CorpCodeMap.stock_code == code))
+                corp_code = db.scalar(
+                    select(CorpCodeMap.corp_code).where(CorpCodeMap.stock_code == code)
+                )
                 if not corp_code:
                     continue
                 try:
                     for period, dep in items:
                         year = int(period.split(".")[0])
-                        cfs, ofs = dart.fetch_income_and_equity(settings.dart_api_key, corp_code, year, 4, session)
+                        cfs, ofs = dart.fetch_income_and_equity(
+                            settings.dart_api_key, corp_code, year, 4, session
+                        )
                         fin = ofs if ofs is not None else cfs
                         if fin is None:
                             continue
                         # report_financials 원자료(capex·세율·이자) 저장.
-                        rf_vals = {"capex": fin.capex, "income_tax": fin.income_tax,
-                                   "pretax_income": fin.pretax_income, "interest_expense": fin.interest_expense}
+                        rf_vals = {
+                            "capex": fin.capex,
+                            "income_tax": fin.income_tax,
+                            "pretax_income": fin.pretax_income,
+                            "interest_expense": fin.interest_expense,
+                        }
                         rf_vals = {k: v for k, v in rf_vals.items() if v is not None}
                         if rf_vals:
                             db.execute(
                                 insert(ReportFinancial)
-                                .values(stock_code=code, period=period, fs_div="OFS",
-                                        report_kind="annual", rcept_no="", **rf_vals)
-                                .on_conflict_do_update(constraint="uq_report_financial", set_=rf_vals)
+                                .values(
+                                    stock_code=code,
+                                    period=period,
+                                    fs_div="OFS",
+                                    report_kind="annual",
+                                    rcept_no="",
+                                    **rf_vals,
+                                )
+                                .on_conflict_do_update(
+                                    constraint="uq_report_financial", set_=rf_vals
+                                )
                             )
                         # financials 에 FCFF·WACC 재료 반영(capex·D&A 억원, 세율·부채비용 비율).
                         fvals: dict = {}
@@ -672,7 +734,13 @@ def backfill_capex(
                             continue
                         db.execute(
                             insert(Financial)
-                            .values(stock_code=code, period=period, fs_div="OFS", is_estimate=False, **fvals)
+                            .values(
+                                stock_code=code,
+                                period=period,
+                                fs_div="OFS",
+                                is_estimate=False,
+                                **fvals,
+                            )
                             .on_conflict_do_update(constraint="uq_financial", set_=fvals)
                         )
                         filled += 1

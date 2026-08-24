@@ -23,7 +23,9 @@ from reporter import us_market
 
 logger = logging.getLogger(__name__)
 
-_SP500_CSV = "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/main/data/constituents.csv"
+_SP500_CSV = (
+    "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/main/data/constituents.csv"
+)
 _HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; reporter-bot/1.0)"}
 _STOCK_BASE = "https://api.stock.naver.com/stock/{symbol}/basic"
 
@@ -44,18 +46,40 @@ _NASDAQ_EXCLUDE = {"SPCX"}
 
 # S&P500 에 없지만 관심 큰 대형 나스닥/기타 종목 보충(중복은 시드 단계에서 dedup).
 _SUPPLEMENT: list[tuple[str, str]] = [
-    ("AVGO", "Technology"), ("ASML", "Technology"), ("PDD", "Consumer Discretionary"),
-    ("MELI", "Consumer Discretionary"), ("MSTR", "Technology"), ("COIN", "Financials"),
-    ("ARM", "Technology"), ("SMCI", "Technology"), ("PLTR", "Technology"),
-    ("SNOW", "Technology"), ("DDOG", "Technology"), ("CRWD", "Technology"),
-    ("HOOD", "Financials"), ("RDDT", "Technology"), ("SNAP", "Technology"),
-    ("UBER", "Technology"), ("DASH", "Technology"), ("SQ", "Financials"),
-    ("SOFI", "Financials"), ("RKLB", "Technology"), ("IONQ", "Technology"),
-    ("CELH", "Consumer Staples"), ("DKNG", "Consumer Discretionary"),
-    ("TTD", "Technology"), ("NET", "Technology"), ("ZS", "Technology"),
-    ("WDAY", "Technology"), ("MDB", "Technology"), ("CFLT", "Technology"),
-    ("TOST", "Technology"), ("GTLB", "Technology"), ("AFRM", "Financials"),
-    ("NU", "Financials"), ("CVNA", "Consumer Discretionary"),
+    ("AVGO", "Technology"),
+    ("ASML", "Technology"),
+    ("PDD", "Consumer Discretionary"),
+    ("MELI", "Consumer Discretionary"),
+    ("MSTR", "Technology"),
+    ("COIN", "Financials"),
+    ("ARM", "Technology"),
+    ("SMCI", "Technology"),
+    ("PLTR", "Technology"),
+    ("SNOW", "Technology"),
+    ("DDOG", "Technology"),
+    ("CRWD", "Technology"),
+    ("HOOD", "Financials"),
+    ("RDDT", "Technology"),
+    ("SNAP", "Technology"),
+    ("UBER", "Technology"),
+    ("DASH", "Technology"),
+    ("SQ", "Financials"),
+    ("SOFI", "Financials"),
+    ("RKLB", "Technology"),
+    ("IONQ", "Technology"),
+    ("CELH", "Consumer Staples"),
+    ("DKNG", "Consumer Discretionary"),
+    ("TTD", "Technology"),
+    ("NET", "Technology"),
+    ("ZS", "Technology"),
+    ("WDAY", "Technology"),
+    ("MDB", "Technology"),
+    ("CFLT", "Technology"),
+    ("TOST", "Technology"),
+    ("GTLB", "Technology"),
+    ("AFRM", "Financials"),
+    ("NU", "Financials"),
+    ("CVNA", "Consumer Discretionary"),
 ]
 
 
@@ -86,8 +110,12 @@ def fetch_nasdaq_top(
         resp = session.get(
             _NASDAQ_SCREENER,
             params={
-                "tableonly": "true", "limit": top_n, "offset": 0,
-                "exchange": "nasdaq", "sortColumn": "marketCap", "sortOrder": "desc",
+                "tableonly": "true",
+                "limit": top_n,
+                "offset": 0,
+                "exchange": "nasdaq",
+                "sortColumn": "marketCap",
+                "sortOrder": "desc",
             },
             headers=_BROWSER_HEADERS,
             timeout=20,
@@ -165,7 +193,9 @@ def _totals(basic: dict) -> dict[str, str]:
     return {it.get("code"): it.get("value") for it in (basic.get("stockItemTotalInfos") or [])}
 
 
-def fetch_row(ticker: str, sector: str | None, session: requests.Session | None = None) -> UsUniverseRow | None:
+def fetch_row(
+    ticker: str, sector: str | None, session: requests.Session | None = None
+) -> UsUniverseRow | None:
     """네이버에서 한 종목의 유니버스 행을 만든다. 심볼 미해석·시세 없음이면 None."""
     session = session or _http.resilient_session()
     resolved = us_market.resolve_us_symbol(ticker, session)

@@ -46,26 +46,151 @@ _EVENT_DAYS = 14  # 이벤트 컬럼: 최근 N일 내 이벤트만
 
 # 스크리너 필터 → 온톨로지 정준 ID 매핑 메타(D1). SQL 컬럼은 기존 그대로, 라벨/설명만 단일 출처.
 _SCREENER_FILTER_ONTOLOGY: list[dict[str, object]] = [
-    {"key": "per_max", "ontology_id": "per", "column": "Financial.per", "category": "value", "param_type": "float_max"},
-    {"key": "pbr_max", "ontology_id": "pbr", "column": "Financial.pbr", "category": "value", "param_type": "float_max"},
-    {"key": "roe_min", "ontology_id": "roe", "column": "Financial.roe", "category": "value", "param_type": "float_min"},
-    {"key": "div_min", "ontology_id": "dividend_yield", "column": "Financial.div_yield", "category": "value", "param_type": "float_min"},
-    {"key": "rev_yoy_min", "ontology_id": "IS_REV_TOTAL", "column": "GrowthMetric.revenue_yoy", "category": "growth", "param_type": "float_min"},
-    {"key": "op_yoy_min", "ontology_id": "IS_OP_INCOME", "column": "GrowthMetric.op_yoy", "category": "growth", "param_type": "float_min"},
-    {"key": "rev_qoq_min", "ontology_id": None, "column": "GrowthMetric.revenue_qoq", "category": "growth", "param_type": "float_min"},
-    {"key": "op_qoq_min", "ontology_id": None, "column": "GrowthMetric.op_qoq", "category": "growth", "param_type": "float_min"},
-    {"key": "op_growth", "ontology_id": None, "column": "GrowthMetric.op_status", "category": "growth", "param_type": "choice", "choices": ["turnaround", "growth"]},
-    {"key": "op_status", "ontology_id": None, "column": "GrowthMetric.op_status", "category": "growth", "param_type": "choice", "choices": ["흑자전환", "흑자지속", "적자전환", "적자지속"]},
-    {"key": "net_status", "ontology_id": None, "column": "GrowthMetric.net_status", "category": "growth", "param_type": "choice", "choices": ["흑자전환", "흑자지속", "적자전환", "적자지속"]},
-    {"key": "mom_min", "ontology_id": None, "column": "UniverseSnapshot.momentum_3m", "category": "trend", "param_type": "float_min"},
-    {"key": "mom_max", "ontology_id": None, "column": "UniverseSnapshot.momentum_3m", "category": "trend", "param_type": "float_max"},
-    {"key": "mktcap_max", "ontology_id": None, "column": "UniverseSnapshot.market_cap", "category": "common", "param_type": "int_max"},
-    {"key": "mktcap_min", "ontology_id": None, "column": "UniverseSnapshot.market_cap", "category": "common", "param_type": "int_min"},
-    {"key": "liq_min", "ontology_id": None, "column": "UniverseSnapshot.trading_value", "category": "common", "param_type": "int_min"},
-    {"key": "market", "ontology_id": None, "column": "UniverseSnapshot.market", "category": "common", "param_type": "choice", "choices": ["KOSPI", "KOSDAQ"]},
-    {"key": "sector", "ontology_id": None, "column": "SectorTheme.name", "category": "common", "param_type": "choice"},
-    {"key": "coverage", "ontology_id": None, "column": "ReportAnalysis.sentiment", "category": "common", "param_type": "choice", "choices": ["has", "none"]},
-    {"key": "recent_buy", "ontology_id": None, "column": "ReportAnalysis.sentiment", "category": "common", "param_type": "bool"},
+    {
+        "key": "per_max",
+        "ontology_id": "per",
+        "column": "Financial.per",
+        "category": "value",
+        "param_type": "float_max",
+    },
+    {
+        "key": "pbr_max",
+        "ontology_id": "pbr",
+        "column": "Financial.pbr",
+        "category": "value",
+        "param_type": "float_max",
+    },
+    {
+        "key": "roe_min",
+        "ontology_id": "roe",
+        "column": "Financial.roe",
+        "category": "value",
+        "param_type": "float_min",
+    },
+    {
+        "key": "div_min",
+        "ontology_id": "dividend_yield",
+        "column": "Financial.div_yield",
+        "category": "value",
+        "param_type": "float_min",
+    },
+    {
+        "key": "rev_yoy_min",
+        "ontology_id": "IS_REV_TOTAL",
+        "column": "GrowthMetric.revenue_yoy",
+        "category": "growth",
+        "param_type": "float_min",
+    },
+    {
+        "key": "op_yoy_min",
+        "ontology_id": "IS_OP_INCOME",
+        "column": "GrowthMetric.op_yoy",
+        "category": "growth",
+        "param_type": "float_min",
+    },
+    {
+        "key": "rev_qoq_min",
+        "ontology_id": None,
+        "column": "GrowthMetric.revenue_qoq",
+        "category": "growth",
+        "param_type": "float_min",
+    },
+    {
+        "key": "op_qoq_min",
+        "ontology_id": None,
+        "column": "GrowthMetric.op_qoq",
+        "category": "growth",
+        "param_type": "float_min",
+    },
+    {
+        "key": "op_growth",
+        "ontology_id": None,
+        "column": "GrowthMetric.op_status",
+        "category": "growth",
+        "param_type": "choice",
+        "choices": ["turnaround", "growth"],
+    },
+    {
+        "key": "op_status",
+        "ontology_id": None,
+        "column": "GrowthMetric.op_status",
+        "category": "growth",
+        "param_type": "choice",
+        "choices": ["흑자전환", "흑자지속", "적자전환", "적자지속"],
+    },
+    {
+        "key": "net_status",
+        "ontology_id": None,
+        "column": "GrowthMetric.net_status",
+        "category": "growth",
+        "param_type": "choice",
+        "choices": ["흑자전환", "흑자지속", "적자전환", "적자지속"],
+    },
+    {
+        "key": "mom_min",
+        "ontology_id": None,
+        "column": "UniverseSnapshot.momentum_3m",
+        "category": "trend",
+        "param_type": "float_min",
+    },
+    {
+        "key": "mom_max",
+        "ontology_id": None,
+        "column": "UniverseSnapshot.momentum_3m",
+        "category": "trend",
+        "param_type": "float_max",
+    },
+    {
+        "key": "mktcap_max",
+        "ontology_id": None,
+        "column": "UniverseSnapshot.market_cap",
+        "category": "common",
+        "param_type": "int_max",
+    },
+    {
+        "key": "mktcap_min",
+        "ontology_id": None,
+        "column": "UniverseSnapshot.market_cap",
+        "category": "common",
+        "param_type": "int_min",
+    },
+    {
+        "key": "liq_min",
+        "ontology_id": None,
+        "column": "UniverseSnapshot.trading_value",
+        "category": "common",
+        "param_type": "int_min",
+    },
+    {
+        "key": "market",
+        "ontology_id": None,
+        "column": "UniverseSnapshot.market",
+        "category": "common",
+        "param_type": "choice",
+        "choices": ["KOSPI", "KOSDAQ"],
+    },
+    {
+        "key": "sector",
+        "ontology_id": None,
+        "column": "SectorTheme.name",
+        "category": "common",
+        "param_type": "choice",
+    },
+    {
+        "key": "coverage",
+        "ontology_id": None,
+        "column": "ReportAnalysis.sentiment",
+        "category": "common",
+        "param_type": "choice",
+        "choices": ["has", "none"],
+    },
+    {
+        "key": "recent_buy",
+        "ontology_id": None,
+        "column": "ReportAnalysis.sentiment",
+        "category": "common",
+        "param_type": "bool",
+    },
 ]
 
 
@@ -160,7 +285,9 @@ def _coverage_subquery(since: date):
         select(
             Report.stock_code.label("stock_code"),
             func.count(Report.id).label("coverage_count"),
-            func.sum(case((ReportAnalysis.sentiment == Sentiment.BUY, 1), else_=0)).label("buy_count"),
+            func.sum(case((ReportAnalysis.sentiment == Sentiment.BUY, 1), else_=0)).label(
+                "buy_count"
+            ),
         )
         .join(ReportAnalysis, ReportAnalysis.report_id == Report.id)
         .where(Report.stock_code.is_not(None), Report.published_date >= since)
@@ -266,7 +393,9 @@ def screen(
     if mktcap_min is not None:
         conds.append(U.market_cap >= mktcap_min)
     if liq_min is not None:  # 거래대금 결측·0(배치 미집계)은 통과, 양의 값이 있으면 하한 적용
-        conds.append(or_(U.trading_value.is_(None), U.trading_value <= 0, U.trading_value >= liq_min))
+        conds.append(
+            or_(U.trading_value.is_(None), U.trading_value <= 0, U.trading_value >= liq_min)
+        )
     if market:
         conds.append(U.market == market)
     if sector:
@@ -313,7 +442,17 @@ def screen(
 
     if strategy == "value":
         return _screen_value(
-            db, base, as_of, per_max, pbr_max, roe_min, div_min, dynamic_filters, sort, limit, offset
+            db,
+            base,
+            as_of,
+            per_max,
+            pbr_max,
+            roe_min,
+            div_min,
+            dynamic_filters,
+            sort,
+            limit,
+            offset,
         )
     if strategy == "trend":
         return _screen_trend(db, base, as_of, sort, limit, offset)
@@ -336,8 +475,15 @@ def _screen_growth(db, base, as_of, sort, limit, offset) -> ScreenerResult:
         page = scored[offset : offset + limit]
         ev = _representative_events(db, [r[0].stock_code for r, _ in page], as_of)
         items = [
-            _to_row(r[0], r[1], r[2], r[3], score=score, growth_score=score,
-                    event=ev.get(r[0].stock_code))
+            _to_row(
+                r[0],
+                r[1],
+                r[2],
+                r[3],
+                score=score,
+                growth_score=score,
+                event=ev.get(r[0].stock_code),
+            )
             for r, score in page
         ]
     else:
@@ -352,8 +498,7 @@ def _screen_growth(db, base, as_of, sort, limit, offset) -> ScreenerResult:
         rows = db.execute(base.order_by(db_sort, U.stock_code).limit(limit).offset(offset)).all()
         ev = _representative_events(db, [r[0].stock_code for r in rows], as_of)
         items = [
-            _to_row(r[0], r[1], r[2], r[3], score=None, event=ev.get(r[0].stock_code))
-            for r in rows
+            _to_row(r[0], r[1], r[2], r[3], score=None, event=ev.get(r[0].stock_code)) for r in rows
         ]
     return ScreenerResult(as_of=as_of, total=total, items=items)
 
@@ -466,13 +611,21 @@ def _screen_value(
         page = scored[offset : offset + limit]
         ev = _representative_events(db, [r[0].stock_code for r, _, _ in page], as_of)
         items = [
-            _to_row(r[0], r[1], r[2], r[3], fin=f, score=score, value_score=score,
-                    event=ev.get(r[0].stock_code))
+            _to_row(
+                r[0],
+                r[1],
+                r[2],
+                r[3],
+                fin=f,
+                score=score,
+                value_score=score,
+                event=ev.get(r[0].stock_code),
+            )
             for r, f, score in page
         ]
     else:
         key = {
-            "market_cap": lambda rf: (rf[0][0].market_cap or 0),
+            "market_cap": lambda rf: rf[0][0].market_cap or 0,
             "change": lambda rf: -(rf[0][0].change_pct or 0),
             "trading_value": lambda rf: -(rf[0][0].trading_value or 0),
         }[sort]
@@ -504,14 +657,15 @@ def _recent_events(db, codes: list[str], since: date) -> dict[str, dict[str, dic
     ).all():
         _consider(d.stock_code, "공시", d.rcept_dt, d.report_nm)
     for r in db.execute(
-        select(Report.stock_code, Report.published_date, Report.title)
-        .where(Report.stock_code.in_(codes), Report.published_date >= since)
+        select(Report.stock_code, Report.published_date, Report.title).where(
+            Report.stock_code.in_(codes), Report.published_date >= since
+        )
     ).all():
         _consider(r[0], "리포트", r[1], r[2] or "신규 리포트")
     code_set = set(codes)
     since_dt = datetime.combine(since, datetime.min.time())
     for b in db.scalars(select(Broadcast).where(Broadcast.created_at >= since_dt)).all():
-        for c in (b.stock_codes or []):
+        for c in b.stock_codes or []:
             if c in code_set:
                 _consider(c, "브리핑", b.created_at.date(), b.title or "브리핑 언급")
     for e in db.scalars(
@@ -605,7 +759,7 @@ def _screen_topdown(db, base, as_of, sort, limit, offset) -> ScreenerResult:
     total = len(scored)
     if sort in ("market_cap", "change", "trading_value"):
         key = {
-            "market_cap": lambda x: (x[0][0].market_cap or 0),
+            "market_cap": lambda x: x[0][0].market_cap or 0,
             "change": lambda x: -(x[0][0].change_pct or 0),
             "trading_value": lambda x: -(x[0][0].trading_value or 0),
         }[sort]
@@ -615,8 +769,16 @@ def _screen_topdown(db, base, as_of, sort, limit, offset) -> ScreenerResult:
     page = scored[offset : offset + limit]
     ev = _representative_events(db, [r[0].stock_code for r, _, _ in page], as_of)
     items = [
-        _to_row(r[0], r[1], r[2], r[3], score=sc, topdown_score=sc, kr_sector=kr_sec,
-                event=ev.get(r[0].stock_code))
+        _to_row(
+            r[0],
+            r[1],
+            r[2],
+            r[3],
+            score=sc,
+            topdown_score=sc,
+            kr_sector=kr_sec,
+            event=ev.get(r[0].stock_code),
+        )
         for r, kr_sec, sc in page
     ]
     return ScreenerResult(as_of=as_of, total=total, items=items)
@@ -701,7 +863,10 @@ def peer_scores(db: Session, codes: list[str]) -> dict[str, dict[str, float | No
         dsc = _stock_topdown_score(kr_sec, flows, idx_cache[u.market], rs)
         scores = {
             "overall": analysis_scoring.overall([gsc, vsc, tsc, dsc]),
-            "growth": gsc, "value": vsc, "trend": tsc, "topdown": dsc,
+            "growth": gsc,
+            "value": vsc,
+            "trend": tsc,
+            "topdown": dsc,
         }
         out[u.stock_code] = scores
         _set_cached_peer_score(u.stock_code, scores)
@@ -747,7 +912,7 @@ def _screen_overall(db, base, as_of, sort, limit, offset) -> ScreenerResult:
     total = len(scored)
     if sort in ("market_cap", "change", "trading_value"):
         key = {
-            "market_cap": lambda x: (x[0][0].market_cap or 0),
+            "market_cap": lambda x: x[0][0].market_cap or 0,
             "change": lambda x: -(x[0][0].change_pct or 0),
             "trading_value": lambda x: -(x[0][0].trading_value or 0),
         }[sort]
@@ -758,8 +923,18 @@ def _screen_overall(db, base, as_of, sort, limit, offset) -> ScreenerResult:
     ev = _representative_events(db, [x[0][0].stock_code for x in page], as_of)
     items = [
         _to_row(
-            r[0], r[1], r[2], r[3], fin=fin, score=overall, growth_score=gsc, value_score=vsc,
-            trend_score=tsc, topdown_score=dsc, kr_sector=kr_sec, event=ev.get(r[0].stock_code),
+            r[0],
+            r[1],
+            r[2],
+            r[3],
+            fin=fin,
+            score=overall,
+            growth_score=gsc,
+            value_score=vsc,
+            trend_score=tsc,
+            topdown_score=dsc,
+            kr_sector=kr_sec,
+            event=ev.get(r[0].stock_code),
         )
         for r, fin, kr_sec, gsc, vsc, tsc, dsc, overall in page
     ]

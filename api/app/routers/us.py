@@ -38,16 +38,28 @@ def us_screen(
     exchange: str | None = Query(default=None, pattern="^(NASDAQ|NYSE)$"),
     sector: str | None = Query(default=None),
     has_event: bool = Query(default=False, description="최근 14일 8-K 있는 종목만"),
-    sort: str = Query(default="score", description="score|market_cap|momentum|per|trading_value|change"),
+    sort: str = Query(
+        default="score", description="score|market_cap|momentum|per|trading_value|change"
+    ),
     limit: int = Query(default=50, le=200),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_session),
 ) -> UsScreenerResult:
     """US 스크리너 — S&P500(+보충) 유니버스 필터·저평가·모멘텀 랭킹."""
     return us_screener_service.screen(
-        db, mktcap_min=mktcap_min, mktcap_max=mktcap_max, liq_min=liq_min,
-        per_max=per_max, pbr_max=pbr_max, mom_min=mom_min, exchange=exchange,
-        sector=sector, has_event=has_event, sort=sort, limit=limit, offset=offset,
+        db,
+        mktcap_min=mktcap_min,
+        mktcap_max=mktcap_max,
+        liq_min=liq_min,
+        per_max=per_max,
+        pbr_max=pbr_max,
+        mom_min=mom_min,
+        exchange=exchange,
+        sector=sector,
+        has_event=has_event,
+        sort=sort,
+        limit=limit,
+        offset=offset,
     )
 
 
@@ -58,8 +70,12 @@ def us_quote(ticker: str = Path(..., pattern=r"^[A-Za-z.\-]{1,10}$")) -> UsQuote
     if q is None:
         raise HTTPException(status_code=404, detail="US 종목 시세 없음")
     return UsQuoteOut(
-        ticker=q.ticker, naver_symbol=q.naver_symbol, name=q.name,
-        close=q.close, change_ratio=q.change_ratio, rising=q.rising,
+        ticker=q.ticker,
+        naver_symbol=q.naver_symbol,
+        name=q.name,
+        close=q.close,
+        change_ratio=q.change_ratio,
+        rising=q.rising,
     )
 
 
@@ -73,11 +89,19 @@ def us_financials(
     if row is None:
         raise HTTPException(status_code=404, detail="US 종목 재무 없음(SEC 미등록)")
     return UsFinancialOut(
-        ticker=row.ticker, name=row.name,
-        ttm_revenue=row.ttm_revenue, ttm_net_income=row.ttm_net_income,
-        ttm_operating_income=row.ttm_operating_income, ttm_eps=row.ttm_eps,
-        equity=row.equity, shares=row.shares, market_cap=row.market_cap,
-        per=row.per, pbr=row.pbr, psr=row.psr, roe=row.roe,
+        ticker=row.ticker,
+        name=row.name,
+        ttm_revenue=row.ttm_revenue,
+        ttm_net_income=row.ttm_net_income,
+        ttm_operating_income=row.ttm_operating_income,
+        ttm_eps=row.ttm_eps,
+        equity=row.equity,
+        shares=row.shares,
+        market_cap=row.market_cap,
+        per=row.per,
+        pbr=row.pbr,
+        psr=row.psr,
+        roe=row.roe,
     )
 
 
@@ -139,8 +163,11 @@ def us_disclosures(
     """US 종목 최근 SEC 8-K 공시(야간 배치 수집분). 상세 타임라인용."""
     return [
         UsDisclosureOut(
-            accession=d.accession, form_type=d.form_type, filing_date=d.filing_date,
-            title=d.title, primary_doc_url=d.primary_doc_url,
+            accession=d.accession,
+            form_type=d.form_type,
+            filing_date=d.filing_date,
+            title=d.title,
+            primary_doc_url=d.primary_doc_url,
             sentiment=d.sentiment.value if d.sentiment else None,
         )
         for d in us_disclosure_ingest.recent_disclosures(db, ticker)

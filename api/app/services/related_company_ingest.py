@@ -125,7 +125,9 @@ def backfill_stock(db: Session, settings: Settings, code: str, corp_map: dict[st
     _upsert_ownership_summary(db, settings, code, corp_code, hyslr_rows, base_year)
 
     db.commit()
-    logger.info("related company %s: %d parties, %d shareholders", code, len(related), shareholder_n)
+    logger.info(
+        "related company %s: %d parties, %d shareholders", code, len(related), shareholder_n
+    )
     return True
 
 
@@ -244,16 +246,25 @@ def run_backfill_progressive(
     remaining = len(pending) - done
     logger.info(
         "related company backfill: done=%d failed=%d remaining=%d quota_hit=%s budget_hit=%s",
-        done, failed, remaining, quota_hit, budget_hit,
+        done,
+        failed,
+        remaining,
+        quota_hit,
+        budget_hit,
     )
     return {
-        "done": done, "failed": failed, "remaining": remaining,
-        "quota_hit": quota_hit, "budget_hit": budget_hit,
+        "done": done,
+        "failed": failed,
+        "remaining": remaining,
+        "quota_hit": quota_hit,
+        "budget_hit": budget_hit,
     }
 
 
 def related_names(db: Session, code: str) -> list[str]:
     """종목의 관계사명 목록(웹서치 alias·관련성 판정용)."""
     return list(
-        db.scalars(select(RelatedCompany.related_name).where(RelatedCompany.stock_code == code)).all()
+        db.scalars(
+            select(RelatedCompany.related_name).where(RelatedCompany.stock_code == code)
+        ).all()
     )

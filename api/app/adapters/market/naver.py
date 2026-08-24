@@ -88,7 +88,11 @@ def fetch_periodic(
 
 
 def fetch_periodic_with_fallback(
-    settings, stock_code: str, timeframe: str, start: datetime, end: datetime,
+    settings,
+    stock_code: str,
+    timeframe: str,
+    start: datetime,
+    end: datetime,
     session: requests.Session,
 ) -> list[Candle]:
     """네이버 우선, 비면 KIS 로 폴백해 국내 일/주/월봉을 조회한다.

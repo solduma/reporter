@@ -111,7 +111,8 @@ def sustainable_growth(ttm_series: list[float]) -> tuple[float | None, dict | No
     g_cagr = _cagr(ttm_series)
     if g_cagr is not None:
         meta = {
-            "source": "cagr", "g_sustainable_pct": round(g_cagr * 100, 2),
+            "source": "cagr",
+            "g_sustainable_pct": round(g_cagr * 100, 2),
             "g_cagr_pct": round(g_cagr * 100, 2),
         }
         return g_cagr, meta
@@ -130,8 +131,11 @@ def sustainable_growth(ttm_series: list[float]) -> tuple[float | None, dict | No
 
 
 def growth_forward_multiple(
-    fwd_growth: float | None, roe: float | None, coe: float | None,
-    terminal_growth: float | None, cap_years: float | None,
+    fwd_growth: float | None,
+    roe: float | None,
+    coe: float | None,
+    terminal_growth: float | None,
+    cap_years: float | None,
 ) -> tuple[float | None, dict | None]:
     """성장반영 3단계 forward 멀티플(P0/E1) = 배당할인 복리 정의식의 폐형식.
 
@@ -155,11 +159,17 @@ def growth_forward_multiple(
         return None, {"reason": "ROE 또는 COE 결측·비양수"}
     if fwd_growth is None or terminal_growth is None or cap_years is None or cap_years <= 0:
         return None, {"reason": "forward 성장·영구성장·CAP 중 결측"}
-    if terminal_growth >= coe:  # 고든 발산 가드(r−g>0). terminal_growth 는 국고채10년이라 정상은 <COE.
-        return None, {"reason": f"영구성장률({terminal_growth*100:.1f}%)≥COE({coe*100:.1f}%) — terminal 발산"}
+    if (
+        terminal_growth >= coe
+    ):  # 고든 발산 가드(r−g>0). terminal_growth 는 국고채10년이라 정상은 <COE.
+        return None, {
+            "reason": f"영구성장률({terminal_growth * 100:.1f}%)≥COE({coe * 100:.1f}%) — terminal 발산"
+        }
 
     raw_growth = fwd_growth
-    fwd_growth = min(fwd_growth, roe)  # 지속가능성장 상한 g≤ROE(재투자율≤1 회계 항등식). 초과 외삽 억제.
+    fwd_growth = min(
+        fwd_growth, roe
+    )  # 지속가능성장 상한 g≤ROE(재투자율≤1 회계 항등식). 초과 외삽 억제.
     n = round(cap_years)
     pv = 0.0  # Σ 배당 현가 / E0
     eps = 1.0  # E0 기준 상대 EPS(성장 복리 누적)
@@ -186,11 +196,17 @@ def growth_forward_multiple(
     fwd_mult = pv / (1.0 + fwd_growth)  # P0/E1
     if fwd_mult <= 0:
         return None, {"reason": "산출 배수 ≤0(초과수익 음수 누적)"}
-    meta = {"forward_multiple": round(fwd_mult, 1), "fwd_growth_pct": round(fwd_growth * 100, 2),
-            "raw_growth_pct": round(raw_growth * 100, 2), "growth_capped": raw_growth > roe,
-            "roe_pct": round(roe * 100, 2), "coe_pct": round(coe * 100, 2),
-            "terminal_growth_pct": round(terminal_growth * 100, 2), "cap_years": n,
-            "source": "growth_3stage_forward"}
+    meta = {
+        "forward_multiple": round(fwd_mult, 1),
+        "fwd_growth_pct": round(fwd_growth * 100, 2),
+        "raw_growth_pct": round(raw_growth * 100, 2),
+        "growth_capped": raw_growth > roe,
+        "roe_pct": round(roe * 100, 2),
+        "coe_pct": round(coe * 100, 2),
+        "terminal_growth_pct": round(terminal_growth * 100, 2),
+        "cap_years": n,
+        "source": "growth_3stage_forward",
+    }
     return round(fwd_mult, 1), meta
 
 
@@ -219,7 +235,9 @@ def extrapolate_growth(ttm_series: list[float]) -> tuple[float | None, dict | No
     return growth, meta
 
 
-def incremental_margin(rev_ttm: list[float], op_ttm: list[float]) -> tuple[float | None, dict | None]:
+def incremental_margin(
+    rev_ttm: list[float], op_ttm: list[float]
+) -> tuple[float | None, dict | None]:
     """증분 영업이익률 = ΔOP/ΔRevenue (연 단위 변화의 회귀 기울기). 신규 매출→이익 전이율.
 
     HITL 신규 매출을 이익으로 환산할 때 쓴다. 단순 영업이익률(OP/Rev)이 아니라 '매출이 늘 때
@@ -241,11 +259,17 @@ def incremental_margin(rev_ttm: list[float], op_ttm: list[float]) -> tuple[float
         slope = sum(d_op) / sum(d_rev)  # ΣΔOP / ΣΔRev — 누적 증분마진(개별비율 평균보다 강건)
         # 양수 전이만 forward 상향에 반영(음수=매출 늘수록 손실은 미반영). 상한 임의캡 없음(회귀 기울기 그대로).
         if slope > 0:
-            return round(slope, 4), {"source": "incremental_regression", "points": len(d_rev),
-                                     "margin_pct": round(slope * 100, 2)}
+            return round(slope, 4), {
+                "source": "incremental_regression",
+                "points": len(d_rev),
+                "margin_pct": round(slope * 100, 2),
+            }
     # 폴백: 최근 단순 영업이익률(양수일 때만).
     if rev_ttm and op_ttm and rev_ttm[-1] > 0:
         simple = op_ttm[-1] / rev_ttm[-1]
         if simple > 0:
-            return round(simple, 4), {"source": "current_op_margin", "margin_pct": round(simple * 100, 2)}
+            return round(simple, 4), {
+                "source": "current_op_margin",
+                "margin_pct": round(simple * 100, 2),
+            }
     return None, None

@@ -42,10 +42,19 @@ _MODEL_TAG = "calendar-v3"  # 개정 시 올려 재생성 유도(v3: 과거 JSON
 
 
 def _inputs_hash(ev: CalendarEvent, is_past: bool) -> str:
-    payload = "|".join([
-        _MODEL_TAG, ev.title, ev.event_date.isoformat(), ev.region, ev.kind,
-        str(ev.actual), str(ev.previous), str(ev.consensus), "past" if is_past else "future",
-    ])
+    payload = "|".join(
+        [
+            _MODEL_TAG,
+            ev.title,
+            ev.event_date.isoformat(),
+            ev.region,
+            ev.kind,
+            str(ev.actual),
+            str(ev.previous),
+            str(ev.consensus),
+            "past" if is_past else "future",
+        ]
+    )
     return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
 
@@ -65,7 +74,11 @@ def _prompt(ev: CalendarEvent, is_past: bool, today: date) -> str:
     if ev.consensus:
         lines.append(f"시장예상: {ev.consensus}")
     if is_past:
-        note = "" if ev.actual else "\n(구체 실적 수치는 제공되지 않았으니, 일반적으로 알려진 결과·맥락 범위에서 설명하라.)"
+        note = (
+            ""
+            if ev.actual
+            else "\n(구체 실적 수치는 제공되지 않았으니, 일반적으로 알려진 결과·맥락 범위에서 설명하라.)"
+        )
         tail = "위 이벤트의 결과가 지수에 미친 영향과 그 이유를 설명해라." + note
     else:
         tail = "위 이벤트에 대해 시장이 무엇을 기대·주목하는지 관전 포인트를 정리해라."

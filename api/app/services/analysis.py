@@ -100,6 +100,7 @@ def llm_comment(
     stock_name: str,
     axes: list[dict],
     context: CommentContext | None = None,
+    deepdive_note: str | None = None,
 ) -> str | None:
     """세 축 점수·지표 + 시장 맥락·정성 재료를 LLM 으로 종합. LLM 없거나 실패 시 None."""
     if llm is None:
@@ -108,11 +109,17 @@ def llm_comment(
     for ax in axes:
         metrics = ", ".join(f"{m['label']} {m['value']}" for m in ax["metrics"])
         lines.append(f"- {ax['label']}: 점수 {ax['score']} ({metrics})")
+    if deepdive_note:
+        lines.append("")
+        lines.append("[딥다이브 요약 — 최근 정성 분석 결과를 우선 참고]")
+        lines.append(f"- {deepdive_note[:400]}")
     if context:
         lines.append("")
         lines.append("[시장 맥락]")
         if context.market_phase:
-            lines.append(f"- 현재 국면: {_PHASE_KO.get(context.market_phase, context.market_phase)}")
+            lines.append(
+                f"- 현재 국면: {_PHASE_KO.get(context.market_phase, context.market_phase)}"
+            )
         if context.market_summary:
             lines.append(f"- 오늘 시황: {context.market_summary[:400]}")
         lines.append("")

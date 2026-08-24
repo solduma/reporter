@@ -1260,6 +1260,23 @@ class BusinessResearchJob(Base):
     )
 
 
+class InsightFeedback(Base):
+    """딥다이브 완료 요약 — screener·analysis_comment 등 인사이트 소비처가 참조.
+
+    딥다이브가 완료될 때마다 upsert 되며, 산출물 간 단절(서로 다른 화면이 독립 계산)을
+    잇는 첫 연결 고리다. 상세 리포트는 deepdive_report 에 그대로 있다.
+    """
+
+    __tablename__ = "insight_feedback"
+
+    stock_code: Mapped[str] = mapped_column(String(6), primary_key=True)
+    verdict: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    upside_pct: Mapped[float | None] = mapped_column(nullable=True)
+    risk_count: Mapped[int] = mapped_column(default=0)
+    summary_line: Mapped[str] = mapped_column(Text, default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class BusinessAssemblyJob(Base):
     """사업 개요 조립 비동기 큐(Job).
 

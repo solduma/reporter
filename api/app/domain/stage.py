@@ -388,7 +388,9 @@ def classify(
 
     last = closes[-1]
     pos_ratio = last / ma_now - 1
-    price_pos = "above" if pos_ratio > PRICE_BAND else "below" if pos_ratio < -PRICE_BAND else "near"
+    price_pos = (
+        "above" if pos_ratio > PRICE_BAND else "below" if pos_ratio < -PRICE_BAND else "near"
+    )
 
     ma_prev = _sma_at(closes, n - 1 - slope_lookback, ma_period)
     if ma_prev is not None and ma_prev > 0:
@@ -420,8 +422,17 @@ def classify(
         channel_pos, breakout = None, "none"
 
     stage = _decide(
-        price_pos, ma_dir, lslope, r2, er, curv,
-        _long_context(closes, ma_period), vol_sig, volatility, breakout, pos_ratio,
+        price_pos,
+        ma_dir,
+        lslope,
+        r2,
+        er,
+        curv,
+        _long_context(closes, ma_period),
+        vol_sig,
+        volatility,
+        breakout,
+        pos_ratio,
         channel_pos,
     )
     return StageResult(
@@ -644,7 +655,11 @@ def segments(
             need = reversal_run if strong else min_run
             if cand_len >= need:
                 out.append(
-                    {"stage": committed_stage, "from": committed_from, "to": _prev_day(raw, cand_from)}
+                    {
+                        "stage": committed_stage,
+                        "from": committed_from,
+                        "to": _prev_day(raw, cand_from),
+                    }
                 )
                 committed_stage, committed_from, committed_pos = cand_stage, cand_from, pos
     out.append({"stage": committed_stage, "from": committed_from, "to": last_date})

@@ -98,7 +98,9 @@ def _get_changes(
     cached = db.get(OwnershipChangeCache, code)
     if cached is not None:
         # sqlite(테스트)는 tz 없이 저장 → aware 로 맞춰 비교(business_ingest 캐시 판정과 동일).
-        updated = cached.updated_at if cached.updated_at.tzinfo else cached.updated_at.replace(tzinfo=UTC)
+        updated = (
+            cached.updated_at if cached.updated_at.tzinfo else cached.updated_at.replace(tzinfo=UTC)
+        )
         age = datetime.now(UTC) - updated
         if age < _CHANGE_CACHE_TTL:
             return [_change_out(p) for p in cached.payload], False
@@ -175,7 +177,11 @@ def _compute_significance(
     """
     tags: list[str] = []
     if sub_net_profit is not None:
-        if parent_net_income and parent_net_income > 0 and sub_net_profit >= parent_net_income * 0.1:
+        if (
+            parent_net_income
+            and parent_net_income > 0
+            and sub_net_profit >= parent_net_income * 0.1
+        ):
             tags.append("이익10%+")
         if sub_net_profit < 0:
             tags.append("적자")
@@ -208,7 +214,9 @@ def _get_major_holders(
     """5%+ 대량보유주주 — 캐시 우선(12h), miss 시 majorstock.json live 조회."""
     cached = db.get(MajorHolderCache, code)
     if cached is not None:
-        updated = cached.updated_at if cached.updated_at.tzinfo else cached.updated_at.replace(tzinfo=UTC)
+        updated = (
+            cached.updated_at if cached.updated_at.tzinfo else cached.updated_at.replace(tzinfo=UTC)
+        )
         if datetime.now(UTC) - updated < _CHANGE_CACHE_TTL:
             return [MajorHolderOut(**p) for p in cached.payload]
 
@@ -252,7 +260,9 @@ def _get_dilution(
     """
     cached = db.get(DilutionCache, code)
     if cached is not None:
-        updated = cached.updated_at if cached.updated_at.tzinfo else cached.updated_at.replace(tzinfo=UTC)
+        updated = (
+            cached.updated_at if cached.updated_at.tzinfo else cached.updated_at.replace(tzinfo=UTC)
+        )
         if datetime.now(UTC) - updated < _CHANGE_CACHE_TTL:
             items = [DilutionOut(**p) for p in cached.payload]
             total_shares = sum((p.cvisstk_cnt or 0) for p in items)
@@ -268,8 +278,12 @@ def _get_dilution(
     end_de = today.strftime("%Y%m%d")
     try:
         with _http.resilient_session() as session:
-            cb_raw = dart.fetch_cb_issuance(settings.dart_api_key, corp_code, bgn_de, end_de, session)
-            bw_raw = dart.fetch_bw_issuance(settings.dart_api_key, corp_code, bgn_de, end_de, session)
+            cb_raw = dart.fetch_cb_issuance(
+                settings.dart_api_key, corp_code, bgn_de, end_de, session
+            )
+            bw_raw = dart.fetch_bw_issuance(
+                settings.dart_api_key, corp_code, bgn_de, end_de, session
+            )
     except dart.DartQuotaExceeded:
         logger.info("dilution: DART quota exceeded %s", code)
         items = [DilutionOut(**p) for p in (cached.payload if cached else [])]
@@ -277,23 +291,27 @@ def _get_dilution(
 
     payload = []
     for c in cb_raw:
-        payload.append({
-            "type": "CB",
-            "bddd": c.bddd,
-            "bd_fta": c.bd_fta,
-            "cv_prc": c.cv_prc,
-            "cvisstk_cnt": c.cvisstk_cnt,
-            "tisstk_vs": c.cvisstk_tisstk_vs,
-        })
+        payload.append(
+            {
+                "type": "CB",
+                "bddd": c.bddd,
+                "bd_fta": c.bd_fta,
+                "cv_prc": c.cv_prc,
+                "cvisstk_cnt": c.cvisstk_cnt,
+                "tisstk_vs": c.cvisstk_tisstk_vs,
+            }
+        )
     for b in bw_raw:
-        payload.append({
-            "type": "BW",
-            "bddd": b.bddd,
-            "bd_fta": b.bd_fta,
-            "cv_prc": b.ex_prc,
-            "cvisstk_cnt": b.nstk_isstk_cnt,
-            "tisstk_vs": b.nstk_isstk_tisstk_vs,
-        })
+        payload.append(
+            {
+                "type": "BW",
+                "bddd": b.bddd,
+                "bd_fta": b.bd_fta,
+                "cv_prc": b.ex_prc,
+                "cvisstk_cnt": b.nstk_isstk_cnt,
+                "tisstk_vs": b.nstk_isstk_tisstk_vs,
+            }
+        )
     payload.sort(key=lambda r: r["bddd"] or "", reverse=True)
 
     if cached is None:
@@ -333,23 +351,19 @@ def get_ownership(db: Session, settings: Settings, code: str) -> OwnershipOut:
     """종목 지분구조 응답 조립 — 주주 명부 + 자회사·출자사 + 최근 지분변동."""
     corp_code = db.scalar(select(CorpCodeMap.corp_code).where(CorpCodeMap.stock_code == code))
 
-    shareholders = (
-        db.scalars(
-            select(Shareholder)
-            .where(Shareholder.stock_code == code)
-            .order_by(Shareholder.stake_pct.desc().nullslast())
-        ).all()
-    )
-    subsidiaries = (
-        db.scalars(
-            select(RelatedCompany)
-            .where(
-                RelatedCompany.stock_code == code,
-                RelatedCompany.relation.in_(["subsidiary", "investor"]),
-            )
-            .order_by(RelatedCompany.stake_pct.desc().nullslast())
-        ).all()
-    )
+    shareholders = db.scalars(
+        select(Shareholder)
+        .where(Shareholder.stock_code == code)
+        .order_by(Shareholder.stake_pct.desc().nullslast())
+    ).all()
+    subsidiaries = db.scalars(
+        select(RelatedCompany)
+        .where(
+            RelatedCompany.stock_code == code,
+            RelatedCompany.relation.in_(["subsidiary", "investor"]),
+        )
+        .order_by(RelatedCompany.stake_pct.desc().nullslast())
+    ).all()
 
     # 상장 주주·관계사 표시명 일괄 역해석.
     link_codes = {s.related_stock_code for s in shareholders if s.related_stock_code}
@@ -389,7 +403,11 @@ def get_ownership(db: Session, settings: Settings, code: str) -> OwnershipOut:
             significance=significance,
         )
         # significance 가 있거나 지분율 ≥ 5% 또는 장부가액 ≥ 10억이면 노출.
-        if significance or (s.stake_pct is not None and s.stake_pct >= 5) or (s.book_value and s.book_value >= 1_000_000_000):
+        if (
+            significance
+            or (s.stake_pct is not None and s.stake_pct >= 5)
+            or (s.book_value and s.book_value >= 1_000_000_000)
+        ):
             filtered_subs.append(out)
 
     return OwnershipOut(
@@ -402,7 +420,9 @@ def get_ownership(db: Session, settings: Settings, code: str) -> OwnershipOut:
                 stake_pct=s.stake_pct,
                 is_corporate=s.is_corporate,
                 related_stock_code=s.related_stock_code,
-                related_stock_name=names.get(s.related_stock_code) if s.related_stock_code else None,
+                related_stock_name=names.get(s.related_stock_code)
+                if s.related_stock_code
+                else None,
             )
             for s in shareholders
         ],
