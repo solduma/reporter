@@ -440,6 +440,8 @@ def _run_business_research_in_thread(
 
 _business_assembly_executor: concurrent.futures.ThreadPoolExecutor | None = None
 _business_assembly_inflight = 0
+# 동시 조립 레인 수 — 대형 보고서(사용자 대기 잡)가 단일 레인을 오래 점유하는 것을 완화.
+_BUSINESS_ASSEMBLY_MAX_INFLIGHT = 2
 
 
 def _run_business_assembly_in_thread(
@@ -468,13 +470,13 @@ def run_business_assembly_queue(settings: Settings | None = None) -> dict:
     """사업 개요 조립 DB 폴링 큐 — pending job 1건을 잡아 백그라운드 스레드 실행.
 
     리서치 큐와 독립된 전용 executor. 짧은 interval 폴링, max_instances=1 로 겹침 방지.
-    inflight 게이트: 실행기(max_workers=1)가 밀려 있으면 클레임하지 않는다 — 클레임이
+    inflight 게이트(기본 2레인): 실행기가 포화면 클레임하지 않는다 — 클레임이
     실행을 앞서면 DB 상태(running)와 실제 진행이 어긋나고 stale 회수가 오발동한다.
     """
     global _business_assembly_executor, _business_assembly_inflight
     from app.services import business_assembly
 
-    if _business_assembly_inflight >= 1:
+    if _business_assembly_inflight >= _BUSINESS_ASSEMBLY_MAX_INFLIGHT:
         return {"claimed": 0, "inflight": _business_assembly_inflight}
 
     settings = settings or get_settings()
@@ -485,7 +487,8 @@ def run_business_assembly_queue(settings: Settings | None = None) -> dict:
             return {"claimed": 0}
         if _business_assembly_executor is None:
             _business_assembly_executor = concurrent.futures.ThreadPoolExecutor(
-                max_workers=1, thread_name_prefix="bassembly-"
+                max_workers=_BUSINESS_ASSEMBLY_MAX_INFLIGHT,
+                thread_name_prefix="bassembly-"
             )
         _business_assembly_inflight += 1
         _business_assembly_executor.submit(
