@@ -23,8 +23,12 @@ def db():
 def test_reconcile_restores_marker_for_psr_without_marker(db):
     # psr 이 있는데 마커가 없는 종목 → 마커 복원(백필이 과거에 완료했으나 마커만 삭제된 경우).
     # CFS+OFS 모두 있어야 복원(CFS/OFS 분리 후 OFS 누락분 재처리 방지).
-    db.add(Financial(stock_code="000001", period="2025.12", is_estimate=False, psr=1.5, fs_div="CFS"))
-    db.add(Financial(stock_code="000001", period="2025.12", is_estimate=False, psr=1.5, fs_div="OFS"))
+    db.add(
+        Financial(stock_code="000001", period="2025.12", is_estimate=False, psr=1.5, fs_div="CFS")
+    )
+    db.add(
+        Financial(stock_code="000001", period="2025.12", is_estimate=False, psr=1.5, fs_div="OFS")
+    )
     db.commit()
 
     restored = financials_backfill._reconcile_markers(db, ["000001"], set())
@@ -54,8 +58,17 @@ def test_reconcile_ignores_already_marked(db):
 
 
 def test_backfill_budget_exhausted_threshold(monkeypatch):
-    # 예산 미만이면 계속, 도달하면 조기 중단 신호.
-    monkeypatch.setattr(dart_throttle, "calls_today", lambda: dart_throttle.BACKFILL_DAILY_BUDGET - 1)
+    # 전 키의 일일 budget 이 소진되면 조기 중단 신호, 하나라도 남으면 계속.
+    from datetime import UTC
+    from datetime import datetime as dt
+
+    today = dt.now(UTC).strftime("%Y-%m-%d")
+    monkeypatch.setattr(dart_throttle, "_rate_limiter", {})
+    monkeypatch.setattr(dart_throttle, "_active_idx", 0)
+    dart_throttle.configure_keys("primary", "backup")
+
+    monkeypatch.setattr(dart_throttle, "_budget", {"primary": (today, 1), "backup": (today, 0)})
     assert dart_throttle.backfill_budget_exhausted() is False
-    monkeypatch.setattr(dart_throttle, "calls_today", lambda: dart_throttle.BACKFILL_DAILY_BUDGET)
+
+    monkeypatch.setattr(dart_throttle, "_budget", {"primary": (today, 0), "backup": (today, 0)})
     assert dart_throttle.backfill_budget_exhausted() is True

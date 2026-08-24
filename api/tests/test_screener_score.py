@@ -123,6 +123,7 @@ def test_value_score_dividend_bonus():
 def test_screener_value_matches_company_analysis():
     # 회귀: 스크리너 가치 점수 = 종목분석 가치 점수(둘 다 절대 밴드 value_score_abs).
     from app.domain import analysis_scoring
+
     fin = _F(per=8.0, pbr=1.2, roe=12.0, ev_ebitda=6.0, div_yield=3.0)
     screener_v = screener._value_score(fin)
     analysis_v, _ = analysis_scoring.value_score_abs(
@@ -142,9 +143,7 @@ def db(monkeypatch):
     from app.db.models import GrowthMetric, UniverseSnapshot
 
     eng = create_engine("sqlite://")
-    Base.metadata.create_all(
-        eng, tables=[UniverseSnapshot.__table__, GrowthMetric.__table__]
-    )
+    Base.metadata.create_all(eng, tables=[UniverseSnapshot.__table__, GrowthMetric.__table__])
     # 이벤트 컬럼 조회는 이 테스트 관심사(유니버스 필터) 밖이고, Broadcast 의 JSONB 가 sqlite 에서
     # 컴파일 안 되므로 비운다 — 필터 조건(어느 종목이 유니버스에 드는가)만 검증한다.
     monkeypatch.setattr(screener, "_representative_events", lambda *a, **k: {})
@@ -158,20 +157,30 @@ def _empty_coverage_subquery(since):
     # Report/ReportAnalysis 조인 없이 빈 커버리지 서브쿼리(스키마 최소화).
     from sqlalchemy import literal, select
 
-    return select(
-        literal(None).label("stock_code"),
-        literal(0).label("coverage_count"),
-        literal(0).label("buy_count"),
-    ).where(literal(False)).subquery()
+    return (
+        select(
+            literal(None).label("stock_code"),
+            literal(0).label("coverage_count"),
+            literal(0).label("buy_count"),
+        )
+        .where(literal(False))
+        .subquery()
+    )
 
 
 def _snap(code, name, *, close, tv, mcap=10_000_000_000, stype="stock"):
     from app.db.models import UniverseSnapshot
 
     return UniverseSnapshot(
-        snapshot_date=date(2026, 7, 15), stock_code=code, market="KOSPI",
-        stock_name=name, stock_type=stype, close_price=close, change_pct=0.0,
-        market_cap=mcap, trading_value=tv,
+        snapshot_date=date(2026, 7, 15),
+        stock_code=code,
+        market="KOSPI",
+        stock_name=name,
+        stock_type=stype,
+        close_price=close,
+        change_pct=0.0,
+        market_cap=mcap,
+        trading_value=tv,
     )
 
 
@@ -179,24 +188,46 @@ def _codes(db, **kw):
     # include_etf=True 로 우선주 제외 regex(postgres `~` 전용, sqlite 미지원)를 우회한다.
     # 테스트 데이터는 모두 stock_type='stock' 이라 유니버스 결과는 동일하다.
     params = {
-        "strategy": "growth", "mktcap_max": None, "mktcap_min": None, "liq_min": 100_000_000,
-        "rev_yoy_min": None, "op_growth": None, "mom_min": None, "mom_max": None,
-        "per_max": None, "pbr_max": None, "roe_min": None, "div_min": None, "market": None,
-        "sector": None, "include_etf": True, "coverage": None, "recent_buy": False,
-        "sort": "market_cap", "limit": 200, "offset": 0,
+        "strategy": "growth",
+        "mktcap_max": None,
+        "mktcap_min": None,
+        "liq_min": 100_000_000,
+        "rev_yoy_min": None,
+        "op_yoy_min": None,
+        "rev_qoq_min": None,
+        "op_qoq_min": None,
+        "op_growth": None,
+        "op_status": None,
+        "net_status": None,
+        "mom_min": None,
+        "mom_max": None,
+        "per_max": None,
+        "pbr_max": None,
+        "roe_min": None,
+        "div_min": None,
+        "market": None,
+        "sector": None,
+        "include_etf": True,
+        "coverage": None,
+        "recent_buy": False,
+        "sort": "market_cap",
+        "limit": 200,
+        "offset": 0,
     }
     params.update(kw)
     return {r.stock_code for r in screener.screen(db, **params).items}
 
 
 def test_relax_filter_includes_missing_tv_excludes_delisted(db):
-    db.add_all([
-        _snap("000001", "거래대금정상", close=10000, tv=500_000_000),  # 통과(tv>=1억)
-        _snap("000002", "거래대금결측", close=10000, tv=None),  # 통과(결측 → close 로 구제)
-        _snap("000003", "거래대금0", close=10000, tv=0),  # 통과(0 → 결측 취급, close 있음)
-        _snap("000004", "거래정지", close=None, tv=None),  # 제외(close 없음=상장/거래 아님)
-        _snap("000005", "저유동", close=10000, tv=50_000_000),  # 제외(tv 있는데 1억 미만)
-    ])
+    db.add_all(
+        [
+            _snap("000001", "거래대금정상", close=10000, tv=500_000_000),  # 통과(tv>=1억)
+            _snap("000002", "거래대금결측", close=10000, tv=None),  # 통과(결측 → close 로 구제)
+            _snap("000003", "거래대금0", close=10000, tv=0),  # 통과(0 → 결측 취급, close 있음)
+            _snap("000004", "거래정지", close=None, tv=None),  # 제외(close 없음=상장/거래 아님)
+            _snap("000005", "저유동", close=10000, tv=50_000_000),  # 제외(tv 있는데 1억 미만)
+        ]
+    )
     db.commit()
     codes = _codes(db, liq_min=100_000_000)
     assert "000002" in codes and "000003" in codes  # 결측/0 정상주 구제
@@ -207,11 +238,13 @@ def test_relax_filter_includes_missing_tv_excludes_delisted(db):
 
 def test_liq_min_none_keeps_all_listed(db):
     # 유동성 필터 없으면(liq_min=None) 상장주(close 있음)는 tv 값과 무관하게 모두 포함.
-    db.add_all([
-        _snap("000001", "유동많음", close=10000, tv=500_000_000),
-        _snap("000002", "결측", close=10000, tv=None),
-        _snap("000003", "저유동", close=10000, tv=1_000),
-    ])
+    db.add_all(
+        [
+            _snap("000001", "유동많음", close=10000, tv=500_000_000),
+            _snap("000002", "결측", close=10000, tv=None),
+            _snap("000003", "저유동", close=10000, tv=1_000),
+        ]
+    )
     db.commit()
     codes = _codes(db, liq_min=None)
     assert codes == {"000001", "000002", "000003"}
@@ -235,8 +268,11 @@ def db_peer(monkeypatch):
     Base.metadata.create_all(
         eng,
         tables=[
-            UniverseSnapshot.__table__, GrowthMetric.__table__, Financial.__table__,
-            SectorTheme.__table__, SectorThemeStock.__table__,
+            UniverseSnapshot.__table__,
+            GrowthMetric.__table__,
+            Financial.__table__,
+            SectorTheme.__table__,
+            SectorThemeStock.__table__,
         ],
     )
     # 섹터 flow(외부 IO)는 이 테스트 관심사(축 산출) 밖 → 빈 값으로 목킹.
