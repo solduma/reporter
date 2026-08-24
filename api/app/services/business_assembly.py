@@ -8,14 +8,16 @@ business_research 오케스트레이터와 동일한 DB 폴링 큐 패턴(enqueu
 from __future__ import annotations
 
 import logging
+import threading
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.adapters.dart import DartQuotaExceeded
 from app.config import Settings, get_settings
 from app.db.models import BusinessAssemblyJob
+from app.db.session import SessionLocal
 from app.ports.llm import LLMError
 from app.services import business_ingest
 
@@ -23,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 # 무료 모델의 map-reduce 전체(수 분) + 여유. stale running 은 재큐잉한다.
 _STALE_RUNNING_MINUTES = 30
+_HEARTBEAT_INTERVAL_S = 240  # 무통보 장기 단계(reduce 병합 등)에도 stale 회수를 막는 심박
 
 
 def _fail(db: Session, job: BusinessAssemblyJob, msg: str) -> None:
@@ -119,9 +122,35 @@ def run_job(db: Session, job: BusinessAssemblyJob, settings: Settings | None = N
     job.model = settings.insight_model
     db.commit()
 
+    # 독립 heartbeat — reduce 같은 무통보 장기 단계 중에도 started_at 을 살려
+    # stale 회수(허위 고아 판정 → 이중 실행)가 발동하지 않게 한다. 파이프라인 세션과
+    # 분리된 전용 연결로 raw UPDATE 하므로 ORM 객체 경합이 없다.
+    stop_heartbeat = threading.Event()
+
+    def _heartbeat() -> None:
+        while not stop_heartbeat.wait(_HEARTBEAT_INTERVAL_S):
+            try:
+                hdb = SessionLocal()
+                try:
+                    hdb.execute(
+                        update(BusinessAssemblyJob)
+                        .where(
+                            BusinessAssemblyJob.id == job.id,
+                            BusinessAssemblyJob.status == "running",
+                        )
+                        .values(started_at=datetime.now(UTC))
+                    )
+                    hdb.commit()
+                finally:
+                    hdb.close()
+            except Exception:  # heartbeat 실패는 실행 본체에 영향 주지 않는다
+                pass
+
+    heartbeat_thread = threading.Thread(target=_heartbeat, daemon=True, name="bassembly-hb")
+    heartbeat_thread.start()
+
     def _progress(pct: int) -> None:
         job.progress = max(job.progress, pct)
-        job.started_at = datetime.now(UTC)  # heartbeat — 장시간 정상 실행의 stale 회수 방지
         db.commit()
 
     try:
@@ -158,3 +187,5 @@ def run_job(db: Session, job: BusinessAssemblyJob, settings: Settings | None = N
         db.rollback()
         logger.exception("business assembly failed %s", code)
         _fail(db, job, f"실행 오류: {e}")
+    finally:
+        stop_heartbeat.set()
