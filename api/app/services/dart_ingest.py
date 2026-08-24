@@ -57,6 +57,33 @@ def ensure_corp_mappings(db: Session, settings: Settings, session: requests.Sess
     logger.info("loaded %d corp mappings", len(mappings))
 
 
+def refresh_corp_mappings(db: Session, settings: Settings, session: requests.Session) -> int:
+    """corpCode.xml 재로드 후 **신규 상장만** 추가한다(기존 행은 유지 — 주간 증분 동기화).
+
+    ensure_corp_mappings 는 테이블이 빈 경우만 로드해 신규 상장이 영구 누락됐다
+    (레메디 사례). 매주 1회 실행해 새 stock_code 만 upsert하고, 추가 수를 반환.
+    """
+    mappings = dart.fetch_corp_mappings(settings.dart_api_key, session)
+    existing = set(db.execute(select(CorpCodeMap.stock_code)).scalars())
+    added = 0
+    for m in mappings:
+        if m.stock_code in existing:
+            continue
+        stmt = insert(CorpCodeMap).values(
+            stock_code=m.stock_code,
+            corp_code=m.corp_code,
+            corp_name=m.corp_name,
+            induty_code=m.induty_code,
+        )
+        db.execute(stmt)
+        existing.add(m.stock_code)
+        added += 1
+    if added:
+        db.commit()
+    logger.info("corp mappings refresh: +%d new (total %d)", added, len(existing))
+    return added
+
+
 # 이 시간 안에 이미 동기화한 종목은 DART 재조회를 건너뛴다(매 페이지 조회 시 지연 방지).
 _SYNC_TTL = timedelta(hours=6)
 
@@ -82,15 +109,18 @@ def sync_disclosures(
     # (온디맨드 2년 동기화가 synced_from 을 확장한 뒤 begin >= synced_from 이 항상 True 가
     # 되어 당일 신규 공시를 놓치는 버그 수정 — end 날짜 비교 추가)
     fresh = state and state.synced_at and datetime.now(UTC) - state.synced_at < _SYNC_TTL
-    if fresh and state.synced_from is not None and begin >= state.synced_from and end < state.synced_at.date():
+    if (
+        fresh
+        and state.synced_from is not None
+        and begin >= state.synced_from
+        and end < state.synced_at.date()
+    ):
         return 0
 
     session = _http.resilient_session()
     ensure_corp_mappings(db, settings, session)
 
-    corp_code = db.scalar(
-        select(CorpCodeMap.corp_code).where(CorpCodeMap.stock_code == stock_code)
-    )
+    corp_code = db.scalar(select(CorpCodeMap.corp_code).where(CorpCodeMap.stock_code == stock_code))
     if not corp_code:
         logger.info("no corp_code for %s", stock_code)
         _mark_synced(db, stock_code, begin)  # 비상장 등도 TTL 동안 재조회 억제
@@ -102,9 +132,7 @@ def sync_disclosures(
     # 이미 저장된 rcept_no 를 한 번에 조회해 GLM 분류 대상만 추린다.
     fetched_nos = [d.rcept_no for d in fetched]
     existing = set(
-        db.scalars(
-            select(Disclosure.rcept_no).where(Disclosure.rcept_no.in_(fetched_nos))
-        ).all()
+        db.scalars(select(Disclosure.rcept_no).where(Disclosure.rcept_no.in_(fetched_nos))).all()
     )
 
     client = get_llm(settings)
@@ -229,9 +257,7 @@ def _batch_universe_codes(db: Session) -> list[str]:
     )
 
 
-def run_disclosure_batch(
-    db: Session, settings: Settings, per_run: int = _BATCH_PER_RUN
-) -> dict:
+def run_disclosure_batch(db: Session, settings: Settings, per_run: int = _BATCH_PER_RUN) -> dict:
     """유니버스 공시를 순환 정기 동기화한다(하룻밤 per_run 개, 오래된 것 먼저).
 
     반환: {synced, new, remaining}. synced=조회한 종목 수, new=신규 저장 공시 수,
@@ -246,9 +272,7 @@ def run_disclosure_batch(
 
     # 종목별 마지막 동기화 시각 → 오래된(또는 미동기화) 순 정렬. _SYNC_TTL 안에 동기화된 건 제외.
     synced_at = dict(
-        db.execute(
-            select(DisclosureSyncState.stock_code, DisclosureSyncState.synced_at)
-        ).all()
+        db.execute(select(DisclosureSyncState.stock_code, DisclosureSyncState.synced_at)).all()
     )
     fresh_cut = datetime.now(UTC) - _SYNC_TTL
     pending = [c for c in codes if not (synced_at.get(c) and synced_at[c] >= fresh_cut)]

@@ -487,8 +487,7 @@ def run_business_assembly_queue(settings: Settings | None = None) -> dict:
             return {"claimed": 0}
         if _business_assembly_executor is None:
             _business_assembly_executor = concurrent.futures.ThreadPoolExecutor(
-                max_workers=_BUSINESS_ASSEMBLY_MAX_INFLIGHT,
-                thread_name_prefix="bassembly-"
+                max_workers=_BUSINESS_ASSEMBLY_MAX_INFLIGHT, thread_name_prefix="bassembly-"
             )
         _business_assembly_inflight += 1
         _business_assembly_executor.submit(
@@ -593,6 +592,29 @@ def run_market_premium_batch(settings: Settings | None = None) -> dict:
         return market_premium_ingest.ingest_erp(session)
     finally:
         session.close()
+
+
+def run_corp_mapping_refresh(settings: Settings | None = None) -> dict:
+    """corpCode.xml 재로드 후 신규 상장만 corp_code_map 에 추가(주 1회 증분).
+
+    신규 상장이 매핑에 없으면 사업 개요 조립·공시 조회가 영구 누락되는 것을 방지.
+    """
+    from app.services import dart_ingest
+
+    session = SessionLocal()
+    try:
+        added = dart_ingest.refresh_corp_mappings(
+            session, settings or get_settings(), _requests_session()
+        )
+        return {"added": added}
+    finally:
+        session.close()
+
+
+def _requests_session():
+    import requests
+
+    return requests.Session()
 
 
 def run_sce_migration_batch(settings: Settings | None = None) -> dict:
@@ -829,6 +851,15 @@ def build_scheduler(settings: Settings | None = None) -> BlockingScheduler:
         _logged("market_premium", run_market_premium_batch),
         trigger=_MARKET_PREMIUM_CRON,
         id="market_premium",
+        max_instances=1,
+        coalesce=True,
+        replace_existing=True,
+    )
+    # corp 매핑 주간 증분 — 신규 상장 누락 방지.
+    scheduler.add_job(
+        _logged("corp_mapping_refresh", run_corp_mapping_refresh),
+        trigger=CronTrigger(day_of_week="sun", hour=8, minute=0, timezone=_TZ),
+        id="corp_mapping_refresh",
         max_instances=1,
         coalesce=True,
         replace_existing=True,
