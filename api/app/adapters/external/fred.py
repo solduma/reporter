@@ -26,11 +26,11 @@ _BASE = "https://api.stlouisfed.org/fred"
 # 지수 영향 큰 미국 매크로 릴리스. (release_id, 표시명, 대표 series_id, 중요도, 단위).
 # series_id 는 헤드라인 지표 하나를 대표로 — 값 표기는 참고용.
 RELEASES: list[tuple[int, str, str, int, str]] = [
-    (10, "미국 CPI", "CPIAUCSL", 3, ""),          # 소비자물가지수(레벨)
-    (50, "미국 고용보고서", "PAYEMS", 3, "K"),      # 비농업 고용(NFP)
-    (53, "미국 GDP", "GDPC1", 3, ""),              # 실질 GDP
-    (54, "미국 PCE 물가", "PCEPI", 2, ""),          # PCE 물가지수
-    (21, "미국 개인소득·지출", "PCE", 2, ""),        # 개인소비지출
+    (10, "미국 CPI", "CPIAUCSL", 3, ""),  # 소비자물가지수(레벨)
+    (50, "미국 고용보고서", "PAYEMS", 3, "K"),  # 비농업 고용(NFP)
+    (53, "미국 GDP", "GDPC1", 3, ""),  # 실질 GDP
+    (54, "미국 PCE 물가", "PCEPI", 2, ""),  # PCE 물가지수
+    (21, "미국 개인소득·지출", "PCE", 2, ""),  # 개인소비지출
 ]
 
 
@@ -42,7 +42,7 @@ class FredEvent:
     series_id: str
     importance: int
     latest_value: str | None  # 최신 관측치(발표된 실적, 문자열 원표기)
-    prev_value: str | None    # 직전 관측치
+    prev_value: str | None  # 직전 관측치
 
 
 def _get(path: str, key: str, **params) -> dict | None:
@@ -59,8 +59,11 @@ def _get(path: str, key: str, **params) -> dict | None:
 def _latest_two_observations(key: str, series_id: str) -> tuple[str | None, str | None]:
     """시계열 최신 2개 관측치(최신, 직전). 실패 시 (None, None)."""
     data = _get(
-        "series/observations", key, series_id=series_id,
-        sort_order="desc", limit=2,
+        "series/observations",
+        key,
+        series_id=series_id,
+        sort_order="desc",
+        limit=2,
     )
     if not data:
         return None, None
@@ -80,9 +83,12 @@ def fetch_events(
     events: list[FredEvent] = []
     for release_id, title, series_id, importance, _unit in RELEASES:
         data = _get(
-            "release/dates", key, release_id=release_id,
+            "release/dates",
+            key,
+            release_id=release_id,
             include_release_dates_with_no_data="true",
-            sort_order="asc", limit=1000,
+            sort_order="asc",
+            limit=1000,
         )
         if not data:
             continue
@@ -101,7 +107,10 @@ def fetch_events(
             is_past = d <= date.today()
             events.append(
                 FredEvent(
-                    event_date=d, title=title, release_id=release_id, series_id=series_id,
+                    event_date=d,
+                    title=title,
+                    release_id=release_id,
+                    series_id=series_id,
                     importance=importance,
                     latest_value=latest if is_past else None,
                     prev_value=prev if is_past else None,

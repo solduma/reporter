@@ -22,7 +22,9 @@ def normalize(req: schemas.OntologyNormalizeRequest) -> schemas.OntologyNormaliz
     """계정명·DART taxonomy 요소를 온톨로지 ID 로 일괄 정규화. 공시 항목→온톨로지 매핑 품질 점검용."""
     results = ontology_service.normalize(req.terms, standard=req.standard)
     items = [
-        schemas.OntologyNormalizeItem(term=r.term, id=r.id, matched_via=r.matched_via, resolved=r.resolved)
+        schemas.OntologyNormalizeItem(
+            term=r.term, id=r.id, matched_via=r.matched_via, resolved=r.resolved
+        )
         for r in results
     ]
     coverage = sum(1 for i in items if i.resolved) / len(items) if items else 1.0

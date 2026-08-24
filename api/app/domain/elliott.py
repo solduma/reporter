@@ -148,9 +148,7 @@ def _impulse_conf(window: list[Pivot], up: bool) -> float | None:
         return None
     p0, p1, p2, p3, p4, p5 = (x.price for x in window)
     s = 1.0 if up else -1.0
-    w1, w2, w3, w4, w5 = (
-        s * (p1 - p0), s * (p1 - p2), s * (p3 - p2), s * (p3 - p4), s * (p5 - p4)
-    )
+    w1, w2, w3, w4, w5 = (s * (p1 - p0), s * (p1 - p2), s * (p3 - p2), s * (p3 - p4), s * (p5 - p4))
     if min(w1, w3, w5) <= 0:
         return None
     if w2 >= w1:  # R1: 2파가 1파 시작 침범(≥100% 되돌림)
@@ -261,9 +259,7 @@ def _label_cycles(pivots: list[Pivot]) -> list[tuple[int, str, str, float]]:
     return out
 
 
-def _build_segments(
-    pivots: list[Pivot], bar_index: dict[str, int]
-) -> list[WaveSegment]:
+def _build_segments(pivots: list[Pivot], bar_index: dict[str, int]) -> list[WaveSegment]:
     """피벗열을 반복 사이클로 라벨해 파동 세그먼트(각 다리=한 파동)를 만든다.
 
     라벨 유보 다리는 세그먼트로 내지 않는다(차트엔 옅은 스윙선으로만 표시). bar_index: 날짜→봉
@@ -280,10 +276,15 @@ def _build_segments(
         bars = bar_index.get(b.date, 0) - bar_index.get(a.date, 0)
         segs.append(
             WaveSegment(
-                start_date=a.date, end_date=b.date,
-                start_price=a.price, end_price=b.price,
-                phase=phase, direction="up" if b.price > a.price else "down",
-                wave_label=label, bars=max(bars, 1), confidence=conf,
+                start_date=a.date,
+                end_date=b.date,
+                start_price=a.price,
+                end_price=b.price,
+                phase=phase,
+                direction="up" if b.price > a.price else "down",
+                wave_label=label,
+                bars=max(bars, 1),
+                confidence=conf,
             )
         )
     return segs
@@ -326,8 +327,11 @@ def _project(segments: list[WaveSegment]) -> WaveProjection | None:
         t1, t2 = last.end_price + sgn * span * r_lo, last.end_price + sgn * span * r_hi
         wave, basis = "다음 추진", f"직전 파동 {r_lo}~{r_hi}배"
     return WaveProjection(
-        wave=wave, low=round(min(t1, t2), 2), high=round(max(t1, t2), 2),
-        bars_low=max(int(set_bars * t_lo), 1), bars_high=max(int(set_bars * t_hi), 1),
+        wave=wave,
+        low=round(min(t1, t2), 2),
+        high=round(max(t1, t2), 2),
+        bars_low=max(int(set_bars * t_lo), 1),
+        bars_high=max(int(set_bars * t_hi), 1),
         basis=basis,
     )
 
@@ -343,11 +347,16 @@ def _current_position(segments: list[WaveSegment]) -> tuple[str, float | None]:
     push = "상승" if (recent_motive and recent_motive.direction == "up") else "하락"
     if last.phase == "motive":
         nxt = {
-            "1": "2파 되돌림 대비", "2": f"3파 {push} 기대", "3": "4파 되돌림 대비",
-            "4": f"5파 마무리 {push} 기대", "5": "추진 완료 — A-B-C 조정 대비",
+            "1": "2파 되돌림 대비",
+            "2": f"3파 {push} 기대",
+            "3": "4파 되돌림 대비",
+            "4": f"5파 마무리 {push} 기대",
+            "5": "추진 완료 — A-B-C 조정 대비",
         }.get(lab, "")
         return f"추진 {lab}파 진행 — {nxt}", last.start_price
-    nxt = {"A": "B파 되돌림 대비", "B": "C파 진행 대비", "C": "조정 완료 — 추세 재개 주시"}.get(lab, "")
+    nxt = {"A": "B파 되돌림 대비", "B": "C파 진행 대비", "C": "조정 완료 — 추세 재개 주시"}.get(
+        lab, ""
+    )
     return f"조정 {lab}파 진행 — {nxt}", last.start_price
 
 
@@ -359,8 +368,12 @@ def analyze(
     pivots = zigzag(prices, leg_threshold)
     if len(pivots) < 3:
         return ElliottResult(
-            pivots=pivots, labeled=False, confidence=0.0, direction="none",
-            current_position="피벗 부족", note="피벗 부족",
+            pivots=pivots,
+            labeled=False,
+            confidence=0.0,
+            direction="none",
+            current_position="피벗 부족",
+            note="피벗 부족",
         )
 
     bar_index = {d: i for i, (d, _) in enumerate(prices)}  # 날짜→봉 인덱스(기간 투영)
@@ -374,19 +387,24 @@ def analyze(
     # 대표 방향 = 가장 최근 추진 파동 방향(국소). 없으면 전 구간 방향으로 폴백.
     recent_motive = next((s for s in reversed(segments) if s.phase == "motive"), None)
     direction = (
-        recent_motive.direction if recent_motive
+        recent_motive.direction
+        if recent_motive
         else ("up" if pivots[-1].price >= pivots[0].price else "down")
     )
-    confidence = (
-        round(sum(s.confidence for s in segments) / len(segments), 2) if segments else 0.0
-    )
+    confidence = round(sum(s.confidence for s in segments) / len(segments), 2) if segments else 0.0
     note = (
         f"엘리엇 추진 {n_mot // 5}세트·조정 {n_cor // 3}세트 라벨 · {position} — 참고용(확정 아님)"
-        if labeled else "뚜렷한 엘리엇 파동 미검출 — 스윙만 표시"
+        if labeled
+        else "뚜렷한 엘리엇 파동 미검출 — 스윙만 표시"
     )
     return ElliottResult(
-        pivots=pivots, labeled=labeled, confidence=confidence, direction=direction,
-        segments=segments, current_position=position,
+        pivots=pivots,
+        labeled=labeled,
+        confidence=confidence,
+        direction=direction,
+        segments=segments,
+        current_position=position,
         invalidation_price=round(invalidation, 2) if invalidation else None,
-        projection=projection, note=note,
+        projection=projection,
+        note=note,
     )

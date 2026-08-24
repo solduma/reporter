@@ -95,9 +95,13 @@ def screen(
             (
                 r,
                 scoring.us_screen_score(
-                    per=r.per, pbr=r.pbr, momentum_3m=r.momentum_3m,
+                    per=r.per,
+                    pbr=r.pbr,
+                    momentum_3m=r.momentum_3m,
                     near_high_pct=_near_high_pct(r),
-                    per_rank=per_rank, pbr_rank=pbr_rank, mom_rank=mom_rank,
+                    per_rank=per_rank,
+                    pbr_rank=pbr_rank,
+                    mom_rank=mom_rank,
                 ),
             )
             for r in rows
@@ -111,7 +115,7 @@ def screen(
         key = {
             "market_cap": lambda r: -(r.market_cap or 0),
             "momentum": lambda r: -(r.momentum_3m if r.momentum_3m is not None else -1e9),
-            "per": lambda r: (r.per if (r.per and r.per > 0) else 1e9),  # 저PER 먼저
+            "per": lambda r: r.per if (r.per and r.per > 0) else 1e9,  # 저PER 먼저
             "trading_value": lambda r: -(r.trading_value or 0),
             "change": lambda r: -(r.change_pct if r.change_pct is not None else -1e9),
         }[sort]

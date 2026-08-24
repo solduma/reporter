@@ -22,7 +22,13 @@ def upsert_intraday(db: Session, code: str, candles: list[chart.Candle]) -> int:
     """30분봉을 upsert 한다. 반영한 봉 수를 반환한다."""
     for c in candles:
         stmt = insert(PriceCandleIntraday).values(
-            stock_code=code, bar_ts=c.ts, open=c.open, high=c.high, low=c.low, close=c.close, volume=c.volume
+            stock_code=code,
+            bar_ts=c.ts,
+            open=c.open,
+            high=c.high,
+            low=c.low,
+            close=c.close,
+            volume=c.volume,
         )
         stmt = stmt.on_conflict_do_update(
             constraint="uq_candle_intraday",

@@ -52,40 +52,60 @@ def check_red_flags(
     # 1) 매출채권이 매출보다 빠르게 증가 — 15pp 이상 초과면 플래그.
     recv_g = _yoy(receivables, receivables_prior)
     if rev_g is not None and recv_g is not None and recv_g - rev_g >= 0.15:
-        flags.append(RedFlag(
-            "receivables_outpace_revenue", "매출채권이 매출보다 급증", "high",
-            f"매출 {rev_g * 100:+.0f}% vs 매출채권 {recv_g * 100:+.0f}% — 매출 착시·회수 리스크 점검",
-        ))
+        flags.append(
+            RedFlag(
+                "receivables_outpace_revenue",
+                "매출채권이 매출보다 급증",
+                "high",
+                f"매출 {rev_g * 100:+.0f}% vs 매출채권 {recv_g * 100:+.0f}% — 매출 착시·회수 리스크 점검",
+            )
+        )
 
     # 2) 재고자산이 매출보다 빠르게 증가 — 15pp 이상.
     inv_g = _yoy(inventory, inventory_prior)
     if rev_g is not None and inv_g is not None and inv_g - rev_g >= 0.15:
-        flags.append(RedFlag(
-            "inventory_outpace_revenue", "재고자산이 매출보다 급증", "medium",
-            f"매출 {rev_g * 100:+.0f}% vs 재고 {inv_g * 100:+.0f}% — 판매 부진·평가손 리스크",
-        ))
+        flags.append(
+            RedFlag(
+                "inventory_outpace_revenue",
+                "재고자산이 매출보다 급증",
+                "medium",
+                f"매출 {rev_g * 100:+.0f}% vs 재고 {inv_g * 100:+.0f}% — 판매 부진·평가손 리스크",
+            )
+        )
 
     # 3) 이익 대비 현금흐름 괴리 — 순이익 흑자인데 OCF 음수, 또는 OCF 가 순이익의 50% 미만.
     if net_income is not None and net_income > 0 and ocf is not None:
         if ocf < 0:
-            flags.append(RedFlag(
-                "profit_no_cash", "흑자인데 영업현금흐름 적자", "high",
-                f"순이익 {net_income:,.0f} vs OCF {ocf:,.0f} — 이익의 질 의심(현금 미창출)",
-            ))
+            flags.append(
+                RedFlag(
+                    "profit_no_cash",
+                    "흑자인데 영업현금흐름 적자",
+                    "high",
+                    f"순이익 {net_income:,.0f} vs OCF {ocf:,.0f} — 이익의 질 의심(현금 미창출)",
+                )
+            )
         elif ocf < net_income * 0.5:
-            flags.append(RedFlag(
-                "ocf_below_profit", "영업현금흐름이 순이익 대비 저조", "medium",
-                f"OCF {ocf:,.0f} < 순이익의 50%({net_income * 0.5:,.0f}) — 현금 전환력 점검",
-            ))
+            flags.append(
+                RedFlag(
+                    "ocf_below_profit",
+                    "영업현금흐름이 순이익 대비 저조",
+                    "medium",
+                    f"OCF {ocf:,.0f} < 순이익의 50%({net_income * 0.5:,.0f}) — 현금 전환력 점검",
+                )
+            )
 
     # 4) 무형자산 비중 과다 — 총자산의 30% 이상이면 상각 리스크 플래그.
     if intangibles is not None and total_assets and total_assets > 0:
         ratio = intangibles / total_assets
         if ratio >= 0.30:
-            flags.append(RedFlag(
-                "high_intangibles", "무형자산 비중 과다", "medium",
-                f"무형자산/총자산 {ratio * 100:.0f}% — 영업권·개발비 상각 리스크(주석 확인 필요)",
-            ))
+            flags.append(
+                RedFlag(
+                    "high_intangibles",
+                    "무형자산 비중 과다",
+                    "medium",
+                    f"무형자산/총자산 {ratio * 100:.0f}% — 영업권·개발비 상각 리스크(주석 확인 필요)",
+                )
+            )
     return flags
 
 

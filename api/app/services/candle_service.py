@@ -27,6 +27,7 @@ from app.services import intraday
 
 logger = logging.getLogger(__name__)
 
+
 # 포트 공급자 seam — 기본은 실제 어댑터를 주지만, 테스트가 이 훅을 교체해 fake 를 주입할 수 있다
 # (모든 호출부는 이 두 함수만 거치므로 시그니처 변경 없이 포트 치환이 가능하다).
 def _candle_repo(db: Session) -> CandleRepository:
@@ -35,6 +36,7 @@ def _candle_repo(db: Session) -> CandleRepository:
 
 def _market_data(market: str) -> MarketDataPort:
     return get_market_data(market)
+
 
 # tf 별 최초(DB 비었을 때) 조회 범위. 일=2년·주=10년·월=3년(라우터와 통일).
 RANGE_DAYS = {"day": 365 * 10 + 30, "week": 365 * 10 + 30, "month": 365 * 10 + 30}

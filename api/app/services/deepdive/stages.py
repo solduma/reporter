@@ -97,10 +97,19 @@ def stage_overview(llm: LLMPort, model: str, ctx: ToolContext, prior: dict) -> d
         '"report_kind": "참조한 정기보고서 종류"}'
     )
     return review_loop.run_with_review(
-        llm, model,
-        lambda fb: agent.run_stage(llm, model, ctx, stage_goal=_with_feedback(goal, fb),
-                                   result_schema=schema, context_data=context, max_tool_calls=3),
-        _REVIEW_SYSTEM["overview"], label=f"overview:{ctx.code}",
+        llm,
+        model,
+        lambda fb: agent.run_stage(
+            llm,
+            model,
+            ctx,
+            stage_goal=_with_feedback(goal, fb),
+            result_schema=schema,
+            context_data=context,
+            max_tool_calls=3,
+        ),
+        _REVIEW_SYSTEM["overview"],
+        label=f"overview:{ctx.code}",
     )
 
 
@@ -128,15 +137,23 @@ def stage_redflags(llm: LLMPort, model: str, ctx: ToolContext, prior: dict) -> d
         )
     # 정량 레드플래그(순수 룰). 재무제표에 매출채권·재고·OCF·무형자산이 없으면 해당 항목은 결측.
     flags = deepdive_rules.check_red_flags(
-        revenue=latest.get("revenue"), revenue_prior=prior_y.get("revenue"),
-        receivables=latest.get("receivables"), receivables_prior=prior_y.get("receivables"),
-        inventory=latest.get("inventory"), inventory_prior=prior_y.get("inventory"),
-        ocf=latest.get("ocf"), net_income=latest.get("net_income"),
-        intangibles=latest.get("intangibles"), total_assets=latest.get("total_assets"),
+        revenue=latest.get("revenue"),
+        revenue_prior=prior_y.get("revenue"),
+        receivables=latest.get("receivables"),
+        receivables_prior=prior_y.get("receivables"),
+        inventory=latest.get("inventory"),
+        inventory_prior=prior_y.get("inventory"),
+        ocf=latest.get("ocf"),
+        net_income=latest.get("net_income"),
+        intangibles=latest.get("intangibles"),
+        total_assets=latest.get("total_assets"),
     )
     context = {
         "financials_series": {"periods": series[-12:], "metrics_meta": getattr(series, "meta", {})},
-        "auto_flags": [{"code": f.code, "label": f.label, "severity": f.severity, "detail": f.detail} for f in flags],
+        "auto_flags": [
+            {"code": f.code, "label": f.label, "severity": f.severity, "detail": f.detail}
+            for f in flags
+        ],
         "auto_severity": deepdive_rules.summarize_severity(flags),
     }
     goal = (
@@ -149,10 +166,19 @@ def stage_redflags(llm: LLMPort, model: str, ctx: ToolContext, prior: dict) -> d
         '"cash_trend": "현금성 자산 흐름 코멘트", "notes": "주석에서 발견한 특이사항"}'
     )
     return review_loop.run_with_review(
-        llm, model,
-        lambda fb: agent.run_stage(llm, model, ctx, stage_goal=_with_feedback(goal, fb),
-                                   result_schema=schema, context_data=context, max_tool_calls=4),
-        _REVIEW_SYSTEM["redflags"], label=f"redflags:{ctx.code}",
+        llm,
+        model,
+        lambda fb: agent.run_stage(
+            llm,
+            model,
+            ctx,
+            stage_goal=_with_feedback(goal, fb),
+            result_schema=schema,
+            context_data=context,
+            max_tool_calls=4,
+        ),
+        _REVIEW_SYSTEM["redflags"],
+        label=f"redflags:{ctx.code}",
     )
 
 
@@ -191,10 +217,19 @@ def stage_business(llm: LLMPort, model: str, ctx: ToolContext, prior: dict) -> d
         '"competitive_position": "시장 내 경쟁 위치 평가 (competitive_position 활용)"}'
     )
     return review_loop.run_with_review(
-        llm, model,
-        lambda fb: agent.run_stage(llm, model, ctx, stage_goal=_with_feedback(goal, fb),
-                                   result_schema=schema, context_data=context, max_tool_calls=6),
-        _REVIEW_SYSTEM["business"], label=f"business:{ctx.code}",
+        llm,
+        model,
+        lambda fb: agent.run_stage(
+            llm,
+            model,
+            ctx,
+            stage_goal=_with_feedback(goal, fb),
+            result_schema=schema,
+            context_data=context,
+            max_tool_calls=6,
+        ),
+        _REVIEW_SYSTEM["business"],
+        label=f"business:{ctx.code}",
     )
 
 
@@ -235,10 +270,19 @@ def stage_thesis(llm: LLMPort, model: str, ctx: ToolContext, prior: dict) -> dic
         '"industry_angle": "업종별 차별화 논리"}'
     )
     return review_loop.run_with_review(
-        llm, model,
-        lambda fb: agent.run_stage(llm, model, ctx, stage_goal=_with_feedback(goal, fb),
-                                   result_schema=schema, context_data=context, max_tool_calls=5),
-        _REVIEW_SYSTEM["thesis"], label=f"thesis:{ctx.code}",
+        llm,
+        model,
+        lambda fb: agent.run_stage(
+            llm,
+            model,
+            ctx,
+            stage_goal=_with_feedback(goal, fb),
+            result_schema=schema,
+            context_data=context,
+            max_tool_calls=5,
+        ),
+        _REVIEW_SYSTEM["thesis"],
+        label=f"thesis:{ctx.code}",
     )
 
 

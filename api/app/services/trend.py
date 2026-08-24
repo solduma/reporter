@@ -81,8 +81,14 @@ def compute_trend(db: Session, code: str, market: str | None) -> TrendResult:
         )
         low_confidence[name] = len(b.closes) < _min_bars(frame)
         segments_by_frame[name] = stage.segments(
-            b.closes, b.dates, frame.ma_period, frame.slope_lookback, frame.min_run,
-            b.volumes, b.highs, b.lows,
+            b.closes,
+            b.dates,
+            frame.ma_period,
+            frame.slope_lookback,
+            frame.min_run,
+            b.volumes,
+            b.highs,
+            b.lows,
         )
         struct = market_structure.analyze(b.dates, b.closes, frame.bar)
         structure_by_frame[name] = struct
@@ -146,8 +152,7 @@ def build_company_trend(code: str, result: TrendResult, rs_rating: int | None) -
         ],
         segments_by_frame={
             frame: [
-                StageSegment(stage=s["stage"], from_date=s["from"], to_date=s["to"])
-                for s in segs
+                StageSegment(stage=s["stage"], from_date=s["from"], to_date=s["to"]) for s in segs
             ]
             for frame, segs in result.segments_by_frame.items()
         },

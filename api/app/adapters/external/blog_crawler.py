@@ -46,7 +46,9 @@ def crawl_blog(url: str, session: requests.Session) -> dict | None:
     post_url = f"{_POSTVIEW}?blogId={blog_id}&logNo={log_no}&redirect=Dlog&directAccess=false"
     try:
         html = session.get(
-            post_url, headers={**_HEADERS, "Referer": f"https://blog.naver.com/{blog_id}"}, timeout=10
+            post_url,
+            headers={**_HEADERS, "Referer": f"https://blog.naver.com/{blog_id}"},
+            timeout=10,
         ).text
     except requests.RequestException as e:
         logger.warning("blog crawl failed %s/%s: %s", blog_id, log_no, e)

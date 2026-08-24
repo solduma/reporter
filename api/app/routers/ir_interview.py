@@ -20,7 +20,11 @@ def _status(code: str, job, has: bool) -> IrInterviewStatus:
     if job is None:
         return IrInterviewStatus(stock_code=code, status="none", progress=0, has_report=has)
     return IrInterviewStatus(
-        stock_code=code, status=job.status, progress=job.progress, error=job.error, has_report=has,
+        stock_code=code,
+        status=job.status,
+        progress=job.progress,
+        error=job.error,
+        has_report=has,
     )
 
 

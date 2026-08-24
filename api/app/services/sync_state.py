@@ -18,9 +18,7 @@ from app.db.models import SyncState
 def is_fresh(db: Session, domain: str, code: str, ttl: timedelta) -> bool:
     """마지막 동기화가 ttl 이내면 True(외부 조회 스킵). 기록 없으면 False."""
     last = db.scalar(
-        select(SyncState.synced_at).where(
-            SyncState.domain == domain, SyncState.stock_code == code
-        )
+        select(SyncState.synced_at).where(SyncState.domain == domain, SyncState.stock_code == code)
     )
     return last is not None and datetime.now(UTC) - last < ttl
 

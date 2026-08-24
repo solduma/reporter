@@ -85,9 +85,7 @@ def fetch_market_rate(
     return out
 
 
-def fetch_base_rate(
-    key: str, start: date, end: date, *, limit: int = 20
-) -> list[RateObservation]:
+def fetch_base_rate(key: str, start: date, end: date, *, limit: int = 20) -> list[RateObservation]:
     """한국은행 기준금리 월별 관측치. key 없거나 실패 시 빈 리스트.
 
     기준금리는 월별 통계(STAT=722Y001, ITEM=0101000, CYCLE=M). 변경이 있을 때만 row 가 생기므로

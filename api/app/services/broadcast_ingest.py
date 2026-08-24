@@ -73,7 +73,11 @@ def get_broadcast(db: Session, broadcast_id: int) -> Broadcast | None:
 
 
 def _spool_path(settings: Settings) -> Path:
-    return Path(settings.broadcast_spool) if settings.broadcast_spool else _REPO_ROOT / "logs" / "broadcasts.jsonl"
+    return (
+        Path(settings.broadcast_spool)
+        if settings.broadcast_spool
+        else _REPO_ROOT / "logs" / "broadcasts.jsonl"
+    )
 
 
 @contextlib.contextmanager

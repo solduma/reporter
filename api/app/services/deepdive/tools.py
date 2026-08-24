@@ -87,7 +87,10 @@ def tool_recent_periodic_report(ctx: ToolContext, args: dict) -> dict:
         return cached
     picked = _recent_periodic_rcept(ctx)  # DartQuotaExceeded → 전파(중단)
     if not picked:
-        result = {"available": False, "note": "해당 기업의 정기보고서를 찾지 못함(발췌 생략, 다른 도구로 진행)"}
+        result = {
+            "available": False,
+            "note": "해당 기업의 정기보고서를 찾지 못함(발췌 생략, 다른 도구로 진행)",
+        }
         ctx._cache["recent_periodic_report"] = result
         return result
     rcept, kind = picked
@@ -110,13 +113,25 @@ def tool_financials(ctx: ToolContext, args: dict) -> dict:
     rows = company_service.financials_rows(ctx.db, ctx.code, fs_div=fs_div)
     out = [
         {
-            "period": r.period, "is_estimate": r.is_estimate,
-            "revenue": r.revenue, "operating_income": r.operating_income,
-            "net_income": r.net_income, "eps": r.eps, "bps": r.bps,
-            "per": r.per, "pbr": r.pbr, "roe": r.roe, "ebitda": r.ebitda,
-            "dps": r.dps, "div_yield": r.div_yield, "psr": r.psr, "ev_ebitda": r.ev_ebitda,
-            "depreciation": r.depreciation, "capex": r.capex,  # FCFF 산출용(연간 억원)
-            "effective_tax_rate": r.effective_tax_rate, "cost_of_debt": r.cost_of_debt,  # WACC·NOPAT 실측
+            "period": r.period,
+            "is_estimate": r.is_estimate,
+            "revenue": r.revenue,
+            "operating_income": r.operating_income,
+            "net_income": r.net_income,
+            "eps": r.eps,
+            "bps": r.bps,
+            "per": r.per,
+            "pbr": r.pbr,
+            "roe": r.roe,
+            "ebitda": r.ebitda,
+            "dps": r.dps,
+            "div_yield": r.div_yield,
+            "psr": r.psr,
+            "ev_ebitda": r.ev_ebitda,
+            "depreciation": r.depreciation,
+            "capex": r.capex,  # FCFF 산출용(연간 억원)
+            "effective_tax_rate": r.effective_tax_rate,
+            "cost_of_debt": r.cost_of_debt,  # WACC·NOPAT 실측
         }
         for r in rows
     ]
@@ -156,7 +171,9 @@ def tool_disclosure_text(ctx: ToolContext, args: dict) -> dict:
     rcept = args.get("rcept_no")
     if not rcept or not ctx.settings.dart_api_key:
         return {"available": False, "note": "rcept_no·DART 키 필요"}
-    text = dart.fetch_document_text(ctx.settings.dart_api_key, str(rcept), ctx.session, max_chars=8000)
+    text = dart.fetch_document_text(
+        ctx.settings.dart_api_key, str(rcept), ctx.session, max_chars=8000
+    )
     return {"available": bool(text), "rcept_no": rcept, "text": text}
 
 
@@ -178,15 +195,22 @@ def tool_ownership(ctx: ToolContext, args: dict) -> dict:
         return {"available": False, "note": "DART 키·매핑 없음"}
     try:
         top = _largest_shareholders(ctx)  # DS005 최대주주 현황(구조화 지분)
-        changes = dart.fetch_ownership_changes(ctx.settings.dart_api_key, ctx.corp_code, ctx.session)
+        changes = dart.fetch_ownership_changes(
+            ctx.settings.dart_api_key, ctx.corp_code, ctx.session
+        )
     except dart.DartQuotaExceeded:
         raise  # DART 한도초과는 딥다이브 중단
     except Exception as e:
         logger.warning("deepdive ownership failed %s: %s", ctx.code, e)
         return {"available": False, "note": "소유변동 조회 실패"}
     items = [
-        {"rcept_no": k, "reporter": v.reporter, "position": v.position,
-         "shares_after": v.shares_after, "shares_delta": v.shares_delta}
+        {
+            "rcept_no": k,
+            "reporter": v.reporter,
+            "position": v.position,
+            "shares_after": v.shares_after,
+            "shares_delta": v.shares_delta,
+        }
         for k, v in list(changes.items())[:20]
     ]
     result = {"available": True, "count": len(items), "changes": items}
@@ -202,13 +226,16 @@ def tool_reports(ctx: ToolContext, args: dict) -> dict:
     개별 커버가 없어도 산업 리포트·타 종목 리포트 본문에서 언급을 찾는다(사용자 지시 반영).
     """
     db = ctx.db
-    name = company_service.report_stock_name(db, ctx.code) or company_service.resolve_stock_name(db, ctx.code)
+    name = company_service.report_stock_name(db, ctx.code) or company_service.resolve_stock_name(
+        db, ctx.code
+    )
     # ① 개별 종목 리포트
     own = db.execute(
         select(Report, ReportAnalysis)
         .join(ReportAnalysis, ReportAnalysis.report_id == Report.id)
         .where(Report.stock_code == ctx.code)
-        .order_by(Report.published_date.desc()).limit(8)
+        .order_by(Report.published_date.desc())
+        .limit(8)
     ).all()
     # ② 이 종목이 속한 산업 리포트. 회사 리포트엔 industry_name 이 대개 없어(조인 키 부재), 종목의
     #    대표 섹터(sector_etf)를 리포트 industry_name 후보로 매핑해 연결한다(#4 해결).
@@ -220,7 +247,8 @@ def tool_reports(ctx: ToolContext, args: dict) -> dict:
             select(Report, ReportAnalysis)
             .join(ReportAnalysis, ReportAnalysis.report_id == Report.id)
             .where(Report.category == "industry", Report.industry_name.in_(industries))
-            .order_by(Report.published_date.desc()).limit(6)
+            .order_by(Report.published_date.desc())
+            .limit(6)
         ).all()
     # ③ 원문·요약에 종목명 언급된 타 리포트(산업 리포트의 개별 종목 언급 포함). full_text 우선 검색
     #    (요약엔 대표주만 남아 소실 — #5 해결). full_text 없으면 rationale 폴백.
@@ -236,14 +264,19 @@ def tool_reports(ctx: ToolContext, args: dict) -> dict:
                     ReportAnalysis.rationale.contains(name),
                 ),
             )
-            .order_by(Report.published_date.desc()).limit(6)
+            .order_by(Report.published_date.desc())
+            .limit(6)
         ).all()
 
     def _fmt(rows: list) -> list[dict]:
         return [
-            {"title": r.title, "broker": r.broker, "date": r.published_date.isoformat(),
-             "sentiment": a.sentiment.value if a.sentiment else None,
-             "summary": (a.summary or a.rationale or "")[:600]}
+            {
+                "title": r.title,
+                "broker": r.broker,
+                "date": r.published_date.isoformat(),
+                "sentiment": a.sentiment.value if a.sentiment else None,
+                "summary": (a.summary or a.rationale or "")[:600],
+            }
             for (r, a) in rows
         ]
 
@@ -261,8 +294,15 @@ def tool_peers(ctx: ToolContext, args: dict) -> dict:
     return {
         "count": len(peers),
         "peers": [
-            {"name": p.peer_name, "code": p.peer_stock_code, "per": p.per, "pbr": p.pbr,
-             "roe": p.roe, "ev_ebitda": p.ev_ebitda, "market_cap": p.market_cap}
+            {
+                "name": p.peer_name,
+                "code": p.peer_stock_code,
+                "per": p.per,
+                "pbr": p.pbr,
+                "roe": p.roe,
+                "ev_ebitda": p.ev_ebitda,
+                "market_cap": p.market_cap,
+            }
             for p in peers[:12]
         ],
     }
@@ -274,8 +314,12 @@ def tool_price_context(ctx: ToolContext, args: dict) -> dict:
     if not u:
         return {"available": False}
     return {
-        "available": True, "market": u.market, "market_cap": u.market_cap,
-        "close_price": u.close_price, "change_pct": u.change_pct, "momentum_3m": u.momentum_3m,
+        "available": True,
+        "market": u.market,
+        "market_cap": u.market_cap,
+        "close_price": u.close_price,
+        "change_pct": u.change_pct,
+        "momentum_3m": u.momentum_3m,
     }
 
 
@@ -287,9 +331,13 @@ def tool_web_search(ctx: ToolContext, args: dict) -> dict:
     query = args.get("query")
     if not query:
         return {"available": False, "note": "query 필요"}
-    name = company_service.report_stock_name(ctx.db, ctx.code) or company_service.resolve_stock_name(ctx.db, ctx.code)
+    name = company_service.report_stock_name(
+        ctx.db, ctx.code
+    ) or company_service.resolve_stock_name(ctx.db, ctx.code)
     res = websearch.research(
-        ctx.settings, str(query), ctx.session,
+        ctx.settings,
+        str(query),
+        ctx.session,
         sort=args.get("sort", "sim"),
         crawl_bodies=int(args.get("crawl", 4)),
         aliases=search_aliases(ctx, name),  # 종목·관계사명 관련성 필터
@@ -349,8 +397,13 @@ def _event_candidates(ctx: ToolContext, name: str, kw) -> list[dict]:
     # (1) 종목 직결 뉴스 — 종목코드 연결이라 주체가 이 종목(신뢰). trusted=True.
     try:
         for n in naver_stock_news.fetch_stock_news(ctx.code, ctx.session, pages=2):
-            cand[n.url] = {"title": n.title, "summary": n.summary, "press": n.press,
-                           "datetime": n.datetime, "trusted": True}
+            cand[n.url] = {
+                "title": n.title,
+                "summary": n.summary,
+                "press": n.press,
+                "datetime": n.datetime,
+                "trusted": True,
+            }
     except Exception as e:
         logger.warning("stock news failed %s: %s", ctx.code, e)
 
@@ -361,15 +414,21 @@ def _event_candidates(ctx: ToolContext, name: str, kw) -> list[dict]:
     if cid and secret:
         for k in kw.catalysts[:4] + kw.risks[:4]:
             try:
-                hits = naver_search.search_news(cid, secret, f"{name} {k}", ctx.session,
-                                                display=5, sort="date")
+                hits = naver_search.search_news(
+                    cid, secret, f"{name} {k}", ctx.session, display=5, sort="date"
+                )
             except Exception:
                 continue
             for h in hits:
                 text = _no_space(h.title + h.description)
                 if h.link not in cand and any(_no_space(a) in text for a in aliases if a):
-                    cand[h.link] = {"title": h.title, "summary": h.description, "press": "",
-                                    "datetime": h.post_date, "trusted": False}
+                    cand[h.link] = {
+                        "title": h.title,
+                        "summary": h.description,
+                        "press": "",
+                        "datetime": h.post_date,
+                        "trusted": False,
+                    }
     return [{"url": u, **v} for u, v in cand.items()]
 
 
@@ -393,9 +452,9 @@ def tool_event_search(ctx: ToolContext, args: dict) -> dict:
     from app.adapters.external import article_crawler
     from app.domain import event_keywords as ek
 
-    name = company_service.report_stock_name(ctx.db, ctx.code) or company_service.resolve_stock_name(
+    name = company_service.report_stock_name(
         ctx.db, ctx.code
-    )
+    ) or company_service.resolve_stock_name(ctx.db, ctx.code)
     if not name:
         return {"available": False, "note": "종목명 해석 실패"}
     sector = sector_for(ctx)
@@ -417,8 +476,15 @@ def tool_event_search(ctx: ToolContext, args: dict) -> dict:
     max_articles = int(args.get("max_articles", 6))
     articles: list[dict] = []
     for score, c, cats, risks in scored:
-        item = {"title": c["title"], "press": c["press"], "datetime": c["datetime"], "url": c["url"],
-                "summary": c["summary"][:600], "catalyst_hits": cats, "risk_hits": risks}
+        item = {
+            "title": c["title"],
+            "press": c["press"],
+            "datetime": c["datetime"],
+            "url": c["url"],
+            "summary": c["summary"][:600],
+            "catalyst_hits": cats,
+            "risk_hits": risks,
+        }
         # 이벤트 매칭된 상위 기사만 전체 본문 크롤(토큰·시간 통제).
         if score > 0 and len([a for a in articles if a.get("body")]) < max_articles:
             body = article_crawler.crawl_article(c["url"], ctx.session)
@@ -443,22 +509,44 @@ def tool_event_search(ctx: ToolContext, args: dict) -> dict:
             # 전체 공시 → 섹터 키워드 필터. + 주요사항보고(DS005, pblntf_ty='B')는 이미 정형이라
             # 키워드 없이 전량 병합(유증·CB·자기주식·합병 등 촉매·리스크 정본).
             rows = dart.fetch_disclosures(
-                ctx.settings.dart_api_key, ctx.corp_code, ctx.code, begin, date.today(), ctx.session,
+                ctx.settings.dart_api_key,
+                ctx.corp_code,
+                ctx.code,
+                begin,
+                date.today(),
+                ctx.session,
             )
             major = dart.fetch_disclosures(
-                ctx.settings.dart_api_key, ctx.corp_code, ctx.code, begin, date.today(),
-                ctx.session, pblntf_ty="B",
+                ctx.settings.dart_api_key,
+                ctx.corp_code,
+                ctx.code,
+                begin,
+                date.today(),
+                ctx.session,
+                pblntf_ty="B",
             )
             for d in rows:
                 if any(f in d.report_nm for f in kw.disclosure_filters):
                     seen.add(d.rcept_no)
-                    disclosures.append({"rcept_no": d.rcept_no, "report_nm": d.report_nm,
-                                        "rcept_dt": d.rcept_dt.isoformat(), "material": False})
+                    disclosures.append(
+                        {
+                            "rcept_no": d.rcept_no,
+                            "report_nm": d.report_nm,
+                            "rcept_dt": d.rcept_dt.isoformat(),
+                            "material": False,
+                        }
+                    )
             for d in major:
                 if d.rcept_no not in seen:
                     seen.add(d.rcept_no)
-                    disclosures.append({"rcept_no": d.rcept_no, "report_nm": d.report_nm,
-                                        "rcept_dt": d.rcept_dt.isoformat(), "material": True})
+                    disclosures.append(
+                        {
+                            "rcept_no": d.rcept_no,
+                            "report_nm": d.report_nm,
+                            "rcept_dt": d.rcept_dt.isoformat(),
+                            "material": True,
+                        }
+                    )
         except dart.DartQuotaExceeded:
             # event_search 는 뉴스가 주 소스이고 DART 공시는 보조라 여기선 중단하지 않고 뉴스로 진행.
             # (정기보고서·공시가 핵심인 overview·redflags 단계는 dispatch 가 전파해 중단됨.)
@@ -467,8 +555,10 @@ def tool_event_search(ctx: ToolContext, args: dict) -> dict:
             logger.warning("event disclosures failed %s: %s", ctx.code, e)
 
     return {
-        "available": True, "sector": sector,
-        "catalyst_keywords": kw.catalysts[:10], "risk_keywords": kw.risks[:10],
+        "available": True,
+        "sector": sector,
+        "catalyst_keywords": kw.catalysts[:10],
+        "risk_keywords": kw.risks[:10],
         "news": articles[:12],
         "event_disclosures": disclosures[:20],
     }
@@ -505,6 +595,7 @@ def tool_business_overview(ctx: ToolContext, args: dict) -> dict:
 
 
 # ── 비즈니스 온톨로지 인사이트(③ 사업모델 보강용) ─────────────────────────────
+
 
 def tool_industry_context(ctx: ToolContext, args: dict) -> dict:
     """산업 평균 PER/PBR/ROE — operates_in 산업 노드의 GICS 기반 동종업 재무비율 평균."""
@@ -591,7 +682,10 @@ def tool_competitive_position(ctx: ToolContext, args: dict) -> dict:
 
 # 도구 레지스트리 — LLM 프롬프트에 이름·설명을 노출하고, 이름으로 디스패치.
 TOOLS: dict[str, tuple] = {
-    "recent_periodic_report": (tool_recent_periodic_report, "최신 정기보고서(사업/반기/분기) 본문 발췌"),
+    "recent_periodic_report": (
+        tool_recent_periodic_report,
+        "최신 정기보고서(사업/반기/분기) 본문 발췌",
+    ),
     "financials": (tool_financials, "분기·연간 재무 시계열"),
     "disclosures": (tool_disclosures, "과거 공시 목록 (args: years, kind_filter)"),
     "disclosure_text": (tool_disclosure_text, "공시 원문 발췌 (args: rcept_no)"),
@@ -601,14 +695,29 @@ TOOLS: dict[str, tuple] = {
     "price_context": (tool_price_context, "현재가·시총·모멘텀"),
     "web_search": (tool_web_search, "웹 리서치(네이버 블로그 우선) (args: query, sort, crawl)"),
     "fetch_web_page": (tool_fetch_web_page, "URL 본문 추출(블로그·뉴스) (args: url)"),
-    "event_search": (tool_event_search, "미래 이벤트 탐색 — 섹터별 촉매(수주·계약·증설)·리스크"
-                     "(소송·유증·우발부채) 뉴스 본문+DART 공시 (args: side, max_queries)"),
-    "business_overview": (tool_business_overview, "사업 개요(사업보고서+반기/분기 정리 결과) — 섹션·표"),
+    "event_search": (
+        tool_event_search,
+        "미래 이벤트 탐색 — 섹터별 촉매(수주·계약·증설)·리스크"
+        "(소송·유증·우발부채) 뉴스 본문+DART 공시 (args: side, max_queries)",
+    ),
+    "business_overview": (
+        tool_business_overview,
+        "사업 개요(사업보고서+반기/분기 정리 결과) — 섹션·표",
+    ),
     # 비즈니스 온톨로지 인사이트
-    "industry_context": (tool_industry_context, "산업 평균 PER/PBR/ROE — GICS 기반 동종업 재무비율 평균"),
-    "concentration_risk": (tool_concentration_risk, "매출 집중도 HHI — 부문 매출 비율 기반 집중도 지수"),
+    "industry_context": (
+        tool_industry_context,
+        "산업 평균 PER/PBR/ROE — GICS 기반 동종업 재무비율 평균",
+    ),
+    "concentration_risk": (
+        tool_concentration_risk,
+        "매출 집중도 HHI — 부문 매출 비율 기반 집중도 지수",
+    ),
     "material_risk": (tool_material_risk, "원재료별 가격 추이 — uses_material 엣지 기반"),
-    "competitive_position": (tool_competitive_position, "동일 제품군 peer 종목 대비 시장 점유율·PER/PBR 비교"),
+    "competitive_position": (
+        tool_competitive_position,
+        "동일 제품군 peer 종목 대비 시장 점유율·PER/PBR 비교",
+    ),
 }
 
 

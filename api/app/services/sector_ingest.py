@@ -33,7 +33,9 @@ def sector_stock_codes(db: Session, sector: str) -> list[str]:
     # 그 섹터로 분류되는 것만 남겨 반도체/소부장 분리를 유지한다.
     name_hits = [(idx, name) for idx, name in all_themes if sector in name]
     if target:
-        theme_idxs = [idx for idx, name in name_hits if sector_etf.themes_to_kr_sector([name]) == target]
+        theme_idxs = [
+            idx for idx, name in name_hits if sector_etf.themes_to_kr_sector([name]) == target
+        ]
         if not theme_idxs:
             # 이름이 안 겹치는 합성/영문 섹터명('반도체 소부장','IT')은 대표 섹터 분류 전체로.
             theme_idxs = [
@@ -50,6 +52,7 @@ def sector_stock_codes(db: Session, sector: str) -> list[str]:
             .distinct()
         ).all()
     )
+
 
 _REQUEST_INTERVAL = 0.3  # judal 부하 완화(테마당 요청 사이 간격)
 

@@ -204,7 +204,9 @@ def compute(facts: dict, market_cap: float | None) -> UsFinancials:
     per = round(market_cap / ttm_ni, 2) if (market_cap and ttm_ni and ttm_ni > 0) else None
     pbr = round(market_cap / equity, 2) if (market_cap and equity and equity > 0) else None
     psr = round(market_cap / ttm_rev, 2) if (market_cap and ttm_rev and ttm_rev > 0) else None
-    roe = round(ttm_ni / equity * 100, 1) if (ttm_ni is not None and equity and equity > 0) else None
+    roe = (
+        round(ttm_ni / equity * 100, 1) if (ttm_ni is not None and equity and equity > 0) else None
+    )
 
     return UsFinancials(
         ttm_revenue=ttm_rev,

@@ -73,7 +73,9 @@ def get_node(node_id: str) -> schemas.BusinessNodeOut:
 # ── 회사 그래프·부문 매출(DB 영속 — Task #28 에서 실데이터) ────────────────
 @router.get("/explore", response_model=schemas.BusinessExploreOut)
 def explore_node(
-    node_id: str = Query(..., description="canonical_id (예: CMP_KRX_005930, PRD_SEMI_DRAM, IND_GICS_45102010)"),
+    node_id: str = Query(
+        ..., description="canonical_id (예: CMP_KRX_005930, PRD_SEMI_DRAM, IND_GICS_45102010)"
+    ),
     db: Session = Depends(get_session),
 ) -> schemas.BusinessExploreOut:
     """노드 중심 1-hop 탐색 — focal 의 모든 stock_code 인스턴스를 모아 cross-stock 이웃 구성.
@@ -142,10 +144,13 @@ def reject_pending(
     return schemas.BusinessPendingActionOut(**r)
 
 
-@router.post("/pending/reprocess", response_model=schemas.BusinessReprocessStartOut, status_code=202)
+@router.post(
+    "/pending/reprocess", response_model=schemas.BusinessReprocessStartOut, status_code=202
+)
 def reprocess_pending(
     node_type: str | None = Query(
-        default=None, description="company|industry|product|raw_material|segment. 미지정 시 전체 pending."
+        default=None,
+        description="company|industry|product|raw_material|segment. 미지정 시 전체 pending.",
     ),
 ) -> schemas.BusinessReprocessStartOut:
     """pending_review 노드를 백그라운드로 일괄 재해석(비동기).
@@ -166,7 +171,9 @@ def reprocess_status() -> schemas.BusinessReprocessStatusOut:
     last = s["last"]
     return schemas.BusinessReprocessStatusOut(
         running=s["running"],
-        last=schemas.BusinessReprocessOut(**last) if isinstance(last, dict) and "promoted" in last else None,
+        last=schemas.BusinessReprocessOut(**last)
+        if isinstance(last, dict) and "promoted" in last
+        else None,
         error=s["error"],
     )
 

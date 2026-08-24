@@ -14,7 +14,9 @@ class UsMarketDataAdapter:
     def fetch_periodic(
         self, symbol: str, timeframe: str, start: datetime, end: datetime
     ) -> list[chart.Candle]:
-        return chart.fetch_periodic_foreign(symbol, timeframe, start, end, _http.resilient_session())
+        return chart.fetch_periodic_foreign(
+            symbol, timeframe, start, end, _http.resilient_session()
+        )
 
     def fetch_intraday_30min(self, code: str) -> list[chart.Candle]:
         return []  # 미국 30분봉 소스 없음

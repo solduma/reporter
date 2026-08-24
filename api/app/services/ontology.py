@@ -449,9 +449,7 @@ def _statement_for_yq(statements: list, target_yq: tuple[int, int]):
     return None
 
 
-def _ttm_value(
-    raw: dict[tuple[int, int], float], latest_yq: tuple[int, int]
-) -> float | None:
+def _ttm_value(raw: dict[tuple[int, int], float], latest_yq: tuple[int, int]) -> float | None:
     """DART 원시 시계열(원, Q4=연간누적)에서 latest_yq 기준 TTM(4분기 합).
 
     4분기가 불충족하면(신규 상장 등) 최신 연간(.12 누적) 원시값 fallback — 연간 누적은
@@ -542,7 +540,9 @@ def build_ratio_values(
                         raw_series.setdefault(ont_id, {})[yq] = amt  # 원 단위 — _ttm_value에서 ÷1e8
 
         for ont_id, amt in bs_closing.items():
-            values[ont_id] = amt  # bare: aggregate computation + ratio _기초/_기말 sanitization fallback
+            values[ont_id] = (
+                amt  # bare: aggregate computation + ratio _기초/_기말 sanitization fallback
+            )
             values[f"{ont_id}:closing"] = amt  # :closing: ratio engine _기말 sanitization
         for ont_id, amt in bs_opening.items():
             values[f"{ont_id}:opening"] = amt
@@ -627,7 +627,9 @@ def _is_flow_stock_ratio(port: OntologyPort, ratio_id: str) -> bool:
     return has_stock and has_flow
 
 
-def company_ratios(db: Session, code: str, fs_div: str = "CFS", industry: str | None = None) -> list[RatioResultOut]:
+def company_ratios(
+    db: Session, code: str, fs_div: str = "CFS", industry: str | None = None
+) -> list[RatioResultOut]:
     """종목의 최신 재무제표 기준 온톨로지 비율 일괄 계산(C1+E3).
 
     산업 태그(bank/insurance/securities)가 있으면 해당 산업 확장 비율 + 공통 비율만 계산.
@@ -642,9 +644,7 @@ def company_ratios(db: Session, code: str, fs_div: str = "CFS", industry: str | 
 
         industry = _detect_financial_industry(theme_names(db, code))
     ratio_ids = [
-        r.id
-        for r in port.list_ratios()
-        if industry is None or not r.tags or industry in r.tags
+        r.id for r in port.list_ratios() if industry is None or not r.tags or industry in r.tags
     ]
     values, stored = build_ratio_values(db, code, fs_div=fs_div)
     if not values and fs_div == "CFS":

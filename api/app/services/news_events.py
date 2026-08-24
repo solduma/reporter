@@ -29,9 +29,19 @@ logger = logging.getLogger(__name__)
 
 # 매크로·신기술·공급망·규제 뉴스 검색 키워드(종목 무관 시장 이벤트).
 _EVENT_KEYWORDS = [
-    "반도체 공급망", "2차전지 공급망", "신기술", "인공지능 반도체", "전기차 배터리",
-    "원자재 가격", "환율 급등", "금리 인상", "수출 규제", "미국 관세",
-    "공급 부족", "증설 투자", "정부 지원 정책",
+    "반도체 공급망",
+    "2차전지 공급망",
+    "신기술",
+    "인공지능 반도체",
+    "전기차 배터리",
+    "원자재 가격",
+    "환율 급등",
+    "금리 인상",
+    "수출 규제",
+    "미국 관세",
+    "공급 부족",
+    "증설 투자",
+    "정부 지원 정책",
 ]
 _MAX_NEWS = 40  # 배치당 최대 뉴스 수(LLM 토큰 통제)
 _VALID_KINDS = {"신기술", "공급망", "규제", "매크로", "실적", "정책"}
@@ -148,7 +158,10 @@ def run_news_events(db: Session, settings: Settings | None = None) -> dict:
     purged = _purge_old(db, now)
     logger.info(
         "news events: %d fresh, %d classified, %d stock events, %d purged",
-        len(fresh), classified, events, purged,
+        len(fresh),
+        classified,
+        events,
+        purged,
     )
     return {"news": len(fresh), "classified": classified, "events": events, "purged": purged}
 

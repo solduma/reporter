@@ -123,8 +123,13 @@ def _research_producer(
         "redflags": prior.get("redflags", {}),
     }
     return agent.run_stage(
-        llm, model, ctx, stage_goal=goal, result_schema=_RESEARCH_SCHEMA,
-        context_data=context, max_tool_calls=6,
+        llm,
+        model,
+        ctx,
+        stage_goal=goal,
+        result_schema=_RESEARCH_SCHEMA,
+        context_data=context,
+        max_tool_calls=6,
     )
 
 
@@ -134,9 +139,11 @@ def verify_input(llm: LLMPort, model: str, ctx: ToolContext, user_input: str, pr
     1~4단계와 동일한 review_loop 를 쓴다(HITL 특화 producer·reviewer 만 주입). 미수렴 시 마지막 결과에
     _procedure_incomplete 마킹, LLM 실패 마커는 그대로 반환(호출측이 job 실패 처리)."""
     return review_loop.run_with_review(
-        llm, model,
+        llm,
+        model,
         lambda fb: _research_producer(llm, model, ctx, user_input, prior, fb),
-        _REVIEW_SYSTEM, label=f"HITL:{ctx.code}",
+        _REVIEW_SYSTEM,
+        label=f"HITL:{ctx.code}",
     )
 
 

@@ -28,8 +28,12 @@ def screen(
     rev_qoq_min: float | None = Query(default=None, description="매출 QoQ 최소(0.10=+10%)"),
     op_qoq_min: float | None = Query(default=None, description="영업이익 QoQ 최소(0.30=+30%)"),
     op_growth: str | None = Query(default=None, pattern="^(turnaround|growth)$"),
-    op_status: str | None = Query(default=None, pattern="^(흑자전환|흑자지속|적자전환|적자지속)$", description="영업이익 상태"),
-    net_status: str | None = Query(default=None, pattern="^(흑자전환|흑자지속|적자전환|적자지속)$", description="순이익 상태"),
+    op_status: str | None = Query(
+        default=None, pattern="^(흑자전환|흑자지속|적자전환|적자지속)$", description="영업이익 상태"
+    ),
+    net_status: str | None = Query(
+        default=None, pattern="^(흑자전환|흑자지속|적자전환|적자지속)$", description="순이익 상태"
+    ),
     mom_min: float | None = Query(default=None, description="3개월 모멘텀 최소%"),
     mom_max: float | None = Query(default=None, description="3개월 모멘텀 최대%(과열 컷)"),
     # 가치 전략 필터
@@ -41,9 +45,14 @@ def screen(
     market: str | None = Query(default=None, pattern="^(KOSPI|KOSDAQ)$"),
     sector: str | None = Query(default=None, description="섹터명(judal 테마 매칭 종목만)"),
     include_etf: bool = Query(default=False, description="ETF/ETN 포함(기본 제외)"),
-    coverage: str | None = Query(default=None, pattern="^(has|none)$", description="리포트 커버리지 유무"),
+    coverage: str | None = Query(
+        default=None, pattern="^(has|none)$", description="리포트 커버리지 유무"
+    ),
     recent_buy: bool = Query(default=False, description="최근 90일 BUY 리포트 있는 종목만"),
-    sort: str = Query(default="score", description="score|market_cap|momentum|rev_yoy|trading_value|change|coverage"),
+    sort: str = Query(
+        default="score",
+        description="score|market_cap|momentum|rev_yoy|trading_value|change|coverage",
+    ),
     limit: int = Query(default=50, le=200),
     offset: int = Query(default=0, ge=0),
     ratio_filters: str | None = Query(

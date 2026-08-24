@@ -97,9 +97,7 @@ def compute_growth(
 
     prior_rev = prior.revenue if prior else None
 
-    op_status = _profit_status(
-        prior.operating_income if prior else None, latest.operating_income
-    )
+    op_status = _profit_status(prior.operating_income if prior else None, latest.operating_income)
     net_status = _profit_status(prior.net_income if prior else None, latest.net_income)
 
     # EBITDA(=영업이익+D&A)는 현금흐름표 파싱 특성상 연간(.12)에만 저장된다. 분기 latest 엔 없고
@@ -118,12 +116,16 @@ def compute_growth(
         op_qoq=_yoy(latest.operating_income, prev_q.operating_income) if prev_q else None,
         op_margin_delta=_margin_delta(
             latest.operating_income, latest.revenue, prior.operating_income, prior_rev
-        ) if prior else None,
+        )
+        if prior
+        else None,
         eps_yoy=_yoy(getattr(latest, "eps", None), getattr(prior, "eps", None)) if prior else None,
         net_status=net_status,
         net_margin_delta=_margin_delta(
             latest.net_income, latest.revenue, prior.net_income, prior_rev
-        ) if prior else None,
+        )
+        if prior
+        else None,
         ebitda_status=eb_status,
         ebitda_margin_delta=eb_margin,
     )

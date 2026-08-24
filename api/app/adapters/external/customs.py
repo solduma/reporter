@@ -55,7 +55,9 @@ def fetch_trade_by_hs(
         return []
 
     if root.findtext(".//resultCode") not in ("00", None):
-        logger.warning("customs result %s: %s", root.findtext(".//resultCode"), root.findtext(".//resultMsg"))
+        logger.warning(
+            "customs result %s: %s", root.findtext(".//resultCode"), root.findtext(".//resultMsg")
+        )
         return []
 
     # 국가별 행을 월(year)로 합산. '총계' 행은 제외(기간 전체 합계라 시계열 아님).

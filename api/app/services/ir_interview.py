@@ -111,12 +111,20 @@ def _derive_items(llm, model: str, ctx: tools.ToolContext, context: dict) -> lis
         '"linked_valuation_assumption": "연결된 밸류 가정/방식"}]}'
     )
     result = review_loop.run_with_review(
-        llm, model,
+        llm,
+        model,
         lambda fb: agent.run_stage(
-            llm, model, ctx, stage_goal=_with_feedback(goal, fb),
-            result_schema=schema, context_data=context, max_tool_calls=2,
+            llm,
+            model,
+            ctx,
+            stage_goal=_with_feedback(goal, fb),
+            result_schema=schema,
+            context_data=context,
+            max_tool_calls=2,
         ),
-        _ITEMS_REVIEW, label=f"ir_items:{ctx.code}", max_rounds=_ITEMS_REVIEW_ROUNDS,
+        _ITEMS_REVIEW,
+        label=f"ir_items:{ctx.code}",
+        max_rounds=_ITEMS_REVIEW_ROUNDS,
     )
     items = result.get("items") if isinstance(result, dict) else None
     return [it for it in (items or []) if isinstance(it, dict) and it.get("item")][:_MAX_ITEMS]
@@ -148,12 +156,20 @@ def _questions_for_item(
     # max_tool_calls=0: 질문 생성은 순수 추론(context 에 밸류 근거 이미 실림) — tool·DB 접근을 봉쇄해
     # 병렬 스레드 안전(ctx.db/session 미접근) 확보 + tool-loop tail latency 제거.
     result = review_loop.run_with_review(
-        llm, model,
+        llm,
+        model,
         lambda fb: agent.run_stage(
-            llm, model, ctx, stage_goal=_with_feedback(goal, fb),
-            result_schema=schema, context_data=ctx_data, max_tool_calls=0,
+            llm,
+            model,
+            ctx,
+            stage_goal=_with_feedback(goal, fb),
+            result_schema=schema,
+            context_data=ctx_data,
+            max_tool_calls=0,
         ),
-        _QUESTIONS_REVIEW, label=f"ir_q:{item.get('item')}:{ctx.code}", max_rounds=_Q_REVIEW_ROUNDS,
+        _QUESTIONS_REVIEW,
+        label=f"ir_q:{item.get('item')}:{ctx.code}",
+        max_rounds=_Q_REVIEW_ROUNDS,
     )
     qs = result.get("questions") if isinstance(result, dict) else None
     return [q for q in (qs or []) if isinstance(q, dict) and q.get("q")][:_MAX_Q_PER_ITEM]
@@ -172,7 +188,9 @@ def generate(db: Session, code: str, settings: Settings | None = None) -> dict:
     model = settings.insight_model
     session = _http.resilient_session()
     corp_code = tools.resolve_corp_code(db, code)
-    ctx = tools.ToolContext(db=db, settings=settings, session=session, code=code, corp_code=corp_code)
+    ctx = tools.ToolContext(
+        db=db, settings=settings, session=session, code=code, corp_code=corp_code
+    )
 
     context = _sensitive_context(rep)
     items = _derive_items(llm, model, ctx, context)
@@ -235,7 +253,10 @@ def enqueue(db: Session, code: str) -> IrInterviewJob:
 def claim_next(db: Session) -> IrInterviewJob | None:
     """가장 오래된 pending job 을 running 으로 선점(단일 워커 폴링)."""
     job = db.scalar(
-        select(IrInterviewJob).where(IrInterviewJob.status == "pending").order_by(IrInterviewJob.id).limit(1)
+        select(IrInterviewJob)
+        .where(IrInterviewJob.status == "pending")
+        .order_by(IrInterviewJob.id)
+        .limit(1)
     )
     if job is None:
         return None
@@ -291,15 +312,20 @@ def run_job(db: Session, job: IrInterviewJob, settings: Settings | None = None) 
     try:
         result = generate(db, job.stock_code, settings)
         stmt = insert(IrInterviewReport).values(
-            stock_code=job.stock_code, job_id=job.id, model=job.model or "",
-            strategy_json=result, total_questions=result.get("total_questions", 0),
+            stock_code=job.stock_code,
+            job_id=job.id,
+            model=job.model or "",
+            strategy_json=result,
+            total_questions=result.get("total_questions", 0),
         )
         stmt = stmt.on_conflict_do_update(
             constraint="uq_ir_interview_report_code",
             set_={
-                "job_id": job.id, "strategy_json": result,
+                "job_id": job.id,
+                "strategy_json": result,
                 "total_questions": result.get("total_questions", 0),
-                "updated_at": func.now(), "as_of": func.now(),
+                "updated_at": func.now(),
+                "as_of": func.now(),
             },
         )
         db.execute(stmt)
@@ -307,7 +333,12 @@ def run_job(db: Session, job: IrInterviewJob, settings: Settings | None = None) 
         job.progress = 100
         job.finished_at = datetime.now(UTC)
         db.commit()
-        logger.info("ir interview done %s (job %d): %d questions", job.stock_code, job.id, result.get("total_questions", 0))
+        logger.info(
+            "ir interview done %s (job %d): %d questions",
+            job.stock_code,
+            job.id,
+            result.get("total_questions", 0),
+        )
     except Exception as e:
         db.rollback()
         job.status = "failed"

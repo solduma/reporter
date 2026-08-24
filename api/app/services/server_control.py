@@ -104,8 +104,12 @@ _PID_RE = re.compile(r"^\s*pid\s*=\s*(\d+)", re.MULTILINE)
 
 def _git(*args: str, timeout: int = 60) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        ["git", *args], cwd=_PROJECT_DIR,
-        capture_output=True, text=True, timeout=timeout, check=False,
+        ["git", *args],
+        cwd=_PROJECT_DIR,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
     )
 
 
@@ -123,7 +127,10 @@ class ServerControl:
         """launchctl print 출력. 서비스가 미등록이면 None."""
         result = subprocess.run(
             ["launchctl", "print", _service_target(label)],
-            capture_output=True, text=True, timeout=10, check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
         )
         if result.returncode != 0:
             return None  # 미등록(로드 안 됨)
@@ -132,7 +139,9 @@ class ServerControl:
     def _status_of(self, spec: ServerSpec) -> ServerStatus:
         out = self._print(spec.service_label)
         if out is None:
-            return ServerStatus(spec.key, spec.label, spec.port, loaded=False, running=False, pid=None)
+            return ServerStatus(
+                spec.key, spec.label, spec.port, loaded=False, running=False, pid=None
+            )
         m = _PID_RE.search(out)
         pid = int(m.group(1)) if m else None
         return ServerStatus(
@@ -156,7 +165,10 @@ class ServerControl:
         # -k: 실행 중이면 죽이고 다시 시작. KeepAlive 서비스라 즉시 재기동된다.
         result = subprocess.run(
             ["launchctl", "kickstart", "-k", _service_target(spec.service_label)],
-            capture_output=True, text=True, timeout=15, check=False,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
         )
         if result.returncode != 0:
             detail = (result.stderr or result.stdout).strip()
@@ -173,7 +185,10 @@ class ServerControl:
         result = subprocess.run(
             [pnpm, "build"],
             cwd=_WEB_DIR,
-            capture_output=True, text=True, timeout=600, check=False,
+            capture_output=True,
+            text=True,
+            timeout=600,
+            check=False,
         )
         if result.returncode != 0:
             # 실패 원인은 stderr 말미가 유용하다(빌드 로그는 길어 마지막 줄들만).
@@ -251,9 +266,21 @@ class ProdDeploy:
         if not gh:
             return "gh CLI 미설치 — CD 상태 조회 불가(brew install gh)."
         result = subprocess.run(
-            [gh, "run", "list", "--workflow=cd.yml", "--limit", "1",
-             "--json", "status,conclusion,displayTitle,createdAt,databaseId"],
-            cwd=_PROJECT_DIR, capture_output=True, text=True, timeout=20, check=False,
+            [
+                gh,
+                "run",
+                "list",
+                "--workflow=cd.yml",
+                "--limit",
+                "1",
+                "--json",
+                "status,conclusion,displayTitle,createdAt,databaseId",
+            ],
+            cwd=_PROJECT_DIR,
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
         )
         if result.returncode != 0:
             detail = (result.stderr or result.stdout).strip().splitlines()
@@ -297,11 +324,15 @@ class ProdDeploy:
                 f"release 가 main 의 조상이 아닙니다(fast-forward 불가). "
                 f"수동으로 정리하세요: git checkout {_PROD_BRANCH} && git merge {_DEV_BRANCH}"
             )
-        pending = _git("log", "--oneline", f"origin/{_PROD_BRANCH}..origin/{_DEV_BRANCH}").stdout.strip()
+        pending = _git(
+            "log", "--oneline", f"origin/{_PROD_BRANCH}..origin/{_DEV_BRANCH}"
+        ).stdout.strip()
         if not pending:
             return "배포할 새 커밋 없음 — release 가 이미 main 과 동일합니다."
         # 워킹트리 전환 없이 origin/main 을 origin/release 로 push(로컬 refspec).
-        push = _git("push", "origin", f"origin/{_DEV_BRANCH}:refs/heads/{_PROD_BRANCH}", timeout=120)
+        push = _git(
+            "push", "origin", f"origin/{_DEV_BRANCH}:refs/heads/{_PROD_BRANCH}", timeout=120
+        )
         if push.returncode != 0:
             detail = (push.stderr or push.stdout).strip().splitlines()
             return "release push 실패:\n" + "\n".join(detail[-4:])
@@ -327,7 +358,9 @@ class ProdDeploy:
         old = _git("rev-parse", "--short", f"origin/{_PROD_BRANCH}").stdout.strip()
         new = _git("rev-parse", "--short", f"origin/{_PROD_BRANCH}~1").stdout.strip()
         push = _git(
-            "push", "origin", f"origin/{_PROD_BRANCH}~1:refs/heads/{_PROD_BRANCH}",
+            "push",
+            "origin",
+            f"origin/{_PROD_BRANCH}~1:refs/heads/{_PROD_BRANCH}",
             "--force-with-lease",
             timeout=120,
         )
@@ -410,7 +443,10 @@ def worker_log(lines: int = 40) -> str:
         return "docker 미설치 — worker 로그 조회 불가."
     result = subprocess.run(
         [docker, "logs", "--tail", str(lines), "reporter-worker"],
-        capture_output=True, text=True, timeout=20, check=False,
+        capture_output=True,
+        text=True,
+        timeout=20,
+        check=False,
     )
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip().splitlines()

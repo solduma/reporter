@@ -32,15 +32,19 @@ class StockNews:
     url: str  # 원문(n.news.naver.com) — 전체 본문 크롤용
 
 
-def fetch_stock_news(code: str, session: requests.Session, pages: int = 2, page_size: int = 20) -> list[StockNews]:
+def fetch_stock_news(
+    code: str, session: requests.Session, pages: int = 2, page_size: int = 20
+) -> list[StockNews]:
     """종목코드 직결 뉴스 목록(최신순). 종목에 실제 연결된 기사만 — 키워드 오매칭 없음."""
     out: list[StockNews] = []
     seen: set[str] = set()
     for page in range(1, pages + 1):
         try:
             resp = session.get(
-                _URL.format(code=code), headers=_HEADERS,
-                params={"pageSize": page_size, "page": page}, timeout=10,
+                _URL.format(code=code),
+                headers=_HEADERS,
+                params={"pageSize": page_size, "page": page},
+                timeout=10,
             )
             resp.raise_for_status()
             data = resp.json()
@@ -55,11 +59,13 @@ def fetch_stock_news(code: str, session: requests.Session, pages: int = 2, page_
             if not url or url in seen:
                 continue
             seen.add(url)
-            out.append(StockNews(
-                title=(it.get("titleFull") or it.get("title") or "").strip(),
-                summary=(it.get("body") or "").strip(),
-                press=(it.get("officeName") or "").strip(),
-                datetime=(it.get("datetime") or "").strip(),
-                url=url,
-            ))
+            out.append(
+                StockNews(
+                    title=(it.get("titleFull") or it.get("title") or "").strip(),
+                    summary=(it.get("body") or "").strip(),
+                    press=(it.get("officeName") or "").strip(),
+                    datetime=(it.get("datetime") or "").strip(),
+                    url=url,
+                )
+            )
     return out

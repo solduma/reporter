@@ -46,13 +46,18 @@ def snapshot_quotes_bg() -> None:
         with _snapshot_lock:
             _snapshot_inflight = False
 
+
 # 스냅샷 주기 — 의사 실시간(대시보드 수십초 갱신). ts 는 분 버킷이라 같은 분 재조회는 같은 행을
 # 덮어써(행 폭증 없이) 값만 신선해진다. us_market 인메모리 캐시(_CACHE_TTL)와 함께 낮춘다.
 _SNAPSHOT_TTL = timedelta(seconds=30)
 
 
 def _fetchers():
-    return (("us", us_market.fetch_us_indices), ("kr", us_market.fetch_kr_indices), ("fx", us_market.fetch_exchange_rates))
+    return (
+        ("us", us_market.fetch_us_indices),
+        ("kr", us_market.fetch_kr_indices),
+        ("fx", us_market.fetch_exchange_rates),
+    )
 
 
 def snapshot_quotes(db: Session) -> int:
@@ -67,14 +72,21 @@ def snapshot_quotes(db: Session) -> int:
     for kind, fetch in _fetchers():
         for q in fetch():
             stmt = insert(MarketQuote).values(
-                name=q.name, kind=kind, ts=bucket,
-                close=q.close, change=q.change, change_ratio=q.change_ratio, rising=q.rising,
+                name=q.name,
+                kind=kind,
+                ts=bucket,
+                close=q.close,
+                change=q.change,
+                change_ratio=q.change_ratio,
+                rising=q.rising,
             )
             stmt = stmt.on_conflict_do_update(
                 constraint="uq_market_quote",
                 set_={
-                    "close": stmt.excluded.close, "change": stmt.excluded.change,
-                    "change_ratio": stmt.excluded.change_ratio, "rising": stmt.excluded.rising,
+                    "close": stmt.excluded.close,
+                    "change": stmt.excluded.change,
+                    "change_ratio": stmt.excluded.change_ratio,
+                    "rising": stmt.excluded.rising,
                     "kind": stmt.excluded.kind,
                 },
             )

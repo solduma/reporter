@@ -61,6 +61,7 @@ GROWTH_METHOD = (
     "결측 요소는 제외하고 재정규화."
 )
 
+
 # 이익률 증감(pp) 표시. 부호와 함께 pp 로 보여준다.
 def _pp(value: float | None) -> str:
     if value is None:
@@ -82,11 +83,26 @@ def growth_factors(
     return [
         Factor("매출 YoY", _pct(revenue_yoy), band(revenue_yoy, -0.2, 0.6), w["rev"]),
         Factor("영업이익", op_status or "—", status_norm(op_status), w["op_status"]),
-        Factor("영업이익률(OPM) 증감", _pp(op_margin_delta), margin_pp_score(op_margin_delta), w["op_margin"]),
+        Factor(
+            "영업이익률(OPM) 증감",
+            _pp(op_margin_delta),
+            margin_pp_score(op_margin_delta),
+            w["op_margin"],
+        ),
         Factor("순이익", net_status or "—", status_norm(net_status), w["net_status"]),
-        Factor("순이익률(NPM) 증감", _pp(net_margin_delta), margin_pp_score(net_margin_delta), w["net_margin"]),
+        Factor(
+            "순이익률(NPM) 증감",
+            _pp(net_margin_delta),
+            margin_pp_score(net_margin_delta),
+            w["net_margin"],
+        ),
         Factor("EBITDA", ebitda_status or "—", status_norm(ebitda_status), w["ebitda_status"]),
-        Factor("EBITDA마진 증감", _pp(ebitda_margin_delta), margin_pp_score(ebitda_margin_delta), w["ebitda_margin"]),
+        Factor(
+            "EBITDA마진 증감",
+            _pp(ebitda_margin_delta),
+            margin_pp_score(ebitda_margin_delta),
+            w["ebitda_margin"],
+        ),
     ]
 
 
@@ -156,9 +172,7 @@ def trend_factors(
     return_3m: float | None,
     stage: int | None = None,
 ) -> list[Factor]:
-    near_norm = (
-        None if near_high_pct is None else clamp01((near_high_pct / 100 - 0.7) / 0.3)
-    )
+    near_norm = None if near_high_pct is None else clamp01((near_high_pct / 100 - 0.7) / 0.3)
     if ma_aligned is None:
         align_norm: float | None = None
         align_val = "—"

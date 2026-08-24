@@ -46,11 +46,14 @@ def freshness(db: Session) -> dict[str, str]:
     latest_uni = universe_ingest.latest_snapshot_date(db)
     uni_rows = 0
     if latest_uni:
-        uni_rows = db.scalar(
-            select(func.count()).select_from(UniverseSnapshot).where(
-                UniverseSnapshot.snapshot_date == latest_uni
+        uni_rows = (
+            db.scalar(
+                select(func.count())
+                .select_from(UniverseSnapshot)
+                .where(UniverseSnapshot.snapshot_date == latest_uni)
             )
-        ) or 0
+            or 0
+        )
     return {
         "latest_report_date": str(latest_report) if latest_report else "—",
         "latest_universe_date": str(latest_uni) if latest_uni else "—",
@@ -103,6 +106,7 @@ def db_status(db: Session) -> list[TableStatus]:
 @dataclass
 class BackfillStatus:
     """백필 도메인별 진행 현황."""
+
     domain: str
     label: str
     done: int
@@ -136,61 +140,73 @@ def _us_universe_count(db: Session, snap) -> int:
     """US 도메인용: us_universe 스냅샷 기준 유효 total."""
     if not snap:
         return 0
-    return db.scalar(
-        select(func.count()).select_from(UsUniverse).where(UsUniverse.snapshot_date == snap)
-    ) or 0
+    return (
+        db.scalar(
+            select(func.count()).select_from(UsUniverse).where(UsUniverse.snapshot_date == snap)
+        )
+        or 0
+    )
 
 
 def _us_done_count(db: Session, domain: str, snap) -> int:
     """US 도메인용: us_universe에実재하는 심볼만 counted (delisted 유령 방지)."""
     if not snap:
         return 0
-    return db.scalar(
-        select(func.count())
-        .select_from(SyncState)
-        .join(UsUniverse, UsUniverse.naver_symbol == SyncState.stock_code)
-        .where(
-            SyncState.domain == domain,
-            UsUniverse.snapshot_date == snap,
+    return (
+        db.scalar(
+            select(func.count())
+            .select_from(SyncState)
+            .join(UsUniverse, UsUniverse.naver_symbol == SyncState.stock_code)
+            .where(
+                SyncState.domain == domain,
+                UsUniverse.snapshot_date == snap,
+            )
         )
-    ) or 0
+        or 0
+    )
 
 
 def _kr_total_count(db: Session, snap) -> int:
     """KR 도메인용: latest universe + CorpCodeMap + price_candles존재 (delisted 제외)."""
     if not snap:
         return 0
-    return db.scalar(
-        select(func.count(func.distinct(UniverseSnapshot.stock_code)))
-        .select_from(UniverseSnapshot)
-        .join(CorpCodeMap, CorpCodeMap.stock_code == UniverseSnapshot.stock_code)
-        .join(PriceCandle, PriceCandle.stock_code == UniverseSnapshot.stock_code)
-        .where(
-            UniverseSnapshot.snapshot_date == snap,
-            UniverseSnapshot.stock_type == "stock",
+    return (
+        db.scalar(
+            select(func.count(func.distinct(UniverseSnapshot.stock_code)))
+            .select_from(UniverseSnapshot)
+            .join(CorpCodeMap, CorpCodeMap.stock_code == UniverseSnapshot.stock_code)
+            .join(PriceCandle, PriceCandle.stock_code == UniverseSnapshot.stock_code)
+            .where(
+                UniverseSnapshot.snapshot_date == snap,
+                UniverseSnapshot.stock_type == "stock",
+            )
         )
-    ) or 0
+        or 0
+    )
 
 
 def _kr_done_count(db: Session, domain: str, snap) -> int:
     """KR 도메인용: CorpCodeMap + price_candles존재 + latest universe join으로 delisted 제외."""
     if not snap:
         return 0
-    return db.scalar(
-        select(func.count(func.distinct(SyncState.stock_code)))
-        .select_from(SyncState)
-        .join(CorpCodeMap, CorpCodeMap.stock_code == SyncState.stock_code)
-        .join(PriceCandle, PriceCandle.stock_code == SyncState.stock_code)
-        .join(
-            UniverseSnapshot,
-            UniverseSnapshot.stock_code == SyncState.stock_code,
+    return (
+        db.scalar(
+            select(func.count(func.distinct(SyncState.stock_code)))
+            .select_from(SyncState)
+            .join(CorpCodeMap, CorpCodeMap.stock_code == SyncState.stock_code)
+            .join(PriceCandle, PriceCandle.stock_code == SyncState.stock_code)
+            .join(
+                UniverseSnapshot,
+                UniverseSnapshot.stock_code == SyncState.stock_code,
+            )
+            .where(
+                SyncState.domain == domain,
+                UniverseSnapshot.snapshot_date == snap,
+                UniverseSnapshot.stock_type == "stock",
+            )
         )
-        .where(
-            SyncState.domain == domain,
-            UniverseSnapshot.snapshot_date == snap,
-            UniverseSnapshot.stock_type == "stock",
-        )
-    ) or 0
+        or 0
+    )
 
 
 def all_backfill_progress(db: Session) -> list[BackfillStatus]:
@@ -217,40 +233,62 @@ def all_backfill_progress(db: Session) -> list[BackfillStatus]:
             continue
         pct = done / total * 100
         remaining = total - done
-        out.append(BackfillStatus(
-            domain=domain, label=label,
-            done=done, total=total, pct=pct,
-            remaining=remaining, per_run=per_run,
-        ))
+        out.append(
+            BackfillStatus(
+                domain=domain,
+                label=label,
+                done=done,
+                total=total,
+                pct=pct,
+                remaining=remaining,
+                per_run=per_run,
+            )
+        )
 
     # OFS 현황: CFS 보유 종목 대비 OFS 보유 종목
-    cfs_cnt = len(db.execute(
-        select(Financial.stock_code).where(Financial.fs_div == "CFS").distinct()
-    ).all())
-    ofs_cnt = len(db.execute(
-        select(Financial.stock_code).where(Financial.fs_div == "OFS").distinct()
-    ).all())
+    cfs_cnt = len(
+        db.execute(select(Financial.stock_code).where(Financial.fs_div == "CFS").distinct()).all()
+    )
+    ofs_cnt = len(
+        db.execute(select(Financial.stock_code).where(Financial.fs_div == "OFS").distinct()).all()
+    )
     ofs_pct = ofs_cnt / cfs_cnt * 100 if cfs_cnt else 0
     ofs_remaining = cfs_cnt - ofs_cnt
-    out.append(BackfillStatus(
-        domain="ofs", label="OFS(별도재무)",
-        done=ofs_cnt, total=cfs_cnt, pct=ofs_pct,
-        remaining=ofs_remaining, per_run=150,
-        detail=f"CFS {cfs_cnt}개 중",
-    ))
+    out.append(
+        BackfillStatus(
+            domain="ofs",
+            label="OFS(별도재무)",
+            done=ofs_cnt,
+            total=cfs_cnt,
+            pct=ofs_pct,
+            remaining=ofs_remaining,
+            per_run=150,
+            detail=f"CFS {cfs_cnt}개 중",
+        )
+    )
 
     # 재무제표(FinancialStatement) 현황: CFS 보유 종목 대비 적재된 종목 수
-    fs_cnt = len(db.execute(
-        select(FinancialStatement.stock_code).where(FinancialStatement.fs_div == "CFS").distinct()
-    ).all())
+    fs_cnt = len(
+        db.execute(
+            select(FinancialStatement.stock_code)
+            .where(FinancialStatement.fs_div == "CFS")
+            .distinct()
+        ).all()
+    )
     fs_pct = fs_cnt / cfs_cnt * 100 if cfs_cnt else 0
     fs_remaining = cfs_cnt - fs_cnt
-    out.append(BackfillStatus(
-        domain="financial_statement", label="재무제표 원문",
-        done=fs_cnt, total=cfs_cnt, pct=fs_pct,
-        remaining=fs_remaining, per_run=150,
-        detail=f"CFS {cfs_cnt}개 중",
-    ))
+    out.append(
+        BackfillStatus(
+            domain="financial_statement",
+            label="재무제표 원문",
+            done=fs_cnt,
+            total=cfs_cnt,
+            pct=fs_pct,
+            remaining=fs_remaining,
+            per_run=150,
+            detail=f"CFS {cfs_cnt}개 중",
+        )
+    )
 
     return out
 
@@ -288,9 +326,9 @@ def sce_backfill_status(db: Session, limit: int = 200) -> list[SCEBackfillStatus
         select(
             FinancialStatement.stock_code,
             func.count().label("total"),
-            func.sum(
-                func.cast(FinancialStatement.data.has_key("SCE").is_(False), int)
-            ).label("missing"),
+            func.sum(func.cast(FinancialStatement.data.has_key("SCE").is_(False), int)).label(
+                "missing"
+            ),
         )
         .where(FinancialStatement.fs_div == "CFS")
         .group_by(FinancialStatement.stock_code)
@@ -301,12 +339,14 @@ def sce_backfill_status(db: Session, limit: int = 200) -> list[SCEBackfillStatus
         missing_int = missing or 0
         if missing_int == 0:
             continue
-        results.append(SCEBackfillStatus(
-            stock_code=code,
-            stock_name=name_map.get(code),
-            periods_total=total,
-            periods_missing=missing_int,
-        ))
+        results.append(
+            SCEBackfillStatus(
+                stock_code=code,
+                stock_name=name_map.get(code),
+                periods_total=total,
+                periods_missing=missing_int,
+            )
+        )
 
     results.sort(key=lambda r: r.periods_missing, reverse=True)
     return results[:limit]

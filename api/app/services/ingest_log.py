@@ -177,8 +177,7 @@ def latest_for_jobs(db: Session, jobs: list[str]) -> dict[str, IngestLogRow]:
     ).subquery()
     rows = (
         db.execute(
-            select(IngestLog)
-            .join(
+            select(IngestLog).join(
                 latest_ts,
                 and_(IngestLog.job == latest_ts.c.job, IngestLog.ts == latest_ts.c.max_ts),
             )

@@ -43,7 +43,9 @@ def _momentum_3m(db: Session, naver_symbol: str) -> float | None:
 
 
 def latest_snapshot_date(db: Session) -> date | None:
-    return db.scalar(select(UsUniverse.snapshot_date).order_by(UsUniverse.snapshot_date.desc()).limit(1))
+    return db.scalar(
+        select(UsUniverse.snapshot_date).order_by(UsUniverse.snapshot_date.desc()).limit(1)
+    )
 
 
 def snapshot_us_universe(db: Session, snapshot_date: date | None = None) -> dict:
@@ -79,7 +81,13 @@ def snapshot_us_universe(db: Session, snapshot_date: date | None = None) -> dict
         db.execute(stmt)
         saved += 1
     db.commit()
-    logger.info("us universe snapshot %s: %d seeded, %d saved, %d skipped", snapshot_date, len(seeds), saved, skipped)
+    logger.info(
+        "us universe snapshot %s: %d seeded, %d saved, %d skipped",
+        snapshot_date,
+        len(seeds),
+        saved,
+        skipped,
+    )
     return {"seeded": len(seeds), "saved": saved, "skipped": skipped}
 
 
@@ -99,16 +107,16 @@ def _us_universe_symbols(db: Session) -> list[str]:
     if snap is None:
         return []
     return list(
-        db.scalars(
-            select(UsUniverse.naver_symbol).where(UsUniverse.snapshot_date == snap)
-        ).all()
+        db.scalars(select(UsUniverse.naver_symbol).where(UsUniverse.snapshot_date == snap)).all()
     )
 
 
 def _us_backfilled_symbols(db: Session) -> set[str]:
     """이미 10년 백필 완료로 마킹된 US 심볼(재개 시 재처리 방지)."""
     return set(
-        db.scalars(select(SyncState.stock_code).where(SyncState.domain == _US_BACKFILL_DOMAIN)).all()
+        db.scalars(
+            select(SyncState.stock_code).where(SyncState.domain == _US_BACKFILL_DOMAIN)
+        ).all()
     )
 
 
@@ -186,6 +194,14 @@ def run_candle_backfill_progressive(
     remaining = len(pending) - done
     logger.info(
         "US 10y candle backfill: done=%d failed=%d remaining=%d momentum_updated=%d",
-        done, failed, remaining, momentum_updated,
+        done,
+        failed,
+        remaining,
+        momentum_updated,
     )
-    return {"done": done, "failed": failed, "remaining": remaining, "momentum_updated": momentum_updated}
+    return {
+        "done": done,
+        "failed": failed,
+        "remaining": remaining,
+        "momentum_updated": momentum_updated,
+    }

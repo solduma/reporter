@@ -34,9 +34,7 @@ _CHECK = {
 }
 
 
-def summarize(
-    overall: float | None, axis_scores: dict[str, float | None]
-) -> Judgment:
+def summarize(overall: float | None, axis_scores: dict[str, float | None]) -> Judgment:
     """종합·축 점수로 판단 요약을 만든다. 계산 가능한 축이 없으면 insufficient."""
     scored = {k: v for k, v in axis_scores.items() if v is not None}
     if overall is None or not scored:
@@ -46,7 +44,9 @@ def summarize(
             checks=["재무·시세 데이터가 쌓이면 분석이 채워집니다"],
         )
 
-    strengths = [f"{_AXIS_NAME.get(k, k)} 강함({v:.0f}점)" for k, v in scored.items() if v >= _STRONG]
+    strengths = [
+        f"{_AXIS_NAME.get(k, k)} 강함({v:.0f}점)" for k, v in scored.items() if v >= _STRONG
+    ]
     weaknesses = [f"{_AXIS_NAME.get(k, k)} 약함({v:.0f}점)" for k, v in scored.items() if v < _WEAK]
     checks = [
         _CHECK[k]

@@ -44,9 +44,7 @@ def _last_two(pivots: list[Pivot], kind: str) -> tuple[Pivot, Pivot] | None:
     return same[-2], same[-1]
 
 
-def analyze(
-    dates: list[str], closes: list[float], bar: str = "day"
-) -> SwingStructure:
+def analyze(dates: list[str], closes: list[float], bar: str = "day") -> SwingStructure:
     """스윙 구조 분석. (날짜, 종가) 시계열 → SwingStructure. 데이터 부족 시 none 구조."""
     empty = SwingStructure("none", None, None, None, [])
     if len(closes) != len(dates) or len(closes) < 4:
@@ -150,10 +148,17 @@ def box_signal(
     last = closes[-1]
     event = "breakout" if last > resistance else "breakdown" if last < support else "inside"
     vol_confirmed = False
-    if volumes and len(volumes) == len(closes) and len(volumes) >= 6 and event in ("breakout", "breakdown"):
+    if (
+        volumes
+        and len(volumes) == len(closes)
+        and len(volumes) >= 6
+        and event in ("breakout", "breakdown")
+    ):
         base = sum(volumes[-6:-1]) / 5
         vol_confirmed = base > 0 and volumes[-1] >= base * BOX_VOL_MULT
     return BoxSignal(
-        support=round(support, 2), resistance=round(resistance, 2),
-        event=event, vol_confirmed=vol_confirmed,
+        support=round(support, 2),
+        resistance=round(resistance, 2),
+        event=event,
+        vol_confirmed=vol_confirmed,
     )

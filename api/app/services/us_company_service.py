@@ -143,7 +143,9 @@ _PER_RUN = 200  # SEC 종목당 ~3콜, throttle 0.12s → per_run=200 이면 ~1~
 
 def _universe_tickers(db: Session) -> list[str]:
     """최신 US 유니버스 스냅샷의 ticker 목록. 없으면 빈 리스트."""
-    snap = db.scalar(select(UsUniverse.snapshot_date).order_by(UsUniverse.snapshot_date.desc()).limit(1))
+    snap = db.scalar(
+        select(UsUniverse.snapshot_date).order_by(UsUniverse.snapshot_date.desc()).limit(1)
+    )
     if snap is None:
         return []
     return list(db.scalars(select(UsUniverse.ticker).where(UsUniverse.snapshot_date == snap)).all())
@@ -164,8 +166,9 @@ def _reconcile_markers(db: Session, tickers: list[str], done: set[str]) -> int:
         return 0
     has_fin = set(
         db.scalars(
-            select(UsFinancial.ticker)
-            .where(UsFinancial.ticker.in_(missing), UsFinancial.per.isnot(None))
+            select(UsFinancial.ticker).where(
+                UsFinancial.ticker.in_(missing), UsFinancial.per.isnot(None)
+            )
         ).all()
     )
     for t in has_fin:
@@ -177,7 +180,9 @@ def _reconcile_markers(db: Session, tickers: list[str], done: set[str]) -> int:
     return len(has_fin)
 
 
-def run_financials_backfill(db: Session, settings: Settings | None = None, per_run: int = _PER_RUN) -> dict:
+def run_financials_backfill(
+    db: Session, settings: Settings | None = None, per_run: int = _PER_RUN
+) -> dict:
     """US 유니버스 종목의 SEC 재무를 점진 백필한다(하룻밤 per_run 개, 재개 가능).
 
     반환: {done, failed, reconciled, remaining}. 종목당 SEC 콜이 많아 순차 처리(throttle 방어)."""
@@ -214,6 +219,9 @@ def run_financials_backfill(db: Session, settings: Settings | None = None, per_r
     remaining = len(pending) - done
     logger.info(
         "us financials backfill: done=%d failed=%d reconciled=%d remaining=%d",
-        done, failed, reconciled, remaining,
+        done,
+        failed,
+        reconciled,
+        remaining,
     )
     return {"done": done, "failed": failed, "reconciled": reconciled, "remaining": remaining}

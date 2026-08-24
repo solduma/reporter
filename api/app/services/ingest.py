@@ -49,9 +49,7 @@ def _fit_full_text(client: LLMPort, model: str, text: str) -> str:
     if len(text) <= _FULLTEXT_MAX_CHARS:
         return text
     target = int(_FULLTEXT_MAX_CHARS * 0.9)
-    user = (
-        f"다음 리포트 원문을 {target}자 이내로 압축하라(종목명 전부 보존, 핵심 사실 유지):\n\n{text}"
-    )
+    user = f"다음 리포트 원문을 {target}자 이내로 압축하라(종목명 전부 보존, 핵심 사실 유지):\n\n{text}"
     try:
         out = client.chat(model, _FULLTEXT_SUMMARY_SYSTEM, user, temperature=0.2).strip()
     except LLMError:
@@ -172,7 +170,9 @@ def ingest_reports(db: Session, settings: Settings, target_date: str | None = No
 _FULLTEXT_BACKFILL_PER_RUN = 60  # 회당 소급 건수(긴 리포트는 LLM 요약이라 과하지 않게)
 
 
-def backfill_full_text(db: Session, settings: Settings | None = None, per_run: int | None = None) -> dict:
+def backfill_full_text(
+    db: Session, settings: Settings | None = None, per_run: int | None = None
+) -> dict:
     """기존 리포트(full_text 결측)를 MinIO 원문 PDF 에서 소급 적재한다(점진, 재개 가능).
 
     신규 수집분은 _ingest_one 이 이미 채우므로, 이 배치는 컬럼 추가 이전 리포트만 대상.
@@ -294,7 +294,9 @@ def _build_intraday(
     ]
     # 최근 창 안의 뉴스만 최신순으로(장 초 뉴스 고정 방지).
     items = news.collect(
-        news.MARKET_NEWS_KEYWORDS, _INTRADAY_NEWS_LIMIT, session,
+        news.MARKET_NEWS_KEYWORDS,
+        _INTRADAY_NEWS_LIMIT,
+        session,
         max_age_hours=_INTRADAY_NEWS_MAX_AGE_H,
     )
     if not quotes and not items:
@@ -357,7 +359,9 @@ def _build_research(
     for block in _news_blocks(news_items, session):
         summarized.append(_NewsReport(block))
 
-    synth = analyzer.synthesize_closing_review if phase == "closing" else analyzer.synthesize_forecast
+    synth = (
+        analyzer.synthesize_closing_review if phase == "closing" else analyzer.synthesize_forecast
+    )
     briefing = synth(client, settings.insight_model, summarized)
     return briefing.text, len(summarized)
 
