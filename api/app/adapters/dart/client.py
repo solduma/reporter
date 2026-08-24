@@ -19,6 +19,7 @@ import requests
 
 from app.adapters.dart import throttle as dart_throttle
 from app.adapters.dart.report_parser import fetch_report_zip
+from app.adapters.external import _http
 from app.adapters.financial_ontology import get_ontology_port
 from app.domain.disclosure import Disclosure, OwnershipChange  # 하위호환 재노출(정의는 domain)
 
@@ -456,7 +457,7 @@ def fetch_major_shareholders(
 ) -> list[MajorHolder]:
     """DS004 대량보유 상황보고 → 5%+ 주주 목록(최신순). 실패·없음이면 빈 리스트."""
     params = {"crtfc_key": api_key, "corp_code": corp_code}
-    s = session or requests.Session()
+    s = session or _http.resilient_session()
     try:
         resp = dart_throttle.get(s, _MAJORSTOCK_URL, params=params, timeout=15)
         resp.raise_for_status()
@@ -502,7 +503,7 @@ def fetch_cb_issuance(
 ) -> list[CbIssue]:
     """DS005 전환사채권 발행결정 → CB 발행내역(최신순). 실패·없음이면 빈 리스트."""
     params = {"crtfc_key": api_key, "corp_code": corp_code, "bgn_de": bgn_de, "end_de": end_de}
-    s = session or requests.Session()
+    s = session or _http.resilient_session()
     try:
         resp = dart_throttle.get(s, _CVBD_ISSUE_URL, params=params, timeout=15)
         resp.raise_for_status()
@@ -545,7 +546,7 @@ def fetch_bw_issuance(
 ) -> list[BwIssue]:
     """DS005 신주인수권부사채권 발행결정 → BW 발행내역(최신순). 실패·없음이면 빈 리스트."""
     params = {"crtfc_key": api_key, "corp_code": corp_code, "bgn_de": bgn_de, "end_de": end_de}
-    s = session or requests.Session()
+    s = session or _http.resilient_session()
     try:
         resp = dart_throttle.get(s, _BDWT_ISSUE_URL, params=params, timeout=15)
         resp.raise_for_status()

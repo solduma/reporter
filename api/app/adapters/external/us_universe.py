@@ -18,7 +18,7 @@ from dataclasses import dataclass
 
 import requests
 
-from app.adapters.external import us_growth_seed
+from app.adapters.external import _http, us_growth_seed
 from reporter import us_market
 
 logger = logging.getLogger(__name__)
@@ -81,7 +81,7 @@ def fetch_nasdaq_top(
     session: requests.Session | None = None, top_n: int = _NASDAQ_TOP_N
 ) -> list[str]:
     """Nasdaq screener 에서 시총 상위 top_n 티커(내림차순). 실패 시 빈 리스트(시드가 폴백)."""
-    session = session or requests.Session()
+    session = session or _http.resilient_session()
     try:
         resp = session.get(
             _NASDAQ_SCREENER,
@@ -108,7 +108,7 @@ def fetch_nasdaq_top(
 def seed_tickers(session: requests.Session | None = None) -> list[tuple[str, str | None]]:
     """유니버스 시드 (ticker, sector). S&P500 CSV + Nasdaq 시총상위 + 성장주 화이트리스트 + 보충,
     dedup. 각 소스는 독립 실패해도 나머지로 진행한다(부분 폴백)."""
-    session = session or requests.Session()
+    session = session or _http.resilient_session()
     out: dict[str, str | None] = {}
     try:
         resp = session.get(_SP500_CSV, headers=_HEADERS, timeout=20)
@@ -167,7 +167,7 @@ def _totals(basic: dict) -> dict[str, str]:
 
 def fetch_row(ticker: str, sector: str | None, session: requests.Session | None = None) -> UsUniverseRow | None:
     """네이버에서 한 종목의 유니버스 행을 만든다. 심볼 미해석·시세 없음이면 None."""
-    session = session or requests.Session()
+    session = session or _http.resilient_session()
     resolved = us_market.resolve_us_symbol(ticker, session)
     if resolved is None:
         return None

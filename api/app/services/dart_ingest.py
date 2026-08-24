@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.adapters import dart
 from app.adapters.dart.client import extract_ownership_reason
 from app.adapters.dart.disclosure_adapter import DartDisclosureAdapter
+from app.adapters.external import _http
 from app.adapters.llm import get_llm
 from app.config import Settings
 from app.db.models import CorpCodeMap, Disclosure, DisclosureSyncState, Sentiment
@@ -84,7 +85,7 @@ def sync_disclosures(
     if fresh and state.synced_from is not None and begin >= state.synced_from and end < state.synced_at.date():
         return 0
 
-    session = requests.Session()
+    session = _http.resilient_session()
     ensure_corp_mappings(db, settings, session)
 
     corp_code = db.scalar(

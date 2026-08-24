@@ -7,11 +7,11 @@ from __future__ import annotations
 
 import logging
 
-import requests
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from app.adapters.external import _http
 from app.adapters.market import naver as chart
 from app.db.models import PriceCandleIntraday, Report
 
@@ -50,7 +50,7 @@ def tracked_stock_codes(db: Session) -> list[str]:
 
 def accumulate_intraday(db: Session) -> int:
     """추적 종목들의 30분봉을 수집·누적한다. 반영한 종목 수를 반환한다."""
-    session = requests.Session()
+    session = _http.resilient_session()
     codes = tracked_stock_codes(db)
     touched = 0
     for code in codes:

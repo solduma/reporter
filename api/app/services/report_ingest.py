@@ -23,7 +23,7 @@ from app.adapters import dart
 from app.adapters.dart import report_parser as dart_report_parser
 from app.adapters.dart import throttle as dart_throttle
 from app.adapters.dart.disclosure_adapter import DartDisclosureAdapter
-from app.adapters.external import krx
+from app.adapters.external import _http, krx
 from app.config import Settings, get_settings
 from app.db.models import (
     CorpCodeMap,
@@ -92,7 +92,7 @@ def _shares_from_dart(settings: Settings, corp_code: str, today: date) -> int | 
     사업보고서는 다음 해 3월 제출이라 올해분은 아직 없을 수 있어 직전 연도부터 시도한다.
     발행총수(issued)를 반환(자기주식 포함 — 시총 계산 기준). 실패·미공시면 None(상위가 KRX·스냅샷 폴백).
     """
-    with requests.Session() as s:
+    with _http.resilient_session() as s:
         for year in range(today.year - 1, today.year - 4, -1):
             total = dart.fetch_stock_total(settings.dart_api_key, corp_code, year, 4, s)
             if total and total.issued:
@@ -211,7 +211,7 @@ def backfill_stock(
             select(FinancialStatement).where(FinancialStatement.stock_code == code)
         )
     }
-    with requests.Session() as session:
+    with _http.resilient_session() as session:
         for year, kind in _target_reports(today):
             rcept_no = disc.find_periodic_report(corp_code, year, kind, session)
             if not rcept_no:
@@ -301,7 +301,7 @@ def backfill_stock(
         if not shares:
             latest = universe_ingest.latest_snapshot_date(db)
             if latest:
-                with requests.Session() as s:
+                with _http.resilient_session() as s:
                     shares = krx.fetch_shares(settings.krx_api, latest.strftime("%Y%m%d"), code, s)
     if not shares:  # DART·KRX 실패 시 스냅샷 시총÷종가로 역산(EV/EBITDA 전종목 결측 방지).
         shares = _shares_from_snapshot(db, code)
@@ -435,7 +435,7 @@ def run_backfill_progressive(
     shares_map: dict[str, int] = {}
     latest = universe_ingest.latest_snapshot_date(db)
     if latest:
-        with requests.Session() as s:
+        with _http.resilient_session() as s:
             bas = latest.strftime("%Y%m%d")
             for market in ("KOSPI", "KOSDAQ"):
                 shares_map.update(krx.fetch_shares_by_date(settings.krx_api, bas, s, market))
@@ -633,7 +633,7 @@ def backfill_capex(
         by_code: dict[str, list[tuple[str, float | None]]] = {}
         for code, period, dep in dart_pending:
             by_code.setdefault(code, []).append((period, dep))
-        with requests.Session() as session:
+        with _http.resilient_session() as session:
             for code, items in by_code.items():
                 corp_code = db.scalar(select(CorpCodeMap.corp_code).where(CorpCodeMap.stock_code == code))
                 if not corp_code:

@@ -13,6 +13,7 @@ from pathlib import Path
 
 import requests
 
+from app.adapters.external import _http
 from app.adapters.sec import throttle
 from app.config import Settings
 from app.domain.disclosure import Filing  # 하위호환 재노출(정의는 domain)
@@ -71,7 +72,7 @@ def ticker_map(settings: Settings, session: requests.Session | None = None) -> d
         return _ticker_map
 
     # 2. SEC에서 페치.
-    session = session or requests.Session()
+    session = session or _http.resilient_session()
     try:
         resp = throttle.get(session, _TICKERS_URL, headers=_headers(settings), timeout=20)
         resp.raise_for_status()
@@ -108,7 +109,7 @@ def fetch_company_facts(
     settings: Settings, cik: int, session: requests.Session | None = None
 ) -> dict | None:
     """CIK 의 companyfacts(XBRL 전체 재무 사실) JSON. 실패·없음이면 None."""
-    session = session or requests.Session()
+    session = session or _http.resilient_session()
     try:
         resp = throttle.get(
             session, _FACTS_URL.format(cik=cik), headers=_headers(settings), timeout=30
@@ -130,7 +131,7 @@ def fetch_recent_filings(
     session: requests.Session | None = None,
 ) -> list[Filing]:
     """CIK 의 최근 공시(기본 8-K) 목록. submissions API 의 recent 배열을 파싱. 실패 시 빈 리스트."""
-    session = session or requests.Session()
+    session = session or _http.resilient_session()
     try:
         resp = throttle.get(
             session, _SUBMISSIONS_URL.format(cik=cik), headers=_headers(settings), timeout=20

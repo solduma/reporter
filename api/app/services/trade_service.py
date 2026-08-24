@@ -5,12 +5,11 @@
 
 from __future__ import annotations
 
-import requests
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from app.adapters.external import customs
+from app.adapters.external import _http, customs
 from app.config import get_settings
 from app.db.models import TradeStat
 
@@ -45,7 +44,7 @@ def trade_points(db: Session, hs: str, start: str, end: str) -> list[TradeStat]:
     settings = get_settings()
     if settings.customs_api_key:
         fetched = customs.fetch_trade_by_hs(
-            settings.customs_api_key, hs, start, end, requests.Session()
+            settings.customs_api_key, hs, start, end, _http.resilient_session()
         )
         _upsert(db, hs, fetched)
 

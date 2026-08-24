@@ -13,11 +13,11 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime, timedelta
 
-import requests
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from app.adapters.external import _http
 from app.adapters.llm import get_llm
 from app.config import Settings, get_settings
 from app.db.models import NewsArticle, SectorTheme, SectorThemeStock, StockEvent
@@ -103,7 +103,7 @@ def run_news_events(db: Session, settings: Settings | None = None) -> dict:
     if not settings.ollama_api_key:
         return {"news": 0, "classified": 0, "events": 0}
 
-    session = requests.Session()
+    session = _http.resilient_session()
     items = news.collect(_EVENT_KEYWORDS, limit=_MAX_NEWS, session=session)
     if not items:
         return {"news": 0, "classified": 0, "events": 0}

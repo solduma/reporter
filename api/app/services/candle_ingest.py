@@ -22,6 +22,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from app.adapters.external import _http
 from app.adapters.market import kis
 from app.adapters.market import naver as chart
 from app.config import Settings, get_settings
@@ -104,7 +105,7 @@ def backfill_intraday(db: Session, settings: Settings | None = None) -> dict:
 
     loaded = _intraday_loaded_codes(db)
     pending = [c for c in codes if c not in loaded]
-    session = requests.Session()
+    session = _http.resilient_session()
     done = failed = 0
     for i, code in enumerate(pending, 1):
         try:
@@ -255,7 +256,7 @@ def run_candle_batch(db: Session, settings: Settings | None = None) -> dict:
         logger.warning("no universe stocks; skip candle batch")
         return {"stocks": 0, "reloaded": 0, "failed": 0}
 
-    session = requests.Session()
+    session = _http.resilient_session()
     stats = {"stocks": 0, "reloaded": 0, "incremental": 0, "seed": 0, "noop": 0, "failed": 0}
     for i, code in enumerate(codes, 1):
         try:
@@ -317,7 +318,7 @@ def refresh_today_day_candles(db: Session, settings: Settings | None = None) -> 
     start = end - timedelta(days=_INTRADAY_DAY_RANGE_DAYS)
 
     def _fetch(code: str) -> tuple[str, list[chart.Candle]]:
-        with requests.Session() as session:  # 스레드 간 세션 공유 금지
+        with _http.resilient_session() as session:  # 스레드 간 세션 공유 금지
             return code, chart.fetch_periodic_with_fallback(settings, code, "day", start, end, session)
 
     updated = failed = 0
@@ -389,7 +390,7 @@ def run_backfill_progressive(
 
     def _fetch(code: str) -> tuple[str, list[chart.Candle]]:
         # 조회마다 자체 requests.Session(스레드 간 공유 금지). with 로 커넥션 확실히 닫는다.
-        with requests.Session() as session:
+        with _http.resilient_session() as session:
             return code, chart.fetch_periodic_with_fallback(settings, code, "day", start, end, session)
 
     def _store(code: str, candles: list[chart.Candle]) -> None:

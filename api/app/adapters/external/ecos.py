@@ -16,6 +16,8 @@ from datetime import date
 
 import requests
 
+from app.adapters.external import _http
+
 logger = logging.getLogger(__name__)
 
 _BASE = "https://ecos.bok.or.kr/api"
@@ -41,7 +43,7 @@ class RateObservation:
 
 def _get(path: str) -> dict | None:
     try:
-        resp = requests.get(f"{_BASE}/{path}", timeout=15)
+        resp = _http.resilient_get(f"{_BASE}/{path}", timeout=15)
         resp.raise_for_status()
         return resp.json()
     except (requests.RequestException, ValueError) as e:

@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from app.adapters.external import _http
 from app.adapters.sec.disclosure_adapter import SecDisclosureAdapter
 from app.config import Settings, get_settings
 from app.db.models import UsDisclosure, UsUniverse
@@ -70,7 +71,7 @@ def run_us_disclosure_batch(db: Session, settings: Settings | None = None) -> di
     """유니버스 전 종목의 최근 8-K 를 수집한다(야간 배치). {tickers, filings} 반환."""
     settings = settings or get_settings()
     tickers = _universe_tickers(db)
-    session = requests.Session()
+    session = _http.resilient_session()
     total = 0
     for t in tickers:
         try:

@@ -12,6 +12,8 @@ from dataclasses import dataclass
 
 import requests
 
+from app.adapters.external import _http
+
 logger = logging.getLogger(__name__)
 
 _BASE = "https://m.stock.naver.com/api/stocks/marketValue/{market}"
@@ -67,7 +69,7 @@ def _parse(row: dict, market: str) -> UniverseRow | None:
 
 def fetch_market(market: str, session: requests.Session | None = None) -> list[UniverseRow]:
     """한 시장(KOSPI|KOSDAQ)의 전 종목을 페이지네이션으로 수집한다."""
-    session = session or requests.Session()
+    session = session or _http.resilient_session()
     rows: list[UniverseRow] = []
     for page in range(1, _MAX_PAGES + 1):
         try:
@@ -98,7 +100,7 @@ def fetch_market(market: str, session: requests.Session | None = None) -> list[U
 
 def fetch_universe(markets: tuple[str, ...] = ("KOSDAQ", "KOSPI")) -> list[UniverseRow]:
     """지정 시장들의 전 종목을 수집한다(기본 코스닥 우선 + 코스피)."""
-    session = requests.Session()
+    session = _http.resilient_session()
     rows: list[UniverseRow] = []
     for market in markets:
         rows.extend(fetch_market(market, session))

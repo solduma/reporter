@@ -11,11 +11,11 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, date, datetime, timedelta
 
-import requests
 from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from app.adapters.external import _http
 from app.adapters.external import us_universe as source
 from app.adapters.market import naver
 from app.db.models import PriceCandle, SyncState, Timeframe, UsUniverse
@@ -49,7 +49,7 @@ def latest_snapshot_date(db: Session) -> date | None:
 def snapshot_us_universe(db: Session, snapshot_date: date | None = None) -> dict:
     """시드 종목을 오늘 날짜 us_universe 스냅샷으로 적재. {seeded, saved, skipped} 반환."""
     snapshot_date = snapshot_date or datetime.now(UTC).date()
-    session = requests.Session()
+    session = _http.resilient_session()
     seeds = source.seed_tickers(session)
     saved = skipped = 0
     for ticker, sector in seeds:
@@ -152,7 +152,7 @@ def run_candle_backfill_progressive(
     start = end - timedelta(days=_US_DAY_RANGE_DAYS)
 
     def _fetch(sym: str) -> tuple[str, list]:
-        with requests.Session() as session:  # 스레드 간 세션 공유 금지
+        with _http.resilient_session() as session:  # 스레드 간 세션 공유 금지
             return sym, naver.fetch_periodic_foreign(sym, "day", start, end, session)
 
     def _store(sym: str, candles: list) -> None:

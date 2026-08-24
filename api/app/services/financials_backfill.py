@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 from app.adapters import dart
 from app.adapters.dart import throttle as dart_throttle
 from app.adapters.dart.report_parser import fetch_report_zip, parse_sce_tables_from_zip
+from app.adapters.external import _http
 from app.adapters.market import naver_quote as quote
 from app.config import Settings, get_settings
 from app.db.models import (
@@ -156,7 +157,7 @@ def backfill_stock(db: Session, settings: Settings, code: str) -> bool:
         if record:
             record_gaps(db, code, _period_str(year, q), fs_div, fin, full, fallback="skip")
 
-    with requests.Session() as session:
+    with _http.resilient_session() as session:
         for year, q in yqs:
             period = _period_str(year, q)
             for fs_div in ("CFS", "OFS"):
@@ -545,7 +546,7 @@ def backfill_ofs_stock(db: Session, settings: Settings, code: str) -> bool:
     today = datetime.now(UTC).date()
     yqs = _target_year_quarters(today)
     updated = 0
-    with requests.Session() as session:
+    with _http.resilient_session() as session:
         for year, q in yqs:
             full = dart.fetch_full_statements_ofs(
                 settings.dart_api_key, corp_code, year, q, session
@@ -810,7 +811,7 @@ def run_sce_migration(db: Session, settings: Settings | None = None, per_run: in
 
     done_periods = failed = 0
     quota_hit = budget_hit = False
-    with requests.Session() as session:
+    with _http.resilient_session() as session:
         for code, periods in by_code.items():
             if dart_throttle.backfill_budget_exhausted():
                 budget_hit = True
