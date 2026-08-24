@@ -202,6 +202,10 @@ def run_financials_backfill(
             # prev 는 expire_on_commit 후 재접근하면 갱신값이 읽히므로 호출 전 스칼라로 캡처한다.
             prev_updated = prev.updated_at if (prev := db.get(UsFinancial, ticker)) else None
             row = get_financials(db, ticker, force=True)
+            # expire_on_commit=False 환경에선 identity map 이 이전 updated_at 을 그대로
+            # 돌려준다 — expire 로 강제 재조회해야 실제 갱신 여부를 알 수 있다(188건 오분류 사례).
+            if row is not None and row in db:
+                db.expire(row)  # 비영속(목 mock·신규 미추가) 객체는 제외
             # facts 가 갱신됐으면 per 무관하게 완료 마킹. 결손주·TTM 결손 종목은 per 가 정당히
             # None 이라 per 유무로 판정하면 같은 종목이 영원히 재조회된다. cik/facts 미비로 기존
             # 행(또는 None)이 그대로 돌아오면 updated_at 불변 → 재시도 대상으로 남긴다.
