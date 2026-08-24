@@ -41,6 +41,7 @@ from app.adapters.dart.client import (
     fetch_segment_sales,
     fetch_stock_total,
     find_all_periodic_reports,
+    find_ipo_reports,
     find_periodic_report,
     parse_full_statements,
 )
@@ -87,6 +88,7 @@ __all__ = [
     "fetch_segment_sales",
     "fetch_stock_total",
     "find_all_periodic_reports",
+    "find_ipo_reports",
     "find_periodic_report",
     "parse_cf_depreciation",
     "parse_full_statements",

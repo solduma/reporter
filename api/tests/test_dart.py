@@ -82,9 +82,7 @@ def test_fetch_disclosures_passes_pblntf_ty_when_given():
     assert kwargs["params"]["pblntf_ty"] == "B"
 
     sess2 = _list_session({"status": "013"})
-    dart.fetch_disclosures(
-        "key", "00126380", "005930", date(2026, 6, 1), date(2026, 7, 8), sess2
-    )
+    dart.fetch_disclosures("key", "00126380", "005930", date(2026, 6, 1), date(2026, 7, 8), sess2)
     _, kwargs2 = sess2.get.call_args
     assert "pblntf_ty" not in kwargs2["params"]
 
@@ -126,7 +124,11 @@ def test_fetch_document_text_bad_zip_returns_empty():
 def test_fetch_disclosures_empty_status_returns_empty():
     # status != 000 (예: 013 데이터없음) → 빈 리스트
     discs = dart.fetch_disclosures(
-        "key", "00126380", "005930", date(2026, 6, 1), date(2026, 7, 8),
+        "key",
+        "00126380",
+        "005930",
+        date(2026, 6, 1),
+        date(2026, 7, 8),
         _list_session({"status": "013", "message": "조회된 데이타가 없습니다."}),
     )
     assert discs == []
@@ -161,7 +163,9 @@ def test_sync_disclosures_skips_within_ttl_when_depth_covered(monkeypatch):
 
     settings = MagicMock()
     # 요청 begin(2026-04-01) >= synced_from(2024-01-01) → 커버됨 → 스킵.
-    result = dart_ingest.sync_disclosures(db, settings, "005930", date(2026, 4, 1), date(2026, 7, 8))
+    result = dart_ingest.sync_disclosures(
+        db, settings, "005930", date(2026, 4, 1), date(2026, 7, 8)
+    )
 
     assert result == 0
     assert called["fetch"] is False
@@ -278,3 +282,26 @@ def test_extract_ownership_reason_skips_sign_legend_before_table():
         "소유주식수 취득/처분단가 비고 변동전 증감 변동후 장내매수(+) 2026.07.01 보통주"
     )
     assert dart.extract_ownership_reason(body) == "장내매수"
+
+
+def test_find_ipo_reports_picks_latest_per_keyword():
+    """증권신고서·투자설명서 각각 최신 접수(정정 포함)를 택한다."""
+    session = _list_session(
+        {
+            "status": "000",
+            "list": [
+                {"rcept_no": "20260626000241", "report_nm": "[발행조건확정]증권신고서(지분증권)"},
+                {"rcept_no": "20260610000563", "report_nm": "증권신고서(지분증권)"},
+                {"rcept_no": "20260626000243", "report_nm": "투자설명서"},
+                {"rcept_no": "20260101000001", "report_nm": "기타 공시"},
+            ],
+        }
+    )
+    out = dart.find_ipo_reports("key", "corp", "20240801", session)
+    assert out == {"security": "20260626000241", "invest": "20260626000243"}
+
+
+def test_find_ipo_reports_empty_on_error():
+    session = _list_session({"status": "013"})
+    out = dart.find_ipo_reports("key", "corp", "20240801", session)
+    assert out == {"security": None, "invest": None}

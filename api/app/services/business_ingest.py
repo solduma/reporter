@@ -177,11 +177,11 @@ def extract_sections(
 
 
 # ── DB 원문 적재 ──────────────────────────────────────────────────────────
-_REPORT_PERIOD_MONTH = {"annual": 12, "half": 6, "quarter": 3}
 
 
-def _period_str(year: int, kind: str) -> str:
-    return f"{year}.{_REPORT_PERIOD_MONTH[kind]:02d}"
+def _rcept_period(rcept: str) -> str:
+    """접수번호 → 'YYYY.MM' 표기. 정기·IPO 문서 공통(대상기간 태그 파싱 불필요)."""
+    return f"{rcept[:4]}.{int(rcept[4:6]):02d}"
 
 
 def _store_raw(
@@ -218,43 +218,52 @@ def _load_raw(db: Session, code: str, rcept_no: str) -> dict[str, str]:
 
 
 # ── 정기보고서 발견 ────────────────────────────────────────────────────────
-def _candidate_reports(
-    settings: Settings, corp_code: str, session: requests.Session
-) -> list[tuple[str, str, int]]:
-    """최근 2년(올해·작년)의 사업/반기/분기 정기보고서 → [(rcept_no, kind, year)].
-
-    사업보고서는 다음 해 제출이라 올해 연도분은 아직 없을 수 있어 작년 연도부터 잡는다.
-    rcept_no 시간순 증가 — 정렬 기준. DART 한도초과 전파.
-    """
-    today = date.today()
-    found: list[tuple[str, str, int]] = []
-    for year in (today.year, today.year - 1, today.year - 2):
-        for kind in bo.PERIODIC_KINDS:
-            rcept = dart.find_periodic_report(settings.dart_api_key, corp_code, year, kind, session)
-            if rcept:
-                found.append((rcept, kind, year))
-    return found
+# 조립 소스 윈도: 최근 1년간 발행된 보고서 전부(사업·반기·분기 + IPO 폴백 문서).
+_GATHER_WINDOW_DAYS = 365
+_KIND_KEYWORD = {bo.ANNUAL: "사업보고서", bo.HALF: "반기보고서", bo.QUARTER: "분기보고서"}
 
 
 def _gather_for_assembly(
     settings: Settings, corp_code: str, session: requests.Session
 ) -> list[tuple[str, str, int]]:
-    """조립 대상 정기보고서: 베이스 사업보고서(최신 annual) + 그 이후 half/quarter.
+    """최근 1년 발행 보고서 전부를 조립 소스로 수집.
 
-    반환: [(rcept_no, kind, year)] 오름차순(annual 이 첫, 이후 half/quarter 시간순).
-    annual 이 없으면 빈 리스트(조립 불가 — 사업보고서가 베이스).
+    - 정기보고서(사업/반기/분기): DART list 1회 호출로 최근 1년치를 받아 (종류, 대상기간)
+      별 최신 접수(정정 반영)만 남긴다. 기존 '베이스 annual + 이후 overlay' 방식은
+      베이스 이전 반기·분기를 유실하고 신규 상장사를 아예 못 다뤘다.
+    - 사업보고서가 하나도 없으면(신규 상장) 발행공시의 증권신고서·투자설명서로 폴백.
+
+    반환: [(rcept_no, kind, year)] 접수 오름차순(오래된 것 먼저). year 는 정기보고서는
+    대상기간 연도(세그먼트 API 등 회계연도 필요한 곳 사용), IPO 문서는 접수연도.
+    DART 한도초과 전파.
     """
-    cands = _candidate_reports(settings, corp_code, session)
-    if not cands:
-        return []
-    annuals = [(r, y) for (r, k, y) in cands if k == bo.ANNUAL]
-    if not annuals:
-        return []
-    base_rcept, base_year = max(annuals, key=lambda t: t[0])
-    # 베이스 사업보고서 이후(같은 rcept_no 이후)의 half/quarter 만 오버레이.
-    later = [(r, k, y) for (r, k, y) in cands if k != bo.ANNUAL and r > base_rcept]
-    later.sort(key=lambda t: t[0])
-    return [(base_rcept, bo.ANNUAL, base_year), *later]
+    bgn_de = (date.today() - timedelta(days=_GATHER_WINDOW_DAYS)).strftime("%Y%m%d")
+    rows = dart.find_all_periodic_reports(settings.dart_api_key, corp_code, bgn_de, session)
+
+    periodic: dict[tuple[str, str], tuple[str, int]] = {}
+    for r in rows:
+        nm = r.get("report_nm") or ""
+        kind = next((k for k, kw in _KIND_KEYWORD.items() if kw in nm), None)
+        tag_m = re.search(r"\d{4}\.\d{2}", nm)
+        if kind is None or tag_m is None:
+            continue  # 요약본·첨부 등 대상기간 없는 항목 제외
+        key = (kind, tag_m.group(0))
+        rcept = r.get("rcept_no") or ""
+        if rcept > periodic.get(key, ("", 0))[0]:
+            periodic[key] = (rcept, int(tag_m.group(0)[:4]))
+
+    if any(kind == bo.ANNUAL for kind, _tag in periodic):
+        ordered = sorted(periodic.items(), key=lambda kv: kv[1][0])  # 접수 오름차순
+        return [(rcept, kind, year) for (kind, _tag), (rcept, year) in ordered]
+
+    # 사업보고서 부재 → 신규 상장 폴백: 증권신고서 → 투자설명서 순.
+    ipo = dart.find_ipo_reports(settings.dart_api_key, corp_code, bgn_de, session)
+    out: list[tuple[str, str, int]] = []
+    for key_kind, ipo_key in ((bo.SECURITY, "security"), (bo.INVEST, "invest")):
+        rcept = ipo.get(ipo_key)
+        if rcept:
+            out.append((rcept, key_kind, int(rcept[:4])))
+    return out
 
 
 # ── 조립(Map-Reduce — 소형 다중 호출) ─────────────────────────────────────
@@ -478,7 +487,7 @@ def _synthesize_section(
         "출력은 반드시 아래 JSON만:\n"
         '{"id": "' + sid + '", "title": "섹션 제목", "narrative": "마크다운 서술(핵심만)", '
         '"tables": [{"title": "표 제목", "headers": ["..."], "rows": [["...", ...]]}], '
-        '"updated_by_kind": "annual|half|quarter|null"}'
+        '"updated_by_kind": "annual|half|quarter|security|invest|null"}'
     )
     user = f"[종목] {stock_name}\n\n[사실 카탈로그]\n{json.dumps(catalog, ensure_ascii=False)}"
     if feedback:
@@ -1028,21 +1037,23 @@ def assemble_overview(db: Session, settings: Settings, code: str, *, progress=No
     # ── Phase 1: DART 추출 (짧은 트랜잭션, 즉시 COMMIT) ──────────────────
     try:
         with requests.Session() as session:
-            for rcept, kind, year in reports:
+            for rcept, kind, _year in reports:
                 if _load_raw(db, code, rcept):
                     continue
                 sections = extract_sections(settings, corp_code, rcept, kind, session)
                 if sections:
-                    _store_raw(db, code, rcept, kind, _period_str(year, kind), sections)
+                    _store_raw(db, code, rcept, kind, _rcept_period(rcept), sections)
 
-            # 부문별 매출 — 구조화 데이터라 LLM과 무관하게 영속.
-            base_rcept_pre, _base_kind_pre, base_year_pre = reports[0]
-            try:
-                fetch_segment_sales_for(
-                    db, settings, code, corp_code, base_year_pre, base_rcept_pre, session
-                )
-            except Exception as e:
-                logger.warning("segment_sales %s skipped: %s", code, e)
+            # 부문별 매출 — 구조화 데이터라 LLM과 무관하게 영속. annual(대상기간 연도) 필요.
+            base_annual = next(((r, y) for r, k, y in reports if k == bo.ANNUAL), None)
+            if base_annual:
+                base_rcept_pre, base_year_pre = base_annual
+                try:
+                    fetch_segment_sales_for(
+                        db, settings, code, corp_code, base_year_pre, base_rcept_pre, session
+                    )
+                except Exception as e:
+                    logger.warning("segment_sales %s skipped: %s", code, e)
 
         db.commit()  # ← Phase 1 완료: DART 추출만 커밋, LLM은 트랜잭션 밖
     except dart.DartQuotaExceeded:
@@ -1063,22 +1074,23 @@ def assemble_overview(db: Session, settings: Settings, code: str, *, progress=No
     model = settings.insight_model
 
     # ── Phase 2a: map — 전체 원문을 청크 사실추출 (절단 없음) ────────────
-    base_rcept, _base_kind, _base_year = reports[0]
+    base_rcept = max(r for r, _k, _y in reports)  # 기준 = 최신 접수본
     name = (
         company_service.report_stock_name(db, code)
         or company_service.resolve_stock_name(db, code)
         or ""
     )
     sources: list[tuple[str, str]] = []
-    base_text = _load_raw(db, code, base_rcept).get(bo.SECTION_BUSINESS_CONTENT, "")
-    if not base_text:
-        logger.info("business assemble %s: 베이스 원문 없음 — 조립 생략", code)
+    has_text = False
+    for rcept, kind, _year in reports:
+        text = _load_raw(db, code, rcept).get(bo.section_id_for_kind(kind), "")
+        if not text:
+            continue
+        has_text = True
+        sources.append((kind, text))
+    if not has_text:
+        logger.info("business assemble %s: 원문 없음 — 조립 생략", code)
         return None
-    sources.append((bo.ANNUAL, base_text))
-    for rcept, kind, _year in reports[1:]:
-        text = _load_raw(db, code, rcept).get(bo.SECTION_COMPANY_OVERVIEW, "")
-        if text:
-            sources.append((kind, text))
 
     chunks = [(kind, c) for kind, text in sources for c in _chunk_text(text)]
     facts: list[str] = []
@@ -1159,7 +1171,7 @@ def assemble_overview(db: Session, settings: Settings, code: str, *, progress=No
         "stock_name": name,
         "as_of_annual_rcept": base_rcept,
         "source_reports": [
-            {"rcept_no": r, "kind": k, "period": _period_str(y, k), "is_base": (r == base_rcept)}
+            {"rcept_no": r, "kind": k, "period": _rcept_period(r), "is_base": (r == base_rcept)}
             for r, k, y in reports
         ],
         "sections": _map_sections(result, reports),
