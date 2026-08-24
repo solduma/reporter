@@ -64,7 +64,6 @@ _BDWT_ISSUE_URL = (
     "https://opendart.fss.or.kr/api/bdwtIsDecsn.json"  # DS005 신주인수권부사채권 발행결정
 )
 # 부문별 매출(iotHom3MdQe) — 사업보고서 원문의 유일한 구조화 DART 소스. 제품/지역/부문 매출 비중.
-_SEGMENT_SALES_URL = "https://opendart.fss.or.kr/api/iotHom3MdQe.json"
 _DART_VIEWER = "https://dart.fss.or.kr/dsaf001/main.do?rcpNo={rcept_no}"
 
 # 분기 → DART 보고서 코드. 1Q=11013·반기=11012·3Q=11014·사업보고서(연간)=11011.
@@ -1053,68 +1052,6 @@ def fetch_corp_mappings(api_key: str, session: requests.Session) -> list[CorpMap
                 )
             )
     return mappings
-
-
-@dataclass
-class SegmentRow:
-    """iotHom3MdQe 부문별 매출 행. segment_type: 산업/제품/지역/매출형태 구분코드."""
-
-    bsns_year: str
-    report_code: str
-    segment_type: str  # DART 기준: 산업(I)/제품(P)/지역(G)/매출형태(S) — 공시 원문 구분값 그대로.
-    segment_name: str
-    revenue: float | None = None  # 부문 매출액(원)
-    ratio_pct: float | None = None  # 총 매출 대비 비중(%)
-
-
-def fetch_segment_sales(
-    api_key: str,
-    corp_code: str,
-    year: int,
-    report_code: str,
-    session: requests.Session,
-) -> list[SegmentRow]:
-    """iotHom3MdQe(부문별 매출) 조회 → SegmentRow 목록. 사업보고서 연간 기준.
-
-    사업보고서(11011) 원문의 부문별 매출을 구조화해 반환 — 제품/지역/부문 매출 비중의 유일한
-    정형 DART 소스. 실패·데이터없음·한도초과 시 빈 리스트(조립 중단 아님 — 부문 매출은 보강 정보).
-    """
-    params = {
-        "crtfc_key": api_key,
-        "corp_code": corp_code,
-        "bsns_year": str(year),
-        "reprt_code": report_code,
-    }
-    try:
-        resp = dart_throttle.get(session, _SEGMENT_SALES_URL, params=params, timeout=15)
-        resp.raise_for_status()
-        data = resp.json()
-    except (requests.RequestException, ValueError) as e:
-        logger.warning("dart segment_sales failed %s %s: %s", corp_code, year, e)
-        return []
-    _raise_if_quota(data)
-    if data.get("status") != "000":
-        return []
-    rows: list[SegmentRow] = []
-    for r in data.get("list", []) or []:
-        seg_type = (
-            r.get("se") or ""
-        ).strip()  # DART 응답의 구분 필드명(se) — 산업/제품/지역/매출형태
-        # 부문명/매출액/비중 필드는 DART 가 응답에서 kwd 항목 배열로 주는 경우가 많아 값 추출은 관대히.
-        seg_name = (r.get("category") or r.get("item") or r.get("segment_name") or "").strip()
-        if not seg_type and not seg_name:
-            continue
-        rows.append(
-            SegmentRow(
-                bsns_year=str(year),
-                report_code=report_code,
-                segment_type=seg_type,
-                segment_name=seg_name,
-                revenue=_float_field(r, "thstrm_am"),
-                ratio_pct=_float_field(r, "thstrm_rt"),
-            )
-        )
-    return rows
 
 
 def fetch_disclosures(
