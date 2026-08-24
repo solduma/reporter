@@ -231,11 +231,12 @@ def _gather_for_assembly(
     - 정기보고서(사업/반기/분기): DART list 1회 호출로 최근 1년치를 받아 (종류, 대상기간)
       별 최신 접수(정정 반영)만 남긴다. 기존 '베이스 annual + 이후 overlay' 방식은
       베이스 이전 반기·분기를 유실하고 신규 상장사를 아예 못 다뤘다.
-    - 사업보고서가 하나도 없으면(신규 상장) 발행공시의 증권신고서·투자설명서로 폴백.
+    - 사업보고서가 하나도 없으면(신규 상장) **annual 자리만** 증권신고서·투자설명서로
+      대체한다 — 가용 반기/분기보고서는 동일한 1년 파이프라인을 그대로 탄다.
 
-    반환: [(rcept_no, kind, year)] 접수 오름차순(오래된 것 먼저). year 는 정기보고서는
-    대상기간 연도(세그먼트 API 등 회계연도 필요한 곳 사용), IPO 문서는 접수연도.
-    DART 한도초과 전파.
+    반환: [(rcept_no, kind, year)] 접수 오름차순(오래된 것 먼저 — 이후 문서가 변경분을
+    갱신하고 새 항목은 추가). year 는 정기보고서는 대상기간 연도(세그먼트 API 등
+    회계연도 필요한 곳 사용), IPO 문서는 접수연도. DART 한도초과 전파.
     """
     bgn_de = (date.today() - timedelta(days=_GATHER_WINDOW_DAYS)).strftime("%Y%m%d")
     rows = dart.find_all_periodic_reports(settings.dart_api_key, corp_code, bgn_de, session)
@@ -252,18 +253,21 @@ def _gather_for_assembly(
         if rcept > periodic.get(key, ("", 0))[0]:
             periodic[key] = (rcept, int(tag_m.group(0)[:4]))
 
-    if any(kind == bo.ANNUAL for kind, _tag in periodic):
-        ordered = sorted(periodic.items(), key=lambda kv: kv[1][0])  # 접수 오름차순
-        return [(rcept, kind, year) for (kind, _tag), (rcept, year) in ordered]
+    # 공시일(접수) 오름차순 — 이후 문서가 이전 값을 갱신한다.
+    gathered = [
+        (rcept, kind, year)
+        for (kind, _tag), (rcept, year) in sorted(periodic.items(), key=lambda kv: kv[1][0])
+    ]
+    if any(kind == bo.ANNUAL for _r, kind, _y in gathered):
+        return gathered
 
-    # 사업보고서 부재 → 신규 상장 폴백: 증권신고서 → 투자설명서 순.
+    # 사업보고서 부재 → annual 자리만 증권신고서·투자설명서로 대체 후 같은 순번에 병합.
     ipo = dart.find_ipo_reports(settings.dart_api_key, corp_code, bgn_de, session)
-    out: list[tuple[str, str, int]] = []
-    for key_kind, ipo_key in ((bo.SECURITY, "security"), (bo.INVEST, "invest")):
-        rcept = ipo.get(ipo_key)
+    for key_kind, ipo_r in ((bo.SECURITY, "security"), (bo.INVEST, "invest")):
+        rcept = ipo.get(ipo_r)
         if rcept:
-            out.append((rcept, key_kind, int(rcept[:4])))
-    return out
+            gathered.append((rcept, key_kind, int(rcept[:4])))
+    return sorted(gathered, key=lambda t: t[0])
 
 
 # ── 조립(Map-Reduce — 소형 다중 호출) ─────────────────────────────────────
@@ -298,11 +302,14 @@ _REDUCE_TOPICS = (
 )
 
 _REDUCE_SYSTEM = (
-    "너는 추출된 사실 목록을 주제별 카탈로그로 통합한다.\n"
+    "너는 추출된 사실 목록을 주제별 카탈로그로 통합한다. 목록은 공시일 순으로 정렬돼 있다.\n"
     "규칙:\n"
-    "1) 중복·유사 항목은 병합하고, 모순 시 최신 보고서 우선(항목 접두 표기 [quarter]>[half]>[annual]).\n"
-    "2) 사실 문자열은 가능한 그대로 보존하고 주제 8개에 분류한다. 어느 주제에도 안 맞으면 company 에.\n"
-    "3) 접두 [annual]/[half]/[quarter] 출처 표기는 문자열에 그대로 유지한다.\n"
+    "1) 같은 항목이 여러 시점으로 존재하면 **가장 늦게 공시된 값으로 갱신**하고 이전 값은 버린다."
+    " 접두 표기([kind YYYY.MM], 예: [half 2026.08])의 연월이 늦을수록 최근 공시다.\n"
+    "2) 이전 문서에는 없던 **새 항목은 그대로 추가**한다 — 임의 삭제 금지.\n"
+    "3) 중복·유사 항목은 하나로 병합하되 수치·날짜는 최근 공시 것을 유지한다.\n"
+    "4) 사실 문자열은 가능한 그대로 보존하고 주제 8개에 분류한다. 어느 주제에도 안 맞으면 company 에.\n"
+    "5) 접두 [kind YYYY.MM] 출처 표기는 문자열에 그대로 유지한다.\n"
     "출력은 반드시 아래 JSON만(8키 전부 포함):\n"
     '{"company": ["..."], "revenue": ["..."], "market": ["..."], "value_chain": ["..."], '
     '"drivers": ["..."], "financial": ["..."], "ownership": ["..."], "catalyst_risk": ["..."]}'
@@ -409,14 +416,18 @@ def _chunk_text(text: str, size: int = _CHUNK_CHARS) -> list[str]:
     return chunks
 
 
-def _map_facts(llm: LLMPort, model: str, kind: str, chunk: str) -> list[str]:
-    """청크 1개 → 사실 목록. 출처 보고서 kind 를 프로그램적으로 접두(모델 의존 제거)."""
-    user = f"[출처 보고서] {kind}\n\n[발췌문]\n{chunk}"
+def _map_facts(llm: LLMPort, model: str, prov: str, chunk: str) -> list[str]:
+    """청크 1개 → 사실 목록. 출처 provenance(kind + 접수월)를 프로그램적으로 접두한다.
+
+    prov 예: "annual 2026.03" — reduce 가 모순 해소 시 '공시일이 늦은 것 우선'을
+    판단할 수 있게 종류와 연월을 함께 남긴다(모델 의존 제거).
+    """
+    user = f"[출처 보고서] {prov}\n\n[발췌문]\n{chunk}"
     data = _chat_json(llm, model, _MAP_SYSTEM, user, temperature=0.1)
     facts = [str(f).strip() for f in (data.get("facts") or []) if str(f).strip()]
     if not facts:
         raise LLMError("map 빈 응답")
-    return [f"[{kind}] {f}" for f in facts[:_FACTS_CAP]]
+    return [f"[{prov}] {f}" for f in facts[:_FACTS_CAP]]
 
 
 def _merge_catalog(llm: LLMPort, model: str, fact_group: list[str]) -> dict:
@@ -1087,7 +1098,7 @@ def assemble_overview(db: Session, settings: Settings, code: str, *, progress=No
         if not text:
             continue
         has_text = True
-        sources.append((kind, text))
+        sources.append((f"{kind} {_rcept_period(rcept)}", text))
     if not has_text:
         logger.info("business assemble %s: 원문 없음 — 조립 생략", code)
         return None
