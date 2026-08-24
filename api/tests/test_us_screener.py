@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 from sqlalchemy import create_engine
@@ -20,20 +20,64 @@ def db():
     Base.metadata.create_all(eng, tables=[UsUniverse.__table__, UsDisclosure.__table__])
     s = sessionmaker(bind=eng)()
     # 3종목: 저PER(JPM)·고PER(NVDA)·중간(XOM)
-    s.add_all([
-        UsUniverse(snapshot_date=_AS_OF, ticker="JPM", naver_symbol="JPM", name="JPMorgan",
-                   exchange="NYSE", sector="Financials", close_price=336.0, change_pct=1.0,
-                   market_cap=902e9, trading_value=2.1e9, per=15.9, pbr=2.5, eps=21.0,
-                   high_52w=340.0, low_52w=200.0, momentum_3m=20.0),
-        UsUniverse(snapshot_date=_AS_OF, ticker="NVDA", naver_symbol="NVDA.O", name="NVIDIA",
-                   exchange="NASDAQ", sector="IT", close_price=210.0, change_pct=4.0,
-                   market_cap=5105e9, trading_value=31e9, per=32.3, pbr=26.1, eps=6.5,
-                   high_52w=236.0, low_52w=161.0, momentum_3m=5.0),
-        UsUniverse(snapshot_date=_AS_OF, ticker="XOM", naver_symbol="XOM", name="Exxon",
-                   exchange="NYSE", sector="Energy", close_price=120.0, change_pct=-0.5,
-                   market_cap=576e9, trading_value=1.5e9, per=22.4, pbr=2.0, eps=5.4,
-                   high_52w=130.0, low_52w=95.0, momentum_3m=-2.0),
-    ])
+    s.add_all(
+        [
+            UsUniverse(
+                snapshot_date=_AS_OF,
+                ticker="JPM",
+                naver_symbol="JPM",
+                name="JPMorgan",
+                exchange="NYSE",
+                sector="Financials",
+                close_price=336.0,
+                change_pct=1.0,
+                market_cap=902e9,
+                trading_value=2.1e9,
+                per=15.9,
+                pbr=2.5,
+                eps=21.0,
+                high_52w=340.0,
+                low_52w=200.0,
+                momentum_3m=20.0,
+            ),
+            UsUniverse(
+                snapshot_date=_AS_OF,
+                ticker="NVDA",
+                naver_symbol="NVDA.O",
+                name="NVIDIA",
+                exchange="NASDAQ",
+                sector="IT",
+                close_price=210.0,
+                change_pct=4.0,
+                market_cap=5105e9,
+                trading_value=31e9,
+                per=32.3,
+                pbr=26.1,
+                eps=6.5,
+                high_52w=236.0,
+                low_52w=161.0,
+                momentum_3m=5.0,
+            ),
+            UsUniverse(
+                snapshot_date=_AS_OF,
+                ticker="XOM",
+                naver_symbol="XOM",
+                name="Exxon",
+                exchange="NYSE",
+                sector="Energy",
+                close_price=120.0,
+                change_pct=-0.5,
+                market_cap=576e9,
+                trading_value=1.5e9,
+                per=22.4,
+                pbr=2.0,
+                eps=5.4,
+                high_52w=130.0,
+                low_52w=95.0,
+                momentum_3m=-2.0,
+            ),
+        ]
+    )
     s.commit()
     yield s
     s.close()
@@ -67,14 +111,46 @@ def test_sort_by_market_cap(db):
 def test_sort_momentum_zero_not_below_negative(db):
     # 회귀(falsy-0.0 버그): momentum 0.0 종목이 -50% 종목보다 위여야 한다.
     # 픽스처 모멘텀: JPM 20.0, NVDA 5.0, XOM -2.0 → 0.0 을 가진 행을 추가.
-    db.add(UsUniverse(snapshot_date=_AS_OF, ticker="FLAT", naver_symbol="FLAT", name="Flat",
-                      exchange="NYSE", sector="X", close_price=10.0, change_pct=0.0,
-                      market_cap=1e9, trading_value=1e6, per=10.0, pbr=1.0, eps=1.0,
-                      high_52w=12.0, low_52w=8.0, momentum_3m=0.0))
-    db.add(UsUniverse(snapshot_date=_AS_OF, ticker="DROP", naver_symbol="DROP", name="Drop",
-                      exchange="NYSE", sector="X", close_price=5.0, change_pct=-3.0,
-                      market_cap=1e9, trading_value=1e6, per=10.0, pbr=1.0, eps=1.0,
-                      high_52w=12.0, low_52w=4.0, momentum_3m=-50.0))
+    db.add(
+        UsUniverse(
+            snapshot_date=_AS_OF,
+            ticker="FLAT",
+            naver_symbol="FLAT",
+            name="Flat",
+            exchange="NYSE",
+            sector="X",
+            close_price=10.0,
+            change_pct=0.0,
+            market_cap=1e9,
+            trading_value=1e6,
+            per=10.0,
+            pbr=1.0,
+            eps=1.0,
+            high_52w=12.0,
+            low_52w=8.0,
+            momentum_3m=0.0,
+        )
+    )
+    db.add(
+        UsUniverse(
+            snapshot_date=_AS_OF,
+            ticker="DROP",
+            naver_symbol="DROP",
+            name="Drop",
+            exchange="NYSE",
+            sector="X",
+            close_price=5.0,
+            change_pct=-3.0,
+            market_cap=1e9,
+            trading_value=1e6,
+            per=10.0,
+            pbr=1.0,
+            eps=1.0,
+            high_52w=12.0,
+            low_52w=4.0,
+            momentum_3m=-50.0,
+        )
+    )
     db.commit()
     order = [i.ticker for i in scr.screen(db, sort="momentum").items]
     assert order.index("FLAT") < order.index("DROP")  # 0.0 이 -50% 보다 위
@@ -89,8 +165,16 @@ def test_near_high_pct_computed(db):
 def test_has_event_filter(db):
     # 8-K 없으면 has_event=True 는 빈 결과.
     assert scr.screen(db, has_event=True).total == 0
-    db.add(UsDisclosure(ticker="JPM", cik="0000019617", accession="0000019617-26-000001",
-                        form_type="8-K", filing_date=_AS_OF, primary_doc_url="http://x"))
+    db.add(
+        UsDisclosure(
+            ticker="JPM",
+            cik="0000019617",
+            accession="0000019617-26-000001",
+            form_type="8-K",
+            filing_date=date.today() - timedelta(days=1),
+            primary_doc_url="http://x",
+        )
+    )
     db.commit()
     r = scr.screen(db, has_event=True)
     assert {i.ticker for i in r.items} == {"JPM"}

@@ -17,7 +17,11 @@ from sqlalchemy.orm import sessionmaker
 from app.db.models import (
     Base,
     CorpCodeMap,
+    DilutionCache,
+    Financial,
+    MajorHolderCache,
     OwnershipChangeCache,
+    OwnershipSummary,
     RelatedCompany,
     Shareholder,
 )
@@ -37,10 +41,14 @@ def db():
     Base.metadata.create_all(
         engine,
         tables=[
-            Shareholder.__table__,
-            RelatedCompany.__table__,
             CorpCodeMap.__table__,
+            DilutionCache.__table__,
+            Financial.__table__,
+            MajorHolderCache.__table__,
             OwnershipChangeCache.__table__,
+            OwnershipSummary.__table__,
+            RelatedCompany.__table__,
+            Shareholder.__table__,
         ],
     )
     session = sessionmaker(bind=engine)()
@@ -55,31 +63,65 @@ def _settings(dart_key: str = "key"):
 def test_get_ownership_reads_shareholders_and_subsidiaries_with_name_links(db):
     # 상장 주주·자회사는 CorpCodeMap 역해석으로 이름·링크 부여.
     db.add(CorpCodeMap(stock_code="005930", corp_code="00126380", corp_name="삼성전자"))
-    db.add(Shareholder(
-        stock_code="093320", holder_name="삼성전자", relate="최대주주 본인",
-        stake_pct=12.3, is_corporate=True, related_stock_code="005930", bsns_year=2024,
-    ))
-    db.add(Shareholder(
-        stock_code="093320", holder_name="김대표", relate="최대주주의 특수관계인",
-        stake_pct=1.5, is_corporate=False, related_stock_code=None, bsns_year=2024,
-    ))
-    db.add(RelatedCompany(
-        stock_code="093320", related_name="삼성전자", relation="subsidiary",
-        stake_pct=80.0, related_stock_code="005930",
-    ))
-    db.add(RelatedCompany(
-        stock_code="093320", related_name="㈜비상장", relation="investor",
-        stake_pct=10.0, related_stock_code=None,
-    ))
+    db.add(
+        Shareholder(
+            stock_code="093320",
+            holder_name="삼성전자",
+            relate="최대주주 본인",
+            stake_pct=12.3,
+            is_corporate=True,
+            related_stock_code="005930",
+            bsns_year=2024,
+        )
+    )
+    db.add(
+        Shareholder(
+            stock_code="093320",
+            holder_name="김대표",
+            relate="최대주주의 특수관계인",
+            stake_pct=1.5,
+            is_corporate=False,
+            related_stock_code=None,
+            bsns_year=2024,
+        )
+    )
+    db.add(
+        RelatedCompany(
+            stock_code="093320",
+            related_name="삼성전자",
+            relation="subsidiary",
+            stake_pct=80.0,
+            related_stock_code="005930",
+        )
+    )
+    db.add(
+        RelatedCompany(
+            stock_code="093320",
+            related_name="㈜비상장",
+            relation="investor",
+            stake_pct=10.0,
+            related_stock_code=None,
+        )
+    )
     db.commit()
 
     # 캐시 신선 → elestock 미호출.
-    db.add(OwnershipChangeCache(
-        stock_code="093320",
-        payload=[{"rcept_no": "20260701000001", "rcept_date": "2026-07-01",
-                  "reporter": "김대표", "position": "사장",
-                  "shares_delta": 1000, "shares_after": 5000, "reason": ""}],
-    ))
+    db.add(
+        OwnershipChangeCache(
+            stock_code="093320",
+            payload=[
+                {
+                    "rcept_no": "20260701000001",
+                    "rcept_date": "2026-07-01",
+                    "reporter": "김대표",
+                    "position": "사장",
+                    "shares_delta": 1000,
+                    "shares_after": 5000,
+                    "reason": "",
+                }
+            ],
+        )
+    )
     db.commit()
 
     out = svc.get_ownership(db, _settings(), "093320")
@@ -139,15 +181,25 @@ def test_changes_cache_expired_refetches(db, monkeypatch):
     # 13h 전 캐시 → 만료.
     stale = OwnershipChangeCache(
         stock_code="093320",
-        payload=[{"rcept_no": "old", "rcept_date": None, "reporter": "옛것",
-                  "position": "", "shares_delta": None, "shares_after": None, "reason": ""}],
+        payload=[
+            {
+                "rcept_no": "old",
+                "rcept_date": None,
+                "reporter": "옛것",
+                "position": "",
+                "shares_delta": None,
+                "shares_after": None,
+                "reason": "",
+            }
+        ],
         updated_at=datetime.now(UTC) - timedelta(hours=13),
     )
     db.add(stale)
     db.commit()
 
     monkeypatch.setattr(
-        svc.dart, "fetch_ownership_changes",
+        svc.dart,
+        "fetch_ownership_changes",
         lambda *a, **k: {"20260702000002": OwnershipChange("새것", "부사장", "등기임원", 100, 50)},
     )
     out = svc.get_ownership(db, _settings(), "093320")
@@ -158,12 +210,23 @@ def test_changes_cache_expired_refetches(db, monkeypatch):
 def test_changes_quota_exceeded_returns_stale_and_marks_stale(db, monkeypatch):
     # 캐시 만료 상태에서 live 조회가 쿼터초과 → 기존 캐시라도 내보내고 stale 신호.
     db.add(CorpCodeMap(stock_code="093320", corp_code="00B", corp_name="케이아이엔엑스"))
-    db.add(OwnershipChangeCache(
-        stock_code="093320",
-        payload=[{"rcept_no": "old", "rcept_date": None, "reporter": "옛것",
-                  "position": "", "shares_delta": None, "shares_after": None, "reason": ""}],
-        updated_at=datetime.now(UTC) - timedelta(hours=13),
-    ))
+    db.add(
+        OwnershipChangeCache(
+            stock_code="093320",
+            payload=[
+                {
+                    "rcept_no": "old",
+                    "rcept_date": None,
+                    "reporter": "옛것",
+                    "position": "",
+                    "shares_delta": None,
+                    "shares_after": None,
+                    "reason": "",
+                }
+            ],
+            updated_at=datetime.now(UTC) - timedelta(hours=13),
+        )
+    )
     db.commit()
 
     def _raise(*a, **k):
@@ -181,7 +244,8 @@ def test_changes_no_dart_key_marks_stale_without_fetch(db, monkeypatch):
     db.commit()
     calls = {"n": 0}
     monkeypatch.setattr(
-        svc.dart, "fetch_ownership_changes",
+        svc.dart,
+        "fetch_ownership_changes",
         lambda *a, **k: calls.__setitem__("n", calls["n"] + 1) or {},
     )
     out = svc.get_ownership(db, _settings(dart_key=""), "093320")

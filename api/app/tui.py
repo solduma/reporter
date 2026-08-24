@@ -31,6 +31,7 @@ from typing import Any, ClassVar, Literal
 from textual import work
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.css.query import NoMatches
 from textual.screen import ModalScreen
 from textual.widgets import (
     Button,
@@ -576,9 +577,7 @@ class AdminTUI(App):
                 yield DataTable(id="ingest_history", classes="tbl")
             # Tab 4: 모니터링(로그)
             with TabPane("모니터링(로그)", id="tab_log"), VerticalScroll():
-                yield Static(
-                    "[b]모니터링(로그)[/b]", classes="panel-title"
-                )
+                yield Static("[b]모니터링(로그)[/b]", classes="panel-title")
                 with Horizontal(id="log_filter_bar"):
                     yield Button("health", id="log_health", variant="default")
                     yield Button("trace", id="log_trace", variant="default")
@@ -1621,7 +1620,9 @@ class AdminTUI(App):
             self.notify("중단할 작업이 없습니다")
             return
         if self._state.status == "cancelling":
-            self.notify("이미 중단 시도 중 — '강제중단' 버튼을 누르세요", timeout=TOAST_LONG_SECONDS)
+            self.notify(
+                "이미 중단 시도 중 — '강제중단' 버튼을 누르세요", timeout=TOAST_LONG_SECONDS
+            )
             return
         confirmed = await self.push_screen_wait(
             ConfirmScreen("실행 중인 작업을 중단할까요?", buttons=[("중단", True), ("취소", False)])
@@ -1885,7 +1886,10 @@ class AdminTUI(App):
             f"유니버스 스냅샷: {fresh['latest_universe_date']} "
             f"({fresh['universe_today_rows']}종목)",
         ]
-        self.query_one("#status", Static).update("\n".join(lines))
+        try:
+            self.query_one("#status", Static).update("\n".join(lines))
+        except NoMatches:
+            return  # shutdown 중 위젯 해제 — 늦게 도착한 리프레시 worker 무시
 
         # server status
         self._render_server_status(statuses)
@@ -2114,10 +2118,7 @@ class AdminTUI(App):
             web = self._servers.health("web")
             api_ok = api.get("ok", False)
             web_ok = web.get("ok", False)
-            msg = (
-                f"API: {'✓ OK' if api_ok else '✗ FAIL'} | "
-                f"WEB: {'✓ OK' if web_ok else '✗ FAIL'}"
-            )
+            msg = f"API: {'✓ OK' if api_ok else '✗ FAIL'} | WEB: {'✓ OK' if web_ok else '✗ FAIL'}"
         except Exception as e:
             msg = f"✗ health check 실패: {e}"
         self._log_line(msg)
@@ -2226,7 +2227,9 @@ class AdminTUI(App):
                 bar = "█" * filled + "░" * (20 - filled)
                 pct_str = f"{b.pct:.1f}%"
                 est_days = b.remaining / b.per_run
-                est = f"  ~{est_days:.0f}일 후" if est_days >= 1 else f"  ~{est_days * 24:.0f}시간 후"
+                est = (
+                    f"  ~{est_days:.0f}일 후" if est_days >= 1 else f"  ~{est_days * 24:.0f}시간 후"
+                )
             detail = f"  [dim]{b.detail}[/dim]" if b.detail else ""
             lines.append(
                 f"  {b.label:12s} {bar} {pct_str:>8s}  {b.done:,}/{b.total:,}{est}{detail}"

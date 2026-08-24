@@ -7,7 +7,17 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from app.adapters import dart
-from app.db.models import Base, CorpCodeMap, RelatedCompany, Shareholder
+from app.db.models import (
+    Base,
+    CorpCodeMap,
+    DilutionCache,
+    Financial,
+    MajorHolderCache,
+    OwnershipChangeCache,
+    OwnershipSummary,
+    RelatedCompany,
+    Shareholder,
+)
 from app.services import related_company_ingest as rci
 
 
@@ -15,7 +25,17 @@ from app.services import related_company_ingest as rci
 def db():
     engine = create_engine("sqlite://")
     Base.metadata.create_all(
-        engine, tables=[RelatedCompany.__table__, Shareholder.__table__, CorpCodeMap.__table__]
+        engine,
+        tables=[
+            CorpCodeMap.__table__,
+            DilutionCache.__table__,
+            Financial.__table__,
+            MajorHolderCache.__table__,
+            OwnershipChangeCache.__table__,
+            OwnershipSummary.__table__,
+            RelatedCompany.__table__,
+            Shareholder.__table__,
+        ],
     )
     session = sessionmaker(bind=engine)()
     yield session
@@ -37,14 +57,16 @@ def test_backfill_maps_listed_related_and_stores(db, monkeypatch):
     # hyslr_rows(주주 명부)와 related(모/자회사·출자사)를 같이 모킹 — ingest 가 한 번의 hyslr
     # 호출로 두 테이블을 채우는 구조를 반영.
     monkeypatch.setattr(
-        rci.dart, "fetch_hyslr_rows",
+        rci.dart,
+        "fetch_hyslr_rows",
         lambda key, cc, y, q, s: [
             dart.HyslrRow("(주)가비아", "최대주주 본인", 36.3, True),
             dart.HyslrRow("김대표", "최대주주의 특수관계인", 1.5, False),
         ],
     )
     monkeypatch.setattr(
-        rci.dart, "fetch_related_companies",
+        rci.dart,
+        "fetch_related_companies",
         lambda key, cc, y, q, s, *, hyslr_rows=None: [
             dart.RelatedParty("(주)가비아", "parent", 36.3),
             dart.RelatedParty("㈜비상장자회사", "subsidiary", 80.0),
@@ -55,9 +77,7 @@ def test_backfill_maps_listed_related_and_stores(db, monkeypatch):
     ok = rci.backfill_stock(db, settings, "093320", rci._corp_name_to_stock(db))
     assert ok is True
 
-    rows = db.scalars(
-        select(RelatedCompany).where(RelatedCompany.stock_code == "093320")
-    ).all()
+    rows = db.scalars(select(RelatedCompany).where(RelatedCompany.stock_code == "093320")).all()
     by_name = {r.related_name: r for r in rows}
     assert by_name["(주)가비아"].relation == "parent"
     assert by_name["(주)가비아"].related_stock_code == "079940"  # 상장 → 역매핑
@@ -76,7 +96,8 @@ def test_backfill_no_corp_code_marks_done(db, monkeypatch):
     # corp_code 매핑 없으면 True(완료 처리, 재시도 불필요).
     called = {"n": 0}
     monkeypatch.setattr(
-        rci.dart, "fetch_related_companies",
+        rci.dart,
+        "fetch_related_companies",
         lambda *a, **k: called.__setitem__("n", called["n"] + 1) or [],
     )
     settings = type("S", (), {"dart_api_key": "key"})()
@@ -85,10 +106,12 @@ def test_backfill_no_corp_code_marks_done(db, monkeypatch):
 
 
 def test_related_names_returns_all(db):
-    db.add_all([
-        RelatedCompany(stock_code="093320", related_name="(주)가비아", relation="parent"),
-        RelatedCompany(stock_code="093320", related_name="㈜에스피소프트", relation="investor"),
-    ])
+    db.add_all(
+        [
+            RelatedCompany(stock_code="093320", related_name="(주)가비아", relation="parent"),
+            RelatedCompany(stock_code="093320", related_name="㈜에스피소프트", relation="investor"),
+        ]
+    )
     db.commit()
     names = rci.related_names(db, "093320")
     assert set(names) == {"(주)가비아", "㈜에스피소프트"}

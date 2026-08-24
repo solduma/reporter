@@ -11,17 +11,31 @@ from app.adapters.dart import throttle as dart_throttle
 def test_enforces_min_interval(monkeypatch):
     # 연속 호출 간 최소 간격을 보장하는지(sleep 호출로 검증, 실제 대기 없이).
     monkeypatch.setattr(dart_throttle, "_MIN_INTERVAL_S", 0.05)
-    monkeypatch.setattr(dart_throttle, "_last_request_at", 0.0)
+    monkeypatch.setattr(dart_throttle, "_rate_limiter", {})
+    monkeypatch.setattr(dart_throttle, "_budget", {})
     session = MagicMock()
     session.get.return_value = "resp"
 
     t0 = time.monotonic()
     for _ in range(4):
-        dart_throttle.get(session, "https://opendart.fss.or.kr/api/x")
+        dart_throttle.get(session, "https://opendart.fss.or.kr/api/x", params={"crtfc_key": "k"})
     elapsed = time.monotonic() - t0
 
     # 4회 호출 → 최소 3번의 간격(0.05s) 이상 소요.
     assert elapsed >= 0.05 * 3
+    assert session.get.call_count == 4
+
+
+def test_unkeyed_calls_bypass_rate_limit(monkeypatch):
+    # 키 없는 호출은 스로틀 대상이 아니다(설계상 즉시 통과).
+    monkeypatch.setattr(dart_throttle, "_MIN_INTERVAL_S", 0.05)
+    monkeypatch.setattr(dart_throttle, "_rate_limiter", {})
+    session = MagicMock()
+    session.get.return_value = "resp"
+    t0 = time.monotonic()
+    for _ in range(4):
+        dart_throttle.get(session, "https://opendart.fss.or.kr/api/x")
+    assert time.monotonic() - t0 < 0.05
     assert session.get.call_count == 4
 
 
@@ -51,7 +65,8 @@ _OK_JSON = b'{"status":"000","list":[]}'
 def test_failover_rotates_to_backup_on_quota(monkeypatch):
     # primary 가 020 을 주면 backup 키로 회전해 재시도하고, 성공 응답을 반환한다.
     monkeypatch.setattr(dart_throttle, "_MIN_INTERVAL_S", 0.0)
-    monkeypatch.setattr(dart_throttle, "_last_request_at", 0.0)
+    monkeypatch.setattr(dart_throttle, "_rate_limiter", {})
+    monkeypatch.setattr(dart_throttle, "_budget", {})
     dart_throttle.configure_keys("primary", "backup")
     session = MagicMock()
     session.get.side_effect = [_resp(_QUOTA_JSON), _resp(_OK_JSON)]
@@ -69,7 +84,8 @@ def test_failover_rotates_to_backup_on_quota(monkeypatch):
 def test_failover_detects_quota_in_xml_body(monkeypatch):
     # document.xml(바이너리 엔드포인트)도 020 시 XML 본문을 주므로 XML 도 감지해 회전.
     monkeypatch.setattr(dart_throttle, "_MIN_INTERVAL_S", 0.0)
-    monkeypatch.setattr(dart_throttle, "_last_request_at", 0.0)
+    monkeypatch.setattr(dart_throttle, "_rate_limiter", {})
+    monkeypatch.setattr(dart_throttle, "_budget", {})
     dart_throttle.configure_keys("primary", "backup")
     session = MagicMock()
     session.get.side_effect = [_resp(_QUOTA_XML), _resp(b"PK\x03\x04zipdata")]
@@ -84,7 +100,8 @@ def test_failover_detects_quota_in_xml_body(monkeypatch):
 def test_all_keys_exhausted_returns_last_quota_response(monkeypatch):
     # 모든 키가 020 이면 마지막 020 응답을 그대로 반환(client 가 DartQuotaExceeded 로 올림).
     monkeypatch.setattr(dart_throttle, "_MIN_INTERVAL_S", 0.0)
-    monkeypatch.setattr(dart_throttle, "_last_request_at", 0.0)
+    monkeypatch.setattr(dart_throttle, "_rate_limiter", {})
+    monkeypatch.setattr(dart_throttle, "_budget", {})
     dart_throttle.configure_keys("primary", "backup")
     session = MagicMock()
     session.get.side_effect = [_resp(_QUOTA_JSON), _resp(_QUOTA_JSON)]
@@ -99,7 +116,8 @@ def test_all_keys_exhausted_returns_last_quota_response(monkeypatch):
 def test_success_keeps_active_key_no_rewaste(monkeypatch):
     # 한 번 backup 으로 넘어가면 이후 성공 호출은 backup 을 유지(primary 재시도로 020 낭비 안 함).
     monkeypatch.setattr(dart_throttle, "_MIN_INTERVAL_S", 0.0)
-    monkeypatch.setattr(dart_throttle, "_last_request_at", 0.0)
+    monkeypatch.setattr(dart_throttle, "_rate_limiter", {})
+    monkeypatch.setattr(dart_throttle, "_budget", {})
     dart_throttle.configure_keys("primary", "backup")
     session = MagicMock()
     session.get.side_effect = [_resp(_QUOTA_JSON), _resp(_OK_JSON), _resp(_OK_JSON)]
