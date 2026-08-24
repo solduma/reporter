@@ -347,7 +347,9 @@ class AssemblyError(RuntimeError):
 
 # 조립 파이프라인 개별 LLM 호출의 전체 deadline(초). muse 지연 스파이크 시 어댑터 재시도 3회
 # × read-timeout 300s 가 한 호출 최악 15분까지 증폭되는 것을 호출 단위로 절단한다.
-_LLM_CALL_DEADLINE_S = 240
+# qwen3.5:cloud 는 reasoning 으로 240s 를 넘기는 호출이 있어 480s 로 상향 —
+# 여전히 무한대기 대비 호출 단위 절단선 역할은 유지.
+_LLM_CALL_DEADLINE_S = 480
 
 
 def _chat_json(
