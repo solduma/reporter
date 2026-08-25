@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 
 import requests
@@ -57,6 +58,60 @@ class OllamaClient:
         self._session = requests.Session()
         self._session.headers.update({"Authorization": f"Bearer {api_key}"})
         self._timeout = timeout
+        # LLM_STREAM=0 → 논스트리밍. 일부 프로바이더(proxy+minimax 등)는 거대 청크를
+        # 수 분에 걸쳐 트리클 해 read timeout·deadline 검사를 모두 무력화한다.
+        self._use_stream = os.getenv("LLM_STREAM", "1") != "0"
+
+    def _non_stream_message(self, payload: dict, what: str, *, timeout: int | None = None) -> dict:
+        """논스트리밍 호출 — 응답 전체를 일괄 수신.
+
+        트리클 스트림이 read timeout·deadline 검사를 모두 무력화하는 프로바이더
+        (프록시+minimax 등) 대비 모드. read timeout 이 '응답 수신 전체'의 상한으로
+        동작해 병리 hang 을 절단한다.
+        """
+        payload = {**payload, "stream": False}
+        try:
+            resp = self._session.post(self._url, json=payload, timeout=timeout or self._timeout)
+            resp.raise_for_status()
+            data = resp.json()
+        except requests.RequestException as e:
+            detail = ""
+            r = getattr(e, "response", None)
+            if r is not None:
+                detail = (getattr(r, "text", "") or "")[:200]
+            raise OllamaError(
+                f"LLM {what} 요청 실패: {e}" + (f" — {detail}" if detail else "")
+            ) from e
+        except ValueError as e:
+            raise OllamaError(f"LLM {what} JSON 파싱 실패: {e}") from e
+        if data.get("error"):
+            raise OllamaError(f"LLM 오류: {_error_text(data['error'])}")
+        choices = data.get("choices") or []
+        msg = (choices[0].get("message") or {}) if choices else {}
+        finish = choices[0].get("finish_reason") if choices else None
+        saw_reasoning = bool(msg.get("reasoning_content") or msg.get("reasoning"))
+        tcs = []
+        for tc in msg.get("tool_calls") or []:
+            fn = tc.get("function") or {}
+            tcs.append(
+                {
+                    "id": tc.get("id") or "",
+                    "type": "function",
+                    "function": {
+                        "name": fn.get("name") or "",
+                        "arguments": fn.get("arguments") or "",
+                    },
+                }
+            )
+        message: dict = {
+            "role": msg.get("role") or "assistant",
+            "content": msg.get("content") or "",
+        }
+        if tcs:
+            message["tool_calls"] = tcs
+        message["_finish"] = finish
+        message["_reasoning"] = saw_reasoning
+        return message
 
     def _stream_message(self, payload: dict, what: str, *, timeout: int | None = None) -> dict:
         """stream=True 로 POST 하고 SSE 청크를 누적해 최종 assistant message(dict)를 조립한다.
@@ -177,7 +232,10 @@ class OllamaClient:
             ],
             "temperature": temperature,
         }
-        message = self._stream_message(payload, "요청", timeout=timeout)
+        if self._use_stream:
+            message = self._stream_message(payload, "요청", timeout=timeout)
+        else:
+            message = self._non_stream_message(payload, "요청", timeout=timeout)
         finish = message.pop("_finish", None)
         saw_reasoning = message.pop("_reasoning", False)
         content = (message.get("content") or "").strip()
@@ -204,7 +262,11 @@ class OllamaClient:
             "tools": tools,
             "temperature": temperature,
         }
-        message = self._stream_message(payload, "tools")
+        message = (
+            self._stream_message(payload, "tools")
+            if self._use_stream
+            else self._non_stream_message(payload, "tools", timeout=self._timeout)
+        )
         # 진단 키 제거 — raw_message 는 다음 턴 transcript 에 그대로 재주입되므로 오염 금지.
         message.pop("_finish", None)
         message.pop("_reasoning", False)
