@@ -369,7 +369,7 @@ class AssemblyError(RuntimeError):
 _LLM_CALL_DEADLINE_S = 480
 # 파이프라인 내 독립 호출(map 청크·섹션 생성)의 동시 실행 수. 직렬 실행은 잡당 25~35회
 # 호출이 수십 분 걸리는 병목 — 4레인으로 벽시계 시간을 3~5배 단축한다.
-_LLM_CONCURRENCY = 4
+_LLM_CONCURRENCY = 6
 
 
 def _chat_json(
