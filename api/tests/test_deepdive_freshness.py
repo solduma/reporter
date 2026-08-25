@@ -96,11 +96,13 @@ def test_refresh_runs_report_backfill_when_not_done(db, monkeypatch):
 
 
 def test_refresh_ebitda_axis_fills_from_db(db):
-    # 연간 EBITDA 2개 → EBITDA 성장축 산출. growth_metric 행이 미리 있어야 update 가 걸린다.
-    db.add_all([
-        _fin("2024.12", ebitda=100.0, revenue=1000.0),
-        _fin("2025.12", ebitda=160.0, revenue=1100.0),
-    ])
+    # 연간 EBITDA 2개 + 각 회계연도 분기 개별값 4개(FY 매출 재구성용) → EBITDA 성장축 산출.
+    db.add_all(
+        [_fin(f"2024.{m:02d}", revenue=250.0) for m in (3, 6, 9)]
+        + [_fin("2024.12", ebitda=100.0, revenue=250.0)]  # FY 매출 1000
+        + [_fin(f"2025.{m:02d}", revenue=275.0) for m in (3, 6, 9)]
+        + [_fin("2025.12", ebitda=160.0, revenue=275.0)]  # FY 매출 1100
+    )
     db.add(GrowthMetric(stock_code="000000", period="2026.03"))
     db.commit()
 
@@ -109,6 +111,23 @@ def test_refresh_ebitda_axis_fills_from_db(db):
     row = db.query(GrowthMetric).first()
     assert row.ebitda_status == "흑자지속"  # 100 → 160 둘 다 흑자
     assert row.ebitda_margin_delta == round(160 / 1100 - 100 / 1000, 4)
+
+
+def test_refresh_ebitda_axis_margin_none_when_only_q4_revenue(db):
+    # .12 행의 revenue 는 Q4 단독값이다. 연간EBITDA÷Q4매출(기간 불일치)로 마진을 내지 않고,
+    # 분기 개별값이 없어 FY 매출을 못 만들면 margin 은 None(손익상태는 산출).
+    db.add_all([
+        _fin("2024.12", ebitda=100.0, revenue=250.0),
+        _fin("2025.12", ebitda=160.0, revenue=275.0),
+    ])
+    db.add(GrowthMetric(stock_code="000000", period="2026.03"))
+    db.commit()
+
+    assert growth_ingest.refresh_ebitda_axis(db, "000000") is True
+    db.commit()
+    row = db.query(GrowthMetric).first()
+    assert row.ebitda_status == "흑자지속"
+    assert row.ebitda_margin_delta is None
 
 
 def test_refresh_ebitda_axis_false_when_single_annual(db):

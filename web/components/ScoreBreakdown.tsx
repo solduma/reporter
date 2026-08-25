@@ -30,6 +30,9 @@ export default function ScoreBreakdown({ axis }: { axis: AnalysisAxis | undefine
     return null;
   }
   const factors = axis.factors ?? [];
+  // 백엔드는 결측 요소를 제외하고 남은 가중치로 재정규화해 점수를 낸다(추세축은 원시 합 1.15).
+  // 그래서 화면 기여도·가중치도 유효 요소의 가중치 합으로 나눠야 축 점수와 합이 맞는다.
+  const wSum = factors.reduce((s, f) => s + (f.norm === null ? 0 : f.weight), 0);
   return (
     <div className={styles.wrap}>
       <div className={styles.head}>
@@ -45,7 +48,8 @@ export default function ScoreBreakdown({ axis }: { axis: AnalysisAxis | undefine
       {factors.length > 0 ? (
         <ul className={styles.factors}>
           {factors.map((f) => {
-            const contrib = f.norm === null ? null : Math.round(f.norm * f.weight * 100);
+            const effWeight = wSum > 0 ? f.weight / wSum : 0;
+            const contrib = f.norm === null ? null : Math.round(f.norm * effWeight * 100);
             const pct = f.norm === null ? 0 : Math.round(f.norm * 100);
             return (
               <li key={f.label} className={styles.factor}>
@@ -59,7 +63,7 @@ export default function ScoreBreakdown({ axis }: { axis: AnalysisAxis | undefine
                 </span>
                 <span
                   className={styles.fWeight}
-                  title={`가중치 ${Math.round(f.weight * 100)}% · 기여 ${
+                  title={`가중치 ${Math.round(effWeight * 100)}% · 기여 ${
                     contrib === null ? "제외(데이터 없음)" : `${contrib}점`
                   }`}
                 >
