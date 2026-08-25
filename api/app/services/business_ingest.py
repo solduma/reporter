@@ -21,6 +21,7 @@ import io
 import json
 import logging
 import re
+import time
 import zipfile
 from datetime import UTC, date, datetime, timedelta
 
@@ -471,7 +472,9 @@ def _reduce_catalog(llm: LLMPort, model: str, facts: list[str]) -> dict:
             groups.append(cur)
         return groups
 
-    catalogs = [_merge_catalog(llm, model, g) for g in _group_by_chars(facts, _CATALOG_CHAR_CAP)]
+    groups = _group_by_chars(facts, _CATALOG_CHAR_CAP)
+    logger.info("reduce groups=%d facts=%d", len(groups), len(facts))
+    catalogs = [_merge_catalog(llm, model, g) for g in groups]
     for _round in range(6):  # 병합 수렴 안전 상한 — 실제 2~15 그룹 수준에서 1~2회면 끝난다
         if len(catalogs) <= 1:
             break
@@ -1065,10 +1068,13 @@ def assemble_overview(db: Session, settings: Settings, code: str, *, progress=No
     )
 
     # ── Phase 2b: reduce — 주제별 카탈로그 통합 ──────────────────────────
+    t0 = time.monotonic()
     catalog = _reduce_catalog(llm, model, facts)
+    logger.info("business reduce %s: %.0fs, facts %d건", code, time.monotonic() - t0, len(facts))
     _tick(50)
 
     # ── Phase 2c: synthesize — 섹션별 개별 생성 ──────────────────────────
+    t_syn = time.monotonic()
     sections: dict[str, dict] = {}
     section_errors: dict[str, str] = {}
     done_count = 0
@@ -1089,6 +1095,13 @@ def assemble_overview(db: Session, settings: Settings, code: str, *, progress=No
             done_count += 1
             _tick(55 + int(30 * done_count / len(bo.INVESTOR_SECTIONS)))
 
+    logger.info(
+        "business synth %s: %.0fs, 성공 %d/%d",
+        code,
+        time.monotonic() - t_syn,
+        len(sections),
+        len(bo.INVESTOR_SECTIONS),
+    )
     ok_count = len(sections)
     if ok_count <= len(bo.INVESTOR_SECTIONS) // 2:
         raise AssemblyError(
