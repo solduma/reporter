@@ -441,7 +441,7 @@ def _run_business_research_in_thread(
 _business_assembly_executor: concurrent.futures.ThreadPoolExecutor | None = None
 _business_assembly_inflight = 0
 # 동시 조립 레인 수 — 대형 보고서(사용자 대기 잡)가 단일 레인을 오래 점유하는 것을 완화.
-_BUSINESS_ASSEMBLY_MAX_INFLIGHT = 3
+_BUSINESS_ASSEMBLY_MAX_INFLIGHT = 4
 
 
 def _run_business_assembly_in_thread(
