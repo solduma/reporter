@@ -3,7 +3,7 @@
 #
 #   scripts/switch_model.sh --muse          # OpenCode Zen muse-spark-1.2-contributor-free
 #   scripts/switch_model.sh --ox            # OpenCode Zen x-preview-f-free (Ox Alpha Free)
-#   scripts/switch_model.sh --ollama        # Ollama Cloud 프록시 qwen3.5:cloud (기존)
+#   scripts/switch_model.sh --ollama        # Ollama Cloud 프록시 minimax-m3:cloud
 #   scripts/switch_model.sh --status        # 현재 설정 + 연결 테스트
 #
 # 클라이언트(src/reporter/ollama_client.py)는 OpenAI 호환 POST {OLLAMA_HOST}/v1/chat/completions
