@@ -81,7 +81,7 @@ apply_mode() {
     if [ "$MODE" = "ollama" ]; then
         FB_HOST="$ZEN_HOST"; FB_KEY="$(zen_key || true)"; FB_MODEL="muse-spark-1.2-contributor-free"
     else
-        FB_HOST="$OLLAMA_HOST_LOCAL"; FB_KEY="dummy"; FB_MODEL="qwen3.5:cloud"
+        FB_HOST="$OLLAMA_HOST_LOCAL"; FB_KEY="dummy"; FB_MODEL="qwen3.5:397b-cloud"
     fi
 
     update_env "$ENV_ROOT"  "OLLAMA_HOST"           "$host_api"
@@ -187,7 +187,7 @@ case "$MODE" in
             "$ZEN_HOST" "$ZEN_HOST" "$KEY"
         ;;
     ollama)
-        apply_mode "Ollama Cloud (프록시)" "qwen3.5:cloud" \
+        apply_mode "Ollama Cloud (프록시)" "qwen3.5:397b-cloud" \
             "$OLLAMA_HOST_LOCAL" "$OLLAMA_HOST_CONTAINER" "dummy"
         ;;
 esac
