@@ -27,9 +27,19 @@ _RATE_LIMIT_BACKOFF_S = 45.0  # 45s, 90s 대기
 
 
 def _is_rate_limit(e: OllamaError) -> bool:
-    """429 계열 오류 판정. 클라이언트가 HTTP 상태·응답 본문을 메시지에 포함하므로 문자열 매칭으로 충분."""
+    """한도 계열 오류 판정. 클라이언트가 HTTP 상태·응답 본문을 메시지에 포함하므로 문자열 매칭으로 충분.
+
+    ollama-cloud-proxy 의 'all ollama keys failed'(503, 전 키 소진)도 사실상 rate limit.
+    """
     msg = str(e)
-    return "429" in msg or "Too Many Requests" in msg or "Rate limit" in msg or "RateLimit" in msg
+    return (
+        "429" in msg
+        or "Too Many Requests" in msg
+        or "Rate limit" in msg
+        or "RateLimit" in msg
+        or "FreeUsageLimit" in msg
+        or "all ollama keys failed" in msg
+    )
 
 
 # 임베딩 입력 청크 크기 / per-청크 timeout. 한 번에 수백 건을 보내면 로컬 Ollama 가 worker 등 다른
