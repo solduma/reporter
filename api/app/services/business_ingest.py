@@ -1313,6 +1313,8 @@ def run_backfill_progressive(
 ) -> dict:
     """유니버스 종목 사업 개요 점진 백필(하룻밤 per_run 개, 재개 가능). report_ingest 패턴."""
     settings = settings or get_settings()
+    # 시작 로그 — 크론 미발동(misfire) 여부를 실행 부재로 판별할 수 있게.
+    logger.info("business overview backfill 시작: dart_key=%s", bool(settings.dart_api_key))
     if not settings.dart_api_key:
         return {"done": 0, "failed": 0, "remaining": 0}
     codes = _universe_codes(db)

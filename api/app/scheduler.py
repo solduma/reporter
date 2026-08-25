@@ -678,7 +678,12 @@ BATCH_FUNCTIONS["release_deploy"] = _release_deploy_fn
 def build_scheduler(settings: Settings | None = None) -> BlockingScheduler:
     """잡이 등록된 스케줄러를 반환한다 (start 는 호출자가)."""
     settings = settings or get_settings()
-    scheduler = BlockingScheduler(timezone=_TZ)
+    # misfire_grace_time 1시간 — 새벽 크론이 이벤트루프 지연으로 1초라도 늦으면
+    # 무경고 skip 되는 사례(03:00 business_overview_backfill, 08-25) 방지.
+    scheduler = BlockingScheduler(
+        timezone=_TZ,
+        job_defaults={"misfire_grace_time": 3600, "coalesce": True},
+    )
     scheduler.add_job(
         _logged("ingest_cycle", run_ingest_cycle),
         trigger=_CRON,
