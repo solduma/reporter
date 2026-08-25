@@ -363,3 +363,60 @@ def test_chat_deadline_fires_mid_line_on_trickle(monkeypatch):
     monkeypatch.setattr("reporter.ollama_client.time.monotonic", fake_monotonic)
     with pytest.raises(OllamaError):
         client.chat("x-preview-f-free", "sys", "user", timeout=90)
+
+
+def test_non_stream_mode_parses_and_flags(monkeypatch):
+    """LLM_STREAM=0 모드: 일괄 응답 파싱 + 진단 플래그."""
+    monkeypatch.setenv("LLM_STREAM", "0")
+    client = OllamaClient("https://x", "k")
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.json.return_value = {
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": "답변", "reasoning_content": "생각"},
+                "finish_reason": "stop",
+            }
+        ]
+    }
+    client._session = MagicMock()
+    client._session.post.return_value = resp
+
+    msg = client.chat("m", "sys", "user")
+
+    assert msg == "답변"
+    kwargs = client._session.post.call_args.kwargs
+    assert kwargs["json"]["stream"] is False
+
+
+def test_chat_tools_non_stream_strips_diag_keys(monkeypatch):
+    monkeypatch.setenv("LLM_STREAM", "0")
+    client = OllamaClient("https://x", "k")
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.json.return_value = {
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": "c1",
+                            "type": "function",
+                            "function": {"name": "f", "arguments": "{}"},
+                        }
+                    ],
+                },
+                "finish_reason": "tool_calls",
+            }
+        ]
+    }
+    client._session = MagicMock()
+    client._session.post.return_value = resp
+
+    msg = client.chat_tools("m", [{"role": "user", "content": "x"}], [])
+
+    assert msg["tool_calls"][0]["function"]["name"] == "f"
+    assert "_finish" not in msg and "_reasoning" not in msg
