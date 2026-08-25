@@ -34,6 +34,21 @@ def _error_text(err) -> str:
     return str(err)
 
 
+def _harden_socket_timeout(resp: requests.Response, seconds: float) -> None:
+    """응답 소켓의 recv 타임아웃을 강제한다.
+
+    서버가 하나의 거대 HTTP 청크를 수 분에 걸쳐 트리클 하면 urllib3 의 read timeout
+    (recv 단위)은 발동하지 않고, 바이트가 계속 흐르는 한 deadline 검사도 돌지 않아
+    사실상 무한 대기가 된다. 소켓 자체에 간격 상한을 걸어 이런 hang 을 절단한다.
+    urllib3 내부 구조 의존이 있어 실패 시 조용히 생략한다(기존 deadline 이 백업).
+    """
+    try:
+        sock = resp.raw._fp.fp.raw._sock  # type: ignore[attr-defined]
+        sock.settimeout(seconds)
+    except Exception:
+        pass
+
+
 class OllamaClient:
     def __init__(self, host: str, api_key: str, timeout: int = 180):
         if not api_key:
@@ -69,6 +84,7 @@ class OllamaClient:
         try:
             resp = self._session.post(self._url, json=payload, timeout=read_gap, stream=True)
             resp.raise_for_status()
+            _harden_socket_timeout(resp, read_gap)
             # iter_lines 대신 iter_content 로 raw byte 를 받아 직접 줄 분할 — deadline 체크를
             # '완결 줄' 단위가 아닌 'byte 수신' 단위로 한다. 한 줄이 \n 없이 천천히 trickle 되는 hang 은
             # iter_lines 가 줄을 내놓지 않아 deadline 체크가 안 돌아 bypass 되는 병리를 막는다.
