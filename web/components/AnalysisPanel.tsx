@@ -81,29 +81,35 @@ function AxisCard({ axis, onToggle }: { axis: AnalysisAxis; onToggle?: () => voi
             {methodText ? <InfoDot what={`계산 방식: ${methodText}`} /> : null}
           </span>
           <ul className={styles.factorList}>
-            {axis.factors.map((f) => {
-              const contrib = f.norm === null ? null : Math.round(f.norm * f.weight * 100);
-              const pct = f.norm === null ? 0 : Math.round(f.norm * 100);
-              return (
-                <li key={f.label} className={styles.factorRow}>
-                  <span className={styles.factorLabel} title={f.label}>
-                    {f.label}
-                  </span>
-                  <span className={styles.factorVal}>{f.value}</span>
-                  <span className={styles.factorBar} aria-hidden>
-                    <span className={styles.factorBarFill} style={{ width: `${pct}%` }} />
-                  </span>
-                  <span
-                    className={styles.factorContrib}
-                    title={`가중치 ${Math.round(f.weight * 100)}% · 기여 ${
-                      contrib === null ? "제외" : `${contrib}점`
-                    }`}
-                  >
-                    {contrib === null ? "—" : `+${contrib}`}
-                  </span>
-                </li>
-              );
-            })}
+            {(() => {
+              // 백엔드가 결측 요소를 제외하고 남은 가중치로 재정규화하므로(추세축 원시 합 1.15),
+              // 기여도·가중치 표시도 유효 요소 가중치 합으로 나눠야 축 점수와 합이 맞는다.
+              const wSum = axis.factors.reduce((s, f) => s + (f.norm === null ? 0 : f.weight), 0);
+              return axis.factors.map((f) => {
+                const effWeight = wSum > 0 ? f.weight / wSum : 0;
+                const contrib = f.norm === null ? null : Math.round(f.norm * effWeight * 100);
+                const pct = f.norm === null ? 0 : Math.round(f.norm * 100);
+                return (
+                  <li key={f.label} className={styles.factorRow}>
+                    <span className={styles.factorLabel} title={f.label}>
+                      {f.label}
+                    </span>
+                    <span className={styles.factorVal}>{f.value}</span>
+                    <span className={styles.factorBar} aria-hidden>
+                      <span className={styles.factorBarFill} style={{ width: `${pct}%` }} />
+                    </span>
+                    <span
+                      className={styles.factorContrib}
+                      title={`가중치 ${Math.round(effWeight * 100)}% · 기여 ${
+                        contrib === null ? "제외" : `${contrib}점`
+                      }`}
+                    >
+                      {contrib === null ? "—" : `+${contrib}`}
+                    </span>
+                  </li>
+                );
+              });
+            })()}
           </ul>
         </div>
       ) : null}
