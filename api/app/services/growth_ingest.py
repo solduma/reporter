@@ -87,19 +87,41 @@ def run_growth_batch(db: Session, limit: int | None = None) -> dict:
 
 
 def _annual_ebitda(db: Session, code: str) -> dict[str, tuple[float, float | None]]:
-    """DB financials 의 연간(.12) EBITDA·매출 맵(period→(ebitda, revenue)). EBITDA 성장 축 계산용.
+    """DB financials 의 연간(.12) EBITDA·FY 매출 맵(period→(ebitda, revenue)). EBITDA 성장 축 계산용.
 
     EBITDA 는 DART 원문 파싱(연간에만)이라 네이버 스크랩(최근 분기만)엔 없어 별도 주입한다.
+    .12 행의 revenue 는 Q4 단독값이라 연간 EBITDA 와 나누면 기간이 어긋나 마진이 과대왜곡된다
+    (연간÷단일분기 — 삼성전자 'EBITDA마진' 96% 오류). 그래서 FY 매출은 같은 회계연도 분기
+    개별값 4개 합으로 재구성하고, 하나라도 결측이면 None(margin 은 제외, 손익상태는 산출).
+    EBITDA 가 저장되는 CFS 로 두 쿼리 모두 한정해 분자·분모 기준을 일치시킨다.
     """
+    rev_by_period = dict(
+        db.execute(
+            select(GrowthFinancial.period, GrowthFinancial.revenue).where(
+                GrowthFinancial.stock_code == code,
+                GrowthFinancial.fs_div == "CFS",
+                GrowthFinancial.is_estimate.is_(False),
+                GrowthFinancial.revenue > 0,
+            )
+        ).all()
+    )
+
+    def _fy_revenue(year: int) -> float | None:
+        quarters = [rev_by_period.get(f"{year}.{month:02d}") for month in (3, 6, 9, 12)]
+        return sum(quarters) if all(q is not None for q in quarters) else None
+
     rows = db.execute(
-        select(GrowthFinancial.period, GrowthFinancial.ebitda, GrowthFinancial.revenue).where(
+        select(GrowthFinancial.period, GrowthFinancial.ebitda).where(
             GrowthFinancial.stock_code == code,
             GrowthFinancial.period.like("%.12"),
+            GrowthFinancial.fs_div == "CFS",
             GrowthFinancial.is_estimate.is_(False),
             GrowthFinancial.ebitda.is_not(None),
         )
     ).all()
-    return {period: (ebitda, revenue) for period, ebitda, revenue in rows}
+    return {
+        period: (ebitda, _fy_revenue(int(period.split(".")[0]))) for period, ebitda in rows
+    }
 
 
 def refresh_ebitda_axis(db: Session, code: str) -> bool:
