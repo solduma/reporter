@@ -312,18 +312,20 @@ def _growth_score(u, g) -> float | None:
     )
 
 
-def _value_score(fin, g=None) -> float | None:
+def _value_score(fin, g=None, close_price: float | None = None) -> float | None:
     """가치스코어 — 종목분석과 동일한 절대 밴드(analysis_scoring.value_score_abs).
 
     g(GrowthMetric)를 주면 PEG(eps_yoy) 및 흑자전환 대체점(net_status·마진 pp)까지 종목분석과
     동일하게 반영한다. 없으면 PER/PBR/EV/ROE/배당만으로 계산.
 
     입력값은 Financial 컬럼 대신 온톨로지 정준 ID 기준 저장 비율값을 사용해, /analysis 와
-    단일 출처를 유지한다(C2).
+    단일 출처를 유지한다(C2). 저장 per/pbr 이 없으면 주가·eps/bvps 로 보간한다(#787 — 신규상장
+    등 TTM 미달 종목도 종목분석과 같은 값이 나오게).
     """
     if fin is None:
         return None
-    stored = ontology_service.financial_row_stored_ratios(fin)
+    stored = dict(ontology_service.financial_row_stored_ratios(fin))
+    stored.update(ontology_service.derive_market_ratios(stored, close_price))
     score, _ = analysis_scoring.value_score_abs(
         stored.get("per"),
         stored.get("pbr"),
@@ -854,7 +856,7 @@ def peer_scores(db: Session, codes: list[str]) -> dict[str, dict[str, float | No
 
     for u, g in rows:
         gsc = _growth_score(u, g)
-        vsc = _value_score(fin_map.get(u.stock_code), g)
+        vsc = _value_score(fin_map.get(u.stock_code), g, u.close_price)
         tsc = u.trend_score
         kr_sec = sector_map.get(u.stock_code)
         if u.market not in idx_cache:
@@ -898,7 +900,7 @@ def _screen_overall(db, base, as_of, sort, limit, offset) -> ScreenerResult:
         u, g = r[0], r[1]
         gsc = _growth_score(u, g)
         fin = fin_map.get(u.stock_code)
-        vsc = _value_score(fin, g)
+        vsc = _value_score(fin, g, u.close_price)
         tsc = u.trend_score
         kr_sec = sector_map.get(u.stock_code)
         if u.market not in idx_cache:
