@@ -1,8 +1,9 @@
-"""사업 개요 라우터 — 종목별 사업 개요 조회(cache-aside) + 단건 갱신 트리거.
+"""사업 개요 라우터 — 종목별 사업 개요 조회(cache-aside, TTL 없음) + 단건 갱신 트리거.
 
-데이터 접근·추출·조립은 services/business_ingest 가 담당. 라우터는 캐시를 먼저 보고(12h TTL),
-miss 시 조립 job 을 큐잉하고 즉시 null 반환(조립은 worker 폴링 큐가 백그라운드 실행 — 수 분
-소요를 요청 스레드에서 기다리면 웹이 타임아웃한다). POST /refresh 도 동일하게 비동기.
+데이터 접근·추출·조립은 services/business_ingest 가 담당. 라우터는 캐시를 먼저 보고,
+행이 없으면(최초 1회) 조립 job 을 큐잉하고 즉시 null 반환(조립은 worker 폴링 큐가 백그라운드
+실행 — 수 분 소요를 요청 스레드에서 기다리면 웹이 타임아웃한다). 저장된 결과는 항상 유효하고
+갱신은 새 정기보고서 감지(매일 refresh 배치 해시 비교)·POST /refresh 가 담당한다.
 공시 → DB → Cache 흐름의 응답 edge.
 """
 
@@ -34,7 +35,7 @@ def get_business_overview(
     db: Session = Depends(get_session),
     response: Response = Response(),
 ) -> BusinessOverviewOut | None:
-    """종목 사업 개요 — 캐시 우선(12h TTL), miss 시 조립 job 큐잉 후 즉시 null.
+    """종목 사업 개요 — 캐시 행이 있으면 무조건 반환(TTL 없음), 없으면 조립 job 큐잉 후 즉시 null.
 
     웹은 GET /business/assembly/status 를 폴링하다 done 이면 본 엔드포인트를 재호출한다.
     """
