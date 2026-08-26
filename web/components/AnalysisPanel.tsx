@@ -12,7 +12,7 @@ import styles from "./AnalysisPanel.module.css";
 const AXIS_INFO: Record<string, { what: string; guide: string }> = {
   growth: {
     what: "매출·영업이익이 얼마나 빠르게 크는지(성장주 관점).",
-    guide: "60↑ 고성장 축, 40↓ 정체. 같은 후보군 내 상대 점수.",
+    guide: "60↑ 고성장 축, 40↓ 정체. 후보군과 무관한 절대 점수.",
   },
   value: {
     what: "저평가 정도(PER·PBR·EV/EBITDA + 고ROE·고배당).",
@@ -230,7 +230,10 @@ export default function AnalysisPanel({ code, analysis, status, message, onToggl
           {scoreText(a.overall_score)}
           <span className={styles.overallMax}>/100</span>
         </span>
-        <span className={styles.baseline}>60↑ 양호 · 40↓ 약함 (후보군 내 상대 점수)</span>
+        <span className={styles.baseline}>
+          {a.partial ? <span className={styles.partialBadge}>성장·가치 축만 반영</span> : null}
+          60↑ 양호 · 40↓ 약함 (집합 무관 절대 점수)
+        </span>
       </div>
 
       <div className={styles.axes}>

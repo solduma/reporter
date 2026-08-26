@@ -491,6 +491,8 @@ class CompanyAnalysis(BaseModel):
     judgment: JudgmentOut | None = None  # 판단 요약(강점·약점·확인·신호)
     comment: str | None  # LLM 종합 코멘트(캐시 히트 시 값, 키 없으면 None)
     comment_pending: bool = False  # True 면 백그라운드 생성 중 — 프론트가 재조회로 채운다
+    # True 면 quick(성장·가치 축만) 응답 — 종합점수가 2축 평균이라 풀 조회(4축)에서 바뀐다.
+    partial: bool = False
 
 
 class SectorRow(BaseModel):

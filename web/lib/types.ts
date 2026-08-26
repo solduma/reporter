@@ -98,6 +98,7 @@ export interface CompanyAnalysis {
   judgment?: Judgment | null;
   comment: string | null;
   comment_pending?: boolean; // true면 코멘트 백그라운드 생성 중 — 재조회로 채움
+  partial?: boolean; // true면 quick(성장·가치 축만) 응답 — 종합점수가 풀 조회에서 바뀔 수 있음
 }
 
 export interface Report {

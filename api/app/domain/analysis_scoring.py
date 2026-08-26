@@ -235,6 +235,11 @@ def value_score(
     per_rank/pbr_rank/ev_rank/peg_rank 는 저평가 정규화값(0~1, 낮을수록 1) — 호출측이 절대 밴드
     또는 백분위로 넘긴다. None 이면 해당 항목 제외. 절대 가점(ROE 15%↑ 만점, 배당 5%↑ 만점)은
     밴드 없이 clamp. 결측은 재정규화로 흡수.
+
+    결측 vs '알려진 나쁨' 정책: PER/PBR/EV·PEG 의 음수는 '무의미한 값'(적자 PER 이 고평가를
+    뜻하진 않음)이라 cheap_band·peg 에서 None 로 제외되고 재정규화로 무페널티다. 반면 ROE<0 과
+    무배당(div 0%)은 '진짜 나쁨'이라 norm 0 으로 남아 자기 가중치만큼 점수를 희석한다 — 모름(None)과
+    나쁨(값 있음)을 다르게 취급하는 의도된 비대칭이다.
     """
     w = VALUE_WEIGHTS
     parts: list[tuple[float, float]] = []
@@ -246,6 +251,7 @@ def value_score(
         parts.append((ev_rank, w["ev"]))
     if peg_rank is not None:
         parts.append((peg_rank, w["peg"]))
+    # ROE<0·div 0 도 결측이 아니라 '알려진 나쁨' — 제외하지 않고 norm 0 기여로 희석(페널티).
     if roe is not None:
         parts.append((clamp01(roe / 15.0), w["roe"]))
     if div_yield is not None:
