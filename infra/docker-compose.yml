@@ -80,6 +80,8 @@ services:
     command: ["uv", "run", "--no-sync", "reporter-worker"]
     environment:
       POSTGRES_URL: postgresql+psycopg://${POSTGRES_USER:-reporter}:${POSTGRES_PASSWORD:-reporter}@reporter-postgres:5432/${POSTGRES_DB:-reporter}
+      # pg_stat_activity application_name — 워커 세션 출처 식별(유출 트랜잭션 진단, #779).
+      REPORTER_APP_NAME: reporter-worker
       MINIO_ENDPOINT: reporter-minio:9000
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-reporter}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-reporter-secret}
