@@ -191,6 +191,11 @@ def run_job(db: Session, job: BusinessResearchJob, settings: Settings | None = N
     job.model = model
     db.commit()
 
+    # 종목명 조회를 에이전트 실행 전으로 옮기고 읽기 트랜잭션을 닫는다 — run_stage 의 도구 호출
+    # (LLM·DART·웹, 수분~수십 분)이 암묵 트랜잭션 안에서 대기하는 유출을 막는다(#779).
+    stock_name = business_ingest.company_service.report_stock_name(db, code) or ""
+    db.rollback()
+
     try:
         # 단일 스테이지: agent.run_stage 내부에서 plan → 도구호출 → synthesize → done 한 번에.
         result = review_loop.run_with_review(
@@ -205,7 +210,7 @@ def run_job(db: Session, job: BusinessResearchJob, settings: Settings | None = N
                 context_data={
                     "guideline": job.guideline,
                     "stock_code": code,
-                    "stock_name": business_ingest.company_service.report_stock_name(db, code) or "",
+                    "stock_name": stock_name,
                 },
                 max_tool_calls=6,  # business_overview + web_search + disclosures 등 여러 도구 사용 가능.
                 temperature=0.3,
