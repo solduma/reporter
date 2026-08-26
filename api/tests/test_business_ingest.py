@@ -247,13 +247,13 @@ def test_cache_invalidate_removes_row(db):
     assert bi.get_cached_overview(db, "005930") is None
 
 
-def test_cache_ttl_expired_returns_none(db):
+def test_cache_has_no_ttl(db):
+    """TTL 없음 — 오래된 캐시도 그대로 반환한다. 갱신은 배치 해시 감지·수동 refresh 가 담당(#783)."""
     bi._store_cache(db, "005930", "삼", "R1", [], "h", {"stock_code": "005930"})
-    # cached_at 를 8일 전으로 돌려 TTL(7d) 만료 시뮬레이션.
     row = db.query(BusinessOverviewCache).filter_by(stock_code="005930").one()
     row.cached_at = datetime.now(UTC) - timedelta(days=8)
     db.commit()
-    assert bi.get_cached_overview(db, "005930") is None
+    assert bi.get_cached_overview(db, "005930") == {"stock_code": "005930"}
 
 
 # ── assemble_overview 엔드투엔드(모킹) ─────────────────────────────────────

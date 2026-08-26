@@ -23,7 +23,7 @@ import logging
 import re
 import time
 import zipfile
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, timedelta
 
 import requests
 from sqlalchemy import func, select, update
@@ -1195,21 +1195,16 @@ def assemble_overview(db: Session, settings: Settings, code: str, *, progress=No
     return payload
 
 
-# ── 캐시(cache-aside) ─────────────────────────────────────────────────────
-# 7 일 — TTL 의 역할은 '재조립 트리거'가 아니라 재확인 주기일 뿐이다(#781). assemble_overview
-# 해시 가드가 원문 변화 없으면 LLM 없이 캐시를 돌려주므로 만료가 비용을 만들지 않고, 실제 신선도는
-# 매일 run_refresh_batch(신규 정기보고서 감지)와 수동 POST /refresh 가 보장한다.
-_BUSINESS_CACHE_TTL = timedelta(days=7)
+# ── 캐시(cache-aside, TTL 없음) ───────────────────────────────────────────
+# 만료 개념이 없다 — 행이 있으면 무조건 반환하고, 갱신은 '새 정기보고서 감지'가 유일 트리거다.
+# 신선도는 매일 run_refresh_batch 의 inputs_hash 비교(변경 종목만 재조립)와 수동 POST /refresh 가
+# 보장하므로, 나이를 재는 TTL은 요청 경로에 잉여 큐잉만 만들었다(#783).
 
 
 def get_cached_overview(db: Session, code: str) -> dict | None:
-    """BusinessOverviewCache 조회. TTL 만료 또는 없으면 None."""
+    """BusinessOverviewCache 조회. 저장된 결과는 항상 유효 — 행이 없으면 None."""
     row = db.scalar(select(BusinessOverviewCache).where(BusinessOverviewCache.stock_code == code))
-    if row is None or row.cached_at is None:
-        return None
-    # SQLite 등 일부 방언은 tz 없이(naive) 저장하므로 비교 전 UTC 로 정규화(postgres 는 tz-aware 그대로).
-    cached_at = row.cached_at if row.cached_at.tzinfo else row.cached_at.replace(tzinfo=UTC)
-    if datetime.now(UTC) - cached_at >= _BUSINESS_CACHE_TTL:
+    if row is None:
         return None
     return row.payload
 
