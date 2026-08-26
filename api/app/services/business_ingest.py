@@ -995,17 +995,21 @@ def assemble_overview(db: Session, settings: Settings, code: str, *, progress=No
     if not reports:
         return None
 
-    # ── Phase 1: DART 추출 (짧은 트랜잭션, 즉시 COMMIT) ──────────────────
+    # ── Phase 1: DART 추출 (건당 짧은 쓰기 트랜잭션) ──────────────────────
     try:
+        # 이미 저장된 원문을 한 번에 읽고 즉시 트랜잭션을 닫는다. document.xml 다운로드(수MB,
+        # 보고서당 수십 초)를 읽기 트랜잭션 안에서 기다리면 세션이 수분 idle-in-transaction 으로
+        # 남아 init_db 마이그레이션 DDL(ACCESS EXCLUSIVE)을 블로킹한다(#779).
+        have = {r for r, _k, _y in reports if _load_raw(db, code, r)}
+        db.rollback()
         with _http.resilient_session() as session:
             for rcept, kind, _year in reports:
-                if _load_raw(db, code, rcept):
+                if rcept in have:
                     continue
                 sections = extract_sections(settings, corp_code, rcept, kind, session)
                 if sections:
+                    # _store_raw 가 건당 commit — 다운로드는 항상 트랜잭션 밖에서 대기한다.
                     _store_raw(db, code, rcept, kind, _rcept_period(rcept), sections)
-
-        db.commit()  # ← Phase 1 완료: DART 추출만 커밋, LLM은 트랜잭션 밖
     except dart.DartQuotaExceeded:
         db.rollback()
         raise
@@ -1038,6 +1042,8 @@ def assemble_overview(db: Session, settings: Settings, code: str, *, progress=No
             continue
         has_text = True
         sources.append((f"{kind} {_rcept_period(rcept)}", text))
+    # 이름·원문 조회가 연 읽기 트랜잭션을 닫는다 — 이후 LLM 파이프라인(수십 분)은 트랜잭션 밖(#779).
+    db.rollback()
     if not has_text:
         logger.info("business assemble %s: 원문 없음 — 조립 생략", code)
         return None

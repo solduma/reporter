@@ -2,16 +2,36 @@
 
 from __future__ import annotations
 
+import logging
+import os
+import time
 from collections.abc import Iterator
 
 from sqlalchemy import create_engine, text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import get_settings
 from app.db.models import Base
 
+logger = logging.getLogger(__name__)
+
 _settings = get_settings()
-engine = create_engine(_settings.postgres_url, pool_pre_ping=True, future=True)
+engine = create_engine(
+    _settings.postgres_url,
+    pool_pre_ping=True,
+    future=True,
+    connect_args={
+        # pg_stat_activity 에서 세션 출처(API vs worker)를 즉시 식별 — 유출 트랜잭션 진단용.
+        # worker 컨테이너는 REPORTER_APP_NAME=reporter-worker 로 설정(infra/docker-compose).
+        "application_name": os.environ.get("REPORTER_APP_NAME", "reporter-api"),
+        # 느린 IO(DART 다운로드·LLM 호출)를 암묵 트랜잭션 안에서 기다리는 코드가 있으면 세션이
+        # idle-in-transaction 으로 남아 init_db 마이그레이션 DDL 을 무기한 블로킹한다(#779).
+        # 이 타임아웃(30분)은 그런 유출을 스스로 정리하는 최후 방어선이다. 근본 수정은
+        # business_ingest.assemble_overview·business_research.orchestrator 의 경계 정리.
+        "options": "-c idle_in_transaction_session_timeout=1800000",
+    },
+)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
 # create_all 은 신규 테이블만 만들고 기존 테이블에 컬럼을 추가하지 않는다. alembic 도입 전까지
@@ -110,19 +130,43 @@ _DATA_MIGRATIONS = (
 )
 
 
+# 마이그레이션 잠금 대기 정책 — 개별 DDL 이 잠금을 얻지 못하면 5초 만에 포기하고 재시도한다.
+# 유출 트랜잭션(#779) 뒤에 조용히 무한 대기하는 대신, 로그로 '무엇이 막는지' 드러내고 상한
+# (_MIGRATION_MAX_WAIT_S) 안에서 해결된다. lock_timeout 은 실행 시간이 아니라 잠금 대기에만 적용되므로
+# 느린 데이터 정규화 UPDATE(_DATA_MIGRATIONS)의 실행에는 영향이 없다.
+_MIGRATION_LOCK_TIMEOUT_S = 5
+_MIGRATION_MAX_WAIT_S = 300
+_MIGRATION_RETRY_SLEEP_S = 5
+
+
 def init_db() -> None:
-    Base.metadata.create_all(engine)
-    # Migration DDL은 한 번에 하나만 실행 — batch와 API가 동시에 ALTER하면 deadlock.
-    # Advisory lock은 트랜잭션 커밋 후 해제돼 다른 프로세스가 다음 시작時に 획득 가능.
-    with engine.begin() as conn:
-        conn.execute(text("SELECT pg_advisory_lock(9998887)"))
+    """create_all + 멱등 컬럼·데이터 마이그레이션. 잠금 경합 시 유한 재시도.
+
+    create_all 도 DDL 이므로 advisory lock 안에서 함께 실행해 프로세스 간 스키마 작업을
+    직렬화한다(기존엔 밖에서 돌아 batch 와 동시 ALTER deadlock 위험이 있었다). pg_advisory_xact_lock
+    은 트랜잭션 종료 시 자동 해제되므로 예외 경로에서 unlock 누락이 없다.
+    """
+    deadline = time.monotonic() + _MIGRATION_MAX_WAIT_S
+    while True:
         try:
-            for stmt in _COLUMN_MIGRATIONS:
-                conn.execute(text(stmt))
-            for stmt in _DATA_MIGRATIONS:
-                conn.execute(text(stmt))
-        finally:
-            conn.execute(text("SELECT pg_advisory_unlock(9998887)"))
+            with engine.begin() as conn:
+                # SET LOCAL — 이 트랜잭션 한정. advisory lock 획득에도 lock_timeout 이 적용된다.
+                conn.execute(
+                    text(f"SET LOCAL lock_timeout = '{_MIGRATION_LOCK_TIMEOUT_S}s'")
+                )
+                conn.execute(text("SELECT pg_advisory_xact_lock(9998887)"))
+                Base.metadata.create_all(bind=conn)
+                for stmt in _COLUMN_MIGRATIONS:
+                    conn.execute(text(stmt))
+                for stmt in _DATA_MIGRATIONS:
+                    conn.execute(text(stmt))
+            return
+        except OperationalError as e:
+            if time.monotonic() >= deadline:
+                logger.error("init_db 포기 — %.0f초 내 잠금 획득 실패: %s", _MIGRATION_MAX_WAIT_S, e)
+                raise
+            logger.warning("init_db 잠금 대기 중(%.0f초 내 재시도): %s", _MIGRATION_MAX_WAIT_S, e)
+            time.sleep(_MIGRATION_RETRY_SLEEP_S)
 
 
 def get_session() -> Iterator[Session]:
