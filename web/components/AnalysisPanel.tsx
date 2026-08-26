@@ -232,6 +232,14 @@ export default function AnalysisPanel({ code, analysis, status, message, onToggl
         </span>
         <span className={styles.baseline}>
           {a.partial ? <span className={styles.partialBadge}>성장·가치 축만 반영</span> : null}
+          {a.history_days !== null && a.history_days !== undefined && a.history_days < 252 ? (
+            <span
+              className={styles.historyBadge}
+              title={`상장 후 ${a.history_days}거래일 — 52주 고점·이평 등 지표가 불완전할 수 있습니다. 점수는 확보된 데이터만으로 계산됩니다(결측 요소 제외·재정규화).`}
+            >
+              상장 약 {Math.max(1, Math.round(a.history_days / 21))}개월 · 분석 이력 짧음
+            </span>
+          ) : null}
           60↑ 양호 · 40↓ 약함 (집합 무관 절대 점수)
         </span>
       </div>

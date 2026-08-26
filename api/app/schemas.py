@@ -493,6 +493,8 @@ class CompanyAnalysis(BaseModel):
     comment_pending: bool = False  # True 면 백그라운드 생성 중 — 프론트가 재조회로 채운다
     # True 면 quick(성장·가치 축만) 응답 — 종합점수가 2축 평균이라 풀 조회(4축)에서 바뀐다.
     partial: bool = False
+    # 일봉 확보 개수(거래일). 252 미만이면 52주·이평 지표가 불완전한 신규상장 — 프론트가 배지 표시.
+    history_days: int | None = None
 
 
 class SectorRow(BaseModel):

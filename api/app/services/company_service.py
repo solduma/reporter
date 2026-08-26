@@ -137,6 +137,20 @@ def ensure_day_candles(db: Session, code: str):
     return candle_service.ensure_periodic(db, code, "day")
 
 
+def day_candle_count(db: Session, code: str) -> int | None:
+    """일봉 개수(거래일) — 분석 이력 길이 프록시(신규상장 배지용). 스냅샷·봉 모두 없으면 None."""
+    from sqlalchemy import func
+
+    from app.db.models import PriceCandle, Timeframe
+
+    n = db.scalar(
+        select(func.count()).where(
+            PriceCandle.stock_code == code, PriceCandle.timeframe == Timeframe.DAY
+        )
+    )
+    return int(n) if n else None
+
+
 # ── 재무 ──────────────────────────────────────────────────────────────
 def financials_rows(db: Session, code: str, fs_div: str | None = None) -> list[Financial]:
     """저장된 재무 기간 정렬 반환(외부 호출 없음). fs_div=None이면 전체(연결+별도)."""
