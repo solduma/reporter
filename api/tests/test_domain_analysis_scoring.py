@@ -188,6 +188,20 @@ def test_value_score_abs_peg_surrogate_fallback():
     assert real[1][3] == 1.0  # peg_norm(PEG=0.15) 만점 — 대체점(≤0.7)이 아니라 실측
 
 
+def test_value_score_known_bad_vs_missing():
+    # 정책 회귀: 결측(모름)은 제외·재정규화로 무페널티, '알려진 나쁨'(ROE<0·무배당)은
+    # norm 0 으로 가중치를 차지해 점수를 희석한다. PER/PBR/EV 의 음수는 무의미해 제외되는 것과 다름.
+    base = {"pbr": None, "ev_ebitda": None}
+    missing_roe = s.value_score_abs(per=20.0, roe=None, div_yield=None, **base)[0]
+    loss_roe = s.value_score_abs(per=20.0, roe=-10.0, div_yield=None, **base)[0]
+    assert missing_roe is not None and loss_roe is not None
+    assert loss_roe < missing_roe  # 적자 ROE 는 페널티
+    no_div = s.value_score_abs(per=20.0, roe=10.0, div_yield=0.0, **base)[0]
+    unk_div = s.value_score_abs(per=20.0, roe=10.0, div_yield=None, **base)[0]
+    assert no_div is not None and unk_div is not None
+    assert no_div < unk_div  # 무배당도 알려진 나쁨
+
+
 def test_topdown_stock_rs_differentiates():
     # 같은 섹터 flow 라도 종목 RS 가 다르면 탑다운 점수가 갈린다(섹터별 뭉침 보정).
     base = {"us_flow": 50.0, "kr_flow": 50.0, "kr_index_flow": 50.0}
