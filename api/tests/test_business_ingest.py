@@ -249,9 +249,9 @@ def test_cache_invalidate_removes_row(db):
 
 def test_cache_ttl_expired_returns_none(db):
     bi._store_cache(db, "005930", "삼", "R1", [], "h", {"stock_code": "005930"})
-    # cached_at 를 13시간 전으로 돌려 TTL(12h) 만료 시뮬레이션.
+    # cached_at 를 8일 전으로 돌려 TTL(7d) 만료 시뮬레이션.
     row = db.query(BusinessOverviewCache).filter_by(stock_code="005930").one()
-    row.cached_at = datetime.now(UTC) - timedelta(hours=13)
+    row.cached_at = datetime.now(UTC) - timedelta(days=8)
     db.commit()
     assert bi.get_cached_overview(db, "005930") is None
 
@@ -550,3 +550,50 @@ def test_chat_json_raises_after_two_failures():
     llm.chat.return_value = "still not json"
     with pytest.raises(bi.LLMError, match="2회 시도"):
         bi._chat_json(llm, "m", "sys", "user", temperature=0.1)
+
+
+# ── 해시 가드(#781) ───────────────────────────────────────────────────────
+def _assemble_once(db, extra_rcept=None):
+    """정기보고서 2건으로 조립 1회 실행 → (payload, llm mock). extra_rcept 주면 보고서 한 건 추가."""
+    rows = [
+        ("R2027", "분기보고서 (2026.03)"),
+        ("R2025", "사업보고서 (2025.12)"),
+    ]
+    if extra_rcept:
+        rows.insert(0, (extra_rcept, "분기보고서 (2026.06)"))
+    fake_xml = _zip_bytes("II. 사업의 내용\n회사는 반도체 제조. III. 임원 등에 관한 사항\n")
+    llm = MagicMock()
+    llm.chat.side_effect = _fake_llm_chat
+    with (
+        patch.object(bi.dart, "find_all_periodic_reports", return_value=_list_rows(*rows)),
+        patch.object(bi.dart_report_parser, "fetch_report_zip", return_value=fake_xml),
+        patch.object(bi, "get_llm", return_value=llm),
+        patch.object(bi.company_service, "report_stock_name", return_value="삼성전자"),
+        patch.object(bi.company_service, "resolve_stock_name", return_value="삼성전자"),
+    ):
+        payload = bi.assemble_overview(db, _settings(), "005930")
+    return payload, llm
+
+
+def test_assemble_overview_reuses_cache_without_llm(db):
+    """원문 집합이 바뀌지 않았으면 재조립 요청(TTL 만료 등)도 LLM 없이 캐시를 돌려준다."""
+    _seed_corp(db)
+    payload1, llm1 = _assemble_once(db)
+    assert payload1 is not None and llm1.chat.called
+
+    before = db.query(BusinessOverviewCache).filter_by(stock_code="005930").one()
+    payload2, llm2 = _assemble_once(db)  # 같은 원문 집합 — TTL 만료 시나리오
+    assert llm2.chat.call_count == 0  # LLM 전혀 호출 안 함
+    assert payload2 == before.payload  # 기존 결과 그대로
+    after = db.query(BusinessOverviewCache).filter_by(stock_code="005930").one()
+    assert after.cached_at >= before.cached_at  # cached_at 만 연장
+
+
+def test_assemble_overview_regenerates_on_new_report(db):
+    """새 정기보고서가 나오면(해시 변화) LLM 재조립을 다시 돌린다."""
+    _seed_corp(db)
+    _assemble_once(db)
+    payload2, llm2 = _assemble_once(db, extra_rcept="R2028")
+    assert llm2.chat.called  # 재조립 발동
+    assert payload2 is not None
+    assert payload2["as_of_annual_rcept"] == "R2028"  # 기준 최신 접수 갱신
