@@ -25,11 +25,15 @@ _FIN_HTML = """
 
 _PEER_HTML = """
 <div class="section trade_compare"><table>
-<thead><tr><th>종목명</th><th>삼성전자*005930</th><th>SK하이닉스*000660</th></tr></thead>
+<thead><tr><th>종목명</th>
+<th><a href="/item/main.naver?code=005930">삼성전자<em>005930</em></a></th>
+<th><a href="/item/main.naver?code=000660">SK하이닉스*<em>000660</em></a></th>
+<th>코드없는셀</th>
+</tr></thead>
 <tbody>
-<tr><th>현재가</th><td>279,000</td><td>2,117,000</td></tr>
-<tr><th>PER(%)</th><td>22.55</td><td>20.45</td></tr>
-<tr><th>PBR(배)</th><td>3.88</td><td>8.90</td></tr>
+<tr><th>현재가</th><td>279,000</td><td>2,117,000</td><td>1,000</td></tr>
+<tr><th>PER(%)</th><td>22.55</td><td>20.45</td><td>9.99</td></tr>
+<tr><th>PBR(배)</th><td>3.88</td><td>8.90</td><td>1.11</td></tr>
 </tbody></table></div>
 """
 
@@ -75,12 +79,14 @@ def test_financials_empty_cell_is_none():
 
 
 def test_peers_parses_code_name_and_values():
+    # 현재 네이버 마크업: 코드는 <em> 별첨 + 앵커 href. 코드 불명 셀은 플레이스홀더 후 제외된다.
     peers = quote.fetch_peers("005930", _session(_PEER_HTML))
-    assert len(peers) == 2
+    assert len(peers) == 2  # 코드없는셀 제외
     assert peers[0].stock_code == "005930"
-    assert peers[0].name == "삼성전자"
+    assert peers[0].name == "삼성전자"  # <em> 코드 접미사 제거
     assert peers[0].values["현재가"] == "279,000"
     assert peers[1].stock_code == "000660"
+    assert peers[1].name == "SK하이닉스"  # '*' 마커 제거
     assert peers[1].values["PER(%)"] == "20.45"
 
 
