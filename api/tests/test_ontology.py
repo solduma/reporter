@@ -304,6 +304,7 @@ def test_company_ratios_percentage_scaling(monkeypatch):
         ontology_service, "build_ratio_values", lambda db, code, fs_div="CFS": (values, {})
     )
     monkeypatch.setattr(company_service, "theme_names", lambda db, code: [])
+    monkeypatch.setattr(ontology_service, "_latest_close_price", lambda db, code: None)
     results = {r.ratio_id: r for r in ontology_service.company_ratios(None, "005930")}
     # roe = 10/((100+100)/2) = 0.1 → ×100 = 10.0 (percentage)
     assert results["roe"].value == Decimal("10.0")
@@ -321,6 +322,7 @@ def test_company_ratios_stored_preferred_over_computed(monkeypatch):
         lambda db, code, fs_div="CFS": (values, {"roe": 19.16}),
     )
     monkeypatch.setattr(company_service, "theme_names", lambda db, code: [])
+    monkeypatch.setattr(ontology_service, "_latest_close_price", lambda db, code: None)
     results = {r.ratio_id: r for r in ontology_service.company_ratios(None, "005930")}
     assert float(results["roe"].value) == pytest.approx(19.16)
     assert results["roe"].reason == "stored"
@@ -356,3 +358,34 @@ def test_kr_financial_ratio_validation_roe_ok(monkeypatch):
     assert items[0]["ok"] is True
     assert items[0]["reason"] == "ok"
     assert items[0]["calculated"] == pytest.approx(19.0)
+
+
+# ── 시장데이터 보간(#787 — 신규상장 가치 축) ──────────────────────────────
+def test_derive_market_ratios():
+    """저장 per/pbr 없고 eps·bvps·주가 있으면 연율화 PER·PBR 보간. 적자·결측은 보간 안 함."""
+    d = ontology_service.derive_market_ratios({"eps": 292.0, "bvps": 2062.0}, 11600.0)
+    assert d["per"] == pytest.approx(11600 / (292 * 4))
+    assert d["pbr"] == pytest.approx(11600 / 2062)
+    # 이미 저장 per 가 있으면 보간 안 함.
+    assert "per" not in ontology_service.derive_market_ratios({"per": 12.0, "eps": 292.0}, 11600.0)
+    # 적자(eps≤0)·주가 결측은 보간 안 함.
+    assert ontology_service.derive_market_ratios({"eps": -100.0}, 11600.0) == {}
+    assert ontology_service.derive_market_ratios({"eps": 292.0}, None) == {}
+
+
+def test_company_ratios_derives_per_pbr_for_new_listing(monkeypatch):
+    """TTM 미달 신규상장(엔진 실패·저장 per/pbr 부재)도 eps·bvps·주가로 per/pbr 이 채워진다."""
+    from app.services import company_service
+
+    monkeypatch.setattr(
+        ontology_service,
+        "build_ratio_values",
+        lambda db, code, fs_div="CFS": ({}, {"eps": 292.0, "bvps": 2062.0}),
+    )
+    monkeypatch.setattr(company_service, "theme_names", lambda db, code: [])
+    monkeypatch.setattr(ontology_service, "_latest_close_price", lambda db, code: 11600.0)
+    results = {r.ratio_id: r for r in ontology_service.company_ratios(None, "387690")}
+    assert results["per"].ok and results["per"].reason == "derived"
+    assert float(results["per"].value) == pytest.approx(11600 / (292 * 4), rel=1e-6)
+    assert results["pbr"].ok and results["pbr"].reason == "derived"
+    assert float(results["pbr"].value) == pytest.approx(11600 / 2062, rel=1e-6)

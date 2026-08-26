@@ -37,6 +37,8 @@ class _F:
     roe: float | None = None
     ev_ebitda: float | None = None
     div_yield: float | None = None
+    eps: float | None = None
+    bps: float | None = None
 
 
 def test_coverage_label():
@@ -316,3 +318,19 @@ def test_peer_scores_skips_codes_not_in_snapshot(db_peer):
 def test_peer_scores_empty_codes():
     # codes 비면 빈 dict (DB 접근 없음).
     assert screener.peer_scores(None, []) == {}
+
+
+def test_value_score_derived_from_eps_bps_for_new_listing():
+    """신규상장(저장 per/pbr 부재)도 eps·bvps+주가 보간으로 가치 점수가 나온다 — 종목분석과 동일값(#787)."""
+    from app.domain import analysis_scoring
+
+    fin = _F(eps=292.0, bps=2062.0)
+    close = 11600.0
+    screener_v = screener._value_score(fin, None, close)
+    analysis_v, _ = analysis_scoring.value_score_abs(
+        close / (292.0 * 4), close / 2062.0, None, None, None
+    )
+    assert screener_v is not None
+    assert screener_v == analysis_v
+    # 주가도 없으면 여전히 None.
+    assert screener._value_score(_F(eps=292.0, bps=2062.0), None, None) is None

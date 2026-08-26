@@ -11,6 +11,7 @@ from dataclasses import replace
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.adapters.financial_ontology import get_ontology_port
@@ -627,6 +628,40 @@ def _is_flow_stock_ratio(port: OntologyPort, ratio_id: str) -> bool:
     return has_stock and has_flow
 
 
+def derive_market_ratios(
+    stored: dict[str, float], close_price: float | None
+) -> dict[str, float]:
+    """저장 per/pbr 이 없을 때 주가·저장 eps/bvps 로 PER/PBR 을 보간한다(신규상장 등 TTM 미달 종목).
+
+    온톨로지 엔진은 market_price·TTM 순이익 입력이 필요해 분기 1~2개뿐인 신규상장은 계산 실패하고,
+    Financial 저장 컬럼도 per/pbr 이 비는 경우가 있다. 그래도 eps·bvps·스냅샷 주가는 있으므로
+    PER=주가/(eps×4 연율화), PBR=주가/bvps 로 만들어 가치 축이 통째로 누락되지 않게 한다(#787).
+    eps 는 분기값이므로 연율화해 저장 per(TTM 관행)와 같은 스케일로 맞춘다. 적자(eps≤0)·결측은
+    보간하지 않는다(cheap_band 가 음수를 제외하므로 왜곡 없음).
+    """
+    out: dict[str, float] = {}
+    if close_price is None or close_price <= 0:
+        return out
+    eps, bvps = stored.get("eps"), stored.get("bvps")
+    if "per" not in stored and eps is not None and eps > 0:
+        out["per"] = close_price / (eps * 4)
+    if "pbr" not in stored and bvps is not None and bvps > 0:
+        out["pbr"] = close_price / bvps
+    return out
+
+
+def _latest_close_price(db: Session, code: str) -> float | None:
+    """유니버스 스냅샷 최신 종가. 스냅샷이 없으면 None."""
+    from app.db.models import UniverseSnapshot
+
+    return db.scalar(
+        select(UniverseSnapshot.close_price)
+        .where(UniverseSnapshot.stock_code == code)
+        .order_by(UniverseSnapshot.snapshot_date.desc())
+        .limit(1)
+    )
+
+
 def company_ratios(
     db: Session, code: str, fs_div: str = "CFS", industry: str | None = None
 ) -> list[RatioResultOut]:
@@ -651,14 +686,22 @@ def company_ratios(
         # 연결 재무제표가 없으면 별도 재무제표로 폴백(기존 latest_valuation 동작과 동일).
         values, stored = build_ratio_values(db, code, fs_div="OFS")
     results = port.calculate_many(ratio_ids, values)
+    # 시장데이터 보간(#787) — 엔진·저장분 모두 없는 per/pbr 을 주가·eps/bvps 로 보간한다.
+    derived = derive_market_ratios(stored, _latest_close_price(db, code))
     unit_map = {m.id: m.unit for m in port.list_ratios()}
     out: list[RatioResultOut] = []
     for r in results:
-        # 큐레이션된 저장 비율(per/pbr/roe/psr/evebitda/bvps/eps)은 엔진이 계산 가능해져도
+        # 큐레이션된 저장 비율(per/pbr/roe/psr/evebitda/bvps/eps)은 엔진이 계산 가능해도
         # 저장값을 우선한다 — DART 공시값이 권위있고, 시장데이터(PER/PBR)는 엔진이 계산 못 함.
         if r.ratio_id in stored:
             out.append(
                 replace(r, value=Decimal(stored[r.ratio_id]), ok=True, reason="stored", missing=[])
+            )
+            continue
+        if r.ratio_id in derived and r.value is None:
+            # 보간값(연율화 PER·PBR) — 엔진이 계산 실패한 시장데이터만 채운다.
+            out.append(
+                replace(r, value=Decimal(derived[r.ratio_id]), ok=True, reason="derived", missing=[])
             )
             continue
         # 엔진은 percentage 비율을 분수(0.05)로 반환. 저장 비율은 퍼센트(5.0) 단위이므로
