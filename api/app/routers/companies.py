@@ -261,6 +261,7 @@ def company_analysis(
             judgment=_judgment_out(j),
             comment=None,
             comment_pending=False,
+            partial=True,  # 2축 임시 응답 — 프론트가 종합점수 옆에 배지를 표시
         )
 
     # 기술 축 — 일봉 지표 + 와인스타인 중기 국면(주봉 30주). 외부 API 필요 시 느림.

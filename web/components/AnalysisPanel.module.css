@@ -32,6 +32,17 @@
   color: var(--muted);
 }
 
+/* quick(성장·가치 2축) 임시 응답 표시 — 풀 분석 도착 시 사라진다. */
+.partialBadge {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 8px;
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
 .overallLabel {
   font-size: 0.95rem;
   font-weight: 600;
