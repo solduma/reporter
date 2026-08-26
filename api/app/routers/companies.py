@@ -158,6 +158,7 @@ def company_analysis(
 
     # 성장 축 — GrowthMetric (DB only, 항상 빠름).
     g = company_service.growth_metric(db, code)
+    history_days = company_service.day_candle_count(db, code)
     growth_sc = analysis.growth_score(
         g.revenue_yoy if g else None,
         g.op_status if g else None,
@@ -262,6 +263,7 @@ def company_analysis(
             comment=None,
             comment_pending=False,
             partial=True,  # 2축 임시 응답 — 프론트가 종합점수 옆에 배지를 표시
+            history_days=history_days,
         )
 
     # 기술 축 — 일봉 지표 + 와인스타인 중기 국면(주봉 30주). 외부 API 필요 시 느림.
@@ -399,6 +401,7 @@ def company_analysis(
         axes=axes,
         topdown=TopDownView(**topdown_view),
         judgment=judgment_out,
+        history_days=history_days,
         comment=comment,
         comment_pending=comment_pending,
     )

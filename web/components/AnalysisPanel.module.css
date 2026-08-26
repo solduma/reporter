@@ -43,6 +43,18 @@
   font-weight: 600;
 }
 
+/* 신규상장 등 분석 이력 부족 표시 — 점수 해석 시 가용 데이터 범위를 알린다. */
+.historyBadge {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 8px;
+  border-radius: var(--radius);
+  background: var(--hold-bg);
+  color: var(--hold);
+  font-weight: 600;
+  cursor: help;
+}
+
 .overallLabel {
   font-size: 0.95rem;
   font-weight: 600;
