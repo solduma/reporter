@@ -26,7 +26,7 @@ import zipfile
 from datetime import UTC, date, datetime, timedelta
 
 import requests
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -973,8 +973,11 @@ def assemble_overview(db: Session, settings: Settings, code: str, *, progress=No
     사업보고서 없으면 None. LLM 미완·섹션 과반 미달은 AssemblyError.
     progress: 선택 콜백(0~100) — assembly job 이 진행률 표기에 사용.
 
+    해시 가드: 최근 1년 정기보고서 집합의 inputs_hash 가 캐시와 같으면 LLM 없이 기존
+    payload 를 반환한다 — TTL 만료·수동 갱신 트리거라도 공시 변화가 없으면 재조립하지 않는다(#781).
+
     트랜잭션 분리 설계:
-    - Phase 1 (짧음, 즉시 COMMIT): DART 원문 추출·적재. DB 잠금 최소화.
+    - Phase 1 (짧음, 건당 COMMIT): DART 원문 추출·적재. DB 잠금 최소화.
     - Phase 2 (LLM 다수 소형 호출, 트랜잭션 없음): map → reduce → 섹션별 생성 → 절차 리뷰.
       각 호출이 작아 엣지 끊김·빈 응답 폭발반경이 호출 1개로 제한되고, 원문 절단 없이 전체를 커버.
     - Phase 3 (짧음, 즉시 COMMIT): payload + 온톨로지 캐시 저장.
@@ -994,6 +997,26 @@ def assemble_overview(db: Session, settings: Settings, code: str, *, progress=No
         reports = _gather_for_assembly(settings, corp_code, session)
     if not reports:
         return None
+
+    # ── 해시 가드: 원문 집합이 바뀌지 않았으면 LLM 재조립을 생략한다(#781). ──
+    # 캐시 TTL 만료·수동 갱신 등 트리거가 무엇이든 새 정기보고서가 없으면 기존 결과를
+    # 그대로 돌려주고 cached_at 만 연장한다(야간 refresh 배치의 inputs_hash 판정과 동일식).
+    # 리서치 전용 스텁(inputs_hash=""·sections 비음)은 해시가 절대 안 맞아 자연스럽게 통과한다.
+    new_hash = _inputs_hash(reports)
+    cached = db.scalar(select(BusinessOverviewCache).where(BusinessOverviewCache.stock_code == code))
+    if (
+        cached is not None
+        and cached.inputs_hash == new_hash
+        and (cached.payload or {}).get("sections")
+    ):
+        db.execute(
+            update(BusinessOverviewCache)
+            .where(BusinessOverviewCache.stock_code == code)
+            .values(cached_at=func.now())
+        )
+        db.commit()
+        logger.info("business assemble %s: 원문 변화 없음 — 캐시 재사용(LLM 스킵)", code)
+        return cached.payload
 
     # ── Phase 1: DART 추출 (건당 짧은 쓰기 트랜잭션) ──────────────────────
     try:
@@ -1173,7 +1196,10 @@ def assemble_overview(db: Session, settings: Settings, code: str, *, progress=No
 
 
 # ── 캐시(cache-aside) ─────────────────────────────────────────────────────
-_BUSINESS_CACHE_TTL = timedelta(hours=12)
+# 7 일 — TTL 의 역할은 '재조립 트리거'가 아니라 재확인 주기일 뿐이다(#781). assemble_overview
+# 해시 가드가 원문 변화 없으면 LLM 없이 캐시를 돌려주므로 만료가 비용을 만들지 않고, 실제 신선도는
+# 매일 run_refresh_batch(신규 정기보고서 감지)와 수동 POST /refresh 가 보장한다.
+_BUSINESS_CACHE_TTL = timedelta(days=7)
 
 
 def get_cached_overview(db: Session, code: str) -> dict | None:
