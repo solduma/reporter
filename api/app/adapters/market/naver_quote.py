@@ -166,14 +166,22 @@ def fetch_peers(code: str, session: requests.Session) -> list[Peer]:
     if section is None:
         return []
 
-    # 헤더: '종목명' 다음이 각 종목 (이름*코드 형태)
-    head_cells = [th.get_text(strip=True) for th in section.select("thead th")][1:]
+    # 헤더: '종목명' 다음이 각 종목. 코드의 정본은 앵커 href 의 code= 파라미터다 — 표시 텍스트는
+    # 마크업 변형이 있다(구: '이름*코드', 현재: <a>이름<em>코드</em></a> — get_text 하면 이름뒤에
+    # 코드가 붙는다). href 가 없는 셀은 ?idx 플레이스홀더로 열 정렬만 유지하고 반환 전 제외한다.
+    head_ths = section.select("thead th")[1:]
     peers: list[Peer] = []
-    for idx, cell in enumerate(head_cells):
-        name, sep, cd = cell.partition("*")
-        # '*' 로 코드를 못 뽑으면 base 코드로 넘기지 않는다(uq_peer 충돌·기준종목 오강조 방지).
-        peer_code = cd.strip() if sep else f"?{idx}"
-        peers.append(Peer(stock_code=peer_code, name=name.strip()))
+    for idx, th in enumerate(head_ths):
+        a = th.find("a", href=True)
+        m = re.search(r"code=(\d{6})", a["href"]) if a else None
+        if m:
+            peer_code = m.group(1)
+            name = th.get_text(strip=True).replace("*", "")  # '*' 는 기준종목 등 마커
+            if name.endswith(peer_code):
+                name = name[: -len(peer_code)]
+            peers.append(Peer(stock_code=peer_code, name=name.strip()))
+        else:
+            peers.append(Peer(stock_code=f"?{idx}", name=th.get_text(strip=True)))
     if not peers:
         return []
 
@@ -187,4 +195,5 @@ def fetch_peers(code: str, session: requests.Session) -> list[Peer]:
             # 방향 접두어(상향/하향) 제거해 값만 남긴다
             peer.values[label] = cell.replace("상향", "").replace("하향", "").strip()
 
-    return peers
+    # 코드 없는 셀은 열 정렬용 플레이스홀더였다 — 저장 가능한 피어만 돌려준다.
+    return [p for p in peers if not p.stock_code.startswith("?")]
