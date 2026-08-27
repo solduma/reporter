@@ -25,6 +25,14 @@ function fmtRatioValue(value: number | null, unit: string | null): string {
   }
 }
 
+function reasonDisplay(reason: string | null): { label: string; detail: string | null } {
+  if (!reason) return { label: "—", detail: null };
+  if (reason.includes("missing_values")) return { label: "데이터 부족", detail: reason };
+  if (reason.includes("composite_or_manual")) return { label: "—", detail: "다른 비율·수기 입력 참조 필요" };
+  if (reason.includes("eval_error")) return { label: "계산 오류", detail: reason };
+  return { label: "—", detail: reason };
+}
+
 const CATEGORIES = [
   { key: "profitability", label: "수익성" },
   { key: "liquidity", label: "유동성" },
@@ -102,6 +110,8 @@ export default function RatioPanel({ code }: Props) {
         <div className={styles.grid}>
           {filtered.map((r) => {
             const isExpanded = expanded.has(r.ratio_id);
+            const { label: missingLabel, detail: missingDetail } = reasonDisplay(r.reason);
+            const hasValue = r.ok && r.value !== null;
             return (
               <div key={r.ratio_id} className={styles.item}>
                 <button
@@ -114,10 +124,9 @@ export default function RatioPanel({ code }: Props) {
                     {r.korean_name}
                     {r.description ? <InfoDot what={r.description} /> : null}
                   </span>
-                  <span className={styles.value}>
-                    {r.ok && r.value !== null
-                      ? fmtRatioValue(r.value, r.unit)
-                      : r.reason || "-"}
+                  <span className={`${styles.value} ${!hasValue ? styles.valueMissing : ""}`}>
+                    {hasValue ? fmtRatioValue(r.value, r.unit) : missingLabel}
+                    {!hasValue && missingDetail ? <InfoDot what={missingDetail} /> : null}
                   </span>
                   <span className={styles.chevron}>{isExpanded ? "▾" : "▸"}</span>
                 </button>
